@@ -4,24 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["real_time_demo","rhai", "sin_table"]
+default = ["real_time_demo", "rhai", "sin_table", "standalone", "rfd"]
 sin_table = []
-real_time_demo = ["cpal", "eframe", "egui", "anyhow", "rfd"]
-cpal = ["dep:cpal"]
-egui = ["dep:egui"]
-eframe = ["dep:eframe"]
-anyhow = ["dep:anyhow"]
+standalone = ["eframe", "real_time_demo", "cpal"]
+real_time_demo = ["egui", "anyhow"]
 rfd = ["dep:rfd"]
 rhai = ["dep:rhai", "dep:rhai-rand"]
-rhai-rand = ["dep:rhai-rand"]
 
 [dependencies]
 anyhow = { version = "1.0.100", optional = true }
 bitvec = "1.0.1"
 cpal = { version = "0.16.0", optional = true }
 crossbeam-channel = "0.5.15"
-eframe = { version = "0.32.3", optional = true }
-egui = { version = "0.32.3", optional = true }
+eframe = { version = "0.27.2", optional = true }
+egui = { version = "0.27.2", optional = true }
 lazy_static = "1.5.0"
 rand = "0.9.2"
 rand_distr = "0.5.1"
@@ -33,3 +29,6 @@ rubato = "0.16.2"
 rustfft = "6.4.1"
 symphonia = "0.5.4"
 thiserror = "2.0.17"
+i_am_parameters_derive = { path = "./i_am_parameters_derive" }
+cfg-if = "1.0.3"
+serde = { version = "1.0.228", features = ["derive"] }

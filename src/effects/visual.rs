@@ -2,10 +2,14 @@
 
 use std::array;
 
+use i_am_parameters_derive::Parameters;
+
 use crate::{tools::ring_buffer::RingBuffer, Effect};
 
 /// A simple waveform effect that displays the input signal in a ring buffer.
+#[derive(Parameters)]
 pub struct Waveform<const CHANNELS: usize = 2> {
+	#[skip]
 	buffer: [RingBuffer<f32>; CHANNELS],
 	/// Whether the waveform is frozen or not.
 	pub frozen: bool,
@@ -66,7 +70,7 @@ impl<const CHANNELS: usize> Effect for Waveform<CHANNELS> {
 		Resize::default()
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_salt(format!("{}_waveform_resize", id_prefix))
+			.id_source(format!("{}_waveform_resize", id_prefix))
 			.show(ui, |ui| {
 				let env = self.buffer.iter().collect::<Vec<_>>();
 				if draw_envelope(ui, &env, true).clicked() &&

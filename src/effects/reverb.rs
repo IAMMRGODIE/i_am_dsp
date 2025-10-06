@@ -1,23 +1,101 @@
 //! Simple reverb effect.
 
 use bitvec::{bitvec, order::Lsb0};
+use i_am_parameters_derive::Parameters;
 use crate::{prelude::PureDelay, tools::{matrix::{identity, mat_add, mat_mul_vec, mat_scale, random_householder_matrix, same, scalar_multiply, vector_add, Mat}, ring_buffer::RingBuffer}, Effect};
 
+fn format_feedback_matrix<const DELAY_LINES: usize, const CHANNELS: usize>(mat: &[Mat<DELAY_LINES>; CHANNELS]) -> Vec<u8> {
+	let mut result = vec![];
+	for channel in mat {
+		for row in channel {
+			for elem in row {
+				let bits = f32::to_le_bytes(*elem);
+				result.extend_from_slice(&bits);
+			}
+		}
+	}
+	result
+}
+
+fn parse_feedback_matrix<const DELAY_LINES: usize, const CHANNELS: usize>(data: Vec<u8>) -> [Mat<DELAY_LINES>; CHANNELS] {
+	let mut result = [[[0.0; DELAY_LINES]; DELAY_LINES]; CHANNELS];
+	let mut i = 0;
+	for channel in result.iter_mut() {
+		for row in channel.iter_mut() {
+			for elem in row.iter_mut() {
+				let bits = [data[i], data[i+1], data[i+2], data[i+3]];
+				*elem = f32::from_le_bytes(bits);
+				i += 4;
+			}
+		}
+	}
+	result
+}
+
+fn format_delay_time<const DELAY_LINES: usize>(delay_time: &[usize; DELAY_LINES]) -> Vec<u8> {
+	let mut result = vec![];
+	for delay in delay_time {
+		let bits = (*delay as u32).to_le_bytes();
+		result.extend_from_slice(&bits);
+	}
+	result
+}
+
+fn parse_delay_time<const DELAY_LINES: usize>(data: Vec<u8>) -> [usize; DELAY_LINES] {
+	let mut result = [0; DELAY_LINES];
+	let mut i = 0;
+	for delay in result.iter_mut() {
+		let bits = [data[i], data[i+1], data[i+2], data[i+3]];
+		*delay = u32::from_le_bytes(bits) as usize;
+		i += 4;
+	}
+	result
+}
+
+fn format_output_factors<const DELAY_LINES: usize>(output_factors: &[f32; DELAY_LINES]) -> Vec<u8> {
+	let mut result = vec![];
+	for factor in output_factors {
+		let bits = f32::to_le_bytes(*factor);
+		result.extend_from_slice(&bits);
+	}
+	result
+}
+
+fn parse_output_factors<const DELAY_LINES: usize>(data: Vec<u8>) -> [f32; DELAY_LINES] {
+	let mut result = [0.0; DELAY_LINES];
+	let mut i = 0;
+	for factor in result.iter_mut() {
+		let bits = [data[i], data[i+1], data[i+2], data[i+3]];
+		*factor = f32::from_le_bytes(bits);
+		i += 4;
+	}
+	result
+}
+
 /// A reverb effect based on feedback delay network.
+#[derive(Parameters)]
 pub struct Reverb<
 	TailEffect: Effect<CHANNELS>,
 	const DELAY_LINES: usize = 8, 
 	const CHANNELS: usize = 2
 > {
 	/// The tail effect of the reverb.
+	#[sub_param]
 	pub tail: TailEffect,
+	#[skip]
 	delay_lines: [[RingBuffer<f32>; DELAY_LINES]; CHANNELS],
+	#[persist(serialize = "format_feedback_matrix", deserialize = "parse_feedback_matrix")]
 	feedback_matrix: [Mat<DELAY_LINES>; CHANNELS],
+	#[persist(serialize = "format_delay_time", deserialize = "parse_delay_time")]
 	delay_time: [usize; DELAY_LINES],
+	#[sub_param]
 	pure_delay: PureDelay<CHANNELS>,
 	/// The weights when we summing up the delay lines.
+	#[persist(serialize = "format_output_factors", deserialize = "parse_output_factors")]
 	pub output_factors: [f32; DELAY_LINES],
 	/// The input gain of the reverb, saves in linear scale.
+	#[range(min = 0.01, max = 1.0)]
+	#[logarithmic]
 	pub reverbed_gain: f32,
 	/// A parameter that controls the amount of diffusion in the reverb.
 	/// 
@@ -28,6 +106,7 @@ pub struct Reverb<
 	/// The center delay of the reverb, saves in milliseconds
 	center_delay: f32,
 	/// The sample rate of the audio.
+	#[skip]
 	pub sample_rate: usize,
 
 	#[cfg(feature = "real_time_demo")]

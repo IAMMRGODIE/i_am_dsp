@@ -3,6 +3,7 @@
 pub use crate::effects::prelude::*;
 pub use crate::generators::prelude::*;
 pub use crate::tools::wsola::*;
+pub use crate::parameters::*;
 pub use crate::*;
 
 #[cfg(feature = "rhai")]

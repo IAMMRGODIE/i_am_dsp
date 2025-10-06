@@ -2,14 +2,15 @@
 
 use std::{f32::consts::PI, sync::Arc};
 
+use i_am_parameters_derive::Parameters;
 use rustfft::{num_complex::Complex, Fft, FftPlanner};
 
-use crate::{tools::ring_buffer::RingBuffer, Effect};
+use crate::{prelude::Parameters, tools::{ring_buffer::RingBuffer}, Effect};
 
 const OVERLAP_RATIO: usize = 4;
 
 /// A Mapper trait for frequency remapping.
-pub trait FrequencyMapper {
+pub trait FrequencyMapper: Parameters {
 	/// Maps a frequency and amplitude to a new frequency and amplitude.
 	fn map_frequency(&mut self, frequency: f32, amplitude: f32) -> (f32, f32);
 
@@ -33,32 +34,49 @@ fn bin_frequencie(sample_rate: usize, window_size: usize, k: usize) -> f32 {
 /// $$
 /// w(n) = \frac{1}{2}(window_factor - (1.0 - window_factor) * \cos(\frac{2 \pi (n + window_offset \% window_size)}{window_size})
 /// $$
+#[derive(Parameters)]
 pub struct PhaseVocoder<Mapper: FrequencyMapper, const CHANNELS: usize> {
 	/// The mapper to use for frequency remapping.
+	#[sub_param]
 	pub mapper: Mapper,
 	/// The window factor to use for the window function.
 	pub window_factor: f32,
 	/// The window offset to use for the window function.
+	#[range(min = 0, max = 4096)]
 	pub window_offset: usize,
 	/// The output gain, saves in linear scale
+	#[range(min = 0.0, max = 4.0)]
 	pub gain: f32,
 	/// The sample rate of the input signal.
+	#[skip]
 	pub sample_rate: usize,
 
+	#[range(min = 256, max = 4096)]
+	#[logarithmic]
 	window_size: usize,
+	#[skip]
 	frame_hop: usize,
 
+	#[skip]
 	fft: Arc<dyn Fft<f32>>,
+	#[skip]
 	ifft: Arc<dyn Fft<f32>>,
 
+	#[skip]
 	input_buffer: [RingBuffer<f32>; CHANNELS],
+	#[skip]
 	output_buffer: [RingBuffer<f32>; CHANNELS],
+	#[skip]
 	prev_analysis_phase: [Vec<f32>; CHANNELS],
 
+	#[skip]
 	temp_buffer: [Vec<Complex<f32>>; CHANNELS],
+	#[skip]
 	output_temp_buffer: [Vec<Complex<f32>>; CHANNELS],
 
+	#[skip]
 	input_count: usize,
+	#[skip]
 	output_count: usize,
 }
 
@@ -261,8 +279,11 @@ impl<Mapper: FrequencyMapper + Send + Sync, const CHANNELS: usize> Effect<CHANNE
 }
 
 /// A pitch shifter frequency mapper.
+#[derive(Parameters)]
 pub struct PitchShift {
 	/// Shift amount in ratio.
+	#[range(min = 0.25, max = 4.0)]
+	#[logarithmic]
 	pub shift: f32,
 }
 
@@ -293,8 +314,10 @@ impl Default for PitchShift {
 
 #[derive(Default)]
 /// A frequency shifter frequency mapper.
+#[derive(Parameters)]
 pub struct FreqShift {
 	/// Shift amount in Hz.
+	#[range(min = -2000.0, max = 2000.0)]
 	pub freq: f32,
 }
 

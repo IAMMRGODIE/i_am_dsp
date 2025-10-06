@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use i_am_parameters_derive::Parameters;
+
 #[cfg(feature = "real_time_demo")]
 use crate::tools::ring_buffer::RingBuffer;
 use crate::{generators::Note, prelude::Oscillator, Generator, NoteEvent};
@@ -41,52 +43,72 @@ struct PlayingNote<const CHANNELS: usize> {
 /// Actually this is AHDSR.
 /// 
 /// The Bend function of Adsr is $\frac{\exp(bend_factor * time) - 1}{\exp(bend_factor) - 1}$
+#[derive(Parameters)]
+#[default_float_range(min = 0.0, max = 4000.0)]
 pub struct Adsr<
 	Osc: Oscillator<CHANNELS>,
 	TuningSys: Tuning,
 	const CHANNELS: usize
 > {
+	#[sub_param]
 	oscillator: Osc,
+	#[skip]
 	tuning_sys: TuningSys,
+	#[skip]
 	note_playing: HashMap<u8, PlayingNote<CHANNELS>>,
 	/// The sample rate of the audio processing system
 	/// 
 	/// Saves in Hz
+	#[skip]
 	pub sample_rate: usize,
 	/// The delay time, saves in milliseconds
 	pub delay_time: f32,
 	/// The attack time, saves in milliseconds
 	pub attack_time: f32,
 	/// The attack bend, 0.0 for no bend
+	#[range(min = -10.0, max = 10.0)]
 	pub attack_bend: f32,
 	/// The hold time, saves in milliseconds
 	pub hold_time: f32,
 	/// The decay time, saves in milliseconds
 	pub decay_time: f32,
 	/// The decay bend, 0.0 for no bend
+	#[range(min = -10.0, max = 10.0)]
 	pub decay_bend: f32,
 	/// The sustain level, saves in linear scale
 	pub sustain_level: f32,
 	/// The release time, saves in milliseconds
 	pub release_time: f32,
 	/// The release bend, 0.0 for no bend
+	#[range(min = -10.0, max = 10.0)]
 	pub release_bend: f32,
 	/// saves in linear scale
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub gain: f32,
 	/// The number of unison, 1 for no unison
+	#[range(min = 1, max = 32)]
 	pub unisons: usize,
 	/// Maxium detune of each unison, the unit is note
 	pub unison_detune: f32,
 	/// Bend of each unison, 0.0 for no bend
+	#[range(min = -10.0, max = 10.0)]
 	pub unison_bend: f32,
 	/// The blend of each unison, 0.0 for no blend
 	/// 
 	/// This will lower the amplitude of "side" unison.
+	#[range(min = 0.0, max = 1.0)]
 	pub unison_blend: f32,
 	/// The random phase range of each unison, 0.0 for no random phase
+	#[range(min = 0.0, max = 1.0)]
 	pub random_phase: f32,
+	#[range(min = 0.25, max = 4.0)]
+	#[logarithmic]
+	/// The pitch factor of the oscillator, used for pitch shifting.
+	pub pitch_factor: f32,
 
 	#[cfg(feature = "real_time_demo")]
+	#[skip]
 	history: [RingBuffer<f32>; CHANNELS],
 }
 
@@ -129,6 +151,7 @@ impl<
 			unison_bend: 0.0,
 			unison_blend: 0.0,
 			random_phase: 1.0,
+			pitch_factor: 1.0,
 
 			#[cfg(feature = "real_time_demo")]
 			history: core::array::from_fn(|_| RingBuffer::new(4096)),
@@ -282,7 +305,7 @@ impl<
 					- bend(index.abs(), self.unison_bend)
 				};
 				let detune_factor = self.unison_detune * index;
-				let frequency = self.tuning_sys.get_frequency(*note as f32 + detune_factor);
+				let frequency = self.tuning_sys.get_frequency(*note as f32 + detune_factor) * self.pitch_factor;
 				let samples = self.oscillator.play_at(
 					frequency, 
 					time,
@@ -320,12 +343,11 @@ impl<
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
 		use egui::*;
 		use egui::emath::RectTransform;
-		use egui::epaint::PathStroke;
 		use crate::tools::ui_tools::draw_envelope;
 		use crate::tools::ui_tools::gain_ui;
 
 		CollapsingHeader::new("Oscillator Settings")
-			.id_salt(format!("{}_oscillator_settings", id_prefix))
+			.id_source(format!("{}_oscillator_settings", id_prefix))
 			.show(ui, |ui| 
 		{
 			self.oscillator.demo_ui(ui, format!("{}_oscillator", id_prefix));
@@ -356,7 +378,7 @@ impl<
 				}
 
 				ui.painter().extend([
-					Shape::line(positions, PathStroke::new(3.0, Color32::WHITE))
+					Shape::line(positions, (3.0, Color32::WHITE))
 				]);
 			});
 
@@ -383,7 +405,7 @@ impl<
 					let detune_factor = self.unison_detune * index / 2.0;
 					let position_1 = to_screen * pos2(detune_factor, - blend);
 					let position_2 = to_screen * pos2(detune_factor, 0.0);
-					Shape::line(vec![position_1, position_2], PathStroke::new(3.0, Color32::WHITE))
+					Shape::line(vec![position_1, position_2], (3.0, Color32::WHITE))
 				});
 
 				ui.painter().extend(shapes);
@@ -436,6 +458,9 @@ impl<
 			ui.label("Gain");
 			gain_ui(ui, &mut self.gain, Some("".to_string()), false);
 			ui.end_row();
+
+			ui.label("Pitch Factor");
+			ui.add(Slider::new(&mut self.pitch_factor, 0.25..=4.0).logarithmic(true));
 		});
 	}
 }

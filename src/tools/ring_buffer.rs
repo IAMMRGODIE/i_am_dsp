@@ -4,6 +4,13 @@ use std::ops::IndexMut;
 use std::ops::Index;
 use std::ops::Range;
 
+use crate::prelude::Parameter;
+use crate::prelude::Parameters;
+use crate::prelude::SetValue;
+use crate::prelude::Value;
+use crate::tools::format_vec_f32;
+use crate::tools::parse_vec_f32;
+
 /// A ring buffer implementation.
 pub struct RingBuffer<T: Default> {
 	capacity: usize,
@@ -85,6 +92,14 @@ impl<T: Default> RingBuffer<T> {
 			start: range.start,
 			end: range.end
 		}
+	}
+
+	pub(crate) fn set_current_pos(&mut self, pos: usize) {
+		self.current_pos = pos;
+	}
+
+	pub(crate) fn replace_underlying_buffer(&mut self, buffer: Vec<T>) {
+		self.buffer = buffer;
 	}
 }
 
@@ -189,5 +204,32 @@ impl<'a, T: Default> Iterator for RangendRingBufferIterator<'a, T> {
 			self.start += 1;
 			Some(result)
 		}
+	}
+}
+
+impl Parameters for RingBuffer<f32> {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		let current_position = self.current_pos();
+		let mut data = format_vec_f32(self.underlying_buffer());
+		data.extend_from_slice(&current_position.to_le_bytes());
+		vec![Parameter {
+			identifier: "data".to_string(),
+			value: Value::Serialized(data),
+		}]
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		if identifier == "data" {
+			if let SetValue::Serialized(data) = value {
+				let mut data = data.clone();
+				let last_4 = data.split_off(data.len() - 4);
+				let bytes = std::array::from_fn(|i| last_4[i]);
+				let current_position = u32::from_le_bytes(bytes);
+				self.replace_underlying_buffer(parse_vec_f32(data));
+				self.set_current_pos(current_position as usize);
+				return true;
+			}
+		}
+		false
 	}
 }

@@ -2,24 +2,40 @@
 
 use std::f32::consts::PI;
 
+use i_am_parameters_derive::Parameters;
+
 use crate::{prelude::{WaveTable, MIN_FREQUENCY}, Effect, ProcessContext};
 
 /// A phaser effect with variable feedback gain and LFO frequency.
+#[derive(Parameters)]
 pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
+	#[skip]
 	history_in: Vec<[f32; CHANNELS]>,
+	#[skip]
 	history_out: Vec<[f32; CHANNELS]>,
+	#[skip]
 	feedback_history: [f32; CHANNELS],
 	/// the LFO waveform
+	#[sub_param]
 	pub lfo: Lfo,
 	/// LFO frequency in Hz
+	#[range(min = 0.01, max = 20.0)]
 	pub lfo_freq: f32,
+	#[range(min = 10.0, max = 10000.0)]
+	#[logarithmic]
 	/// Minimum frequency in Hz
 	pub min_freq: f32,
+	#[range(min = 10.0, max = 10000.0)]
+	#[logarithmic]
 	/// Maximum frequency in Hz
 	pub max_freq: f32,
+	#[skip]
 	sample_rate: usize,
+	#[skip]
 	phase: f32,
 	/// The feedback gain, saves in linear scale
+	#[range(min = 0.01, max = 1.0)]
+	#[logarithmic]
 	pub feedback_gain: f32,
 	/// Add phase delta to each allpass
 	pub phase_delta: f32,

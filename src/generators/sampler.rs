@@ -3,37 +3,69 @@
 use std::{path::Path, thread::JoinHandle};
 
 use crossbeam_channel::Receiver;
+use i_am_parameters_derive::Parameters;
 use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 
-use crate::{prelude::Oscillator, tools::{interpolate::cubic_interpolate, load_pcm_data::{load_from_file, ReadFileError}}, Generator, ProcessContext};
+use crate::{prelude::Oscillator, tools::{format_pcm_data, format_usize, interpolate::cubic_interpolate, load_pcm_data::{load_from_file, ReadFileError}, parse_pcm_data, parse_usize}, Generator, ProcessContext};
+
+fn format_loop_range(loop_range: &Option<(usize, usize)>) -> Vec<u8> {
+	if let Some((start, end)) = loop_range {
+		let mut data = vec![];
+		data.extend_from_slice(&start.to_le_bytes());
+		data.extend_from_slice(&end.to_le_bytes());
+		data
+	}else {
+		vec![]
+	}
+}
+
+fn parse_loop_range(data: Vec<u8>) -> Option<(usize, usize)> {
+	if data.len() == 8 {
+		let start = u32::from_le_bytes(data[0..4].try_into().unwrap());
+		let end = u32::from_le_bytes(data[4..8].try_into().unwrap());
+		Some((start as usize, end as usize))
+	}else {
+		None
+	}
+}
 
 /// A sampler that plays back audio files.
 /// 
 /// Note: this sampler cannot accept MIDI input.
 /// For MIDI support, use [`crate::prelude::Adsr`] warp it.
+#[derive(Parameters)]
 pub struct Sampler<const CHANNELS: usize = 2> {
+	#[persist(serialize = "format_pcm_data", deserialize = "parse_pcm_data")]
 	pcm_data: Option<[Vec<f32>; CHANNELS]>,
+	#[persist(serialize = "format_usize", deserialize = "parse_usize")]
 	current_position: usize,
+	#[skip]
 	sample_rate: usize,
 	/// The loop range of the sample. Saves in samples.
 	/// 
 	/// None for no loop.
+	#[persist(serialize = "format_loop_range", deserialize = "parse_loop_range")]
 	loop_range: Option<(usize, usize)>,
 	/// Whether the sample is currently playing.
 	/// 
 	/// This param will only be used if current sampler is used as [`crate::prelude::Generator`].
 	pub is_playing: bool,
 	/// The volume of the sample, saves in linear scale.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub volume: f32,
 	/// Whether to play the sample in reverse.
 	pub reverse: bool,
 	/// Whether to reverse the polarity of the sample.
 	pub reverse_polarity: bool,
 	/// The playback speed of the sample.
+	#[range(min = 0.25, max = 4.0)]
+	#[logarithmic]
 	pub speed: f32,
 	/// The random start position range of the sample. Saves in milliseconds
 	/// 
 	/// This param will only be used if current sampler is used as [`crate::prelude::Oscillator`].
+	#[range(min = 0.0, max = 1000.0)]
 	pub phase_range: f32,
 	/// Whether to play the sample only once.
 	/// 
@@ -41,6 +73,7 @@ pub struct Sampler<const CHANNELS: usize = 2> {
 	pub one_shot: bool,
 
 	#[cfg(feature = "real_time_demo")]
+	#[skip]
 	gui_state: GuiState<CHANNELS>,
 }
 
@@ -394,13 +427,28 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 			if self.gui_state.resample_process.is_none() {
 				ui.label("No PCM data loaded");
 			
+				let mut path = None;
+
+				ui.input(|input| {
+					path = input.raw.dropped_files.first().map(|inner| {
+						inner.path.clone()
+					}).unwrap_or_default();
+				});
+
+				#[cfg(feature = "rfd")]
 				if ui.button("Load PCM data").clicked() {
 					let dialog = rfd::FileDialog::new().add_filter("Wave files", &["wav"]);
-					if let Some(path) = dialog.pick_file() {
-						match self.load_from_file(path) {
-							Ok(inner) => self.gui_state.resample_process = inner,
-							Err(e) => self.gui_state.error = Some(format!("{}", e)),
-						}
+					path = dialog.pick_file();
+				}
+
+				if let Some(path) = path {
+					if path.extension().map(|ext| ext.to_string_lossy().to_lowercase() != "wav").unwrap_or(true) {
+						return;
+					}
+
+					match self.load_from_file(path) {
+						Ok(inner) => self.gui_state.resample_process = inner,
+						Err(e) => self.gui_state.error = Some(format!("{}", e)),
 					}
 				}
 			}
@@ -414,7 +462,7 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_salt(format!("{id_prefix}_sampler_waveform"))
+			.id_source(format!("{id_prefix}_sampler_waveform"))
 			.show(ui, |ui| 
 		{
 			let response = draw_waveform(
@@ -527,6 +575,7 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 					self.drop_pcm_data();
 				}
 	
+				#[cfg(feature = "rfd")]
 				if ui.button("Reload PCM data").clicked() {
 					let dialog = rfd::FileDialog::new().add_filter("Wave files", &["wav"]);
 					if let Some(path) = dialog.pick_file() {

@@ -4,18 +4,45 @@ use std::f32::consts::PI;
 
 pub(crate) const MIN_FREQUENCY: f32 = 10.0;
 
+use i_am_parameters_derive::Parameters;
+
 use crate::{Effect, ProcessContext};
 
+fn format_floats(input: &[f32]) -> Vec<u8> {
+	let mut output = vec![];
+	for input in input {
+		let value = input.to_le_bytes();
+		output.extend_from_slice(&value);
+	}
+	output
+}
+
+fn parse_floats<const N: usize>(input: Vec<u8>) -> [f32; N] {
+	let mut output = [0.0; N];
+	for i in 0..N {
+		let value = f32::from_le_bytes([input[i * 4], input[i * 4 + 1], input[i * 4 + 2], input[i * 4 + 3]]);
+		output[i] = value;
+	}
+	output
+}
+
 #[derive(Clone)]
+#[derive(Parameters)]
 /// A simple biquad filter
 pub struct Biquad<const CHANNELS: usize = 2> {
+	#[persist(serialize = "format_floats", deserialize = "parse_floats")]
 	b: [f32; 3],
+	#[persist(serialize = "format_floats", deserialize = "parse_floats")]
 	a: [f32; 2],
+	#[skip]
 	x: [[f32; 2]; CHANNELS],
+	#[skip]
 	y: [[f32; 2]; CHANNELS],
+	#[skip]
 	sample_rate: usize,
 
 	#[cfg(feature = "real_time_demo")]
+	#[skip]
 	gui_state: GuiState,
 }
 
@@ -752,7 +779,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_salt(format!("{id_prefix}_filter"))
+			.id_source(format!("{id_prefix}_filter"))
 			.show(ui, |ui| 
 		{
 			draw_complex_response(ui, self.sample_rate, |freq| self.complex_response(freq));
@@ -1015,3 +1042,478 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 		});
 	}
 }
+
+/// A simple low pass filter based on [`Biquad`]
+#[derive(Parameters)]
+pub struct Lowpass<const CHANNELS: usize> {
+	#[range(min = 10.0, max = 24000.0)]
+	#[logarithmic]
+	/// The cutoff of the lowpass filter
+	pub cutoff: f32,
+	#[range(min = 0.01, max = 10.0)]
+	/// The Q value of the lowpass filter
+	pub q: f32,
+	#[sub_param]
+	filter: Biquad<CHANNELS>,
+}
+
+impl<const CHANNELS: usize> Lowpass<CHANNELS> {
+	/// Creates a new lowpass filter with the given sample rate, cutoff, and Q value
+	pub fn new(sample_rate: usize, cutoff: f32, q: f32) -> Self {
+		Self {
+			cutoff,
+			q,
+			filter: Biquad::lowpass(sample_rate, cutoff, q),
+		}
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for Lowpass<CHANNELS> {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn name(&self) -> &str {
+		"Lowpass"
+	}
+
+	fn process(
+		&mut self, 
+		samples: &mut [f32; CHANNELS], 
+		other: &[&[f32; CHANNELS]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		self.filter.set_to_lowpass(self.cutoff, self.q);
+		self.filter.process(samples, other, process_context);
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		use egui::Slider;
+		use crate::tools::ui_tools::draw_complex_response;
+
+		egui::Resize::default().resizable([false, true])
+			.min_width(ui.available_width())
+			.max_width(ui.available_width())
+			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.show(ui, |ui| 
+		{
+
+			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
+		});
+		ui.horizontal(|ui| {
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.q, 0.01..=10.0).text("Q"));
+		});
+	}
+}
+
+/// A simple high pass filter based on [`Biquad`]
+#[derive(Parameters)]
+pub struct Highpass<const CHANNELS: usize> {
+	#[range(min = 10.0, max = 24000.0)]
+	#[logarithmic]
+	/// The cutoff of the highpass filter
+	pub cutoff: f32,
+	#[range(min = 0.01, max = 10.0)]
+	/// The Q value of the highpass filter
+	pub q: f32,
+	#[sub_param]
+	filter: Biquad<CHANNELS>,
+}
+
+impl<const CHANNELS: usize> Highpass<CHANNELS> {
+	/// Creates a new highpass filter with the given sample rate, cutoff, and Q value
+	pub fn new(sample_rate: usize, cutoff: f32, q: f32) -> Self {
+		Self {
+			cutoff,
+			q,
+			filter: Biquad::highpass(sample_rate, cutoff, q),
+		}
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for Highpass<CHANNELS> {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn name(&self) -> &str {
+		"Highpass"
+	}
+
+	fn process(
+		&mut self, 
+		samples: &mut [f32; CHANNELS], 
+		other: &[&[f32; CHANNELS]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		self.filter.set_to_highpass(self.cutoff, self.q);
+		self.filter.process(samples, other, process_context);
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		use egui::Slider;
+		use crate::tools::ui_tools::draw_complex_response;
+
+		egui::Resize::default().resizable([false, true])
+			.min_width(ui.available_width())
+			.max_width(ui.available_width())
+			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.show(ui, |ui| 
+		{
+
+			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
+		});
+		ui.horizontal(|ui| {
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.q, 0.01..=10.0).text("Q"));
+		});
+	}
+}
+
+/// A simple bandpass filter based on [`Biquad`]
+#[derive(Parameters)]
+pub struct Bandpass<const CHANNELS: usize> {
+	#[range(min = 10.0, max = 24000.0)]
+	#[logarithmic]
+	/// The cutoff of the bandpass filter
+	pub cutoff: f32,
+	#[range(min = 10.0, max = 10000.0)]
+	#[logarithmic]
+	/// The bandwidth value of the bandpass filter
+	pub bandwidth: f32,
+	#[sub_param]
+	filter: Biquad<CHANNELS>,
+}
+
+impl<const CHANNELS: usize> Bandpass<CHANNELS> {
+	/// Creates a new bandpass filter with the given sample rate, cutoff, and bandwidth value
+	pub fn new(sample_rate: usize, cutoff: f32, bandwidth: f32) -> Self {
+		Self {
+			cutoff,
+			bandwidth,
+			filter: Biquad::bandpass(sample_rate, cutoff, bandwidth),
+		}
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for Bandpass<CHANNELS> {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn name(&self) -> &str {
+		"Bandpass"
+	}
+
+	fn process(
+		&mut self, 
+		samples: &mut [f32; CHANNELS], 
+		other: &[&[f32; CHANNELS]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		self.filter.set_to_bandpass(self.cutoff, self.bandwidth);
+		self.filter.process(samples, other, process_context);
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		use egui::Slider;
+		use crate::tools::ui_tools::draw_complex_response;
+
+		egui::Resize::default().resizable([false, true])
+			.min_width(ui.available_width())
+			.max_width(ui.available_width())
+			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.show(ui, |ui| 
+		{
+
+			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
+		});
+		ui.horizontal(|ui| {
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.bandwidth, 10.0..=10000.0).text("Bandwidth").logarithmic(true));
+		});
+	}
+}
+
+/// A simple bandstop filter based on [`Biquad`]
+#[derive(Parameters)]
+pub struct Bandstop<const CHANNELS: usize> {
+	#[range(min = 10.0, max = 24000.0)]
+	#[logarithmic]
+	/// The cutoff of the bandstop filter
+	pub cutoff: f32,
+	#[range(min = 10.0, max = 10000.0)]
+	#[logarithmic]
+	/// The bandwidth value of the bandstop filter
+	pub bandwidth: f32,
+	#[sub_param]
+	filter: Biquad<CHANNELS>,
+}
+
+impl<const CHANNELS: usize> Bandstop<CHANNELS> {
+	/// Creates a new bandstop filter with the given sample rate, cutoff, and bandwidth value
+	pub fn new(sample_rate: usize, cutoff: f32, bandwidth: f32) -> Self {
+		Self {
+			cutoff,
+			bandwidth,
+			filter: Biquad::bandstop(sample_rate, cutoff, bandwidth),
+		}
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for Bandstop<CHANNELS> {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn name(&self) -> &str {
+		"bandstop"
+	}
+
+	fn process(
+		&mut self, 
+		samples: &mut [f32; CHANNELS], 
+		other: &[&[f32; CHANNELS]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		self.filter.set_to_bandstop(self.cutoff, self.bandwidth);
+		self.filter.process(samples, other, process_context);
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		use egui::Slider;
+		use crate::tools::ui_tools::draw_complex_response;
+
+		egui::Resize::default().resizable([false, true])
+			.min_width(ui.available_width())
+			.max_width(ui.available_width())
+			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.show(ui, |ui| 
+		{
+
+			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
+		});
+		ui.horizontal(|ui| {
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.bandwidth, 10.0..=10000.0).text("Bandwidth").logarithmic(true));
+		});
+	}
+}
+
+/// A simple peaking filter based on [`Biquad`]
+#[derive(Parameters)]
+pub struct Peak<const CHANNELS: usize> {
+	#[range(min = 10.0, max = 24000.0)]
+	#[logarithmic]
+	/// The cutoff of the peaking filter
+	pub cutoff: f32,
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
+	/// The gain of the peaking filter
+	pub gain: f32,
+	#[range(min = 10.0, max = 10000.0)]
+	#[logarithmic]
+	/// The bandwidth of the peaking filter
+	pub bandwidth: f32,
+	#[sub_param]
+	filter: Biquad<CHANNELS>,
+}
+
+impl<const CHANNELS: usize> Peak<CHANNELS> {
+	/// Creates a new peaking filter with the given sample rate, cutoff, gain, and bandwidth value
+	pub fn new(sample_rate: usize, cutoff: f32, gain: f32, bandwidth: f32) -> Self {
+		Self {
+			cutoff,
+			gain,
+			bandwidth,
+			filter: Biquad::peak(sample_rate, cutoff, gain, bandwidth),
+		}
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for Peak<CHANNELS> {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn name(&self) -> &str {
+		"Peak"
+	}
+
+	fn process(
+		&mut self, 
+		samples: &mut [f32; CHANNELS], 
+		other: &[&[f32; CHANNELS]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		self.filter.set_to_peak(self.cutoff, self.gain, self.bandwidth);
+		self.filter.process(samples, other, process_context);
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		use egui::Slider;
+		use crate::tools::ui_tools::draw_complex_response;
+
+		egui::Resize::default().resizable([false, true])
+			.min_width(ui.available_width())
+			.max_width(ui.available_width())
+			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.show(ui, |ui| 
+		{
+
+			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
+		});
+		ui.horizontal(|ui| {
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.gain, 0.01..=4.0).text("Gain").logarithmic(true));
+			ui.add(Slider::new(&mut self.bandwidth, 10.0..=10000.0).text("Bandwidth").logarithmic(true));
+		});
+	}
+}
+
+/// A simple high shelf filter based on [`Biquad`]
+#[derive(Parameters)]
+pub struct HighShelf<const CHANNELS: usize> {
+	#[range(min = 10.0, max = 24000.0)]
+	#[logarithmic]
+	/// The cutoff of the high shelf filter
+	pub cutoff: f32,
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
+	/// The gain of the high shelf filter in linear scale
+	pub gain: f32,
+	#[range(min = 0.5, max = 2.0)]
+	/// The slope of the high shelf filter
+	pub slope: f32,
+	#[sub_param]
+	filter: Biquad<CHANNELS>,
+}
+
+impl<const CHANNELS: usize> HighShelf<CHANNELS> {
+	/// Creates a new high shelf filter with the given sample rate, cutoff, gain, and slope value
+	pub fn new(sample_rate: usize, cutoff: f32, gain: f32, slope: f32) -> Self {
+		Self {
+			cutoff,
+			gain,
+			slope,
+			filter: Biquad::high_shelf(sample_rate, cutoff, gain, slope),
+		}
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for HighShelf<CHANNELS> {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn name(&self) -> &str {
+		"HighShelf"
+	}
+
+	fn process(
+		&mut self, 
+		samples: &mut [f32; CHANNELS], 
+		other: &[&[f32; CHANNELS]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		self.filter.set_to_high_shelf(self.cutoff, self.gain, self.slope);
+		self.filter.process(samples, other, process_context);
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		use egui::Slider;
+		use crate::tools::ui_tools::draw_complex_response;
+
+		egui::Resize::default().resizable([false, true])
+			.min_width(ui.available_width())
+			.max_width(ui.available_width())
+			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.show(ui, |ui| 
+		{
+			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
+		});
+		ui.horizontal(|ui| {
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.gain, 0.01..=4.0).text("Gain").logarithmic(true));
+			ui.add(Slider::new(&mut self.slope, 0.5..=2.0).text("Slope"));
+		});
+	}
+}
+
+/// A simple low shelf filter based on [`Biquad`]
+#[derive(Parameters)]
+pub struct LowShelf<const CHANNELS: usize> {
+	#[range(min = 10.0, max = 24000.0)]
+	#[logarithmic]
+	/// The cutoff of the low shelf filter
+	pub cutoff: f32,
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
+	/// The gain of the low shelf filter in linear scale
+	pub gain: f32,
+	#[range(min = 0.5, max = 2.0)]
+	/// The slope of the low shelf filter
+	pub slope: f32,
+	#[sub_param]
+	filter: Biquad<CHANNELS>,
+}
+
+impl<const CHANNELS: usize> LowShelf<CHANNELS> {
+	/// Creates a new low shelf filter with the given sample rate, cutoff, gain, and slope value
+	pub fn new(sample_rate: usize, cutoff: f32, gain: f32, slope: f32) -> Self {
+		Self {
+			cutoff,
+			gain,
+			slope,
+			filter: Biquad::low_shelf(sample_rate, cutoff, gain, slope),
+		}
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for LowShelf<CHANNELS> {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn name(&self) -> &str {
+		"LowShelf"
+	}
+
+	fn process(
+		&mut self, 
+		samples: &mut [f32; CHANNELS], 
+		other: &[&[f32; CHANNELS]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		self.filter.set_to_low_shelf(self.cutoff, self.gain, self.slope);
+		self.filter.process(samples, other, process_context);
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		use egui::Slider;
+		use crate::tools::ui_tools::draw_complex_response;
+
+		egui::Resize::default().resizable([false, true])
+			.min_width(ui.available_width())
+			.max_width(ui.available_width())
+			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.show(ui, |ui| 
+		{
+			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
+		});
+		ui.horizontal(|ui| {
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.gain, 0.01..=4.0).text("Gain").logarithmic(true));
+			ui.add(Slider::new(&mut self.slope, 0.5..=2.0).text("Slope"));
+		});
+	}
+}
+

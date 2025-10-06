@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 
-use egui::{epaint::PathStroke, *};
+use egui::*;
 
 use crate::{effects::filter::MIN_FREQUENCY, tools::ring_buffer::RingBuffer};
 
@@ -15,7 +15,7 @@ pub(crate) fn draw_complex_response(
 		// const HIGH_DB: f32 = 0.0;
 
 		let desired_size = ui.available_size();
-		let response = ui.allocate_response(desired_size, Sense::all());
+		let response = ui.allocate_response(desired_size, Sense::click_and_drag());
 		let rect = response.rect;
 
 		let to_screen =
@@ -51,8 +51,8 @@ pub(crate) fn draw_complex_response(
 		}
 
 		ui.painter_at(rect).extend([
-			Shape::line(amplitude_positions, PathStroke::new(2.0, Color32::WHITE)),
-			Shape::line(phase_positions, PathStroke::new(2.0, Color32::BLUE)),
+			Shape::line(amplitude_positions, (2.0, Color32::WHITE)),
+			Shape::line(phase_positions, (2.0, Color32::BLUE)),
 		]);
 
 		response
@@ -74,7 +74,7 @@ pub(crate) fn draw_waveform(
 		const PADDING: f32 = 1.0;
 
 		let desired_size = ui.available_size();
-		let response = ui.allocate_response(desired_size, Sense::all());
+		let response = ui.allocate_response(desired_size, Sense::click_and_drag());
 		let rect = response.rect;
 		let total_samples = pcm_data[0].len();
 
@@ -156,8 +156,8 @@ pub(crate) fn draw_waveform(
 
 			shapes.push(epaint::Shape::line(
 				vec![position, position_upside_down], 
-				epaint::PathStroke::new(POINT_WIDTH, if should_color_selected {
-					SELECT_COLOR.lerp_to_gamma(Color32::from_gray(225), 0.7)
+				(POINT_WIDTH, if should_color_selected {
+					lerp_to_gamma(SELECT_COLOR, Color32::from_gray(225), 0.7)
 				}else if high_light {
 					epaint::Color32::from_gray(225)
 				}else {
@@ -181,11 +181,11 @@ pub(crate) fn draw_waveform(
 			];
 			shapes.push(epaint::Shape::line(
 				from_positions,
-				epaint::PathStroke::new(2.0, SELECT_COLOR),
+				(2.0, SELECT_COLOR),
 			));
 			shapes.push(epaint::Shape::line(
 				to_positions,
-				epaint::PathStroke::new(2.0, SELECT_COLOR),
+				(2.0, SELECT_COLOR),
 			));
 
 			shapes.push(epaint::Shape::rect_filled(
@@ -210,7 +210,7 @@ pub(crate) fn draw_waveform(
 					to_screen * pos2(current_time, -1.0), 
 					to_screen * pos2(current_time, 1.0)
 				],
-				epaint::PathStroke::new(2.0, epaint::Color32::from_gray(255)),
+				(2.0, epaint::Color32::from_gray(255)),
 			));
 		}
 
@@ -229,7 +229,7 @@ pub(crate) fn draw_envelope(
 		const MAX_POINTS: usize = 1024;
 
 		let desired_size = ui.available_size();
-		let response = ui.allocate_response(desired_size, Sense::all());
+		let response = ui.allocate_response(desired_size, Sense::click_and_drag());
 		let rect = response.rect;
 
 		let to_screen =
@@ -258,7 +258,7 @@ pub(crate) fn draw_envelope(
 		}
 
 		ui.painter_at(rect).extend([
-			Shape::line(positions, PathStroke::new(1.0, Color32::WHITE))
+			Shape::line(positions, (1.0, Color32::WHITE))
 		]);
 
 		response
@@ -301,18 +301,33 @@ pub(crate) fn draw_wavetable(
 ) -> egui::Response {
 	Frame::canvas(ui.style()).show(ui, |ui| {
 		const POINTS: usize = 256;
-		let response = ui.allocate_response(ui.available_size(), Sense::all());
+		let response = ui.allocate_response(ui.available_size(), Sense::click_and_drag());
 		let rect = response.rect;
 		let to_screen = emath::RectTransform::from_to(Rect::from_x_y_ranges(0.0..=1.0, -1.0..=1.0), rect);
 
 		let positions = (0..POINTS).map(|i| {
 			let t = i as f32 / (POINTS - 1) as f32;
-			to_screen * pos2(t, wavetable(t))
+			to_screen * pos2(t, - wavetable(t))
 		}).collect::<Vec<_>>();
 		ui.painter_at(rect).extend([
-			Shape::line(positions, PathStroke::new(1.0, Color32::WHITE))
+			Shape::line(positions, (1.0, Color32::WHITE))
 		]);
 
 		response
 	}).inner
+}
+
+fn fast_round(r: f32) -> u8 {
+	(r + 0.5) as _ // rust does a saturating cast since 1.45
+}
+
+pub fn lerp_to_gamma(this: Color32, other: Color32, t: f32) -> Color32 {
+	use emath::lerp;
+
+	Color32::from_rgba_premultiplied(
+		fast_round(lerp((this[0] as f32)..=(other[0] as f32), t)),
+		fast_round(lerp((this[1] as f32)..=(other[1] as f32), t)),
+		fast_round(lerp((this[2] as f32)..=(other[2] as f32), t)),
+		fast_round(lerp((this[3] as f32)..=(other[3] as f32), t)),
+	)
 }

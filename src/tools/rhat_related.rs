@@ -1,5 +1,7 @@
 //! Rhai related implementation
 
+use i_am_parameters_derive::Parameters;
+
 use crate::prelude::{FreqInfo, GenFreqInfo};
 
 lazy_static::lazy_static! {
@@ -30,14 +32,47 @@ lazy_static::lazy_static! {
 /// Otherwise [`RhaiFreqGenError::MissingVariable`] will be returned.
 ///  
 /// If the script fails to evaluate, the [`crate::tools::rhat_related::RhaiFreqGenError`] will be set.
+#[derive(Parameters)]
+#[default_float_range(min = -1.0, max = 1.0)]
 pub struct RhaiFreqGen {
-	/// The changable parameters that can be used in the script
-	pub daw_values: [f32; 4],
+	/// The changable parameter a that can be used in the script
+	pub a: f32,
+	/// The changable parameter a that can be used in the script
+	pub b: f32,
+	/// The changable parameter a that can be used in the script
+	pub c: f32,
+	/// The changable parameter a that can be used in the script
+	pub d: f32,
+	#[range(min = 1, max = 192000)]
 	/// The sample rate of the audio signal
 	pub sample_rate: usize,
+	#[persist(serialize = "format_ast", deserialize = "parse_ast")]
 	ast: Option<(String, rhai::AST)>,
+	#[skip]
 	need_recaculate: bool,
+	#[skip]
 	error: Option<RhaiFreqGenError>,
+
+	#[cfg(feature = "real_time_demo")]
+	allow_load_code: bool,
+}
+
+fn format_ast(input: &Option<(String, rhai::AST)>) -> Vec<u8> {
+	if let Some((code, _)) = input {
+		code.as_bytes().to_vec()
+	}else {
+		vec![]
+	}
+}
+
+fn parse_ast(input: Vec<u8>) -> Option<(String, rhai::AST)> {
+	if input.is_empty() {
+		None
+	}else {
+		let code = String::from_utf8(input).unwrap();
+		let ast = RHAI_ENGINE.compile(&code).unwrap();
+		Some((code, ast))
+	}
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -65,11 +100,17 @@ impl RhaiFreqGen {
 	/// Create a new [`RhaiFreqGen`]
 	pub fn new(sample_rate: usize) -> Self {
 		Self {
-			daw_values: [0.0; 4],
+			a: 0.0,
+			b: 0.0,
+			c: 0.0,
+			d: 0.0,
 			sample_rate,
 			ast: None,
 			need_recaculate: true,
 			error: None,
+
+			#[cfg(feature = "real_time_demo")]
+			allow_load_code: false,
 		}
 	}
 
@@ -115,10 +156,10 @@ impl GenFreqInfo for RhaiFreqGen {
 		};
 
 		let mut scope = rhai::Scope::new();
-		scope.push("a", self.daw_values[0]);
-		scope.push("b", self.daw_values[1]);
-		scope.push("c", self.daw_values[2]);
-		scope.push("d", self.daw_values[3]);
+		scope.push("a", self.a);
+		scope.push("b", self.b);
+		scope.push("c", self.c);
+		scope.push("d", self.d);
 		scope.push("sample_rate", self.sample_rate as i32);
 		scope.push("index", index as i32);
 		scope.push("total_amount", total_amount as i32);
@@ -159,7 +200,7 @@ impl GenFreqInfo for RhaiFreqGen {
 			self.error = None;
 		}
 
-		let mut params = self.daw_values;
+		let mut params = [self.a, self.b, self.c, self.d];
 
 		Grid::new(format!("{}_rhai_freq_gen", id_prefix))
 			.num_columns(4)
@@ -178,8 +219,11 @@ impl GenFreqInfo for RhaiFreqGen {
 			ui.end_row();
 		});
 
-		if params != self.daw_values {
-			self.daw_values = params;
+		if params[0] != self.a || params[1] != self.b || params[2] != self.c || params[3] != self.d {
+			self.a = params[0];
+			self.b = params[1];
+			self.c = params[2];
+			self.d = params[3];
 			self.need_recaculate = true;
 		}
 
@@ -188,23 +232,44 @@ impl GenFreqInfo for RhaiFreqGen {
 				self.need_recaculate = true;
 			}
 
+			let mut path = None;
+
+			if self.allow_load_code {
+				ui.input(|input| {
+					path = input.raw.dropped_files.first().map(|inner| {
+						inner.path.clone()
+					}).unwrap_or_default();
+				});
+			}
+
+			#[cfg(feature = "rfd")]
 			if ui.button("Load Code").clicked() {
 				let dialog = rfd::FileDialog::new().add_filter("Rhai files", &["rhai"]);
-				if let Some(path) = dialog.pick_file() {
-					match self.load_from_file(path) {
-						Ok(()) => {},
-						Err(e) => self.error = Some(e),
-					}
+				path = dialog.pick_file();
+			}
+
+			if let Some(path) = path {
+				if path.extension().map(|ext| ext.to_string_lossy().to_lowercase() != "rhai").unwrap_or(true) {
+					return;
 				}
+
+				match self.load_from_file(path) {
+					Ok(()) => {},
+					Err(e) => self.error = Some(e),
+				}
+				self.allow_load_code = false;
 			}
 
 			if ui.button("Recaculate Ratio").clicked() {
 				self.need_recaculate = true;
 			}
+			if ui.selectable_label(self.allow_load_code, "Allow Load Code").clicked() {
+				self.allow_load_code = !self.allow_load_code;
+			}
 		});
 		
 		CollapsingHeader::new("Show Code")
-			.id_salt(format!("{}_rhai_freq_gen_code", id_prefix))
+			.id_source(format!("{}_rhai_freq_gen_code", id_prefix))
 			.show(ui, |ui| {
 				if let Some((code, _)) = &self.ast {
 					ui.label(code)

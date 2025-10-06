@@ -2,13 +2,20 @@
 
 use std::f32::consts::PI;
 
+use i_am_parameters_derive::Parameters;
+
 use crate::{effects::filter::Biquad, Effect, ProcessContext};
 
 /// A simple effect that stacks multiple allpass filters to create a dispersion effect.
+#[derive(Parameters)]
 pub struct Disperser<const CHANNELS: usize = 2> {
+	#[skip]
 	sample_rate: usize,
+	#[range(min = 10.0, max = 30000.0)]
 	cutoff: f32,
+	#[range(min = 10.0, max = 10000.0)]
 	bandwidth: f32,
+	#[sub_param]
 	biquads: Vec<Biquad<CHANNELS>>,
 }
 
@@ -92,7 +99,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Disperser<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_salt(format!("{id_prefix}_disperser"))
+			.id_source(format!("{id_prefix}_disperser"))
 			.show(ui, |ui| 
 		{
 			draw_complex_response(ui, self.sample_rate, |freq| self.complex_response(freq));

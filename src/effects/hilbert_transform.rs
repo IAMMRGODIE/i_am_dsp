@@ -1,14 +1,20 @@
 //! Hilbert transform effect
 
+use i_am_parameters_derive::Parameters;
+
 use crate::{Effect, ProcessContext};
 
 use std::f32::consts::PI;
 
 /// An IIR Hilbert transform effect, for FIR version see [`crate::effects::convolver`]
+#[derive(Parameters)]
 pub struct HilbertTransform<const ORDER: usize, const CHANNELS: usize = 2> {
+	#[skip]
 	x: [[f32; ORDER]; CHANNELS],
+	#[skip]
 	y: [[f32; ORDER]; CHANNELS],
 
+	#[skip]
 	sample_rate: usize,
 }
 
@@ -183,7 +189,7 @@ impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for HilbertTran
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_salt(format!("{id_prefix}_hilbert_transform_demo"))
+			.id_source(format!("{id_prefix}_hilbert_transform_demo"))
 			.show(ui, |ui| 
 		{
 			draw_complex_response(ui, self.sample_rate, |freq| self.complex_response(freq));

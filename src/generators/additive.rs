@@ -2,10 +2,12 @@
 
 use std::f32::consts::PI;
 
-use crate::prelude::{bend, Oscillator, SineWave, WaveTable};
+use i_am_parameters_derive::Parameters;
+
+use crate::prelude::{bend, Oscillator, Parameters, SineWave, WaveTable};
 
 /// A trait for generating frequency information for AdditiveOsc
-pub trait GenFreqInfo: Send + Sync {
+pub trait GenFreqInfo: Send + Sync + Parameters {
 	/// Returns the ratio and amplitude of the oscillator at the given index
 	/// 
 	/// the ratio of the frequency must greater than 1.0
@@ -33,18 +35,25 @@ impl Default for FreqInfo {
 }
 
 /// A type of oscillator that adds up multiple sine waves
+#[derive(Parameters)]
 pub struct AdditiveOsc<
 	Freq: GenFreqInfo,
 	const MAX_SINES: usize = 64,
 	const CHANNELS: usize = 2
 > {
+	#[sub_param]
 	freq_gen: Freq,
+	#[skip]
 	caculated_ratios: [FreqInfo; MAX_SINES],
 	max_ratio: f32,
+	#[skip]
 	min_ratio: f32,
+	#[skip]
 	max_amplitude: f32,
 	/// The number of sine waves to add up
 	pub num_sines: usize,
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	/// The gain of the oscillator, which saves in linear scale
 	pub gain: f32,
 }
@@ -126,7 +135,7 @@ impl<
 		let sin = SineWave;
 
 		for i in 0..CHANNELS {
-			for j in 0..self.num_sines {
+			for j in 0..self.num_sines.min(MAX_SINES) {
 				let freq = frequency * self.caculated_ratios[j].ratio;
 				let t = (time * freq + phase[i]) % 1.0;
 				output[i] += sin.sample(t, i) * self.caculated_ratios[j].amplitude * self.gain;
@@ -145,7 +154,7 @@ impl<
 		Resize::default()
 			.max_width(ui.available_width())
 			.min_width(ui.available_width())
-			.id_salt(format!("{}_additive_osc_ratio", id_prefix))
+			.id_source(format!("{}_additive_osc_ratio", id_prefix))
 			.show(ui, |ui| 
 		{
 			Frame::canvas(ui.style()).show(ui, |ui| {
@@ -199,10 +208,12 @@ impl<
 
 /// A Simple Bend Frequency Generator
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Parameters)]
 pub struct BendedSawGen {
 	/// How much the frequency should be bent
 	/// 
 	/// default to 0.0
+	#[range(min = -10.0, max = 10.0)]
 	pub bend_amount: f32,
 	/// must be greater than 0.0
 	/// 
@@ -211,6 +222,7 @@ pub struct BendedSawGen {
 	/// How much the bend should be shifted
 	/// 
 	/// default to 0.0
+	#[range(min = -10.0, max = 10.0)]
 	pub total_bend_amount: f32,
 	/// How much the frequency should be scaled
 	/// 

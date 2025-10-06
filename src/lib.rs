@@ -3,11 +3,18 @@
 //! TODO: 
 //! 1. Visual Effects
 //! 2. SIMD support
+//! 3. BPM sync
 
 #![warn(missing_docs)]
 
+use crate::prelude::{Parameter, Parameters};
+
+extern crate self as i_am_dsp;
+
 #[cfg(feature = "real_time_demo")]
 pub mod real_time_demo;
+
+pub mod parameters;
 
 pub mod generators;
 pub mod effects;
@@ -15,7 +22,7 @@ pub mod tools;
 pub mod prelude;
 
 /// Main trait for effects.
-pub trait Effect<const CHANNELS: usize = 2>: Send + Sync {
+pub trait Effect<const CHANNELS: usize = 2>: Send + Sync + Parameters {
 	/// Process the given samples.
 	/// 
 	/// `samples` is the input and output buffer, user should modify it in place.
@@ -36,12 +43,14 @@ pub trait Effect<const CHANNELS: usize = 2>: Send + Sync {
 	/// 
 	/// Used to identify the effect in the real-time demo.
 	#[cfg(feature = "real_time_demo")]
+	#[cfg_attr(docsrs, doc(cfg(feature = "real_time_demo")))]
 	fn name(&self) -> &str {
 		"Unnamed"
 	}
 
 	#[cfg(feature = "real_time_demo")]
-	/// Real time demo UI for the effect.
+	#[cfg_attr(docsrs, doc(cfg(feature = "real_time_demo")))]
+	/// Real time demo UI for the effect
 	/// 
 	/// By default, it just shows a label with the name of the effect.
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
@@ -51,13 +60,14 @@ pub trait Effect<const CHANNELS: usize = 2>: Send + Sync {
 }
 
 /// Main trait for generators.
-pub trait Generator<const CHANNELS: usize = 2>: Send + Sync {
+pub trait Generator<const CHANNELS: usize = 2>: Send + Sync + Parameters {
 	/// Generate a new sample.
 	/// 
 	/// `process_context` contains information about the process, like sample rate, tempo, etc.
 	fn generate(&mut self, process_context: &mut Box<dyn ProcessContext>) -> [f32; CHANNELS];
 
 	#[cfg(feature = "real_time_demo")]
+	#[cfg_attr(docsrs, doc(cfg(feature = "real_time_demo")))]
 	/// Returns the name of the generator.
 	/// 
 	/// Used to identify the generator in the real-time demo.
@@ -66,6 +76,7 @@ pub trait Generator<const CHANNELS: usize = 2>: Send + Sync {
 	}
 
 	#[cfg(feature = "real_time_demo")]
+	#[cfg_attr(docsrs, doc(cfg(feature = "real_time_demo")))]
 	/// Real time demo UI for the generator.
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
 		let _ = id_prefix;
@@ -97,6 +108,29 @@ impl<const CHANNELS: usize, T: Effect<CHANNELS>> Effect<CHANNELS> for Vec<T> {
 				effect.demo_ui(ui, effect_id);
 			});
 		}
+	}
+}
+
+impl<const CHANNELS: usize> Parameters for Vec<Box<dyn Effect<CHANNELS>>> {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		let mut result = Vec::new();
+		for (i, p) in self.iter().enumerate() {
+			for mut param in p.get_parameters() {
+				param.identifier = format!("{i}.{}", param.identifier);
+				result.push(param);
+			}
+		}
+		result
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: prelude::SetValue) -> bool {
+		let mut parts = identifier.split(".").collect::<Vec<&str>>();
+		let index = parts.remove(0).parse::<usize>().expect("Invalid index");
+		let rest_identifier = parts.join(".");
+		if index >= self.len() {
+			return false;
+		}
+		self[index].set_parameter(&rest_identifier, value)
 	}
 }
 
@@ -240,7 +274,7 @@ pub struct ProcessInfos {
 	/// Whether the host is playing or not.
 	pub playing: bool,
 	/// The tempo of the process.
-	pub tempo: f32,
+	pub tempo: Option<f32>,
 	/// The time signature of the process.
 	/// 
 	/// The trunc part is current bar number. 
@@ -254,9 +288,18 @@ pub struct ProcessInfos {
 	pub current_time: f32,
 }
 
-#[non_exhaustive]
+impl ProcessInfos {
+	/// Create a new process infos with default values.
+	pub fn new() -> Self {
+		Self::default()
+	}
+}
+
+// #[non_exhaustive]
 #[derive(Clone, Debug, PartialEq)]
 /// A note event that can be used to represent a midi event.
+/// 
+/// May change in the future.
 pub enum NoteEvent {
 	/// Note on event.
 	NoteOn {

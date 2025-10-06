@@ -1,12 +1,19 @@
 //! Smoother for rapidly changing signals.
 
+use i_am_parameters_derive::Parameters;
+
 /// Double time constant smoother.
+#[derive(Parameters)]
+#[default_float_range(min = 0.0, max = 4000.0)]
+#[default_int_range(min = 0, max = 2147483647)]
 pub struct DoubleTimeConstant<const CHANNELS: usize = 2> {
 	/// Attack time in milliseconds.
 	pub attack_time: f32,
 	/// Release time in milliseconds.
 	pub release_time: f32,
+	#[skip]
 	sample_rate: usize,
+	#[skip]
 	value: [f32; CHANNELS],
 }
 

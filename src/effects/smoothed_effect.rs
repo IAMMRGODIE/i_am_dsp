@@ -1,11 +1,16 @@
 //! Smooth the effect like a compressor did.
 
+use i_am_parameters_derive::Parameters;
+
 use crate::{tools::smoother::DoubleTimeConstant, Effect, ProcessContext};
 
 /// Smooth the effect like a compressor did.
+#[derive(Parameters)]
 pub struct SmoothedEffect<Effector: Effect<CHANNELS>, const CHANNELS: usize> {
+	#[sub_param]
 	effect: Effector,
 	/// Smoother for rapidly changing signals.
+	#[sub_param]
 	pub smoother: DoubleTimeConstant<CHANNELS>,
 }
 

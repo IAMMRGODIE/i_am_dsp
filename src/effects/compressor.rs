@@ -1,5 +1,11 @@
 //! A basic compressor effect
 
+// use i_am_parameters_derive::Parameters;
+
+// use crate as i_am_dsp;
+
+use i_am_parameters_derive::Parameters;
+
 #[cfg(feature = "real_time_demo")]
 use crate::tools::ring_buffer::RingBuffer;
 use crate::{prelude::Enveloper, tools::{audio_io_chooser::AudioIoChooser, smoother::DoubleTimeConstant}, Effect, ProcessContext};
@@ -8,23 +14,37 @@ use crate::{prelude::Enveloper, tools::{audio_io_chooser::AudioIoChooser, smooth
 const HISTORY_LEN: usize = 32768;
 
 /// A basic compressor effect
+#[derive(Parameters)]
 pub struct Compressor<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize = 2> {
+	#[range(min = -60.0, max = 0.0)]
 	/// The threshold for the compressor, saves in dB
 	pub threshold: f32,
+	#[range(min = 1.0, max = 10.0)]
 	/// The ratio for the compressor, Should always be less than 1.0
 	pub ratio: f32,
+	#[sub_param]
 	/// The audio input/output chooser
 	pub audio_io_chooser: AudioIoChooser,
 	/// The sample rate of the audio, saves in Hz
+	#[skip]
 	pub sample_rate: usize,
 	/// The smoother for the gain factor
+	#[sub_param]
 	pub smoother: DoubleTimeConstant<1>,
 	/// The output gain factor, saves in linear scale
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub gain_linear: f32,
-	enveloper: Envelope,
-	gain_factor: f32,
+	#[sub_param]
+	/// The enveloper for the input signal
+	pub enveloper: Envelope,
+	#[range(min = 0.01, max = 1.0)]
+	#[logarithmic]
+	/// The gain factor for the output signal, saves in linear scale
+	pub gain_factor: f32,
 
 	#[cfg(feature = "real_time_demo")]
+	#[skip]
 	history: RingBuffer<f32>,
 }
 
@@ -111,7 +131,7 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 			let avaliable_width = ui.available_width();
 
 			Resize::default()
-			.id_salt(format!("{}_compresser_resize", id_prefix))
+			.id_source(format!("{}_compresser_resize", id_prefix))
 			.max_width(avaliable_width * 0.35)
 			.max_height(avaliable_width * 0.35)
 			.show(ui, |ui| {Frame::canvas(ui.style()).show(ui, |ui| {
@@ -135,7 +155,7 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 				];
 
 				ui.painter().extend([
-					Shape::line(points, epaint::PathStroke::new(2.0, Color32::WHITE))
+					Shape::line(points, (2.0, Color32::WHITE))
 				]);
 			})});
 
@@ -144,7 +164,7 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 				Resize::default()
 					.max_width(width)
 					.min_width(width)
-					.id_salt(format!("{}_compresser_env_in", id_prefix))
+					.id_source(format!("{}_compresser_env_in", id_prefix))
 					.max_height(avaliable_width * 0.35 / 2.0)
 					.show(ui, |ui| 
 				{
@@ -152,7 +172,7 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 				});
 
 				Resize::default()
-				.id_salt(format!("{}_compresser_env_out", id_prefix))
+				.id_source(format!("{}_compresser_env_out", id_prefix))
 				.max_height(avaliable_width * 0.35 / 2.0)
 				.max_width(width)
 				.min_width(width)

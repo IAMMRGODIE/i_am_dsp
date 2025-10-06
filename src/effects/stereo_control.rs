@@ -1,11 +1,17 @@
 //! Stereo control effects
 
+use i_am_parameters_derive::Parameters;
+
 use crate::{Effect, ProcessContext};
 
 /// Stereo controller effect
+#[derive(Parameters)]
+#[default_float_range(min = 0.01, max = 4.0)]
 pub struct StereoController {
+	#[logarithmic]
 	/// saves in linear scale
 	pub mid_gain: f32,
+	#[logarithmic]
 	/// saves in linear scale
 	pub side_gain: f32,
 }
@@ -53,7 +59,10 @@ impl Effect<2> for StereoController {
 
 #[derive(Debug, Clone, Copy)]
 /// Gain effect
+#[derive(Parameters)]
+#[default_float_range(min = 0.01, max = 4.0)]
 pub struct Gain {
+	#[logarithmic]
 	/// saves in linear scale
 	pub gain: f32,
 }
@@ -96,9 +105,13 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Gain {
 
 #[derive(Debug, Clone, Copy)]
 /// L/R controller effect
+#[derive(Parameters)]
+#[default_float_range(min = 0.01, max = 4.0)]
 pub struct LrControl {
+	#[logarithmic]
 	/// saves in linear scale
 	pub left_gain: f32,
+	#[logarithmic]
 	/// saves in linear scale
 	pub right_gain: f32,
 }

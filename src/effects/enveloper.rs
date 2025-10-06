@@ -1,9 +1,11 @@
 //! Envelope Getter
 
-use crate::{effects::prelude::{hilbert_transform, Convolver, HilbertTransform}, tools::ring_buffer::RingBuffer, Effect, ProcessContext};
+use i_am_parameters_derive::Parameters;
+
+use crate::{effects::prelude::{hilbert_transform, Convolver, HilbertTransform}, prelude::Parameters, tools::ring_buffer::RingBuffer, Effect, ProcessContext};
 
 /// The main trait for envelopes
-pub trait Enveloper<const CHANNELS: usize = 2> {
+pub trait Enveloper<const CHANNELS: usize = 2>: Parameters {
 	/// Get the delay of the envelope
 	fn delay(&self) -> usize;
 	/// Input a value to the envelope
@@ -48,8 +50,11 @@ impl<const CHANNELS: usize, T: Enveloper<CHANNELS> + Sync + Send> Effect<CHANNEL
 /// An envelope with history
 /// 
 /// This is mainly used for the demo UI, to show the history of the envelope
+#[derive(Parameters)]
 pub struct EnvelopeWithHistory<T: Enveloper<CHANNELS>, const CHANNELS: usize = 2> {
+	#[skip]
 	env_history: [RingBuffer<f32>; CHANNELS],
+	#[sub_param]
 	envelope: T,
 }
 
@@ -110,7 +115,7 @@ impl<const CHANNELS: usize, T: Enveloper<CHANNELS>> Enveloper<CHANNELS> for Enve
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_salt(format!("{id_prefix}_envelope_with_history"))
+			.id_source(format!("{id_prefix}_envelope_with_history"))
 			.show(ui, |ui| 
 		{
 			draw_envelope(ui, &self.env_history.iter().collect::<Vec<&RingBuffer<f32>>>(), false)
@@ -124,10 +129,15 @@ impl<const CHANNELS: usize, T: Enveloper<CHANNELS>> Enveloper<CHANNELS> for Enve
 }
 
 /// Get the envelope using an IIR Hilbert Transform
+#[derive(Parameters)]
 pub struct IIRHilbertEnvelope<const ORDER: usize, const CHANNELS: usize = 2> {
+	#[sub_param]
 	hilbert_transformer: HilbertTransform<ORDER, CHANNELS>,
+	#[skip]
 	history: [f32; CHANNELS],
 	/// The gain factor of the envelope, saves in linear scale.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub gain_factor: f32,
 }
 
@@ -183,11 +193,17 @@ impl<const ORDER: usize, const CHANNELS: usize> Enveloper<CHANNELS> for IIRHilbe
 }
 
 /// Get the envelope by low-passing the rectified signal
+#[derive(Parameters)]
 pub struct RectifyEnvelope<const CHANNELS: usize = 2> {
+	#[skip]
 	envlope_history: [f32; CHANNELS],
+	#[range(min = 10.0, max = 20000.0)]
 	cutoff: f32,
+	#[skip]
 	sample_rate: usize,
 	/// The gain factor of the envelope, saves in linear scale.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub gain_factor: f32,
 }
 
@@ -257,16 +273,24 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for RectifyEnvelope<CHANNELS> {
 }
 
 /// Get the envelope by detact the peaks in the signal, and smooth it.
+#[derive(Parameters)]
 pub struct PeakDetector<const CHANNELS: usize = 2> {
 	/// The attack time of the envelope in milliseconds.
+	#[range(min = 0.0, max = 1000.0)]
 	pub attack_time: f32,
 	/// The release time of the envelope in milliseconds.
+	#[range(min = 0.0, max = 1000.0)]
 	pub release_time: f32,
+	#[skip]
 	/// The sample rate of the signal.
 	pub sample_rate: usize,
+	#[skip]
 	envlope_history: [f32; CHANNELS],
+	#[skip]
 	last_history: [f32; CHANNELS],
 	/// The gain factor of the envelope, saves in linear scale.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub gain_factor: f32,
 }
 
@@ -348,10 +372,15 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for PeakDetector<CHANNELS> {
 
 
 /// Teager-Kaiser Energy Operator Envelope
+#[derive(Parameters)]
 pub struct TkeoEnvelope<const CHANNELS: usize = 2> {
+	#[skip]
 	data_history: [[f32; CHANNELS]; 3],
+	#[skip]
 	envlope_history: [f32; CHANNELS],
 	/// The gain factor of the envelope, saves in linear scale.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub gain_factor: f32,
 }
 
@@ -416,11 +445,17 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for TkeoEnvelope<CHANNELS> {
 }
 
 /// Get the envelope by using a FIR Hilbert Transform
+#[derive(Parameters)]
 pub struct FIRHilbertEnvelope<const CHANNELS: usize> {
+	#[sub_param]
 	convolver: Convolver<CHANNELS>,
+	#[skip]
 	ir_len: usize,
+	#[skip]
 	output_envlope: [f32; CHANNELS],
 	/// The gain factor of the envelope, saves in linear scale.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub gain_factor: f32,
 }
 
@@ -498,26 +533,5 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for FIRHilbertEnvelope<CHANNELS>
 			}
 			self.set_ir_len(ir_len);
 		}
-	}
-}
-
-impl<const CHANNELS: usize> Enveloper<CHANNELS> for [f32; CHANNELS] {
-	fn delay(&self) -> usize {
-		0
-	}
-
-	fn get_current_envelope(&self) -> [f32; CHANNELS] {
-		*self
-	}
-
-	fn input_value(&mut self, input: &mut [f32; CHANNELS]) {
-		for (i, val) in self.iter_mut().enumerate() {
-			*val = input[i].abs()
-		}
-	}
-
-	#[cfg(feature = "real_time_demo")]
-	fn name(&self) -> &str {
-		"Constant Envelope"
 	}
 }

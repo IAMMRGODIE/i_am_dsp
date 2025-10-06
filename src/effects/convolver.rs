@@ -2,7 +2,70 @@
 
 use std::{f32::consts::PI, ops::Range};
 
-use crate::{tools::ring_buffer::RingBuffer, Effect, ProcessContext};
+use i_am_parameters_derive::Parameters;
+
+use crate::{tools::{format_usize, parse_usize, ring_buffer::RingBuffer}, Effect, ProcessContext};
+
+fn format_ir<const CHANNELS: usize>(ir: &[Vec<f32>; CHANNELS]) -> Vec<u8> {
+	assert_eq!(std::mem::size_of::<f32>(), 4);
+	
+	let mut ir_data = vec![];
+
+	for channel in ir {
+		ir_data.extend_from_slice(channel);
+	}
+	
+	for channel in ir.iter().rev() {
+		ir_data.push(f32::from_bits(channel.len() as u32))
+	}
+
+	let ptr = ir_data.as_mut_ptr();
+	let len = ir_data.len() * std::mem::size_of::<f32>();
+	let cap = ir_data.capacity() * std::mem::size_of::<f32>();
+
+	std::mem::forget(ir_data);
+
+	unsafe {
+		Vec::from_raw_parts(ptr as *mut u8, len, cap)
+	}
+}
+
+fn parse_ir<const CHANNELS: usize>(mut data: Vec<u8>) -> [Vec<f32>; CHANNELS] {
+	if data.is_empty() {
+		panic!("Invalid data length");
+	}
+
+	assert_eq!(std::mem::size_of::<f32>(), 4);
+
+	if data.len() % std::mem::size_of::<f32>() != 0 {
+		panic!("Invalid data length");
+	}
+
+	let ptr = data.as_mut_ptr() as *mut f32;
+	let len = data.len() / std::mem::size_of::<f32>();
+	let cap = data.capacity() / std::mem::size_of::<f32>();
+
+	std::mem::forget(data);
+
+	let mut ir_data = unsafe {
+		Vec::from_raw_parts(ptr, len, cap)
+	};
+
+	// let channels = ir_data.pop().expect("Invalid PCM data: missing channel count").to_bits() as usize;
+	let mut data_len = Vec::with_capacity(CHANNELS);
+
+	for _ in 0..CHANNELS {
+		data_len.push(ir_data.pop().expect("Invalid PCM data: missing channel length").to_bits() as usize);
+	}
+
+	let outputs: [Vec<f32>; CHANNELS] = std::array::from_fn(|i| {
+		let mut channel = ir_data.split_off(data_len[i]);
+		std::mem::swap(&mut channel, &mut ir_data);
+		channel
+	});
+
+	outputs
+}
 
 #[derive(Debug, Clone)]
 /// The mode to calculate the delay.
@@ -115,13 +178,22 @@ impl DelyaCaculateMode {
 /// The classical convolver, which is a FIR filter.
 /// 
 /// Note: The time complexity of this convolver is O(n*m), for o(l log l) implementation, see [FftConvolver(TODO)].
+#[derive(Parameters)]
 pub struct Convolver<const CHANNELS: usize = 2> {
+	#[persist(serialize = "format_ir", deserialize = "parse_ir")]
 	ir: [Vec<f32>; CHANNELS],
+	#[skip]
 	history: [RingBuffer<f32>; CHANNELS],
+	#[persist(serialize = "format_usize", deserialize = "parse_usize")]
 	delay: usize,
 
 	#[cfg(feature = "real_time_demo")]
+	#[skip]
 	gui_state: (DelyaCaculateMode, Option<String>),
+
+	#[cfg(feature = "real_time_demo")]
+	#[skip]
+	allow_change_ir: bool
 }
 
 impl<const CHANNELS: usize> Convolver<CHANNELS> {
@@ -132,7 +204,6 @@ impl<const CHANNELS: usize> Convolver<CHANNELS> {
 	/// Panics if `CHANNELS` is 0.
 	pub fn new(ir: [Vec<f32>; CHANNELS], delta_caulate_mode: &DelyaCaculateMode) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
-
 		let delay = delta_caulate_mode.calculate_delay(&ir);
 		let history = core::array::from_fn(|_| RingBuffer::new(delay));
 		Self { 
@@ -142,6 +213,9 @@ impl<const CHANNELS: usize> Convolver<CHANNELS> {
 
 			#[cfg(feature = "real_time_demo")]
 			gui_state: (delta_caulate_mode.clone(), None),
+
+			#[cfg(feature = "real_time_demo")]
+			allow_change_ir: false,
 		}
 	}
 
@@ -223,7 +297,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 		// .auto_sized()
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_salt(format!("{id_prefix}_convolver"))
+			.id_source(format!("{id_prefix}_convolver"))
 			.show(ui, |ui| 
 		{
 			draw_waveform(ui, None, &self.ir, &None, false, false);
@@ -282,26 +356,45 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 				}
 			});
 			ui.horizontal(|ui| {
+				let mut path = None;
+
+				if self.allow_change_ir {
+					ui.input(|input| {
+						path = input.raw.dropped_files.first().map(|inner| {
+							inner.path.clone()
+						}).unwrap_or_default();
+					});
+				}
+
+				#[cfg(feature = "rfd")]
 				if ui.button("replace ir").clicked() {
 					let dialog = rfd::FileDialog::new().add_filter("Wave files", &["wav"]);
-					if let Some(path) = dialog.pick_file() {
-						match load_from_file::<CHANNELS>(path) {
-							Ok(PcmOutput {
-								pcm_data,
-								..
-							}) => {
-								let delta_caculate_mode = self.gui_state.0.clone();
-								self.replace_ir(pcm_data, &delta_caculate_mode);
-							}
-							Err(e) => {
-								self.gui_state.1 = Some(format!("Error: {}", e));
-							}
+					path = dialog.pick_file();
+				}
+
+				if let Some(path) = path {
+					if path.extension().map(|ext| ext.to_string_lossy().to_lowercase() != "wav").unwrap_or(true) {
+						return;
+					}
+					match load_from_file::<CHANNELS>(path) {
+						Ok(PcmOutput {
+							pcm_data,
+							..
+						}) => {
+							let delta_caculate_mode = self.gui_state.0.clone();
+							self.replace_ir(pcm_data, &delta_caculate_mode);
+						}
+						Err(e) => {
+							self.gui_state.1 = Some(format!("Error: {}", e));
 						}
 					}
 				}
 				if ui.button("hilbert transform").clicked() {
 					self.gui_state.0 = DelyaCaculateMode::Fir;
 					self.replace_ir(hilbert_transform(511), &DelyaCaculateMode::Fir);
+				}
+				if ui.selectable_label(self.allow_change_ir, "Allow Replace IR").clicked() {
+					self.allow_change_ir = !self.allow_change_ir;
 				}
 			});
 		});

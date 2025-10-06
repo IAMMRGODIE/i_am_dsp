@@ -1,13 +1,19 @@
 //! Delay related effects.
 
+use i_am_parameters_derive::Parameters;
+
 use crate::{generators::wavetable::WaveTable, tools::{interpolate::cubic_interpolate, ring_buffer::RingBuffer}, Effect, ProcessContext};
 
 /// A pure delay that delays the signal by a fixed amount of time.
+#[derive(Parameters)]
 pub struct PureDelay<const CHANNELS: usize = 2> {
+	#[skip]
 	history: [RingBuffer<f32>; CHANNELS],
 	/// The delay time,  saves in milliseconds
+	#[range(min = 0.0, max = 4000.0)]
 	pub delay_time: f32,
 	/// The sample rate of the audio signal, saves in Hz
+	#[skip]
 	pub sample_rate: usize,
 }
 
@@ -52,6 +58,11 @@ impl<const CHANNELS: usize> PureDelay<CHANNELS> {
 	pub fn maxium_delay_time(&self) -> f32 {
 		self.history[0].capacity() as f32 / self.sample_rate as f32 * 1000.0
 	}
+
+	/// Returns the history length.
+	pub fn history_len(&self) -> usize {
+		self.history[0].capacity()
+	}
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
@@ -95,14 +106,19 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
 }
 
 /// A delay effect that delays the signal by a variable amount of time.
+#[derive(Parameters)]
 pub struct Delay<
 	DelayedEffect: Effect<CHANNELS>, 
 	const CHANNELS: usize = 2
 > {
+	#[skip]
 	history: [RingBuffer<f32>; CHANNELS],
+	#[sub_param]
 	delayed_effect: DelayedEffect,
 	/// the delay time, saves in milliseconds
+	#[range(min = 0.0, max = 1000.0)]
 	pub delay_time: f32,
+	#[skip]
 	/// The sample rate of the audio signal, saves in Hz
 	pub sample_rate: usize,
 	/// a factor that controls the decay rate of the delay effect
@@ -110,8 +126,48 @@ pub struct Delay<
 	/// must be between 0 and 1
 	pub decay_factor: f32,
 	/// The wet gain of the effect, saves in linear scale
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub wet_gain: f32,
+	#[persist(serialize = "format_pure_delay", deserialize = "parse_pure_delay")]
 	pingpong: Option<[PureDelay<1>; CHANNELS]>,
+}
+
+fn format_pure_delay<const CHANNELS: usize>(delay: &Option<[PureDelay<1>; CHANNELS]>) -> Vec<u8> {
+	if let Some(delay) = delay {
+		let mut output = Vec::new();
+		for delay in delay.iter() {
+			output.extend(delay.delay_time.to_le_bytes());
+			output.extend((delay.sample_rate as u32).to_le_bytes());
+			output.extend((delay.history_len() as u32).to_le_bytes());
+		}
+		output
+	}else {
+		vec![]
+	}
+}
+
+fn parse_pure_delay<const CHANNELS: usize>(mut data: Vec<u8>) -> Option<[PureDelay<1>; CHANNELS]> {
+	if data.is_empty() {
+		None
+	}else {
+		Some(std::array::from_fn(|_| {
+			let mut delay_time = data.split_off(4);
+			std::mem::swap(&mut delay_time, &mut data);
+			let mut sample_rate = data.split_off(4);
+			std::mem::swap(&mut sample_rate, &mut data);
+			let mut history_len = data.split_off(4);
+			std::mem::swap(&mut history_len, &mut data);
+
+			let delay_time = [delay_time[0], delay_time[1], delay_time[2], delay_time[3]];
+			let sample_rate = [sample_rate[0], sample_rate[1], sample_rate[2], sample_rate[3]];
+			let history_len = [history_len[0], history_len[1], history_len[2], history_len[3]];
+			let delay_time = f32::from_le_bytes(delay_time);
+			let sample_rate = u32::from_le_bytes(sample_rate) as usize;
+			let history_len = u32::from_le_bytes(history_len) as usize;
+			PureDelay::new(history_len, delay_time, sample_rate)
+		}))
+	}
 }
 
 impl<
@@ -155,7 +211,7 @@ impl<
 
 		let max_time = self.history[0].capacity() as f32 / self.sample_rate as f32;
 		let zero_time = epsilon.ln() / self.decay_factor.ln();
-		max_time / zero_time * 1000.0
+		max_time * zero_time * 1000.0
 	}
 
 	/// Clear delay history.
@@ -270,7 +326,7 @@ impl<
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
     	use crate::tools::ui_tools::gain_ui;
 
-		let max_time = self.max_delay_time(0.01);
+		let max_time = 1000.0;
 
 		let max_time = if self.pingpong() {
 			max_time / CHANNELS as f32
@@ -292,23 +348,36 @@ impl<
 }
 
 /// A Flanger effect that adds a flanging effect to the signal.
+#[derive(Parameters)]
 pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
+	#[skip]
 	history: [RingBuffer<f32>; CHANNELS],
+	#[skip]
 	processed_history: [RingBuffer<f32>; CHANNELS],
 	// pub decay_factor: f32,
 	/// the center saves in milliseconds
+	#[range(min = 0.0, max = 4000.0)]
 	pub center_delay_time: f32,
 	/// The sample rate of the audio signal, saves in Hz
+	#[skip]
 	pub sample_rate: usize,
 	/// The LFO waveform
+	#[sub_param]
 	pub lfo: Lfo,
 	/// The frequency of the LFO, saves in Hz
+	#[range(min = 0.01, max = 20.0)]
 	pub lfo_frequency: f32,
 	/// The amplitude of the LFO, saves in milliseconds
+	#[range(min = 0.01, max = 10.0)]
 	pub lfo_amplitude: f32,
+	#[skip]
 	phase: f32,
 	/// The wet gain of the effect, saves in linear scale
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub wet_gain: f32,
+	#[range(min = 0.01, max = 1.0)]
+	#[logarithmic]
 	/// The feed back gain, saves in linear scale
 	pub feed_back_gain: f32,
 }
@@ -412,21 +481,32 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for F
 }
 
 /// A Chorus effect that adds a chorus effect to the signal.
+#[derive(Parameters)]
 pub struct Chorus<Lfo: WaveTable, const CHANNELS: usize = 2> {
+	#[skip]
 	history: [RingBuffer<f32>; CHANNELS],
 	/// The sample rate of the audio signal, saves in Hz
+	#[skip]
 	pub sample_rate: usize,
 	/// The center delay time, saves in milliseconds
+	#[range(min = 5.0, max = 20.0)]
 	pub center_delay_time: f32,
 	/// The LFO waveform
+	#[sub_param]
 	pub lfo: Lfo,
 	/// The frequency of the LFO, saves in Hz
+	#[range(min = 0.01, max = 2.0)]
 	pub lfo_frequency: f32,
 	/// The amplitude of the LFO, saves in milliseconds
+	#[range(min = 5.0, max = 20.0)]
 	pub lfo_amplitude: f32,
 	/// The wet_gain of the effect, saves in linear scale
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub wet_gain: f32,
+	#[range(min = 1, max = 50)]
 	delay_lines: usize,
+	#[skip]
 	phase: f32,
 }
 

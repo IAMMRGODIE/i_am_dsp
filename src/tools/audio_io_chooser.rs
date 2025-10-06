@@ -2,6 +2,8 @@
 //! 
 //! Useful for effects like compressor
 
+use crate::prelude::{Parameter, Parameters};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 /// A helper to choose between two audio inputs or outputs.
 pub enum AudioIoChooser {
@@ -27,5 +29,35 @@ impl AudioIoChooser {
 				other.get(*i).unwrap_or(&samples)
 			}
 		}
+	}
+}
+
+impl Parameters for AudioIoChooser {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		vec![Parameter {
+			identifier: "AudioIoChooser".to_string(),
+			value: crate::prelude::Value::Int { 
+				value: match self {
+					AudioIoChooser::Current => 0,
+					AudioIoChooser::Other(i) => (*i + 1) as i32,
+				}, 
+				range: 0..=1023,
+				logarithmic: false,
+			}
+		}]
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: crate::prelude::SetValue) -> bool {
+		if identifier == "AudioIoChooser" {
+			if let crate::prelude::SetValue::Int(value)= value {
+				*self = match value {
+					0 => AudioIoChooser::Current,
+					i => AudioIoChooser::Other(i as usize - 1),
+				};
+				return true;
+			}
+		}
+
+		false
 	}
 }

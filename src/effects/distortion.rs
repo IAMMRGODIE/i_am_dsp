@@ -2,12 +2,17 @@
 
 use std::f32::consts::PI;
 
+use i_am_parameters_derive::Parameters;
+
 use crate::{prelude::MIN_FREQUENCY, Effect, ProcessContext};
 
 /// A Hard Clipper which clamps the signal between -threshold and threshold.
+#[derive(Parameters)]
 pub struct HardClipper {
 	/// saves in linear scale
 	pub threshold: f32,
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	/// saves in linear scale
 	pub gain: f32,
 }
@@ -47,10 +52,13 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HardClipper {
 /// A Soft Clipper which saturates the signal at the threshold.
 /// 
 /// The function is defined as: $f(x) := \tanh(x / \alpha)$
+#[derive(Parameters)]
 pub struct SoftClipper {
 	/// a parameter in the range [0, 1]
 	pub alpha: f32,
 	/// The output gain, saved in linear scale.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub gain: f32,
 }
 
@@ -89,9 +97,13 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for SoftClipper {
 /// An overdrive effect.
 /// 
 /// The function is defined as: $f(x) := 2 / (1 + e^{-k x}) - 1$
+#[derive(Parameters)]
 pub struct Overdrive {
+	#[range(min = 0.01, max = 10.0)]
 	/// The k parameter of the overdrive function.
 	pub k: f32,
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	/// The output gain, saved in linear scale.
 	pub gain: f32,
 }
@@ -132,9 +144,13 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Overdrive {
 /// A Bit Crusher effect.
 /// 
 /// The function is defined as: $f(x) := \operatorname{round}(x * bits) / bits$
+#[derive(Parameters)]
 pub struct BitCrusher {
+	#[range(min = 1, max = 128)]
 	/// The number of bits to keep in the output.
 	pub bits: usize,
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	/// The output gain, saved in linear scale.
 	pub gain: f32,
 }
@@ -167,7 +183,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for BitCrusher {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use crate::tools::ui_tools::gain_ui;
 
-		ui.add(egui::Slider::new(&mut self.bits, 1..=1048576).text("Bits").logarithmic(true));
+		ui.add(egui::Slider::new(&mut self.bits, 1..=128).text("Bits").logarithmic(true));
 		gain_ui(ui, &mut self.gain, None, false);
 	}			
 }
@@ -175,11 +191,16 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for BitCrusher {
 /// A Saturator effect.
 /// 
 /// The function is defined as: $f(x) := \frac{x}{1 + \frac{|x|}{a}^p} \cdot (1 + \frac{1}{a}^p)$
+#[derive(Parameters)]
 pub struct Saturator {
+	#[range(min = 0.01, max = 5.0)]
 	/// a parameter controlling the slope of the saturating function
 	pub a: f32,
+	#[range(min = 1.0, max = 10.0)]
 	/// a parameter controlling the power of the saturating function
 	pub p: f32,
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	/// saves in linear scale
 	pub gain: f32,
 }
@@ -222,14 +243,23 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Saturator {
 const EMPTY_COUNT_THRESHOLD: usize = 50;
 
 /// A Downsampler effect.
+#[derive(Parameters)]
 pub struct Downsampler<const CHANNELS: usize = 2> {
+	#[range(min = 10.0, max = 192000.0)]
 	target_sample_rate: f32,
+	#[skip]
 	sample_rate: usize,
 	/// The output gain, saved in linear scale.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
 	pub gain: f32,
+	#[skip]
 	history: [f32; CHANNELS],
+	#[skip]
 	output: [f32; CHANNELS],
+	#[skip]
 	phase: f32,
+	#[skip]
 	empty_count: usize,
 }
 

@@ -2,18 +2,27 @@
 
 use std::f32::consts::PI;
 
-use crate::{effects::{filter::{Biquad, MIN_FREQUENCY}, prelude::{hilbert_transform, Convolver, HilbertTransform}}, Effect, ProcessContext};
+use i_am_parameters_derive::Parameters;
+
+use crate::{effects::{filter::{Biquad, MIN_FREQUENCY}, prelude::{hilbert_transform, Convolver, HilbertTransform}}, tools::{format_usize, parse_usize}, Effect, ProcessContext};
 
 /// A frequency shifter using an FIR Hilbert transform.
+#[derive(Parameters)]
 pub struct FIRFreqShifter<const CHANNELS: usize = 2> {
 	/// The sample rate of the audio, saves in Hz.
+	#[skip]
 	pub sample_rate: usize,
+	#[sub_param]
 	hilbert_transform: Convolver<CHANNELS>,
+	#[skip]
 	phase_state: f32,
+	#[range(min = -20000.0, max = 20000.0)]
 	shift_freq: f32,
+	#[sub_param]
 	filter: Biquad<CHANNELS>,
 	
 	#[cfg(feature = "real_time_demo")]
+	#[persist(serialize = "format_usize", deserialize = "parse_usize")]
 	order_of_transform: usize,
 }
 
@@ -115,12 +124,18 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for FIRFreqShifter<CHANNELS> {
 }
 
 /// A frequency shifter using an IIR Hilbert transform.
+#[derive(Parameters)]
 pub struct IIRFreqShifter<const ORDER: usize, const CHANNELS: usize = 2> {
 	/// The sample rate of the audio, saves in Hz.
+	#[skip]
 	pub sample_rate: usize,
+	#[sub_param]
 	hilbert_transform: HilbertTransform<ORDER, CHANNELS>,
+	#[skip]
 	phase_state: f32,
+	#[range(min = -20000.0, max = 20000.0)]
 	shift_freq: f32,
+	#[sub_param]
 	filter: Biquad<CHANNELS>
 }
 

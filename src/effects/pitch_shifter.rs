@@ -1,12 +1,19 @@
 //! A pitch shifter effect using WSOLA algorithm.
 
+use i_am_parameters_derive::Parameters;
+
 use crate::{prelude::{negative_mean_square_error, wsola, WaveTable}, tools::ring_buffer::RingBuffer, Effect};
 
 /// A pitch shifter effect using WSOLA algorithm.
+#[derive(Parameters)]
 pub struct PitchShifter<const CHANNELS: usize = 2> {
 	/// The pitch shift factor, saves in ratio.
+	#[range(min = 0.25, max = 4.0)]
+	#[logarithmic]
 	pub pitch_shift_factor: f32,
+	#[skip]
 	buffer: [RingBuffer<f32>; CHANNELS],
+	#[skip]
 	stretched_buffer: [Vec<f32>; CHANNELS],
 }
 
