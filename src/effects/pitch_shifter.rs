@@ -68,7 +68,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PitchShifter<CHANNELS> {
 	) {
 		let current_pos = self.buffer[0].current_pos();
 		let half_len = self.buffer[0].capacity() / 2;
-		if current_pos % half_len == 0 {
+		if current_pos.is_multiple_of(half_len) {
 			for (buffer, stretched_buffer) in self.buffer.iter().zip(self.stretched_buffer.iter_mut()) {
 				*stretched_buffer = wsola(
 					buffer, 

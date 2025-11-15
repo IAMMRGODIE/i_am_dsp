@@ -6,33 +6,15 @@ pub(crate) const MIN_FREQUENCY: f32 = 10.0;
 
 use i_am_parameters_derive::Parameters;
 
-use crate::{Effect, ProcessContext};
-
-fn format_floats(input: &[f32]) -> Vec<u8> {
-	let mut output = vec![];
-	for input in input {
-		let value = input.to_le_bytes();
-		output.extend_from_slice(&value);
-	}
-	output
-}
-
-fn parse_floats<const N: usize>(input: Vec<u8>) -> [f32; N] {
-	let mut output = [0.0; N];
-	for i in 0..N {
-		let value = f32::from_le_bytes([input[i * 4], input[i * 4 + 1], input[i * 4 + 2], input[i * 4 + 3]]);
-		output[i] = value;
-	}
-	output
-}
+use crate::{tools::ring_buffer::RingBuffer, Effect, ProcessContext};
 
 #[derive(Clone)]
 #[derive(Parameters)]
 /// A simple biquad filter
 pub struct Biquad<const CHANNELS: usize = 2> {
-	#[persist(serialize = "format_floats", deserialize = "parse_floats")]
+	#[serde]
 	b: [f32; 3],
-	#[persist(serialize = "format_floats", deserialize = "parse_floats")]
+	#[serde]
 	a: [f32; 2],
 	#[skip]
 	x: [[f32; 2]; CHANNELS],
@@ -779,7 +761,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_filter"))
+			.id_salt(format!("{id_prefix}_filter"))
 			.show(ui, |ui| 
 		{
 			draw_complex_response(ui, self.sample_rate, |freq| self.complex_response(freq));
@@ -1046,7 +1028,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 /// A simple low pass filter based on [`Biquad`]
 #[derive(Parameters)]
 pub struct Lowpass<const CHANNELS: usize> {
-	#[range(min = 10.0, max = 24000.0)]
+	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the lowpass filter
 	pub cutoff: f32,
@@ -1095,14 +1077,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Lowpass<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.id_salt(format!("{id_prefix}_lowpass_resize"))
 			.show(ui, |ui| 
 		{
 
 			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
 		});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
 			ui.add(Slider::new(&mut self.q, 0.01..=10.0).text("Q"));
 		});
 	}
@@ -1111,7 +1093,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Lowpass<CHANNELS> {
 /// A simple high pass filter based on [`Biquad`]
 #[derive(Parameters)]
 pub struct Highpass<const CHANNELS: usize> {
-	#[range(min = 10.0, max = 24000.0)]
+	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the highpass filter
 	pub cutoff: f32,
@@ -1160,14 +1142,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Highpass<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.id_salt(format!("{id_prefix}_lowpass_resize"))
 			.show(ui, |ui| 
 		{
 
 			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
 		});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
 			ui.add(Slider::new(&mut self.q, 0.01..=10.0).text("Q"));
 		});
 	}
@@ -1176,7 +1158,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Highpass<CHANNELS> {
 /// A simple bandpass filter based on [`Biquad`]
 #[derive(Parameters)]
 pub struct Bandpass<const CHANNELS: usize> {
-	#[range(min = 10.0, max = 24000.0)]
+	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the bandpass filter
 	pub cutoff: f32,
@@ -1226,14 +1208,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Bandpass<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.id_salt(format!("{id_prefix}_lowpass_resize"))
 			.show(ui, |ui| 
 		{
 
 			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
 		});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
 			ui.add(Slider::new(&mut self.bandwidth, 10.0..=10000.0).text("Bandwidth").logarithmic(true));
 		});
 	}
@@ -1242,7 +1224,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Bandpass<CHANNELS> {
 /// A simple bandstop filter based on [`Biquad`]
 #[derive(Parameters)]
 pub struct Bandstop<const CHANNELS: usize> {
-	#[range(min = 10.0, max = 24000.0)]
+	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the bandstop filter
 	pub cutoff: f32,
@@ -1292,14 +1274,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Bandstop<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.id_salt(format!("{id_prefix}_lowpass_resize"))
 			.show(ui, |ui| 
 		{
 
 			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
 		});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
 			ui.add(Slider::new(&mut self.bandwidth, 10.0..=10000.0).text("Bandwidth").logarithmic(true));
 		});
 	}
@@ -1308,7 +1290,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Bandstop<CHANNELS> {
 /// A simple peaking filter based on [`Biquad`]
 #[derive(Parameters)]
 pub struct Peak<const CHANNELS: usize> {
-	#[range(min = 10.0, max = 24000.0)]
+	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the peaking filter
 	pub cutoff: f32,
@@ -1363,14 +1345,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Peak<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.id_salt(format!("{id_prefix}_lowpass_resize"))
 			.show(ui, |ui| 
 		{
 
 			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
 		});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
 			ui.add(Slider::new(&mut self.gain, 0.01..=4.0).text("Gain").logarithmic(true));
 			ui.add(Slider::new(&mut self.bandwidth, 10.0..=10000.0).text("Bandwidth").logarithmic(true));
 		});
@@ -1380,7 +1362,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Peak<CHANNELS> {
 /// A simple high shelf filter based on [`Biquad`]
 #[derive(Parameters)]
 pub struct HighShelf<const CHANNELS: usize> {
-	#[range(min = 10.0, max = 24000.0)]
+	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the high shelf filter
 	pub cutoff: f32,
@@ -1434,13 +1416,13 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HighShelf<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.id_salt(format!("{id_prefix}_lowpass_resize"))
 			.show(ui, |ui| 
 		{
 			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
 		});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
 			ui.add(Slider::new(&mut self.gain, 0.01..=4.0).text("Gain").logarithmic(true));
 			ui.add(Slider::new(&mut self.slope, 0.5..=2.0).text("Slope"));
 		});
@@ -1450,7 +1432,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HighShelf<CHANNELS> {
 /// A simple low shelf filter based on [`Biquad`]
 #[derive(Parameters)]
 pub struct LowShelf<const CHANNELS: usize> {
-	#[range(min = 10.0, max = 24000.0)]
+	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the low shelf filter
 	pub cutoff: f32,
@@ -1504,16 +1486,163 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for LowShelf<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_lowpass_resize"))
+			.id_salt(format!("{id_prefix}_lowpass_resize"))
 			.show(ui, |ui| 
 		{
 			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
 		});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=24000.0).text("Cutoff").logarithmic(true));
+			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
 			ui.add(Slider::new(&mut self.gain, 0.01..=4.0).text("Gain").logarithmic(true));
 			ui.add(Slider::new(&mut self.slope, 0.5..=2.0).text("Slope"));
 		});
 	}
 }
 
+/// A classic combs filter
+#[derive(Parameters)]
+pub struct CombsFilter<const CHANNELS: usize> {
+	#[range(min = 0.01, max = 1.0)]
+	#[logarithmic]
+	/// The feedback of the combs filter
+	pub feedback: f32,
+	#[skip]
+	history: [RingBuffer<f32>; CHANNELS],
+}
+
+impl<const CHANNELS: usize> CombsFilter<CHANNELS> {
+	/// Creates a new combs filter with the given sample rate and feedback value
+	pub fn new(feedback: f32, delay_samples: usize) -> Self {
+		Self {
+			feedback,
+			history: core::array::from_fn(|_| RingBuffer::new(delay_samples))
+		}
+	}
+
+	/// Returns the feedback delay in samples of the combs filter
+	pub fn delay_samples(&self) -> usize {
+		self.history[0].capacity()
+	}
+
+	/// Resizes the history buffer of the combs filter
+	pub fn resize_history(&mut self, new_size: usize) {
+		for buffer in self.history.iter_mut() {
+			buffer.resize(new_size);
+		}
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for CombsFilter<CHANNELS> {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn name(&self) -> &str {
+		"Combs Filter"
+	}
+
+	fn process(
+		&mut self, 
+		samples: &mut [f32; CHANNELS], 
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
+		for (i, sample) in samples.iter_mut().enumerate() {
+			*sample += self.feedback * self.history[i][0];
+			self.history[i].push(*sample);
+		}
+	}
+
+	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
+		use egui::Slider;
+
+		ui.horizontal(|ui| {
+			ui.add(Slider::new(&mut self.feedback, 0.01..=1.0).text("Feedback").logarithmic(true));
+			let mut delay_samples = self.delay_samples();
+			ui.add(Slider::new(&mut delay_samples, 16..=1024).logarithmic(true).text("Delay (samples)"));
+			if delay_samples != self.delay_samples() {
+				self.resize_history(delay_samples);
+			}
+		});
+	}
+}
+
+/// A classic allpass filter
+#[derive(Parameters)]
+pub struct AllpassFilter<const CHANNELS: usize> {
+	#[range(min = 0.01, max = 1.0)]
+	#[logarithmic]
+	/// The feedback factor of the allpass filter
+	pub feedback: f32,
+	#[skip]
+	processed_history: [RingBuffer<f32>; CHANNELS],
+	#[skip]
+	unprocessed_history: [RingBuffer<f32>; CHANNELS],
+}
+
+impl<const CHANNELS: usize> AllpassFilter<CHANNELS> {
+	/// Creates a new allpass filter with the given sample rate and feedback value
+	pub fn new(feedback: f32, delay_samples: usize) -> Self {
+		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
+
+		Self {
+			feedback,
+			processed_history: core::array::from_fn(|_| RingBuffer::new(delay_samples)),
+			unprocessed_history: core::array::from_fn(|_| RingBuffer::new(delay_samples)),
+		}
+	}
+
+	/// Returns the feedback delay in samples of the allpass filter
+	pub fn delay_samples(&self) -> usize {
+		self.processed_history[0].capacity()
+	}
+
+	/// Resizes the history buffer of the allpass filter
+	pub fn resize_history(&mut self, new_size: usize) {
+		for buffer in self.processed_history.iter_mut() {
+			buffer.resize(new_size);
+		}
+		for buffer in self.unprocessed_history.iter_mut() {
+			buffer.resize(new_size);
+		}
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for AllpassFilter<CHANNELS> {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn name(&self) -> &str {
+		"Allpass Filter"
+	}
+
+	fn process(
+		&mut self, 
+		samples: &mut [f32; CHANNELS], 
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
+		for (i, sample) in samples.iter_mut().enumerate() {
+			let processed = self.processed_history[i][0];
+			let unprocessed = self.unprocessed_history[i][0];
+			let sample_backup = *sample;
+			*sample = - *sample * self.feedback + unprocessed + self.feedback * processed;
+			self.processed_history[i].push(*sample);
+			self.unprocessed_history[i].push(sample_backup);
+		}
+	}
+
+	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
+		use egui::Slider;
+
+		ui.horizontal(|ui| {
+			ui.add(Slider::new(&mut self.feedback, 0.01..=1.0).text("Feedback").logarithmic(true));
+			let mut delay_samples = self.delay_samples();
+			ui.add(Slider::new(&mut delay_samples, 16..=1024).logarithmic(true).text("Delay (samples)"));
+			if delay_samples != self.delay_samples() {
+				self.resize_history(delay_samples);
+			}
+		});
+	}
+}

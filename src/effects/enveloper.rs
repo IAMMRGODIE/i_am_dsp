@@ -115,7 +115,7 @@ impl<const CHANNELS: usize, T: Enveloper<CHANNELS>> Enveloper<CHANNELS> for Enve
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_envelope_with_history"))
+			.id_salt(format!("{id_prefix}_envelope_with_history"))
 			.show(ui, |ui| 
 		{
 			draw_envelope(ui, &self.env_history.iter().collect::<Vec<&RingBuffer<f32>>>(), false)
@@ -528,7 +528,7 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for FIRHilbertEnvelope<CHANNELS>
 		gain_ui(ui, &mut self.gain_factor, None, false);
 
 		if ir_len != self.ir_len {
-			if ir_len % 2 == 0 {
+			if ir_len.is_multiple_of(2) {
 				ir_len += 1;
 			}
 			self.set_ir_len(ir_len);

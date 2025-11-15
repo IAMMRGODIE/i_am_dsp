@@ -2,6 +2,8 @@
 
 use std::ops::RangeInclusive;
 
+use ciborium::{from_reader, into_writer};
+
 use crate::tools::{format_vec_f32, parse_vec_f32};
 
 /// A helper struct for report parameters.
@@ -148,11 +150,9 @@ impl Parameters for Vec<f32> {
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		if identifier == "data" {
-			if let SetValue::Serialized(data) = value {
-				*self = parse_vec_f32(data);
-				return true;
-			}
+		if identifier == "data" && let SetValue::Serialized(data) = value {
+			*self = parse_vec_f32(data);
+			return true;
 		}
 		false
 	}
@@ -167,11 +167,9 @@ impl Parameters for &mut [f32] {
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		if identifier == "data" {
-			if let SetValue::Serialized(data) = value {
-				self.clone_from_slice(&parse_vec_f32(data));
-				return true;
-			}
+		if identifier == "data" && let SetValue::Serialized(data) = value {
+			self.clone_from_slice(&parse_vec_f32(data));
+			return true;
 		}
 		false
 	}
@@ -186,11 +184,9 @@ impl Parameters for String {
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		if identifier == "data" {
-			if let SetValue::Serialized(data) = value {
-				*self = String::from_utf8_lossy(&data).to_string();
-				return true;
-			}
+		if identifier == "data" && let SetValue::Serialized(data) = value {
+			*self = String::from_utf8_lossy(&data).to_string();
+			return true;
 		}
 		false
 	}
@@ -239,6 +235,33 @@ impl<T: Parameters> Parameters for Option<T> {
 	}
 }
 
+/// A helper function
+/// 
+/// It can be used to convert any type implementing the `Serialize` trait to a binary format.
+/// We will use cbor as the binary format.
+/// 
+/// # Panics
+/// 
+/// This function will panic if the value cannot be serialized.
+pub fn to_binary<T: serde::Serialize>(value: &T) -> Vec<u8> {
+	let mut output = vec![];
+	into_writer(value, &mut output).expect("Can not serialized input value");
+	output
+}
+
+/// A helper function
+/// 
+/// It can be used to convert a binary format to any type implementing the `Deserialize` trait.
+/// We will use cbor as the binary format.
+/// 
+/// # Panics
+/// 
+/// This function will panic if the data cannot be deserialized.
+pub fn from_binary<T: serde::de::DeserializeOwned>(data: Vec<u8>) -> T {
+	let slice = data.as_slice();
+	from_reader(slice).expect("Can note deserialized input value")
+}
+
 #[cfg(test)]
 mod tests {
 	use i_am_parameters_derive::Parameters;
@@ -269,6 +292,8 @@ mod tests {
 		f: f32,
 		#[range(min = 0, max = 1)]
 		g: i32,
+		#[serde]
+		h: (f32, f32),
 	}
 
 
@@ -285,8 +310,8 @@ mod tests {
 		let mut params = MyParameters::default();
 
 		let params_output = params.get_parameters();
-		// println!("{:#?}", params_output);
-		assert_eq!(params_output.len(), 6);
+		println!("{:#?}", params_output);
+		assert_eq!(params_output.len(), 7);
 		params.set_parameter("a", SetValue::Float(0.5));
 		assert_eq!(params.a, 0.5);
 		params.set_parameter("b", SetValue::Int(5));
@@ -301,5 +326,8 @@ mod tests {
 		assert!(params.boo);
 		params.set_parameter("_e", SetValue::Nothing);
 		assert_eq!(params._e, Vec::new());
+		params.set_parameter("d.h", SetValue::Serialized(to_binary(&(2.0, 3.0))));
+		assert_eq!(params.d.h, (2.0, 3.0));
 	}
 }
+

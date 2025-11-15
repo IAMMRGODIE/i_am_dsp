@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use i_am_parameters_derive::Parameters;
 
-use crate::{effects::{filter::{Biquad, MIN_FREQUENCY}, prelude::{hilbert_transform, Convolver, HilbertTransform}}, tools::{format_usize, parse_usize}, Effect, ProcessContext};
+use crate::{effects::{filter::{Biquad, MIN_FREQUENCY}, prelude::{hilbert_transform, Convolver, HilbertTransform}}, Effect, ProcessContext};
 
 /// A frequency shifter using an FIR Hilbert transform.
 #[derive(Parameters)]
@@ -22,7 +22,7 @@ pub struct FIRFreqShifter<const CHANNELS: usize = 2> {
 	filter: Biquad<CHANNELS>,
 	
 	#[cfg(feature = "real_time_demo")]
-	#[persist(serialize = "format_usize", deserialize = "parse_usize")]
+	#[serde]
 	order_of_transform: usize,
 }
 
@@ -111,7 +111,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for FIRFreqShifter<CHANNELS> {
 		);
 
 		if order_of_transform != self.order_of_transform {
-			if order_of_transform % 2 == 0 {
+			if order_of_transform.is_multiple_of(2) {
 				order_of_transform += 1;
 			}
 			self.order_of_transform = order_of_transform;

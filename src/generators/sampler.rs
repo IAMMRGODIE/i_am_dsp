@@ -6,28 +6,7 @@ use crossbeam_channel::Receiver;
 use i_am_parameters_derive::Parameters;
 use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 
-use crate::{prelude::Oscillator, tools::{format_pcm_data, format_usize, interpolate::cubic_interpolate, load_pcm_data::{load_from_file, ReadFileError}, parse_pcm_data, parse_usize}, Generator, ProcessContext};
-
-fn format_loop_range(loop_range: &Option<(usize, usize)>) -> Vec<u8> {
-	if let Some((start, end)) = loop_range {
-		let mut data = vec![];
-		data.extend_from_slice(&start.to_le_bytes());
-		data.extend_from_slice(&end.to_le_bytes());
-		data
-	}else {
-		vec![]
-	}
-}
-
-fn parse_loop_range(data: Vec<u8>) -> Option<(usize, usize)> {
-	if data.len() == 8 {
-		let start = u32::from_le_bytes(data[0..4].try_into().unwrap());
-		let end = u32::from_le_bytes(data[4..8].try_into().unwrap());
-		Some((start as usize, end as usize))
-	}else {
-		None
-	}
-}
+use crate::{prelude::Oscillator, tools::{format_pcm_data, interpolate::cubic_interpolate, pcm_data::{load_from_file, ReadFileError}, parse_pcm_data}, Generator, ProcessContext};
 
 /// A sampler that plays back audio files.
 /// 
@@ -37,14 +16,14 @@ fn parse_loop_range(data: Vec<u8>) -> Option<(usize, usize)> {
 pub struct Sampler<const CHANNELS: usize = 2> {
 	#[persist(serialize = "format_pcm_data", deserialize = "parse_pcm_data")]
 	pcm_data: Option<[Vec<f32>; CHANNELS]>,
-	#[persist(serialize = "format_usize", deserialize = "parse_usize")]
+	#[serde]
 	current_position: usize,
 	#[skip]
 	sample_rate: usize,
 	/// The loop range of the sample. Saves in samples.
 	/// 
 	/// None for no loop.
-	#[persist(serialize = "format_loop_range", deserialize = "parse_loop_range")]
+	#[serde]
 	loop_range: Option<(usize, usize)>,
 	/// Whether the sample is currently playing.
 	/// 
@@ -98,6 +77,8 @@ struct GuiState<const CHANNELS: usize> {
 	show_time_as_samples: bool,
 	drag_start_at: usize,
 	resample_ratio: f32,
+	opened_file: Option<std::path::PathBuf>,
+	dialog: Option<egui_file::FileDialog>,
 }
 
 impl<const CHANNELS: usize> Sampler<CHANNELS> {
@@ -249,7 +230,7 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 	/// Will return a handle if the file need to be resample to current sample rate, 
 	/// and user should manually load pcm data using [`Self::set_pcm_data`] method.
 	/// 
-	/// For more details, see [`crate::tools::load_pcm_data::load_from_file`].
+	/// For more details, see [`crate::tools::pcm_data::load_from_file`].
 	pub fn load_from_file(&mut self, path: impl AsRef<Path>) -> Result<Option<ResampleHandle<CHANNELS>>, ReadFileError> {
 		let pcm_data = load_from_file::<CHANNELS>(path)?;
 		let audio_sample_rate = pcm_data.sample_rate;
@@ -406,21 +387,19 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 			self.gui_state.resample_process = None;
 		}
 
-		if need_load_pcm {
-			if let Some(handle) = self.gui_state.resample_process.take() {
-				let handle = match handle.thread_handle.join() {
-					Ok(Ok(inner)) => inner,
-					Ok(Err(e)) => {
-						self.gui_state.error = Some(format!("{}", e));
-						return;
-					},
-					Err(_) => {
-						self.gui_state.error = Some("Thread Error Occured".to_string());
-						return;
-					},
-				};
-				self.set_pcm_data(handle)
-			}
+		if need_load_pcm && let Some(handle) = self.gui_state.resample_process.take() {
+			let handle = match handle.thread_handle.join() {
+				Ok(Ok(inner)) => inner,
+				Ok(Err(e)) => {
+					self.gui_state.error = Some(format!("{}", e));
+					return;
+				},
+				Err(_) => {
+					self.gui_state.error = Some("Thread Error Occured".to_string());
+					return;
+				},
+			};
+			self.set_pcm_data(handle)
 		}
 
 		let Some(pcm_data) = &self.pcm_data else {
@@ -434,17 +413,36 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 						inner.path.clone()
 					}).unwrap_or_default();
 				});
-
-				#[cfg(feature = "rfd")]
+				
 				if ui.button("Load PCM data").clicked() {
-					let dialog = rfd::FileDialog::new().add_filter("Wave files", &["wav"]);
-					path = dialog.pick_file();
+					use std::ffi::OsStr;
+					use egui_file::FileDialog;
+
+					let filter = Box::new({
+						let ext = Some(OsStr::new("wav"));
+						move |path: &std::path::Path| -> bool {
+							path.extension() == ext
+						}
+					});
+					let mut dialog = FileDialog::open_file(self.gui_state.opened_file.clone()).show_files_filter(filter);
+					dialog.open();
+
+					self.gui_state.dialog = Some(dialog);
+				}
+
+				if let Some(dialog) = self.gui_state.dialog.as_mut() {
+					let dialog = dialog.show(ui.ctx());
+					if dialog.selected() {
+						path = dialog.path().map(|path| path.to_path_buf());
+					}
 				}
 
 				if let Some(path) = path {
 					if path.extension().map(|ext| ext.to_string_lossy().to_lowercase() != "wav").unwrap_or(true) {
 						return;
 					}
+
+					self.gui_state.opened_file = Some(path.clone());
 
 					match self.load_from_file(path) {
 						Ok(inner) => self.gui_state.resample_process = inner,
@@ -462,47 +460,44 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_sampler_waveform"))
+			.id_salt(format!("{id_prefix}_sampler_waveform"))
 			.show(ui, |ui| 
 		{
+			let pcm_data_ref = pcm_data.iter().map(|data| data.as_slice()).collect::<Vec<_>>();
 			let response = draw_waveform(
 				ui, 
 				Some(current_position), 
-				pcm_data, 
+				&pcm_data_ref, 
 				&self.loop_range, 
 				self.reverse,
 				!is_resampler
 			);
 			let rect = response.rect;
 
-			if response.dragged_by(PointerButton::Primary) || response.clicked() {
-				if let Some(position) = ui.ctx().input(|state| {
-					state.pointer.hover_pos()
-				}) {
-					let position = position.x - rect.min.x;
-					self.current_position = (position / rect.width() * total_samples as f32 / self.speed) as usize;
-					self.loop_range = None;
-				}
+			if (response.dragged_by(PointerButton::Primary) || response.clicked()) && let Some(position) = ui.ctx().input(|state| {
+				state.pointer.hover_pos()
+			}) {
+				let position = position.x - rect.min.x;
+				self.current_position = (position / rect.width() * total_samples as f32 / self.speed) as usize;
+				self.loop_range = None;
 			}
 
-			if response.dragged_by(PointerButton::Secondary) {
-				if let Some(position) = ui.ctx().input(|state| {
-					state.pointer.hover_pos()
-				}) {
-					let position = position.x - rect.min.x;
-					let current_position = (position / rect.width() * total_samples as f32) as usize;
-					if response.drag_started_by(PointerButton::Secondary) {
-						self.gui_state.drag_start_at = current_position;
-					}
+			if response.dragged_by(PointerButton::Secondary) && let Some(position) = ui.ctx().input(|state| {
+				state.pointer.hover_pos()
+			}) {
+				let position = position.x - rect.min.x;
+				let current_position = (position / rect.width() * total_samples as f32) as usize;
+				if response.drag_started_by(PointerButton::Secondary) {
+					self.gui_state.drag_start_at = current_position;
+				}
 
-					let min = current_position.min(self.gui_state.drag_start_at);
-					let max = current_position.max(self.gui_state.drag_start_at);
-					self.loop_range = Some((min, max));
-					if self.current_position >= max {
-						self.current_position = (max as f32 / self.speed).floor() as usize;
-					}else if self.current_position < min {
-						self.current_position = (min as f32 / self.speed).ceil() as usize;
-					}
+				let min = current_position.min(self.gui_state.drag_start_at);
+				let max = current_position.max(self.gui_state.drag_start_at);
+				self.loop_range = Some((min, max));
+				if self.current_position >= max {
+					self.current_position = (max as f32 / self.speed).floor() as usize;
+				}else if self.current_position < min {
+					self.current_position = (min as f32 / self.speed).ceil() as usize;
 				}
 			}
 		});
@@ -575,14 +570,37 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 					self.drop_pcm_data();
 				}
 	
-				#[cfg(feature = "rfd")]
-				if ui.button("Reload PCM data").clicked() {
-					let dialog = rfd::FileDialog::new().add_filter("Wave files", &["wav"]);
-					if let Some(path) = dialog.pick_file() {
-						match self.load_from_file(path) {
-							Ok(inner) => self.gui_state.resample_process = inner,
-							Err(e) => self.gui_state.error = Some(format!("{}", e)),
+				if ui.button("Load PCM data").clicked() {
+					use std::ffi::OsStr;
+					use egui_file::FileDialog;
+
+					let filter = Box::new({
+						let ext = Some(OsStr::new("wav"));
+						move |path: &std::path::Path| -> bool {
+							path.extension() == ext
 						}
+					});
+					let mut dialog = FileDialog::open_file(self.gui_state.opened_file.clone()).show_files_filter(filter);
+					dialog.open();
+
+					self.gui_state.dialog = Some(dialog);
+				}
+
+				let mut path = None;
+
+				if let Some(dialog) = self.gui_state.dialog.as_mut() {
+					let dialog = dialog.show(ui.ctx());
+					if dialog.selected() {
+						path = dialog.path().map(|path| path.to_path_buf());
+					}
+				}
+
+				if let Some(path) = path {
+					self.gui_state.opened_file = Some(path.clone());
+
+					match self.load_from_file(path) {
+						Ok(inner) => self.gui_state.resample_process = inner,
+						Err(e) => self.gui_state.error = Some(format!("{}", e)),
 					}
 				}
 			});

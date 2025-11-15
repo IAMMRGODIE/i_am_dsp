@@ -9,7 +9,8 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 #[proc_macro_derive(Parameters, attributes(
 	range, 
 	id, 
-	persist, 
+	persist,
+	serde,
 	skip, 
 	sub_param, 
 	logarithmic,
@@ -53,6 +54,8 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 ///     g: i32,
 ///     #[logarithmic]
 ///     h:f32,
+///     #[serde]
+///     i: (f32, f32),
 /// }
 /// 
 /// fn string_to_binary(s: &String) -> Vec<u8> {
@@ -67,6 +70,7 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 /// - `range`: A range attribute that specifies the minimum and maximum values of the parameter.
 /// - `id`: An id attribute that specifies the name of the parameter.
 /// - `persist`: A persist attribute that specifies how to serialize and deserialize the parameter.
+/// - `serde`: Use serde to serialize and deserialize the parameter.
 /// - `skip`: A skip attribute that specifies that the field should be skipped when deriving the `Parameters` trait.
 /// - `sub_param`: A sub_param attribute that specifies that the field is a sub-parameter struct.
 /// - `logarithmic`: A logarithmic attribute that specifies that the parameter should be displayed in logarithmic scale. Parameter with logarithmic must be positive.
@@ -266,6 +270,27 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 					}
 				});
 			}
+		}else if config.is_serde {
+			parameter_imply.push(quote! {
+				let parsed = i_am_dsp::prelude::to_binary(&self.#field_name);
+				parameters.push(i_am_dsp::prelude::Parameter {
+					identifier: stringify!(#id).to_string(),
+					value: i_am_dsp::prelude::Value::Serialized(parsed),
+				});
+			});
+			setter_imply.push(quote! {
+				if identifier == stringify!(#id) {
+					let owned_value = std::mem::take(&mut value);
+					match owned_value {
+						i_am_dsp::prelude::SetValue::Serialized(parsed) => {
+							let value = i_am_dsp::prelude::from_binary(parsed);
+							self.#field_name = value;
+							return true;
+						},
+						other => value = other,
+					}
+				}
+			});
 		}else if let (Some(serialize), Some(deserialize)) = (config.persist_serialize, config.persist_deserialize) {
 			let serialize = Ident::new(&serialize, proc_macro2::Span::call_site());
 			let deserialize = Ident::new(&deserialize, proc_macro2::Span::call_site());
@@ -355,6 +380,7 @@ struct FieldConfig {
 	is_sub_param: bool,
 	is_bool: bool,
 	logarithmic: bool,
+	is_serde: bool,
 }
 
 fn handle_attribute(
@@ -408,6 +434,7 @@ fn handle_attribute(
 			"logarithmic" => config.logarithmic = true,
 			"skip" => config.skip = true,
 			"sub_param" => config.is_sub_param = true,
+			"serde" => config.is_serde = true,
 			_ => {}
 		}
 	}
@@ -415,7 +442,8 @@ fn handle_attribute(
 	if config.skip {
 		let should_be_none = config.range.is_none() && 
 			config.persist_deserialize.is_none() &&
-			!config.is_sub_param;
+			!config.is_sub_param &&
+			!config.is_serde;
 		
 		if !should_be_none {
 			return Err(Error::new_spanned(field_name, "`skip` attribute cannot be used with other attributes"));
@@ -425,7 +453,9 @@ fn handle_attribute(
 	if config.persist_serialize.is_some() {
 		let should_be_none = config.range.is_none() && 
 			!config.skip && 
-			!config.is_sub_param;
+			!config.is_sub_param &&
+			!config.is_serde;
+
 		if !should_be_none {
 			return Err(Error::new_spanned(field_name, "`persist` serialize attribute cannot be used with other attributes"));
 		}
@@ -433,8 +463,10 @@ fn handle_attribute(
 
 	if config.range.is_some() {
 		let should_be_none = config.persist_serialize.is_none() && 
-		!config.skip && 
-		!config.is_sub_param;
+			!config.skip && 
+			!config.is_sub_param &&
+			!config.is_serde;
+
 		if !should_be_none {
 			return Err(Error::new_spanned(field_name, "`range` attribute cannot be used with persist serialize attribute"));
 		}
@@ -444,13 +476,20 @@ fn handle_attribute(
 		let should_be_none = config.range.is_none() && 
 			config.persist_serialize.is_none() &&
 			config.persist_deserialize.is_none() &&
-			!config.skip;
+			!config.skip &&
+			!config.is_serde;
+
 		if !should_be_none {
 			return Err(Error::new_spanned(field_name, "`sub_param` attribute cannot be used with other attributes"));
 		}
 	}
 
-	if config.range.is_none() && config.persist_serialize.is_none() && !config.skip && !config.is_sub_param {
+	if config.range.is_none() && 
+		config.persist_serialize.is_none() && 
+		!config.skip && 
+		!config.is_sub_param && 
+		!config.is_serde 
+	{
 		if let Type::Path(path) = field_ty {
 			if let Some(ident) = path.path.get_ident() {
 				let ident = ident.to_string();
@@ -472,14 +511,13 @@ fn handle_attribute(
 				}else if ident == "bool" {
 					config.is_bool = true;
 				}else {
-					return Err(Error::new_spanned(field_name, "Unsupported type, consider using `persist`, `skip`, or `sub_param`"));
+					return Err(Error::new_spanned(field_name, "Unsupported type, consider using `persist`, `skip`, or `sub_param`, `serde`"));
 				}
 			}else {
-				return Err(Error::new_spanned(field_name, "Unsupported type, consider using `persist`, `skip`, or `sub_param`"));
-				// return Err(Error::new_spanned(field_name, "Unsupported type, consider import current type rather than using path"));
+				return Err(Error::new_spanned(field_name, "Unsupported type, consider using `persist`, `skip`, or `sub_param`, `serde`"));
 			}
 		}else {
-			return Err(Error::new_spanned(field_name, "Unsupported type, consider using `persist`, `skip`, or `sub_param`"));
+			return Err(Error::new_spanned(field_name, "Unsupported type, consider using `persist`, `skip`, or `sub_param`, `serde`"));
 		}
 	}
 

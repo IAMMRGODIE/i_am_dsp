@@ -80,7 +80,7 @@ impl<const ORDER: usize, const CHANNELS: usize> HilbertTransform<ORDER, CHANNELS
 	/// 1. `ORDER` is not a positive even integer less than or equal to 16.
 	/// 2. `CHANNELS` is not a positive integer.
 	pub const fn new(sample_rate: usize) -> Self {
-		assert!(ORDER > 0 && CHANNELS > 0 && ORDER <= 16 && ORDER % 2 == 0);
+		assert!(ORDER > 0 && CHANNELS > 0 && ORDER <= 16 && ORDER.is_multiple_of(2));
 
 		Self {
 			x: [[0.0; ORDER]; CHANNELS],
@@ -189,7 +189,7 @@ impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for HilbertTran
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_hilbert_transform_demo"))
+			.id_salt(format!("{id_prefix}_hilbert_transform_demo"))
 			.show(ui, |ui| 
 		{
 			draw_complex_response(ui, self.sample_rate, |freq| self.complex_response(freq));

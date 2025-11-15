@@ -54,7 +54,14 @@ pub struct RhaiFreqGen {
 	error: Option<RhaiFreqGenError>,
 
 	#[cfg(feature = "real_time_demo")]
+	#[skip]
 	allow_load_code: bool,
+	#[cfg(feature = "real_time_demo")]
+	#[skip]
+	opened_file: Option<std::path::PathBuf>,
+	#[cfg(feature = "real_time_demo")]
+	#[skip]
+	dialog: Option<egui_file::FileDialog>,
 }
 
 fn format_ast(input: &Option<(String, rhai::AST)>) -> Vec<u8> {
@@ -111,6 +118,10 @@ impl RhaiFreqGen {
 
 			#[cfg(feature = "real_time_demo")]
 			allow_load_code: false,
+			#[cfg(feature = "real_time_demo")]
+			opened_file: None,
+			#[cfg(feature = "real_time_demo")]
+			dialog: None,
 		}
 	}
 
@@ -242,16 +253,35 @@ impl GenFreqInfo for RhaiFreqGen {
 				});
 			}
 
-			#[cfg(feature = "rfd")]
 			if ui.button("Load Code").clicked() {
-				let dialog = rfd::FileDialog::new().add_filter("Rhai files", &["rhai"]);
-				path = dialog.pick_file();
+				use std::ffi::OsStr;
+				use egui_file::FileDialog;
+
+				let filter = Box::new({
+					let ext = Some(OsStr::new("rhai"));
+					move |path: &std::path::Path| -> bool {
+						path.extension() == ext
+					}
+				});
+				let mut dialog = FileDialog::open_file(self.opened_file.clone()).show_files_filter(filter);
+				dialog.open();
+
+				self.dialog = Some(dialog);
+			}
+			
+			if let Some(dialog) = self.dialog.as_mut() {
+				let dialog = dialog.show(ui.ctx());
+				if dialog.selected() {
+					path = dialog.path().map(|path| path.to_path_buf());
+				}
 			}
 
 			if let Some(path) = path {
 				if path.extension().map(|ext| ext.to_string_lossy().to_lowercase() != "rhai").unwrap_or(true) {
 					return;
 				}
+				
+				self.opened_file = Some(path.clone());
 
 				match self.load_from_file(path) {
 					Ok(()) => {},
@@ -269,7 +299,7 @@ impl GenFreqInfo for RhaiFreqGen {
 		});
 		
 		CollapsingHeader::new("Show Code")
-			.id_source(format!("{}_rhai_freq_gen_code", id_prefix))
+			.id_salt(format!("{}_rhai_freq_gen_code", id_prefix))
 			.show(ui, |ui| {
 				if let Some((code, _)) = &self.ast {
 					ui.label(code)

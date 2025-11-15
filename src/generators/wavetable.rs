@@ -47,7 +47,7 @@ impl<T: WaveTable, const CHANNELS: usize> Oscillator<CHANNELS> for T {
 		// .auto_sized()
 		.min_width(width)
 		.max_width(width)
-		.id_source(format!("{id_prefix}_wavtable"))
+		.id_salt(format!("{id_prefix}_wavtable"))
 		.show(ui, |ui| {
 			draw_wavetable(ui, |t| self.sample(t, 0));
 		});
@@ -239,6 +239,12 @@ pub struct WaveTableSmoother {
 	#[skip]
 	#[cfg(feature = "real_time_demo")]
 	allow_change_table: bool,
+	#[skip]
+	#[cfg(feature = "real_time_demo")]
+	opened_file: Option<std::path::PathBuf>,
+	#[skip]
+	#[cfg(feature = "real_time_demo")]
+	openfile_dialog: Option<egui_file::FileDialog>,
 }
 
 impl Parameters for Vec<Box<dyn WaveTable + Send + Sync>> {
@@ -278,6 +284,10 @@ impl WaveTableSmoother {
 			error: None,
 			#[cfg(feature = "real_time_demo")]
 			allow_change_table: false,
+			#[cfg(feature = "real_time_demo")]
+			opened_file: None,
+			#[cfg(feature = "real_time_demo")]
+			openfile_dialog: None,
 		}
 	}
 
@@ -315,6 +325,10 @@ impl WaveTableSmoother {
 			error: None,
 			#[cfg(feature = "real_time_demo")]
 			allow_change_table: false,
+			#[cfg(feature = "real_time_demo")]
+			opened_file: None,
+			#[cfg(feature = "real_time_demo")]
+			openfile_dialog: None,
 		}
 	}
 
@@ -341,7 +355,7 @@ impl<const CHANNELS: usize> Oscillator<CHANNELS> for WaveTableSmoother {
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
 		use crate::tools::ui_tools::draw_wavetable;
-		use crate::tools::load_pcm_data::load_from_file;
+		use crate::tools::pcm_data::load_from_file;
 		use egui::Slider;
 
 		let mut clear_error = false;
@@ -357,7 +371,7 @@ impl<const CHANNELS: usize> Oscillator<CHANNELS> for WaveTableSmoother {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_wavtable_smoother"))
+			.id_salt(format!("{id_prefix}_wavtable_smoother"))
 			.show(ui, |ui| 
 		{
 			draw_wavetable(ui, |t| self.sample(t, 0));
@@ -374,17 +388,35 @@ impl<const CHANNELS: usize> Oscillator<CHANNELS> for WaveTableSmoother {
 				});
 			}
 			
-			#[cfg(feature = "rfd")]
 			if ui.button("Load Sample").clicked() {
-				let dialog = rfd::FileDialog::new()
-					.add_filter("Wav Files", &["wav"]);
-				path = dialog.pick_file();
+				use std::ffi::OsStr;
+				use egui_file::FileDialog;
+
+				let filter = Box::new({
+					let ext = Some(OsStr::new("wav"));
+					move |path: &std::path::Path| -> bool {
+						path.extension() == ext
+					}
+				});
+				let mut dialog = FileDialog::open_file(self.opened_file.clone()).show_files_filter(filter);
+				dialog.open();
+
+				self.openfile_dialog = Some(dialog);
+			}
+			
+			if let Some(dialog) = self.openfile_dialog.as_mut() {
+				let dialog = dialog.show(ui.ctx());
+				if dialog.selected() {
+					path = dialog.path().map(|path| path.to_path_buf());
+				}
 			}
 
 			if let Some(path) = path {
 				if path.extension().map(|ext| ext.to_string_lossy().to_lowercase() != "wav").unwrap_or(true) {
 					return;
 				}
+
+				self.opened_file = Some(path.clone());
 
 				let data = match load_from_file::<CHANNELS>(path) {
 					Ok(data) => data,
@@ -439,6 +471,9 @@ pub struct OscillatorSmoother<const CHANNELS: usize> {
 	pub oscillators: Vec<Box<dyn Oscillator<CHANNELS> + Send + Sync>>,
 	/// should be between 0 and 1, where 0 is first table and 1 is last table.
 	pub smooth_factor: f32,
+
+	#[cfg(feature = "real_time_demo")]
+	current_oscillator: usize,
 }
 
 impl<const CHANNELS: usize> Parameters for Vec<Box<dyn Oscillator<CHANNELS> + Send + Sync>> {
@@ -495,7 +530,7 @@ impl<const CHANNELS: usize> Oscillator<CHANNELS> for OscillatorSmoother<CHANNELS
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_wavtable_smoother"))
+			.id_salt(format!("{id_prefix}_wavtable_smoother"))
 			.show(ui, |ui| 
 		{
 			draw_wavetable(ui, |t| self.sample(t, [0.0; CHANNELS]).iter().map(|inner| {
@@ -505,15 +540,43 @@ impl<const CHANNELS: usize> Oscillator<CHANNELS> for OscillatorSmoother<CHANNELS
 		
 		ui.horizontal(|ui| {
 			ui.add(egui::Slider::new(&mut self.smooth_factor, 0.0..=1.0).text("Smooth Factor"));
-			// if ui.selectable_label(self.linear_interp, "Linear Interpolation").clicked() {
-			// 	self.linear_interp = !self.linear_interp;
-			// }
+			if self.oscillators.is_empty() {
+				return;
+			}
+			ui.label(format!("current oscillator: {}", self.current_oscillator));
+			ui.menu_button("Select Osc", |ui| {
+				for i in 0..self.oscillators.len() {
+					if ui.button(format!("Oscillator {}", i)).clicked() {
+						self.current_oscillator = i;
+						ui.close_menu();
+					}
+				}
+			});
 		});
+
+		if let Some(osc) = self.oscillators.get_mut(self.current_oscillator) {
+			osc.demo_ui(ui, format!("{id_prefix}_oscillator_smoother_oscillator"));
+		}else {
+			self.current_oscillator = 0;
+		}
 	}
 
 	fn play_at(&mut self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
 		let t = (time * frequency) % 1.0;
 		self.sample(t, phase)
+	}
+}
+
+impl<const CHANNELS: usize> OscillatorSmoother<CHANNELS> {
+	/// Create a new [`OscillatorSmoother`] from a vector of oscillators and a smooth factor.
+	pub fn new(oscillators: Vec<Box<dyn Oscillator<CHANNELS> + Send + Sync>>, smooth_factor: f32) -> Self {
+		Self {
+			oscillators,
+			smooth_factor,
+
+			#[cfg(feature = "real_time_demo")]
+			current_oscillator: 0,
+		}
 	}
 }
 
@@ -523,7 +586,7 @@ pub struct EditableLfo {
 	/// The inner data of current lfo.
 	/// 
 	/// the format is (time, value, bend)
-	#[persist(serialize = "format_lfo_data", deserialize = "parse_lfo_data")]
+	#[serde]
 	pub data: Vec<(f32, f32, f32)>,
 	#[range(min = 0.01, max = 100.0)]
 	#[logarithmic]
@@ -541,27 +604,6 @@ pub struct EditableLfo {
 	#[cfg(feature = "real_time_demo")]
 	grid: Option<(usize, usize)>,
 	
-}
-
-fn format_lfo_data(data: &[(f32, f32, f32)]) -> Vec<u8> {
-	let mut output = vec![];
-	for (time, value, bend) in data {
-		output.extend_from_slice(&f32::to_le_bytes(*time));
-		output.extend_from_slice(&f32::to_le_bytes(*value));
-		output.extend_from_slice(&f32::to_le_bytes(*bend));
-	}
-	output
-}
-
-fn parse_lfo_data(data: Vec<u8>) -> Vec<(f32, f32, f32)> {
-	let mut output = vec![];
-	for i in (0..data.len()).step_by(12) {
-		let time = f32::from_le_bytes([data[i], data[i+1], data[i+2], data[i+3]]);
-		let value = f32::from_le_bytes([data[i+4], data[i+5], data[i+6], data[i+7]]);
-		let bend = f32::from_le_bytes([data[i+8], data[i+9], data[i+10], data[i+11]]);
-		output.push((time, value, bend));
-	}
-	output
 }
 
 impl Default for EditableLfo {
@@ -647,7 +689,7 @@ impl EditableLfo {
 		Resize::default()
 			.min_height(HEIGHT)
 			.max_height(HEIGHT)
-			.id_source(format!("{id_prefix}_editable_lfo"))
+			.id_salt(format!("{id_prefix}_editable_lfo"))
 			.show(ui, |ui| 
 		{
 			let response = draw_wavetable(ui, |t| {
@@ -703,13 +745,11 @@ impl EditableLfo {
 				let bend_pos = to_screen * pos2(bend_x, -bend_y);
 				let current_pos = to_screen * pos2(current_x, -current_y);
 
-				if dragging {
-					if let Some(pos) = pointer_position {
-						if pos.distance(bend_pos) <= RADIUS * 2.0 && self.dragging.is_none() {
-							self.dragging = Some((i, true));
-						}else if pos.distance(current_pos) <= RADIUS * 2.0 && self.dragging.is_none() {
-							self.dragging = Some((i, false));
-						}
+				if dragging && let Some(pos) = pointer_position {
+					if pos.distance(bend_pos) <= RADIUS * 2.0 && self.dragging.is_none() {
+						self.dragging = Some((i, true));
+					}else if pos.distance(current_pos) <= RADIUS * 2.0 && self.dragging.is_none() {
+						self.dragging = Some((i, false));
 					}
 				}
 
@@ -724,11 +764,9 @@ impl EditableLfo {
 			if response.double_clicked() {
 				let mut time = (pointer_position.x - rect.left()) / rect.width();
 				let mut value = (rect.bottom() - pointer_position.y) / rect.height();
-				if let Some((row, column)) = &self.grid {
-					if *row != 0 && *column != 0 {
-						time = (time * *column as f32).round() / *column as f32;
-						value = (value * *row as f32).round() / *row as f32;
-					}
+				if let Some((row, column)) = &self.grid && *row != 0 && *column != 0 {
+					time = (time * *column as f32).round() / *column as f32;
+					value = (value * *row as f32).round() / *row as f32;
 				}
 
 				self.add_point(time, value, 0.0);

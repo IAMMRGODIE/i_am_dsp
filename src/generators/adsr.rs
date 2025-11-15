@@ -347,7 +347,7 @@ impl<
 		use crate::tools::ui_tools::gain_ui;
 
 		CollapsingHeader::new("Oscillator Settings")
-			.id_source(format!("{}_oscillator_settings", id_prefix))
+			.id_salt(format!("{}_oscillator_settings", id_prefix))
 			.show(ui, |ui| 
 		{
 			self.oscillator.demo_ui(ui, format!("{}_oscillator", id_prefix));

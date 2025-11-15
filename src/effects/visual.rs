@@ -70,7 +70,7 @@ impl<const CHANNELS: usize> Effect for Waveform<CHANNELS> {
 		Resize::default()
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{}_waveform_resize", id_prefix))
+			.id_salt(format!("{}_waveform_resize", id_prefix))
 			.show(ui, |ui| {
 				let env = self.buffer.iter().collect::<Vec<_>>();
 				if draw_envelope(ui, &env, true).clicked() &&

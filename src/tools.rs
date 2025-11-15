@@ -1,7 +1,7 @@
 //! Useful tools for DSP.
 
 pub mod ring_buffer;
-pub mod load_pcm_data;
+pub mod pcm_data;
 pub mod audio_io_chooser;
 pub mod smoother;
 pub mod wsola;
@@ -49,7 +49,7 @@ pub(crate) fn parse_pcm_data<const CHANNELS: usize>(mut data: Vec<u8>) -> Option
 
 	assert_eq!(std::mem::size_of::<f32>(), 4);
 
-	if data.len() % std::mem::size_of::<f32>() != 0 {
+	if !data.len().is_multiple_of(std::mem::size_of::<f32>()) {
 		panic!("Invalid data length");
 	}
 
@@ -100,7 +100,7 @@ pub(crate) fn format_vec_f32(data: &[f32]) -> Vec<u8> {
 pub(crate) fn parse_vec_f32(mut data: Vec<u8>) -> Vec<f32> {
 	assert_eq!(std::mem::size_of::<f32>(), 4);
 
-	if data.len() % std::mem::size_of::<f32>() != 0 {
+	if !data.len().is_multiple_of(std::mem::size_of::<f32>()) {
 		panic!("Invalid data length");
 	}
 
@@ -113,16 +113,4 @@ pub(crate) fn parse_vec_f32(mut data: Vec<u8>) -> Vec<f32> {
 	unsafe {
 		Vec::from_raw_parts(ptr, len, cap)
 	}
-}
-
-pub(crate) fn format_usize(data: &usize) -> Vec<u8> {
-	(*data as u64).to_le_bytes().to_vec()
-}
-
-pub(crate) fn parse_usize(data: Vec<u8>) -> usize {
-	if data.len() != 8 {
-		panic!("Invalid data length");
-	}
-
-	u64::from_le_bytes(data.try_into().unwrap()) as usize
 }

@@ -16,5 +16,7 @@ pub use super::reverb::*;
 pub use super::pitch_shifter::*;
 pub use super::visual::*;
 pub use super::phase_vocoder::*;
+pub use super::reverb_ir_gen::*;
+pub use super::hybrid_reverb::*;
 
 // pub use super::vocoder::*;

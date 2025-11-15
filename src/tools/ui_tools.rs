@@ -62,7 +62,7 @@ pub(crate) fn draw_complex_response(
 pub(crate) fn draw_waveform(
 	ui: &mut egui::Ui,
 	current_sample_in: Option<f32>,
-	pcm_data: &[Vec<f32>],
+	pcm_data: &[&[f32]],
 	loop_range: &Option<(usize, usize)>,
 	reverse: bool,
 	mask_reverse: bool,

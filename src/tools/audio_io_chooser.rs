@@ -48,14 +48,12 @@ impl Parameters for AudioIoChooser {
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: crate::prelude::SetValue) -> bool {
-		if identifier == "AudioIoChooser" {
-			if let crate::prelude::SetValue::Int(value)= value {
-				*self = match value {
-					0 => AudioIoChooser::Current,
-					i => AudioIoChooser::Other(i as usize - 1),
-				};
-				return true;
-			}
+		if identifier == "AudioIoChooser" && let crate::prelude::SetValue::Int(value)= value {
+			*self = match value {
+				0 => AudioIoChooser::Current,
+				i => AudioIoChooser::Other(i as usize - 1),
+			};
+			return true;
 		}
 
 		false

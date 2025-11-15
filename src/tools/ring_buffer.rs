@@ -85,7 +85,7 @@ impl<T: Default> RingBuffer<T> {
 	}
 
 	/// Returns an iterator over the buffer's values in the given range.
-	pub fn range(&self, range: Range<usize>) -> RangendRingBufferIterator<T> {
+	pub fn range(&'_ self, range: Range<usize>) -> RangendRingBufferIterator<'_, T> {
 		RangendRingBufferIterator {
 			buffer: &self.buffer,
 			current_pos: self.current_pos,
@@ -219,16 +219,14 @@ impl Parameters for RingBuffer<f32> {
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		if identifier == "data" {
-			if let SetValue::Serialized(data) = value {
-				let mut data = data.clone();
-				let last_4 = data.split_off(data.len() - 4);
-				let bytes = std::array::from_fn(|i| last_4[i]);
-				let current_position = u32::from_le_bytes(bytes);
-				self.replace_underlying_buffer(parse_vec_f32(data));
-				self.set_current_pos(current_position as usize);
-				return true;
-			}
+		if identifier == "data" && let SetValue::Serialized(data) = value {
+			let mut data = data.clone();
+			let last_4 = data.split_off(data.len() - 4);
+			let bytes = std::array::from_fn(|i| last_4[i]);
+			let current_position = u32::from_le_bytes(bytes);
+			self.replace_underlying_buffer(parse_vec_f32(data));
+			self.set_current_pos(current_position as usize);
+			return true;
 		}
 		false
 	}

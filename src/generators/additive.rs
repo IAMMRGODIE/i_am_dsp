@@ -45,6 +45,7 @@ pub struct AdditiveOsc<
 	freq_gen: Freq,
 	#[skip]
 	caculated_ratios: [FreqInfo; MAX_SINES],
+	#[skip]
 	max_ratio: f32,
 	#[skip]
 	min_ratio: f32,
@@ -154,7 +155,7 @@ impl<
 		Resize::default()
 			.max_width(ui.available_width())
 			.min_width(ui.available_width())
-			.id_source(format!("{}_additive_osc_ratio", id_prefix))
+			.id_salt(format!("{}_additive_osc_ratio", id_prefix))
 			.show(ui, |ui| 
 		{
 			Frame::canvas(ui.style()).show(ui, |ui| {

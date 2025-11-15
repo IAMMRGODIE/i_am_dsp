@@ -99,7 +99,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Disperser<CHANNELS> {
 		egui::Resize::default().resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
-			.id_source(format!("{id_prefix}_disperser"))
+			.id_salt(format!("{id_prefix}_disperser"))
 			.show(ui, |ui| 
 		{
 			draw_complex_response(ui, self.sample_rate, |freq| self.complex_response(freq));

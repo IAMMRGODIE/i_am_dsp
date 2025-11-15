@@ -96,6 +96,13 @@ lazy_static::lazy_static! {
 					let add: AdditiveOsc<BendedSawGen> = AdditiveOsc::new(gen_freq, 64);
 					Box::new(Adsr::new(add, EqualTemperament, sample_rate)) as Box<dyn Generator>
 				})
+			),
+			(
+				"Stereo Canvas".to_string(),
+				Box::new(|sample_rate| {
+					let canvas = MultiStereoGenerators::new();
+					Box::new(Adsr::new(canvas, EqualTemperament, sample_rate)) as Box<dyn Generator>
+				})
 			)
 		];
 
@@ -172,6 +179,57 @@ lazy_static::lazy_static! {
 					let hilbert_transform = hilbert_transform::<2>(511);
 					let output = Convolver::new(hilbert_transform, &DelyaCaculateMode::Fir);
 					Box::new(output) as Box<dyn Effect> 
+				})
+			),
+			(
+				"FftConvolver".to_string(),
+				Box::new(|_| {
+					let id = convolve_identity::<2>(8192);
+					let output = FftConvolver::new(id);
+					Box::new(output) as Box<dyn Effect> 
+				})
+			),
+			(
+				"Reverb".to_string(),
+				Box::new(|sample_rate| {
+					let effect: Reverb<Biquad<2>, 8, 2> = Reverb::new(
+						Biquad::new(sample_rate), 
+						sample_rate, 
+						Default::default(),
+						10,
+						10.0
+					);
+					Box::new(effect) as Box<dyn Effect> 
+				})
+			),
+			(
+				"Reverb(IR-Based)".to_string(),
+				Box::new(|sample_rate| {
+					let ir_gen = RayTracing::rectangular_room(
+						10.0, 
+						10.0, 
+						10.0, 
+						0.005, 
+						1.0, 
+						sample_rate
+					);
+					let reverb = IrBasedReverb::new(ir_gen);
+					Box::new(reverb) as Box<dyn Effect> 
+				})
+			),
+			(
+				"Hybrid Reverb".to_string(),
+				Box::new(|sample_rate| {
+					let ir_gen = RayTracing::rectangular_room(
+						10.0, 
+						10.0, 
+						10.0, 
+						0.005, 
+						1.0, 
+						sample_rate
+					);
+					let reverb = HybridReverb::<2, 8>::new(ir_gen, sample_rate, 1.0, 1.0);
+					Box::new(reverb) as Box<dyn Effect> 
 				})
 			)
 		];
@@ -339,19 +397,6 @@ lazy_static::lazy_static! {
 					Box::new(effect) as Box<dyn Effect> 
 				})
 			),
-			(
-				"Reverb".to_string(),
-				Box::new(|sample_rate| {
-					let effect: Reverb<Biquad<2>, 8, 2> = Reverb::new(
-						Biquad::new(sample_rate), 
-						sample_rate, 
-						Default::default(),
-						10,
-						10.0
-					);
-					Box::new(effect) as Box<dyn Effect> 
-				})
-			)
 		];
 
 		delay_effects.sort_by(|a, b| a.0.cmp(&b.0));
@@ -370,11 +415,11 @@ lazy_static::lazy_static! {
 
 		vec![
 			("Compressor".to_string(), compresser_effects),
-			("Convolver".to_string(), convolver_effects),
-			("Delay/Reverb".to_string(), delay_effects),
+			("Delay".to_string(), delay_effects),
 			("Distortion".to_string(), distortion_effects),
 			// ("Envelope".to_string(), envelope_effects),
 			("Filter".to_string(), filter_effects), 
+			("Reverb".to_string(), convolver_effects),
 			("Other".to_string(), other_effects),
 			("Visual".to_string(), visual_effects),
 			// ("Vocoder".to_string(), vocoder_effects),
@@ -1200,24 +1245,24 @@ impl DspDemo {
 				return Err(anyhow!("Shared data has been poisoned"));
 			},
 		};
-		if let Some(effects) = shared_data.effects.get(track) {
-			if let Some(effect) = effects.get(index) {
-				let parameters = effect.effect.get_parameters();
-				if let Some(parameter) = parameters.iter().find(|param| param.identifier == identifier) {
-					return match &parameter.value {
-						Value::Float { value, range, .. } => {
-							let normalized = (*value - *range.start()) / (*range.end() - *range.start());
-							Ok(Some(normalized))
-						},
-						Value::Int { value, range, .. } => {
-							let normalized = (*value as f32 - *range.start() as f32) / (*range.end() - *range.start()) as f32;
-							Ok(Some(normalized))
-						},
-						_ => Ok(None),
-					};
-				}
+		
+		if let Some(effects) = shared_data.effects.get(track) && let Some(effect) = effects.get(index) {
+			let parameters = effect.effect.get_parameters();
+			if let Some(parameter) = parameters.iter().find(|param| param.identifier == identifier) {
+				return match &parameter.value {
+					Value::Float { value, range, .. } => {
+						let normalized = (*value - *range.start()) / (*range.end() - *range.start());
+						Ok(Some(normalized))
+					},
+					Value::Int { value, range, .. } => {
+						let normalized = (*value as f32 - *range.start() as f32) / (*range.end() - *range.start()) as f32;
+						Ok(Some(normalized))
+					},
+					_ => Ok(None),
+				};
 			}
 		}
+
 		Ok(None)
 	}
 
@@ -1318,6 +1363,8 @@ impl DspDemo {
 
 	/// Draw the UI
 	pub fn ui(&mut self, ui: &mut egui::Ui) {
+		ui.ctx().set_visuals(egui::Visuals::dark());
+
 		if let Some(err_msg) = &self.current_error {
 			ui.colored_label(egui::Color32::RED, format!("ERR: {err_msg}"));
 			if ui.button("Clear Error").clicked() {
@@ -1422,8 +1469,8 @@ impl DspDemo {
 											&param.min,
 										) {
 											let range = *min..=*max;
-											ui.add(Slider::new(start, range.clone()).text("Start"));
-											ui.add(Slider::new(end, range).text("End"));
+											ui.add(Slider::new(start, range.clone()).text("Start").logarithmic(param.logarithmic));
+											ui.add(Slider::new(end, range).text("End").logarithmic(param.logarithmic));
 										}else if let (
 											FloatOrInt::Int(start), 
 											FloatOrInt::Int(end),
@@ -1436,8 +1483,8 @@ impl DspDemo {
 											&param.min,
 										) {
 											let range = *min..=*max;
-											ui.add(Slider::new(start, range.clone()).text("Start"));
-											ui.add(Slider::new(end, range).text("End"));
+											ui.add(Slider::new(start, range.clone()).text("Start").logarithmic(param.logarithmic));
+											ui.add(Slider::new(end, range).text("End").logarithmic(param.logarithmic));
 										}	
 
 										if ui.button("Remove Param").clicked() {
@@ -1653,7 +1700,7 @@ impl DspDemo {
 	/// Run the DSP demo
 	#[cfg(feature = "standalone")]
 	pub fn run(self, native_options: eframe::NativeOptions) -> Result<()> {
-		eframe::run_native("Dsp Demo", native_options, Box::new(|_| Box::new(self)))
+		eframe::run_native("Dsp Demo", native_options, Box::new(|_| Ok(Box::new(self))))
 			.map_err(|e| anyhow!("{}", e))?;
 		Ok(())
 	}

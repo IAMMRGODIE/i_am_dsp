@@ -131,7 +131,7 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 			let avaliable_width = ui.available_width();
 
 			Resize::default()
-			.id_source(format!("{}_compresser_resize", id_prefix))
+			.id_salt(format!("{}_compresser_resize", id_prefix))
 			.max_width(avaliable_width * 0.35)
 			.max_height(avaliable_width * 0.35)
 			.show(ui, |ui| {Frame::canvas(ui.style()).show(ui, |ui| {
@@ -164,7 +164,7 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 				Resize::default()
 					.max_width(width)
 					.min_width(width)
-					.id_source(format!("{}_compresser_env_in", id_prefix))
+					.id_salt(format!("{}_compresser_env_in", id_prefix))
 					.max_height(avaliable_width * 0.35 / 2.0)
 					.show(ui, |ui| 
 				{
@@ -172,7 +172,7 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 				});
 
 				Resize::default()
-				.id_source(format!("{}_compresser_env_out", id_prefix))
+				.id_salt(format!("{}_compresser_env_out", id_prefix))
 				.max_height(avaliable_width * 0.35 / 2.0)
 				.max_width(width)
 				.min_width(width)

@@ -4,6 +4,8 @@
 //! 1. Visual Effects
 //! 2. SIMD support
 //! 3. BPM sync
+//! 4. Bypass Support
+//! 5. parameter reset hotkey.
 
 #![warn(missing_docs)]
 
