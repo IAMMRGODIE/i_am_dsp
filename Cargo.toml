@@ -1,39 +1,11 @@
-[package]
-name = "i_am_dsp"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "2"
+members = [
+	"i_am_dsp_derive",
+	"i_am_dsp"
+, "i_am_dsp_iced"]
 
-[features]
-default = ["real_time_demo", "rhai", "sin_table", "standalone", "room_gen"]
-room_gen = ["parry3d"]
-sin_table = []
-standalone = ["eframe", "real_time_demo", "cpal"]
-real_time_demo = ["egui", "anyhow"]
-rhai = ["dep:rhai", "dep:rhai-rand"]
+[workspace.dependencies]
+i_am_dsp_derive = { path = "i_am_dsp_derive" }
+i_am_dsp = { path = "i_am_dsp" }
 
-[dependencies]
-anyhow = { version = "1.0.100", optional = true }
-bitvec = "1.0.1"
-cpal = { version = "0.16.0", optional = true }
-crossbeam-channel = "0.5.15"
-eframe = { version = "0.31.1", optional = true }
-egui = { version = "0.31.1", optional = true }
-lazy_static = "1.5.0"
-rand = "0.9.2"
-rand_distr = "0.5.1"
-# rayon = "1.11.0"
-rhai = { version = "1.23.4", features = ["f32_float", "sync"], optional = true }
-rhai-rand = { version = "0.1.6", optional = true }
-rubato = "0.16.2"
-rustfft = "6.4.1"
-symphonia = "0.5.4"
-thiserror = "2.0.17"
-i_am_parameters_derive = { path = "./i_am_parameters_derive" }
-cfg-if = "1.0.3"
-serde = { version = "1.0.228", features = ["derive"] }
-ciborium = "0.2.2"
-threadpool = "1.8.1"
-hound = "3.5.1"
-parry3d = { version = "0.25.1", optional = true }
-egui_file = "0.22.1"
-# fft-convolver = "0.2.0"

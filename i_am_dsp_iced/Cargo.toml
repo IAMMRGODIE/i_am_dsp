@@ -1,0 +1,20 @@
+[package]
+name = "i_am_dsp_iced"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["standalone"]
+standalone = ["cpal"]
+
+[dependencies]
+i_am_dsp.workspace = true
+
+cfg-if = "1.0.3"
+cpal = { version = "0.17.1", optional = true }
+crossbeam-channel = "0.5.15"
+iced = { version = "0.14.0", features = ["canvas", "tokio", "advanced"] }
+lazy_static = "1.5.0"
+portable-atomic = { version = "1.13.0", features = ["float"] }
+rand = "0.9.2"
+# random = "0.14.1"
