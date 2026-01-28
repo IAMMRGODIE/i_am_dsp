@@ -12,7 +12,7 @@ pub struct Slider<'a, Message> {
 	to: f32,
 	is_logarithmic: bool,
 	on_change: Box<dyn Fn(f32) -> Message + 'a>,
-	on_release: Option<Box<dyn Fn() -> Message + 'a>>,
+	on_release: Option<Box<dyn Fn(f32) -> Message + 'a>>,
 	width: Length,
 	text: String,
 	value_formatter: Option<Box<dyn Fn(f32) -> String + 'a>>,
@@ -50,7 +50,7 @@ impl<'a, Message> Slider<'a, Message> {
 		}
 	}
 
-	pub fn on_release(self, on_release: impl Fn() -> Message + 'a) -> Self {
+	pub fn on_release(self, on_release: impl Fn(f32) -> Message + 'a) -> Self {
 		Self {
 			on_release: Some(Box::new(on_release)),
 			..self
@@ -311,7 +311,7 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Slider<'a, Message> {
 				}
 
 				if let Some(on_release) = &self.on_release {
-					shell.publish(on_release());
+					shell.publish(on_release(self.value));
 				}
 			},
 			_ => {},

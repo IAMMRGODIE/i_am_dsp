@@ -223,7 +223,7 @@ impl SyncedView for WavetableSynthView {
 					slider(0.25..=4.0, self.pitch_factor.load(Ordering::Relaxed), |value| {
 						self.pitch_factor.store(value, Ordering::Relaxed);
 						WavetableSynthMessage::Empty
-					}).text("Pitch").on_release(|| {
+					}).text("Pitch").on_release(|_| {
 						let value = self.pitch_factor.load(Ordering::Relaxed);
 						let note = value.ln() / 2.0_f32.powf(1.0 / 12.0).ln();
 						let note = note.round();

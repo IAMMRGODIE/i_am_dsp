@@ -13,6 +13,7 @@ pub struct Knob<'a, Message> {
 	to: f32,
 	is_logarithmic: bool,
 	on_change: Box<dyn Fn(f32) -> Message + 'a>,
+	on_release: Option<Box<dyn Fn(f32) -> Message + 'a>>,
 	width: Length,
 	height: Length,
 }
@@ -20,7 +21,7 @@ pub struct Knob<'a, Message> {
 #[derive(Default)]
 struct KnobState {
 	current_mouse_pos: Point,
-	last_mouse_pos: Option<Point>,
+	last_mouse_pos: Option<(Point, f32)>,
 	hover_animator: Animator,
 	click_animator: Animator,
 }
@@ -45,10 +46,18 @@ impl<'a, Message> Knob<'a, Message> {
 			to,
 			is_logarithmic: false,
 			on_change: Box::new(move |value| on_change(T::from_f32(value))),
+			on_release: None,
 			width: Length::Fixed(16.0),
 			height: Length::Fixed(16.0),
 			// current_mouse_pos: Point::new(0.0, 0.0),
 			// last_mouse_pos: None,
+		}
+	}
+
+	pub fn on_release(self, on_release: impl Fn(f32) -> Message + 'a) -> Self {
+		Self {
+			on_release: Some(Box::new(on_release)),
+			..self
 		}
 	}
 
@@ -132,11 +141,16 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Knob<'a, Message> {
 		let center = bounds.center();
 		let radius = bounds.width.min(bounds.height) / 2.0;
 		let knob_width = radius / 64.0 * 10.0;
+		let current_value = if let Some((_, value)) = &state.last_mouse_pos  {
+			*value
+		}else {
+			self.value
+		};
 
 		let percent = if self.is_logarithmic {
-			(self.value.log10() - self.from.log10()) / (self.to.log10() - self.from.log10())
+			(current_value.log10() - self.from.log10()) / (self.to.log10() - self.from.log10())
 		}else {
-			(self.value - self.from) / (self.to - self.from)
+			(current_value - self.from) / (self.to - self.from)
 		}.max(0.0);
 
 		let click_animator = state.click_animator.calc();
@@ -206,7 +220,7 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Knob<'a, Message> {
 	) {
 		let state = tree.state.downcast_mut::<KnobState>();
 
-		if let Some(last_mouse_pos) = &mut state.last_mouse_pos {
+		if let Some((last_mouse_pos, current_value)) = &mut state.last_mouse_pos {
 			let min = self.from.min(self.to);
 			let max = self.from.max(self.to);
 
@@ -214,9 +228,9 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Knob<'a, Message> {
 			let delta_y = state.current_mouse_pos.y - last_mouse_pos.y;
 			let change = delta_x - delta_y;
 			let new_value = if self.is_logarithmic {
-				self.value * 10.0_f32.powf(change * self.speed)
+				*current_value * 10.0_f32.powf(change * self.speed)
 			}else {
-				self.value + change * self.speed
+				*current_value + change * self.speed
 			}.clamp(min, max);
 
 			if new_value != self.value {
@@ -225,6 +239,7 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Knob<'a, Message> {
 			}
 
 			*last_mouse_pos = state.current_mouse_pos;
+			*current_value = new_value;
 		}
 
 		let clamped_value = self.value.clamp(self.from, self.to);
@@ -251,7 +266,7 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Knob<'a, Message> {
 				state.current_mouse_pos = *position;
 			},
 			Event::ButtonPressed(_) if state.last_mouse_pos.is_none() && layout.bounds().contains(state.current_mouse_pos) => {
-				state.last_mouse_pos = Some(state.current_mouse_pos);
+				state.last_mouse_pos = Some((state.current_mouse_pos, self.value));
 				state.click_animator.in_if_out();
 			},
 			Event::ButtonReleased(_) => {
@@ -270,6 +285,10 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Knob<'a, Message> {
 				if new_value != self.value {
 					self.value = new_value;
 					shell.publish((self.on_change)(new_value));
+				}
+
+				if let Some(on_release) = &self.on_release {
+					shell.publish(on_release(self.value));
 				}
 			},
 			_ => {},
