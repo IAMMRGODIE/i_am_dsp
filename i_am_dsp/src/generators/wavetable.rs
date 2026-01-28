@@ -63,7 +63,7 @@ impl<T: WaveTable, const CHANNELS: usize> Oscillator<CHANNELS> for TableOsc<T> {
 		.max_width(width)
 		.id_salt(format!("{id_prefix}_wavtable"))
 		.show(ui, |ui| {
-			draw_wavetable(ui, |t| self.sample(t, 0));
+			draw_wavetable(ui, |t| self.0.sample(t, 0));
 		});
 	}
 
@@ -786,6 +786,15 @@ impl<
 
 		let module = self.modulator.play_at(frequency, time, phase)[0];
 		self.carrier.play_at(frequency * self.fm_factor * module, time, phase)
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+
+		Oscillator::<CHANNELS>::demo_ui(&mut self.carrier, ui, format!("{id_prefix}_fm_osc_carrier"));
+		Oscillator::<CHANNELS>::demo_ui(&mut self.modulator, ui, format!("{id_prefix}_fm_osc_carrier"));
+
+		ui.add(egui::Slider::new(&mut self.fm_factor, 0.0..=1.0).text("FM Factor"));
 	}
 }
 

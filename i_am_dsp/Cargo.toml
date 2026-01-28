@@ -39,3 +39,6 @@ parry3d = { version = "0.26.0", optional = true }
 egui_file = { version = "0.22.1", optional = true }
 wide = "1.1.1"
 # fft-convolver = "0.2.0"
+portable-atomic = { version = "1.13.0", features = ["float", "serde"] }
+bimap = "0.6.3"
+crossbeam-queue = "0.3.12"

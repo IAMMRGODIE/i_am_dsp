@@ -23,6 +23,11 @@ pub mod effects;
 pub mod tools;
 pub mod prelude;
 
+// /// re-export lazy_static for derive macro
+// /// 
+// /// See https://crates.io/crates/lazy_static for more information.
+// pub use lazy_static::lazy_static;
+
 /// Main trait for effects.
 pub trait Effect<const CHANNELS: usize = 2>: Send + Sync + Parameters {
 	/// Process the given samples.

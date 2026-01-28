@@ -1,6 +1,8 @@
 //! An iced gui made for `i_am_dsp`
 //! 
 //! Note: currently, we only focus on 2 channeled audio processing, even though the library supports more.
+//! 
+//! TODO: Documentation
 
 use std::time::Instant;
 

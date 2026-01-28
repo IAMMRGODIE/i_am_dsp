@@ -87,7 +87,7 @@ lazy_static::lazy_static! {
 			),
 			(
 				"Noise Wave".to_string(),
-				Box::new(|sample_rate| Box::new(Adsr::new(NoiseWave, EqualTemperament, sample_rate)) as Box<dyn Generator>)
+				Box::new(|sample_rate| Box::new(Adsr::new(TableOsc(NoiseWave), EqualTemperament, sample_rate)) as Box<dyn Generator>)
 			),
 			(
 				"Additive(Saw Bend)".to_string(),

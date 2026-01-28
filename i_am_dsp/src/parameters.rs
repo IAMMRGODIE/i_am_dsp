@@ -1,9 +1,14 @@
 //! A helper trait for report parameters change to hosts.
 
-use std::ops::RangeInclusive;
+use std::{collections::HashSet, ops::RangeInclusive, sync::{Arc, atomic::Ordering}};
 
+use bimap::BiMap;
 use ciborium::{from_reader, into_writer};
+use crossbeam_queue::SegQueue;
+use portable_atomic::{AtomicBool, AtomicF32, AtomicI32};
 use rustfft::num_complex::Complex;
+
+use crate::{Effect, Generator};
 
 /// A helper struct for report parameters.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -12,6 +17,128 @@ pub struct Parameter {
 	pub identifier: String,
 	/// The parameter value.
 	pub value: Value,
+}
+
+// /// An atomic parameter, used for parameters that can be updated atomically.
+// /// 
+// /// This struct should be cheap to clone and send across threads.
+// #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+// pub struct AtomicParameter {
+// 	/// An unique identifier for the parameter.
+// 	#[serde(serialize_with = "serialize_arc_string", deserialize_with = "deserialize_arc_string")]
+// 	pub identifier: Arc<String>,
+// 	/// The parameter value.
+// 	#[serde(serialize_with = "serialize_arc_value", deserialize_with = "deserialize_arc_value")]
+// 	pub value: Arc<AtomicValue>,
+// }
+
+// fn serialize_arc_value<S>(f: &Arc<AtomicValue>, serializer: S) -> Result<S::Ok, S::Error>
+// where
+// 	S: serde::Serializer,
+// {
+// 	f.serialize(serializer)
+// }
+
+// fn deserialize_arc_value<'de, D>(deserializer: D) -> Result<Arc<AtomicValue>, D::Error>
+// where
+// 	D: serde::Deserializer<'de>,
+// {
+// 	use serde::Deserialize;
+// 	let f = AtomicValue::deserialize(deserializer)?;
+// 	Ok(Arc::new(f))
+// }
+
+// fn serialize_arc_string<S>(f: &Arc<String>, serializer: S) -> Result<S::Ok, S::Error>
+// where
+// 	S: serde::Serializer,
+// {
+// 	f.as_ref().serialize(serializer)
+// }
+
+// fn deserialize_arc_string<'de, D>(deserializer: D) -> Result<Arc<String>, D::Error>
+// where
+// 	D: serde::Deserializer<'de>,
+// {
+// 	use serde::Deserialize;
+// 	let f = String::deserialize(deserializer)?;
+// 	Ok(Arc::new(f))
+// }
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
+/// A helper enum for parameter values, but its atomic.
+/// 
+/// Note: we don't support something like [`Value::Serialized`] here, 
+/// since we need a lock to update the value, and may be expensive to update.
+pub enum AtomicValue {
+	/// A floating-point value with a range.
+	Float {
+		/// The actual value.
+		value: AtomicF32,
+		/// The range of valid values.
+		range: RangeInclusive<f32>,
+		/// Whether the value is logarithmic.
+		logarithmic: bool,
+	},
+	/// An integer value with a range.
+	Int {
+		/// The actual value.
+		value: AtomicI32,
+		/// The range of valid values.
+		range: RangeInclusive<i32>,
+		/// Whether the value is logarithmic.
+		logarithmic: bool,
+	},
+	/// A boolean value.
+	Bool(AtomicBool),
+	/// A placeholder value, used for parameters that are not yet implemented or is None.
+	#[default] Nothing,
+}
+
+impl AtomicValue {
+	/// Loads the value with the given ordering.
+	/// 
+	/// # Panics
+	/// 
+	/// Panics if order is [`Ordering::Release`] or [`Ordering::AcqRel`].
+	pub fn load(&self, order: Ordering) -> SetValue {
+		match self {
+			Self::Bool(v) => SetValue::Bool(v.load(order)),
+			Self::Float { value, .. } => SetValue::Float(value.load(order)),
+			Self::Int { value, .. } => SetValue::Int(value.load(order)),
+			Self::Nothing => SetValue::Nothing,
+		}
+	}
+
+	/// Stores the value with the given ordering
+	/// 
+	/// Returns true if the value is updated, false for value type mismatch.
+	/// 
+	/// Will clamp the value to the range if it is out of range.
+	/// 
+	/// # Panics
+	/// 
+	/// Panics if order is [`Ordering::Release`] or [`Ordering::AcqRel`].
+	pub fn store(&self, value: SetValue, order: Ordering) -> bool {
+		match (self, value) {
+			(Self::Bool(v), SetValue::Bool(value)) => {
+				v.store(value, order);
+				true
+			},
+			(Self::Float { value: v, range, .. }, SetValue::Float(value)) => {
+				let value = value.clamp(*range.start(), *range.end());
+				v.store(value, order);
+				true
+			},
+			(Self::Int { value: v, range, .. }, SetValue::Int(value)) => {
+				let value = value.clamp(*range.start(), *range.end());
+				v.store(value, order);
+				true
+			},
+			(Self::Nothing, SetValue::Nothing) => true,
+			_ => false,
+		}
+	}
 }
 
 /// A helper enum for parameter values.
@@ -55,6 +182,29 @@ impl Value {
 			Value::Bool(value) => SetValue::Bool(value),
 			Value::Serialized(data) => SetValue::Serialized(data),
 			Value::Nothing => SetValue::Nothing,
+		}
+	}
+
+	/// Returns the value as an atomic value.
+	pub fn to_atomic_value(self) -> AtomicValue {
+		match self {
+			Value::Float { value, range, logarithmic } => {
+				AtomicValue::Float {
+					value: AtomicF32::new(value),
+					range,
+					logarithmic,
+				}
+			},
+			Value::Int { value, range, logarithmic } => {
+				AtomicValue::Int {
+					value: AtomicI32::new(value),
+					range,
+					logarithmic,
+				}
+			},
+			Value::Bool(value) => AtomicValue::Bool(AtomicBool::new(value)),
+			Value::Serialized(_) => AtomicValue::Nothing,
+			Value::Nothing => AtomicValue::Nothing,
 		}
 	}
 }
@@ -350,6 +500,167 @@ pub fn to_binary<T: serde::Serialize>(value: &T) -> Vec<u8> {
 pub fn from_binary<T: serde::de::DeserializeOwned>(data: Vec<u8>) -> T {
 	let slice = data.as_slice();
 	from_reader(slice).expect("Can note deserialized input value")
+}
+
+/// A simple wrapper around a sturct makes it possible to have a sturct with multiple parameter setters.
+/// 
+/// Though you need set params manually, it can be useful when you want to parameterize a complex struct.
+pub struct Paramed<T: Parameters> {
+	/// The struct that we want to parameterize.
+	pub value: T,
+	params: ParamMap,
+	sync_set_cached: HashSet<usize>,
+}
+
+impl<T: Parameters> Parameters for Paramed<T> {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		self.value.get_parameters()
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		self.value.set_parameter(identifier, value)
+	}
+}
+
+impl<const CHANNELS: usize, T: Generator<CHANNELS>> Generator<CHANNELS> for Paramed<T> {
+	fn generate(&mut self, process_context: &mut Box<dyn crate::ProcessContext>) -> [f32; CHANNELS] {
+		self.sync_params();
+		self.value.generate(process_context)
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn name(&self) -> &str {
+		self.value.name()
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		self.value.demo_ui(ui, id_prefix)
+	}
+}
+
+impl<const CHANNELS: usize, T: Effect<CHANNELS>> Effect<CHANNELS> for Paramed<T> {
+	fn delay(&self) -> usize {
+		self.value.delay()
+	}
+
+	fn process(
+		&mut self, 
+		samples: &mut [f32; CHANNELS], 
+		other: &[&[f32; CHANNELS]],
+		process_context: &mut Box<dyn crate::ProcessContext>,
+	) {
+		self.sync_params();
+		self.value.process(samples, other, process_context)
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn name(&self) -> &str {
+		self.value.name()
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		self.value.demo_ui(ui, id_prefix)
+	}
+}
+
+impl<T: Parameters> Paramed<T> {
+	/// Create a new parameterized object.
+	pub fn new(to_parameterize: T) -> Self {
+		let mut empty_self = Self {
+			value: to_parameterize,
+			params: ParamMap {
+				values: Arc::new(Vec::new()),
+				id: Arc::new(BiMap::new()),
+				update_queue: Arc::new(SegQueue::new()),
+			},
+			sync_set_cached: HashSet::new(),
+		};
+		empty_self.update_map();
+		empty_self
+	}
+
+	/// Synchronize the parameters with the host.
+	pub fn sync_params(&mut self) {
+		while let Some(id) = self.params.update_queue.pop() {
+			self.sync_set_cached.insert(id);
+		}
+
+		for id in self.sync_set_cached.drain() {
+			if let Some(identifier) = self.params.query_param_id(id) && let Some(param) = self.params.get_by_index(id) {
+				self.value.set_parameter(identifier, param.load(Ordering::SeqCst));
+			}
+		}
+	}
+
+	/// Get the parameter map.
+	/// 
+	/// This function will return a [`ParamMap`] object, which can be used to query and set parameter values.
+	pub fn param_map(&self) -> ParamMap {
+		self.params.clone()
+	}
+
+	/// Update the parameter map.
+	/// 
+	/// Ussful for those structs that have unfixed number of parameters.
+	/// 
+	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`param_map`].
+	pub fn update_map(&mut self) {
+		let params = self.value.get_parameters();
+		let mut new_map = BiMap::with_capacity(params.len());
+		let mut new_values = Vec::with_capacity(params.len());
+
+		for (i, param) in params.into_iter().enumerate() {
+			new_map.insert(param.identifier, i);
+			new_values.push(Arc::new(param.value.to_atomic_value()));
+		}
+
+		self.params = ParamMap {
+			values: Arc::new(new_values),
+			id: Arc::new(new_map),
+			update_queue: Arc::new(SegQueue::new()),
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+/// A helper struct for managing parameter values for using [`Paramed`] struct.
+/// 
+/// This struct should be cheap to clone and will assosiated with one specific parameterized object.
+pub struct ParamMap {
+	values: Arc<Vec<Arc<AtomicValue>>>,
+	id: Arc<BiMap<String, usize>>,
+	update_queue: Arc<SegQueue<usize>>,
+}
+
+impl ParamMap {
+	/// Get the parameter value by its identifier.
+	pub fn get(&self, id: &str) -> Option<Arc<AtomicValue>> {
+		let index = self.id.get_by_left(id)?;
+		let value = self.values.get(*index)?;
+		self.update_queue.push(*index);
+		
+		Some(value.clone())
+	}
+
+	/// Query the parameter value by its index.
+	pub fn query_param_index(&self, id: &str) -> Option<usize> {
+		self.id.get_by_left(id).copied()
+	}
+
+	/// Query the parameter identifier by its index.
+	pub fn query_param_id(&self, index: usize) -> Option<&str> {
+		self.id.get_by_right(&index).map(|s| s.as_str())
+	}
+
+	/// Get the parameter value by its index.
+	pub fn get_by_index(&self, index: usize) -> Option<Arc<AtomicValue>> {
+		let value = self.values.get(index)?;
+		self.update_queue.push(index);
+
+		Some(value.clone())
+	}
 }
 
 #[cfg(test)]

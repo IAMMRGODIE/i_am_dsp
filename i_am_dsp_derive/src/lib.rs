@@ -213,6 +213,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 
 	let mut parameter_imply = vec![];
 	let mut setter_imply = vec![];
+	let filed_config_len = field_configs.len();
 	for (config, field_name, field_type) in field_configs {
 		if config.skip {
 			continue;
@@ -325,7 +326,8 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 			});
 			setter_imply.push(quote! {
 				if identifier.starts_with(&format!("{}.", stringify!(#field_name))) {
-					let param_id = identifier.split(".").last().unwrap();
+					let head_len = format!("{}.", stringify!(#field_name)).len();
+					let param_id = &identifier[head_len..];
 					let value = std::mem::take(&mut value);
 					i_am_dsp::prelude::Parameters::set_parameter(&mut self.#field_name, param_id, value);
 					// .set_parameter(&param_id, value);
@@ -355,14 +357,16 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 			fn get_parameters(&self) -> Vec<i_am_dsp::prelude::Parameter> {
 				use i_am_dsp::prelude::Parameters;
 
-				let mut parameters = Vec::new();
+				#[allow(dead_code)]
+				let mut parameters = Vec::with_capacity(#filed_config_len);
 				#(#parameter_imply)*
 				parameters
 			}
 
 			fn set_parameter(&mut self, identifier: &str, mut value: i_am_dsp::prelude::SetValue) -> bool {
 				#(#setter_imply)*
-				return false;
+				
+				false
 			}
 		}
 	};
