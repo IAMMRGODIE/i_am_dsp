@@ -1,10 +1,10 @@
 //! A helper trait for report parameters change to hosts.
 
-use std::{collections::HashSet, ops::RangeInclusive, sync::{Arc, atomic::Ordering}};
+use std::{ops::RangeInclusive, sync::{Arc, atomic::Ordering}};
 
 use bimap::BiMap;
 use ciborium::{from_reader, into_writer};
-use crossbeam_queue::SegQueue;
+// use crossbeam_queue::SegQueue;
 use portable_atomic::{AtomicBool, AtomicF32, AtomicI32};
 use rustfft::num_complex::Complex;
 
@@ -18,51 +18,6 @@ pub struct Parameter {
 	/// The parameter value.
 	pub value: Value,
 }
-
-// /// An atomic parameter, used for parameters that can be updated atomically.
-// /// 
-// /// This struct should be cheap to clone and send across threads.
-// #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-// pub struct AtomicParameter {
-// 	/// An unique identifier for the parameter.
-// 	#[serde(serialize_with = "serialize_arc_string", deserialize_with = "deserialize_arc_string")]
-// 	pub identifier: Arc<String>,
-// 	/// The parameter value.
-// 	#[serde(serialize_with = "serialize_arc_value", deserialize_with = "deserialize_arc_value")]
-// 	pub value: Arc<AtomicValue>,
-// }
-
-// fn serialize_arc_value<S>(f: &Arc<AtomicValue>, serializer: S) -> Result<S::Ok, S::Error>
-// where
-// 	S: serde::Serializer,
-// {
-// 	f.serialize(serializer)
-// }
-
-// fn deserialize_arc_value<'de, D>(deserializer: D) -> Result<Arc<AtomicValue>, D::Error>
-// where
-// 	D: serde::Deserializer<'de>,
-// {
-// 	use serde::Deserialize;
-// 	let f = AtomicValue::deserialize(deserializer)?;
-// 	Ok(Arc::new(f))
-// }
-
-// fn serialize_arc_string<S>(f: &Arc<String>, serializer: S) -> Result<S::Ok, S::Error>
-// where
-// 	S: serde::Serializer,
-// {
-// 	f.as_ref().serialize(serializer)
-// }
-
-// fn deserialize_arc_string<'de, D>(deserializer: D) -> Result<Arc<String>, D::Error>
-// where
-// 	D: serde::Deserializer<'de>,
-// {
-// 	use serde::Deserialize;
-// 	let f = String::deserialize(deserializer)?;
-// 	Ok(Arc::new(f))
-// }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
@@ -509,7 +464,7 @@ pub struct Paramed<T: Parameters> {
 	/// The struct that we want to parameterize.
 	pub value: T,
 	params: ParamMap,
-	sync_set_cached: HashSet<usize>,
+	// sync_set_cached: HashSet<usize>,
 }
 
 impl<T: Parameters> Parameters for Paramed<T> {
@@ -573,9 +528,9 @@ impl<T: Parameters> Paramed<T> {
 			params: ParamMap {
 				values: Arc::new(Vec::new()),
 				id: Arc::new(BiMap::new()),
-				update_queue: Arc::new(SegQueue::new()),
+				// update_queue: Arc::new(SegQueue::new()),
 			},
-			sync_set_cached: HashSet::new(),
+			// sync_set_cached: HashSet::new(),
 		};
 		empty_self.update_map();
 		empty_self
@@ -583,12 +538,9 @@ impl<T: Parameters> Paramed<T> {
 
 	/// Synchronize the parameters with the host.
 	pub fn sync_params(&mut self) {
-		while let Some(id) = self.params.update_queue.pop() {
-			self.sync_set_cached.insert(id);
-		}
 
-		for id in self.sync_set_cached.drain() {
-			if let Some(identifier) = self.params.query_param_id(id) && let Some(param) = self.params.get_by_index(id) {
+		for (id, param) in self.params.values.iter().enumerate() {
+			if let Some(identifier) = self.params.query_param_id(id) {
 				self.value.set_parameter(identifier, param.load(Ordering::SeqCst));
 			}
 		}
@@ -619,7 +571,7 @@ impl<T: Parameters> Paramed<T> {
 		self.params = ParamMap {
 			values: Arc::new(new_values),
 			id: Arc::new(new_map),
-			update_queue: Arc::new(SegQueue::new()),
+			// update_queue: Arc::new(SegQueue::new()),
 		}
 	}
 }
@@ -631,7 +583,6 @@ impl<T: Parameters> Paramed<T> {
 pub struct ParamMap {
 	values: Arc<Vec<Arc<AtomicValue>>>,
 	id: Arc<BiMap<String, usize>>,
-	update_queue: Arc<SegQueue<usize>>,
 }
 
 impl ParamMap {
@@ -639,7 +590,7 @@ impl ParamMap {
 	pub fn get(&self, id: &str) -> Option<Arc<AtomicValue>> {
 		let index = self.id.get_by_left(id)?;
 		let value = self.values.get(*index)?;
-		self.update_queue.push(*index);
+		// self.update_queue(*index);
 		
 		Some(value.clone())
 	}
@@ -657,10 +608,24 @@ impl ParamMap {
 	/// Get the parameter value by its index.
 	pub fn get_by_index(&self, index: usize) -> Option<Arc<AtomicValue>> {
 		let value = self.values.get(index)?;
-		self.update_queue.push(index);
+		// self.update_queue(index);
 
 		Some(value.clone())
 	}
+
+	// fn update_queue(&self, index: usize) {
+	// 	let mut updated_set = HashSet::new();
+
+	// 	while let Some(id) = self.update_queue.pop() {
+	// 		updated_set.insert(id);
+	// 	}
+
+	// 	updated_set.insert(index);
+
+	// 	for id in updated_set {
+	// 		self.update_queue.push(id);
+	// 	}
+	// }
 }
 
 #[cfg(test)]
