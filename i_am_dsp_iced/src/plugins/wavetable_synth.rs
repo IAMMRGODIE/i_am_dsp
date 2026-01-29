@@ -5,7 +5,7 @@ use i_am_dsp::{Generator, NoteEvent, prelude::{Adsr, EqualTemperament, PmTable, 
 use iced::{Border, Element, Length, Theme, alignment::{Horizontal, Vertical}, widget::{button, canvas, column, container, row, text}};
 use portable_atomic::{AtomicF32, AtomicUsize};
 
-use crate::{Message, Processsor, SyncedView, styles::{BORDER_WIDTH, ERROR_COLOR, PADDING, PRIMARY_COLOR}, tools::{adsr_editor::AdsrEditor, knob::knob, selector::selector, slider::slider, unison::UnisonEditor, waveform::{Waveform, WaveformBuf}}};
+use crate::{Message, Processor, SyncedView, styles::{BORDER_WIDTH, ERROR_COLOR, PADDING, PRIMARY_COLOR}, tools::{adsr_editor::AdsrEditor, knob::knob, selector::selector, slider::slider, unison::UnisonEditor, waveform::{Waveform, WaveformBuf}}};
 
 #[derive(Clone)]
 pub enum WavetableSynthMessage {
@@ -286,7 +286,7 @@ impl Message for WavetableSynthMessage {
 	}
 }
 
-impl Processsor for WavetableSynth {
+impl Processor for WavetableSynth {
 	type Message = WavetableSynthMessage;
 	type SyncedView = WavetableSynthView;
 

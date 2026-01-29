@@ -9,7 +9,7 @@ use iced::{Element, Event, Subscription};
 use iced::keyboard::key::{Code, Physical};
 
 use crate::styles::ERROR_COLOR;
-use crate::{Message, Processsor, SyncedView};
+use crate::{Message, Processor, SyncedView};
 
 lazy_static::lazy_static! {
 	static ref NoteMap: HashMap<Code, u8> = {
@@ -79,7 +79,7 @@ impl ProcessContext for SimpleContext {
 
 
 /// A simple runable demo based on a processor
-pub struct Demo<P: Processsor> {
+pub struct Demo<P: Processor> {
 	sender: crossbeam_channel::Sender<P::Message>,
 	error_receiver: crossbeam_channel::Receiver<String>,
 	current_error: Option<String>,
@@ -88,13 +88,13 @@ pub struct Demo<P: Processsor> {
 	_stream: cpal::Stream,
 }
 
-struct CpalInner<P: Processsor> {
+struct CpalInner<P: Processor> {
 	processor: P,
 	sample_rate: usize,
 	midi_events: Vec<NoteEvent>,
 }
 
-impl<P: Processsor> Demo<P> {
+impl<P: Processor> Demo<P> {
 	/// Create a new demo
 	pub fn new(builder: impl FnOnce(usize) -> P) -> Self {
 		let (sender, receiver) = crossbeam_channel::unbounded::<P::Message>();

@@ -37,7 +37,7 @@ pub trait Message: Clone + Send + Sync + 'static {
 }
 
 /// A trait for processors that can be used in the iced gui.
-pub trait Processsor: Send + Sync + 'static {
+pub trait Processor: Send + Sync + 'static {
 	/// The message type used by the processor.
 	type Message: Message;
 	/// The view type used by the processor.
