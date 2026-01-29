@@ -6,7 +6,17 @@ use crossbeam_channel::Receiver;
 use i_am_dsp_derive::Parameters;
 use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 
-use crate::{prelude::Oscillator, tools::{format_pcm_data, interpolate::cubic_interpolate, pcm_data::{load_from_file, ReadFileError}, parse_pcm_data}, Generator, ProcessContext};
+use crate::{
+	prelude::Oscillator, 
+	tools::{
+		format_pcm_data, 
+		interpolate::cubic_interpolate, 
+		pcm_data::{load_from_file, ReadFileError}, 
+		parse_pcm_data
+	}, 
+	Generator, 
+	ProcessContext
+};
 
 /// A sampler that plays back audio files.
 /// 

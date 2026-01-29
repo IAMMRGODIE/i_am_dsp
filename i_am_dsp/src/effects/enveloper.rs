@@ -2,7 +2,17 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{effects::prelude::{hilbert_transform, Convolver, HilbertTransform}, prelude::Parameters, tools::ring_buffer::RingBuffer, Effect, ProcessContext};
+use crate::{
+	effects::prelude::{
+		hilbert_transform, 
+		Convolver, 
+		HilbertTransform
+	}, 
+	prelude::Parameters, 
+	tools::ring_buffer::RingBuffer, 
+	Effect, 
+	ProcessContext
+};
 
 /// The main trait for envelopes
 pub trait Enveloper<const CHANNELS: usize = 2>: Parameters {

@@ -8,7 +8,15 @@ use i_am_dsp_derive::Parameters;
 
 #[cfg(feature = "real_time_demo")]
 use crate::tools::ring_buffer::RingBuffer;
-use crate::{prelude::Enveloper, tools::{audio_io_chooser::AudioIoChooser, smoother::DoubleTimeConstant}, Effect, ProcessContext};
+use crate::{
+	prelude::Enveloper, 
+	tools::{
+		audio_io_chooser::AudioIoChooser, 
+		smoother::DoubleTimeConstant
+	}, 
+	Effect, 
+	ProcessContext
+};
 
 #[cfg(feature = "real_time_demo")]
 const HISTORY_LEN: usize = 32768;

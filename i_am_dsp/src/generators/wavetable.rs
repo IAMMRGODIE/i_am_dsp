@@ -5,7 +5,13 @@ use std::f32::consts::PI;
 use i_am_dsp_derive::Parameters;
 use rustfft::num_complex::Complex;
 
-use crate::{prelude::{Parameter, Parameters, bend}, tools::{interpolate::{cubic_interpolate, cubic_interpolate_complex}, ring_buffer::RingBuffer}};
+use crate::{
+	prelude::{Parameter, Parameters, bend}, 
+	tools::{
+		interpolate::{cubic_interpolate, cubic_interpolate_complex}, 
+		ring_buffer::RingBuffer
+	}
+};
 
 #[cfg(feature = "sin_table")]
 lazy_static::lazy_static! {

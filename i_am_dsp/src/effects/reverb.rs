@@ -2,7 +2,14 @@
 
 use bitvec::{bitvec, order::Lsb0};
 use i_am_dsp_derive::Parameters;
-use crate::{prelude::PureDelay, tools::{matrix::{identity, mat_add, mat_mul_vec, mat_scale, random_householder_matrix, same, scalar_multiply, vector_add, Mat}, ring_buffer::RingBuffer}, Effect};
+use crate::{
+	prelude::PureDelay, 
+	tools::{
+		matrix::{identity, mat_add, mat_mul_vec, mat_scale, random_householder_matrix, same, scalar_multiply, vector_add, Mat}, 
+		ring_buffer::RingBuffer
+	}, 
+	Effect
+};
 
 fn format_feedback_matrix<const DELAY_LINES: usize, const CHANNELS: usize>(mat: &[Mat<DELAY_LINES>; CHANNELS]) -> Vec<u8> {
 	let mut result = vec![];
