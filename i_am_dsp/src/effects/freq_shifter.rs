@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{effects::{filter::{Biquad, MIN_FREQUENCY}, prelude::{hilbert_transform, Convolver, HilbertTransform}}, Effect, ProcessContext};
+use crate::{Effect, ProcessContext, effects::{filter::{Biquad, MIN_FREQUENCY}, prelude::{Convolver, HilbertTransform, hilbert_transform}}, tools::ring_buffer::RingBuffer};
 
 /// A frequency shifter using an FIR Hilbert transform.
 #[derive(Parameters)]
@@ -20,7 +20,9 @@ pub struct FIRFreqShifter<const CHANNELS: usize = 2> {
 	shift_freq: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,
-	
+	#[skip]
+	history: [RingBuffer<f32>; CHANNELS],
+
 	#[cfg(feature = "real_time_demo")]
 	#[serde]
 	order_of_transform: usize,
@@ -42,6 +44,7 @@ impl<const CHANNELS: usize> FIRFreqShifter<CHANNELS> {
 			phase_state: 0.0,
 			shift_freq,
 			filter: Biquad::new(sample_rate),
+			history: core::array::from_fn(|_| RingBuffer::new(63)),
 
 			#[cfg(feature = "real_time_demo")]
 			order_of_transform: 127
@@ -87,8 +90,9 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for FIRFreqShifter<CHANNELS> {
 		let phase_real = self.phase_state.cos();
 		let phase_imag = self.phase_state.sin();
 
-		for (i, real_part) in samples.iter_mut().enumerate() {
-			*real_part = imag_parts[i] * phase_real - imag_parts[i] * phase_imag;
+		for (i, sample) in samples.iter_mut().enumerate() {
+			self.history[i].push(*sample);
+			*sample = self.history[i][0] * phase_real - imag_parts[i] * phase_imag;
 		}
 
 		self.phase_state = (self.phase_state + phase_increment) % (2.0 * PI);
@@ -119,6 +123,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for FIRFreqShifter<CHANNELS> {
 				hilbert_transform::<CHANNELS>(order_of_transform),
 				&super::prelude::DelyaCaculateMode::Fir
 			);
+			self.history = core::array::from_fn(|_| RingBuffer::new(self.hilbert_transform.delay()));
 		}
 	}
 }
@@ -194,7 +199,7 @@ impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for IIRFreqShif
 		let phase_imag = self.phase_state.sin();
 
 		for (i, real_part) in samples.iter_mut().enumerate() {
-			*real_part = imag_parts[i] * phase_real - imag_parts[i] * phase_imag;
+			*real_part = *real_part * phase_real - imag_parts[i] * phase_imag;
 		}
 
 		self.phase_state = (self.phase_state + phase_increment) % (2.0 * PI);
