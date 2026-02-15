@@ -213,7 +213,9 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 
 	let mut parameter_imply = vec![];
 	let mut setter_imply = vec![];
+	let mut paramters_map_create = vec![];
 	let filed_config_len = field_configs.len();
+	let mut param_index: usize = 0;
 	for (config, field_name, field_type) in field_configs {
 		if config.skip {
 			continue;
@@ -226,7 +228,11 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 		};
 		let id = Ident::new(&id, proc_macro2::Span::call_site());
 		let logarithmic = config.logarithmic;
+		let id_string = id.to_string();
 
+		paramters_map_create.push(quote! {
+			#id_string => #param_index,
+		});
 
 		if let Some((min, max)) = config.range {
 			if config.is_int {
@@ -243,13 +249,13 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 					});
 				});
 				setter_imply.push(quote! {
-					if identifier == stringify!(#id) {
+					#param_index => {
 						if let i_am_dsp::prelude::SetValue::Int(value) = &value {
 							let value = *value;
 							self.#field_name = value as #field_type;
 							return true;
 						}
-					}
+					},
 				});
 			}else {
 				parameter_imply.push(quote! {
@@ -263,13 +269,13 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 					});
 				});
 				setter_imply.push(quote! {
-					if identifier == stringify!(#id) {
+					#param_index => {
 						if let i_am_dsp::prelude::SetValue::Float(value) = &value {
 							let value = *value;
 							self.#field_name = value as #field_type;
 							return true;
 						}
-					}
+					},
 				});
 			}
 		}else if config.is_serde {
@@ -281,7 +287,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				});
 			});
 			setter_imply.push(quote! {
-				if identifier == stringify!(#id) {
+				#param_index => {
 					let owned_value = std::mem::take(&mut value);
 					match owned_value {
 						i_am_dsp::prelude::SetValue::Serialized(parsed) => {
@@ -291,7 +297,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 						},
 						other => value = other,
 					}
-				}
+				},
 			});
 		}else if let (Some(serialize), Some(deserialize)) = (config.persist_serialize, config.persist_deserialize) {
 			let serialize = Ident::new(&serialize, proc_macro2::Span::call_site());
@@ -304,7 +310,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				});
 			});
 			setter_imply.push(quote! {
-				if identifier == stringify!(#id) {
+				#param_index => {
 					let owned_value = std::mem::take(&mut value);
 					match owned_value {
 						i_am_dsp::prelude::SetValue::Serialized(parsed) => {
@@ -314,7 +320,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 						},
 						other => value = other,
 					}
-				}
+				},
 			});
 		}else if config.is_sub_param {
 			parameter_imply.push(quote! {
@@ -325,14 +331,14 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				parameters.extend(sub_parameters);
 			});
 			setter_imply.push(quote! {
-				if identifier.starts_with(&format!("{}.", stringify!(#field_name))) {
+				#param_index => {
 					let head_len = format!("{}.", stringify!(#field_name)).len();
 					let param_id = &identifier[head_len..];
 					let value = std::mem::take(&mut value);
 					i_am_dsp::prelude::Parameters::set_parameter(&mut self.#field_name, param_id, value);
 					// .set_parameter(&param_id, value);
 					return true;
-				}
+				},
 			});
 		}else if config.is_bool {
 			parameter_imply.push(quote! {
@@ -342,17 +348,25 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				});
 			});
 			setter_imply.push(quote! {
-				if identifier == stringify!(#id) {
+				#param_index => {
 					if let i_am_dsp::prelude::SetValue::Bool(value) = &value {
 						self.#field_name = *value;
 						return true;
 					}
-				}
+				},
 			});
 		}
+
+		param_index += 1;
 	}
 
+	let map_name = Ident::new(&format!("{}_PARAM_MAP_IAMDSP_PROC_MACRO", struct_name), proc_macro2::Span::call_site());
+
 	let expanded = quote! {
+		static #map_name: i_am_dsp::phf::Map<&'static str, usize> = i_am_dsp::phf::phf_map! {
+			#(#paramters_map_create)*
+		};
+
 		impl #impl_generics i_am_dsp::prelude::Parameters for #struct_name #ty_generics #where_clause {
 			fn get_parameters(&self) -> Vec<i_am_dsp::prelude::Parameter> {
 				use i_am_dsp::prelude::Parameters;
@@ -364,7 +378,14 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 			}
 
 			fn set_parameter(&mut self, identifier: &str, mut value: i_am_dsp::prelude::SetValue) -> bool {
-				#(#setter_imply)*
+				let identifier_head = identifier.split('.').next().unwrap_or("");
+
+				let Some(id) = #map_name.get(identifier_head) else { return false; };
+
+				match id {
+					#(#setter_imply)*
+					_ => {}
+				}
 				
 				false
 			}

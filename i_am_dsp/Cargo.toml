@@ -41,4 +41,5 @@ wide = "1.1.1"
 # fft-convolver = "0.2.0"
 portable-atomic = { version = "1.13.0", features = ["float", "serde"] }
 bimap = "0.6.3"
+phf = { version = "0.13.1", features = ["macros"] }
 # crossbeam-queue = "0.3.12"

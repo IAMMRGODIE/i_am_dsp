@@ -187,6 +187,17 @@ pub trait Parameters {
 	/// 
 	/// Host should call this method to update the value and make sure the value is within the valid range.
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool;
+
+	/// Sets the value of a parameter by index, will return false if index is out of range.
+	fn set_parameter_by_index(&mut self, index: usize, value: SetValue) -> bool {
+		let params = self.get_parameters();
+		if index >= params.len() {
+			return false;
+		}
+
+		let param = self.get_parameters().remove(index);
+		self.set_parameter(&param.identifier, value)
+	}
 }
 
 impl Parameters for Complex<f32> {
@@ -675,7 +686,7 @@ mod tests {
 		let mut params = MyParameters::default();
 
 		let params_output = params.get_parameters();
-		println!("{:#?}", params_output);
+		// println!("{:#?}", params_output);
 		assert_eq!(params_output.len(), 7);
 		params.set_parameter("a", SetValue::Float(0.5));
 		assert_eq!(params.a, 0.5);

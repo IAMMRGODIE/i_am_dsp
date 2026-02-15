@@ -1,7 +1,7 @@
 #[cfg(feature = "standalone")]
 fn main() {
 	use i_am_dsp_iced::styles::theme;
-use i_am_dsp_iced::{demo::Demo, plugins::wavetable_synth::WavetableSynth};
+	use i_am_dsp_iced::{demo::Demo, plugins::wavetable_synth::WavetableSynth};
 	use i_am_dsp::prelude::{SawWave, SineWave, SquareWave, TriangleWave};
 	use i_am_dsp::prelude::WaveTable;
 
@@ -17,10 +17,9 @@ use i_am_dsp_iced::{demo::Demo, plugins::wavetable_synth::WavetableSynth};
 			})
 		})
 	}, Demo::update, Demo::view)
-		.subscription(|_| {
-			Demo::<WavetableSynth>::subscriber()
-		})
+		.subscription(|_| { Demo::<WavetableSynth>::subscriber() })
 		.theme(theme())
+		.window_size((720.0, 560.0))
 		.run().expect("cant run app")
 }
 

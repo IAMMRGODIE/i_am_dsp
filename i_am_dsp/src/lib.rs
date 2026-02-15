@@ -23,6 +23,9 @@ pub mod effects;
 pub mod tools;
 pub mod prelude;
 
+#[doc(hidden)]
+pub use phf;
+
 // /// re-export lazy_static for derive macro
 // /// 
 // /// See https://crates.io/crates/lazy_static for more information.
