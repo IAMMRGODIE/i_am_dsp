@@ -36,6 +36,8 @@ pub struct PlayingNote<const CHANNELS: usize> {
 	release: Option<(f32, usize)>,
 	phase_start: Vec<[f32; CHANNELS]>,
 	pan_factors: Vec<f32>,
+	last_time: f32,
+	last_phase: f32,
 	/// The current pitch factor of the oscillator, used for pitch shifting.
 	pub current_pitch_factor: f32,
 }
@@ -327,6 +329,8 @@ impl<
 						release: None,
 						phase_start: phases,
 						pan_factors,
+						last_phase: 0.0,
+						last_time: 0.0,
 						current_pitch_factor: 1.0,
 					};
 					self.note_playing.insert(playing_note.note.note, playing_note);
@@ -391,9 +395,14 @@ impl<
 				let detune_factor = self.unison_detune * index;
 				let pitch_factor = playing_note.current_pitch_factor * self.pitch_factor;
 				let frequency = self.tuning_sys.get_frequency(*note as f32 + detune_factor) * pitch_factor;
+
+				let t = frequency * (time - playing_note.last_time) + playing_note.last_phase;
+				playing_note.last_time = time;
+				playing_note.last_phase = t;
+
 				let samples = self.oscillator.play_at(
-					frequency, 
-					time,
+					1.0, 
+					t,
 					if self.random_phase_by_channel {
 						playing_note.phase_start[i]
 					}else {

@@ -622,20 +622,6 @@ impl ParamMap {
 
 		Some(value.clone())
 	}
-
-	// fn update_queue(&self, index: usize) {
-	// 	let mut updated_set = HashSet::new();
-
-	// 	while let Some(id) = self.update_queue.pop() {
-	// 		updated_set.insert(id);
-	// 	}
-
-	// 	updated_set.insert(index);
-
-	// 	for id in updated_set {
-	// 		self.update_queue.push(id);
-	// 	}
-	// }
 }
 
 #[cfg(test)]
