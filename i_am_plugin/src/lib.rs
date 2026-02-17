@@ -2,8 +2,23 @@
 
 use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::from_raw_parts};
 
-use clack_extensions::{audio_ports::{AudioPortFlags, AudioPortInfo, AudioPortType, PluginAudioPorts, PluginAudioPortsImpl}, gui::{GuiApiType, GuiConfiguration, GuiResizeHints, PluginGui, PluginGuiImpl}, params::{ParamInfo, ParamInfoFlags, PluginAudioProcessorParams, PluginMainThreadParams, PluginParams}, state::{PluginState, PluginStateImpl}};
-use clack_plugin::{entry::DefaultPluginFactory, events::{Event, Match, Pckn, event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, TransportEvent}, spaces::CoreEventSpace}, plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, prelude::{OutputEvents, SampleType}, process::{Audio, Events, Process, ProcessStatus}};
+use clack_extensions::{
+	audio_ports::{AudioPortFlags, AudioPortInfo, AudioPortType, PluginAudioPorts, PluginAudioPortsImpl}, 
+	clap_wrapper::vst3::{PluginAsVST3, PluginAsVST3Impl, PluginFactoryAsVST3Impl, PluginInfoAsVST3}, 
+	gui::{GuiApiType, GuiConfiguration, GuiResizeHints, PluginGui, PluginGuiImpl}, 
+	params::{ParamInfo, ParamInfoFlags, PluginAudioProcessorParams, PluginMainThreadParams, PluginParams}, 
+	state::{PluginState, PluginStateImpl}
+};
+use clack_plugin::{
+	entry::DefaultPluginFactory, 
+	events::{Event, Match, Pckn, 
+		event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, TransportEvent}, 
+		spaces::CoreEventSpace
+	}, 
+	plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, 
+	prelude::{OutputEvents, SampleType}, 
+	process::{Audio, Events, Process, ProcessStatus}
+};
 use crossbeam_channel::{Receiver, Sender};
 use i_am_dsp::{ProcessContext, ProcessInfos, prelude::{AtomicValue, ParamMap, Paramed, Parameters, SetValue, from_binary, to_binary}};
 use i_am_dsp_iced::{Message, Processor, SyncedView};
@@ -14,6 +29,7 @@ extern crate self as i_am_plugin;
 
 #[doc(hidden)]
 pub use clack_plugin::{clack_export_entry, entry::SinglePluginEntry};
+use xxhash_rust::const_xxh3::xxh3_128;
 
 /// A struct to hold a plugin's audio port.
 pub struct AudioPort {
@@ -884,24 +900,6 @@ impl<'a, P: Plugin> PluginAudioProcessorParams for AudioProcessor<'a, P> {
 #[derive(Default)]
 pub struct ClapPlugin<P: Plugin>(std::marker::PhantomData<P>);
 
-
-impl<P: Plugin> clack_plugin::plugin::Plugin for ClapPlugin<P> 
-where 
-	<P as i_am_dsp_iced::Processor>::Message: std::fmt::Debug
-{
-	type Shared<'a> = ();
-	type AudioProcessor<'a> = AudioProcessor<'a, P>;
-	type MainThread<'a> = PluginMain<P>;
-
-	fn declare_extensions(builder: &mut clack_plugin::prelude::PluginExtensions<Self>, _: Option<&Self::Shared<'_>>) {
-		builder
-			.register::<PluginAudioPorts>()
-			.register::<PluginParams>()
-			.register::<PluginState>()
-			.register::<PluginGui>();
-	}
-}
-
 impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> 
 where 
 	<P as i_am_dsp_iced::Processor>::Message: std::fmt::Debug
@@ -963,7 +961,64 @@ where
 	}
 }
 
-/// Exports a plugin for the Clack audio plugin host.
+impl<P: Plugin> clack_plugin::plugin::Plugin for ClapPlugin<P> 
+where 
+	<P as i_am_dsp_iced::Processor>::Message: std::fmt::Debug
+{
+	type Shared<'a> = ();
+	type AudioProcessor<'a> = AudioProcessor<'a, P>;
+	type MainThread<'a> = PluginMain<P>;
+
+	fn declare_extensions(builder: &mut clack_plugin::prelude::PluginExtensions<Self>, _: Option<&Self::Shared<'_>>) {
+		builder
+			.register::<PluginAudioPorts>()
+			.register::<PluginParams>()
+			.register::<PluginState>()
+			.register::<PluginAsVST3>()
+			.register::<PluginGui>();
+	}
+}
+
+impl<P: Plugin> ClapPlugin<P> {
+	const VST3_ID: [u8; 16] = xxh3_128(P::DESCRIPTOR.id.as_bytes()).to_be_bytes();
+
+	const VST3_PLUGIN_INFO: PluginInfoAsVST3<'static> = PluginInfoAsVST3::new(
+		if let Some(vendor) = P::DESCRIPTOR.vendor {
+			if let Ok(vendor) = CStr::from_bytes_until_nul(vendor.as_bytes()) {
+				Some(vendor)
+			}else {
+				None
+			}
+		}else {
+			None
+		},
+		Some(&Self::VST3_ID),
+		None,
+	);
+}
+
+impl<P: Plugin> PluginAsVST3Impl for PluginMain<P> {
+	fn num_midi_channels(&mut self, _: u32) -> u32 {
+		16
+	}
+
+	fn supported_note_expressions(&mut self) -> clack_extensions::clap_wrapper::vst3::SupportedNoteExpressions {
+		clack_extensions::clap_wrapper::vst3::SupportedNoteExpressions::empty()
+	}
+}
+
+impl<P: Plugin> PluginFactoryAsVST3Impl for ClapPlugin<P> 
+{
+	fn get_vst3_info(&self, index: u32) -> Option<&PluginInfoAsVST3<'_>> {
+		if index == 0 {
+			Some(&Self::VST3_PLUGIN_INFO)
+		}else {
+			None
+		}
+	}
+}
+
+/// Exports a plugin for the CLAP audio plugin host.
 #[macro_export] macro_rules! export_clap {
 	($plugin_ty: ty) => {
 		i_am_plugin::clack_export_entry!(i_am_plugin::SinglePluginEntry<i_am_plugin::ClapPlugin<$plugin_ty>>);

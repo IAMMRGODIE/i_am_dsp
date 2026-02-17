@@ -28,3 +28,19 @@
 [lib]
 crate-type = ["cdylib"]
 ```
+
+如果你想导出 VST3 的话，你可以试试 [clap_wrapper](https://docs.rs/clap-wrapper/latest/clap_wrapper/) 这个库，然后在你的插件里面加上
+
+```rust
+clap_wrapper::export_vst3!(); 
+```
+
+之后你需要参考对应 VST3 的文档去打包，不过目前我还没试过（
+
+AU 还不支持，因为我还没实现
+
+不过需要注意一下开源协议问题，因为我在这里并没有分发一份 `clap_wrapper`, 所以我无法固定 `clap_wrapper` 的协议
+
+## 开源协议
+
+MPL 2.0

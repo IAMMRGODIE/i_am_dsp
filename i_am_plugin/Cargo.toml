@@ -14,3 +14,4 @@ i_am_dsp = { workspace = true }
 i_am_dsp_iced = { workspace = true }
 raw-window-handle = { version = "0.5" }
 crossbeam-channel = "0.5.15"
+xxhash-rust = { version = "0.8.15", features = ["const_xxh3"] }
