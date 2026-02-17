@@ -767,7 +767,7 @@ impl<T: Parameters> Paramed<T> {
 	/// 
 	/// Ussful for those structs that have unfixed number of parameters.
 	/// 
-	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`param_map`].
+	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`Self::param_map`].
 	pub fn update_map(&mut self) {
 		let params = self.value.get_parameters();
 		let mut new_map = BiMap::with_capacity(params.len());
