@@ -963,7 +963,8 @@ where
 	}
 }
 
-#[macro_export] macro_rules! impl_clap_plugin {
+/// Exports a plugin for the Clack audio plugin host.
+#[macro_export] macro_rules! export_clap {
 	($plugin_ty: ty) => {
 		i_am_plugin::clack_export_entry!(i_am_plugin::SinglePluginEntry<i_am_plugin::ClapPlugin<$plugin_ty>>);
 	}
