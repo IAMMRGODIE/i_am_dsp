@@ -20,3 +20,11 @@
 
 然后你需要为你的插件实现 `Plugin` trait，之后使用 `export_clap` 这个宏创建 entry，然后就可以愉快 
 `cargo build --release` 了，把输出的库文件换成 `.clap` 后缀名放到 CLAP 要求的地方应该就能使了 
+
+哦对不要忘了加入下面这玩意
+```toml
+# Cargo.toml
+
+[lib]
+crate-type = ["cdylib"]
+```
