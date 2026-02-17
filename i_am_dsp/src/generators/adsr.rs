@@ -37,7 +37,7 @@ pub struct PlayingNote<const CHANNELS: usize> {
 	phase_start: Vec<[f32; CHANNELS]>,
 	pan_factors: Vec<f32>,
 	last_time: f32,
-	last_phase: f32,
+	last_phase: Vec<f32>,
 	/// The current pitch factor of the oscillator, used for pitch shifting.
 	pub current_pitch_factor: f32,
 }
@@ -329,7 +329,7 @@ impl<
 						release: None,
 						phase_start: phases,
 						pan_factors,
-						last_phase: 0.0,
+						last_phase: vec![0.0; self.unisons],
 						last_time: 0.0,
 						current_pitch_factor: 1.0,
 					};
@@ -396,10 +396,9 @@ impl<
 				let pitch_factor = playing_note.current_pitch_factor * self.pitch_factor;
 				let frequency = self.tuning_sys.get_frequency(*note as f32 + detune_factor) * pitch_factor;
 
-				let t = frequency * (time - playing_note.last_time) + playing_note.last_phase;
-				playing_note.last_time = time;
-				playing_note.last_phase = t;
-
+				let t = frequency * (time - playing_note.last_time) + playing_note.last_phase[i];
+				playing_note.last_phase[i] = t;
+				
 				let samples = self.oscillator.play_at(
 					1.0, 
 					t,
@@ -409,7 +408,7 @@ impl<
 						std::array::from_fn(|_| playing_note.phase_start[i][0])
 					}
 				);
-
+				
 				for (j, output_samples) in output_samples.iter_mut().enumerate() {
 					// let pan_gain = i as f32 / channels_f32 * index * 2.0 - index + 1.0;
 					let gain_factor = if CHANNELS == 1 {
@@ -420,10 +419,11 @@ impl<
 						let delta = (angle_uniformed - pan_factor).abs();
 						2.0 - delta * 2.0
 					};
-
+					
 					*output_samples += samples[j] * gain / unisons as f32 * blend * gain_factor;
 				}
 			}
+			playing_note.last_time = time;
 			if let Some(processor) = &self.note_effect {
 				processor(&mut output_samples, playing_note, self.sample_rate)
 			}

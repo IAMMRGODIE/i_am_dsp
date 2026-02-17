@@ -1,6 +1,6 @@
 //! The view effects such as spectrum analyzer, waveform display, etc.
 
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::{atomic::Ordering};
 
 use i_am_dsp::{prelude::WaveTable, tools::ring_buffer::RingBuffer};
 use iced::{Point, Rectangle, Renderer, Size, Theme, mouse::{self, Event}, theme::palette::lighten, widget::canvas::{Path, Program, Stroke, path::Builder}};
@@ -177,7 +177,7 @@ pub struct Waveform<Table: WaveTable> {
 	pub table: Table,
 	selected: AtomicBool,
 	sample_points: usize,
-	canvas_cache: Arc<iced::widget::canvas::Cache>,
+	canvas_cache: iced::widget::canvas::Cache,
 	on_change: Option<Box<dyn Fn(bool) -> bool + Send + Sync + 'static>>,
 	disable_hover: bool,
 	color: Option<iced::Color>,

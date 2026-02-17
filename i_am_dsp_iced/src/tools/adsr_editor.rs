@@ -1,70 +1,56 @@
-use std::{collections::HashMap, sync::atomic::Ordering};
+use std::{collections::HashMap, sync::{Arc, atomic::Ordering}};
 
-use i_am_dsp::prelude::{Adsr, Oscillator, Tuning};
+use i_am_dsp::prelude::{Adsr, AtomicValue, Oscillator, Paramed, Tuning};
 use iced::{Point, Renderer, Theme, mouse::{Cursor, Event}, widget::{Action, canvas::{Frame, Path, Program, Stroke}}};
-use portable_atomic::AtomicF32;
-
 use crate::{styles::{ALPHA_FACTOR, PADDING}, tools::utils::{Animator, bend, card}};
 
 #[derive(Debug)]
 /// Adsr editor for real-time audio processing.
 pub struct AdsrEditor {
-	pub delay_time: AtomicF32,
-	pub attack_time: AtomicF32,
-	pub hold_time: AtomicF32,
-	pub decay_time: AtomicF32,
-	pub sustain_level: AtomicF32,
-	pub release_time: AtomicF32,
+	pub delay_time: Arc<AtomicValue>,
+	pub attack_time: Arc<AtomicValue>,
+	pub hold_time: Arc<AtomicValue>,
+	pub decay_time: Arc<AtomicValue>,
+	pub sustain_level: Arc<AtomicValue>,
+	pub release_time: Arc<AtomicValue>,
 
-	pub attack_bend: AtomicF32,
-	pub decay_bend: AtomicF32,
-	pub release_bend: AtomicF32,
+	pub attack_bend: Arc<AtomicValue>,
+	pub decay_bend: Arc<AtomicValue>,
+	pub release_bend: Arc<AtomicValue>,
 }
 
 impl AdsrEditor {
 	/// Create a new AdsrEditor from an Adsr object.
-	pub fn new<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>(adsr: &Adsr<Osc, TuningSys, CHANNELS>) -> Self {
-		Self {
-			delay_time: AtomicF32::new(adsr.delay_time),
-			attack_time: AtomicF32::new(adsr.attack_time),
-			hold_time: AtomicF32::new(adsr.hold_time),
-			decay_time: AtomicF32::new(adsr.decay_time),
-			sustain_level: AtomicF32::new(adsr.sustain_level),
-			release_time: AtomicF32::new(adsr.release_time),
+	pub fn new<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>(adsr: &Paramed<Adsr<Osc, TuningSys, CHANNELS>>) -> Self {
+		let param_map = adsr.param_map();
 
-			attack_bend: AtomicF32::new(adsr.attack_bend),
-			decay_bend: AtomicF32::new(adsr.decay_bend),
-			release_bend: AtomicF32::new(adsr.release_bend),
+		Self {
+			delay_time: param_map.get("delay_time").unwrap(),
+			attack_time: param_map.get("attack_time").unwrap(),
+			hold_time: param_map.get("hold_time").unwrap(),
+			decay_time: param_map.get("decay_time").unwrap(),
+			sustain_level: param_map.get("sustain_level").unwrap(),
+			release_time: param_map.get("release_time").unwrap(),
+
+			attack_bend: param_map.get("attack_bend").unwrap(),
+			decay_bend: param_map.get("decay_bend").unwrap(),
+			release_bend: param_map.get("release_bend").unwrap(),
 		}
 	}
 
-	/// Adjust the Adsr object with the values of the editor.
-	pub fn adjust<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>(&self, adsr: &mut Adsr<Osc, TuningSys, CHANNELS>) {
-		adsr.delay_time = self.delay_time.load(Ordering::Relaxed);
-		adsr.attack_time = self.attack_time.load(Ordering::Relaxed);
-		adsr.hold_time = self.hold_time.load(Ordering::Relaxed);
-		adsr.decay_time = self.decay_time.load(Ordering::Relaxed);
-		adsr.sustain_level = self.sustain_level.load(Ordering::Relaxed);
-		adsr.release_time = self.release_time.load(Ordering::Relaxed);
-
-		adsr.attack_bend = self.attack_bend.load(Ordering::Relaxed);
-		adsr.decay_bend = self.decay_bend.load(Ordering::Relaxed);
-		adsr.release_bend = self.release_bend.load(Ordering::Relaxed);
-	}
-
 	fn get_circle_positions(&self, usable_width: f32, usable_height: f32, with_path: bool) -> (Vec<(Point, NodeId)>, f32, Option<Path>) {
-		let delay_time = self.delay_time.load(Ordering::Relaxed);
-		let attack_time = self.attack_time.load(Ordering::Relaxed);
-		let hold_time = self.hold_time.load(Ordering::Relaxed);
-		let decay_time = self.decay_time.load(Ordering::Relaxed);
-		let sustain_level = self.sustain_level.load(Ordering::Relaxed);
-		let release_time = self.release_time.load(Ordering::Relaxed);
+		let delay_time = self.delay_time.load(Ordering::Relaxed).float().unwrap();
+		let attack_time = self.attack_time.load(Ordering::Relaxed).float().unwrap();
+		let hold_time = self.hold_time.load(Ordering::Relaxed).float().unwrap();
+		let decay_time = self.decay_time.load(Ordering::Relaxed).float().unwrap();
+		let sustain_level = self.sustain_level.load(Ordering::Relaxed).float().unwrap();
+		let release_time = self.release_time.load(Ordering::Relaxed).float().unwrap();
 
 		let total_time = delay_time + attack_time + hold_time + decay_time + release_time;
 
-		let attack_bend = self.attack_bend.load(Ordering::Relaxed);
-		let decay_bend = self.decay_bend.load(Ordering::Relaxed);
-		let release_bend = self.release_bend.load(Ordering::Relaxed);
+		let attack_bend = self.attack_bend.load(Ordering::Relaxed).float().unwrap();
+		let decay_bend = self.decay_bend.load(Ordering::Relaxed).float().unwrap();
+		let release_bend = self.release_bend.load(Ordering::Relaxed).float().unwrap();
 
 		let sample_time = |t: f32| -> f32 {
 			let mut time = t * total_time;
@@ -245,7 +231,7 @@ impl<Message> Program<Message> for AdsrEditor {
 					},
 					_ => unreachable!(),
 				}.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |inner| {
-					Some((inner + bend_delta).clamp(-10.0, 10.0))
+					Some((inner.float().unwrap() + bend_delta).clamp(-10.0, 10.0))
 				});
 			}else {
 				let delta_x = state.current_mouse_pos.x - info.last_pos.x;
@@ -266,7 +252,7 @@ impl<Message> Program<Message> for AdsrEditor {
 						let y_delta = - delta_y / usable_height;
 						
 						let _ = self.sustain_level.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |inner| {
-							Some((inner + y_delta).clamp(0.0, 1.0))
+							Some((inner.float().unwrap() + y_delta).clamp(0.0, 1.0))
 						});
 						&self.decay_time
 					},
@@ -275,7 +261,7 @@ impl<Message> Program<Message> for AdsrEditor {
 					},
 					_ => unreachable!(),
 				}.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |inner| {
-					Some((inner + time_delta).max(0.0))
+					Some((inner.float().unwrap() + time_delta).max(0.0))
 				});
 			}
 

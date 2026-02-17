@@ -1,3 +1,5 @@
+//! A WavetableSynth plugin that generates a sine, triangle, sawtooth, and square wave using a wavetable.
+
 #[cfg(feature = "standalone")]
 fn main() {
 	use i_am_dsp_iced::styles::theme;

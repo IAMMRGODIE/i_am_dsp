@@ -1,6 +1,6 @@
 //! A helper trait for report parameters change to hosts.
 
-use std::{ops::RangeInclusive, sync::{Arc, atomic::Ordering}};
+use std::{ops::{Index, RangeInclusive}, sync::{Arc, atomic::Ordering}};
 
 use bimap::BiMap;
 use ciborium::{from_reader, into_writer};
@@ -65,6 +65,26 @@ impl AtomicValue {
 		}
 	}
 
+	/// Returns true if the value is a float.
+	pub fn is_float(&self) -> bool {
+		matches!(self, Self::Float {.. })
+	}
+
+	/// Returns true if the value is an int.
+	pub fn is_int(&self) -> bool {
+		matches!(self, Self::Int {.. })
+	}
+
+	/// Returns true if the value is a bool.
+	pub fn is_bool(&self) -> bool {
+		matches!(self, Self::Bool(_))
+	}
+
+	/// Returns true if the value is nothing.
+	pub fn is_nothing(&self) -> bool {
+		matches!(self, Self::Nothing)
+	}
+
 	/// Stores the value with the given ordering
 	/// 
 	/// Returns true if the value is updated, false for value type mismatch.
@@ -74,7 +94,8 @@ impl AtomicValue {
 	/// # Panics
 	/// 
 	/// Panics if order is [`Ordering::Release`] or [`Ordering::AcqRel`].
-	pub fn store(&self, value: SetValue, order: Ordering) -> bool {
+	pub fn store(&self, value: impl Into<SetValue>, order: Ordering) -> bool {
+		let value = value.into();
 		match (self, value) {
 			(Self::Bool(v), SetValue::Bool(value)) => {
 				v.store(value, order);
@@ -93,6 +114,32 @@ impl AtomicValue {
 			(Self::Nothing, SetValue::Nothing) => true,
 			_ => false,
 		}
+	}
+
+	/// Atomically updates the value with the given ordering and a closure.
+	/// 
+	/// Returns the old value if the closure returns `None`, otherwise returns the new value.
+	/// 
+	/// # Panics
+	/// 
+	/// Panics if order is [`Ordering::Release`] or [`Ordering::AcqRel`].
+	pub fn fetch_update<T>(
+		&self,
+		set_order: Ordering,
+		fetch_order: Ordering,
+		f: impl Fn(SetValue) -> Option<T>,
+	) -> Result<SetValue, SetValue> 
+	where 
+		T: Into<SetValue>,
+	{
+		let value = self.load(fetch_order);
+		if let Some(new_value) = f(value) {
+			self.store(new_value, set_order);
+		}else {
+			return Err(self.load(fetch_order));
+		};
+
+		Ok(self.load(fetch_order))
 	}
 }
 
@@ -177,6 +224,159 @@ pub enum SetValue {
 	Bool(bool),
 	/// A placeholder value, used for parameters that are not yet implemented or is None.
 	#[default] Nothing
+}
+
+impl From<f32> for SetValue {
+	fn from(v: f32) -> Self {
+		Self::Float(v)
+	}
+}
+
+impl From<&f32> for SetValue {
+	fn from(v: &f32) -> Self {
+		Self::Float(*v)
+	}
+}
+
+impl From<&mut f32> for SetValue {
+	fn from(v: &mut f32) -> Self {
+		Self::Float(*v)
+	}
+}
+
+impl From<i32> for SetValue {
+	fn from(v: i32) -> Self {
+		Self::Int(v)
+	}
+}
+
+impl From<&i32> for SetValue {
+	fn from(v: &i32) -> Self {
+		Self::Int(*v)
+	}
+}
+
+impl From<&mut i32> for SetValue {
+	fn from(v: &mut i32) -> Self {
+		Self::Int(*v)
+	}
+}
+
+impl From<bool> for SetValue {
+	fn from(v: bool) -> Self {
+		Self::Bool(v)
+	}
+}
+
+impl From<&bool> for SetValue {
+	fn from(v: &bool) -> Self {
+		Self::Bool(*v)
+	}
+}
+
+impl From<&mut bool> for SetValue {
+	fn from(v: &mut bool) -> Self {
+		Self::Bool(*v)
+	}
+}
+
+impl From<Vec<u8>> for SetValue {
+	fn from(v: Vec<u8>) -> Self {
+		Self::Serialized(v)
+	}
+}
+
+impl From<()> for SetValue {
+	fn from(_: ()) -> Self {
+		Self::Nothing
+	}
+}
+
+impl From<Option<f32>> for SetValue {
+	fn from(v: Option<f32>) -> Self {
+		if let Some(v) = v {
+			Self::Float(v)
+		} else {
+			Self::Nothing
+		}
+	}
+}
+
+impl From<Option<i32>> for SetValue {
+	fn from(v: Option<i32>) -> Self {
+		if let Some(v) = v {
+			Self::Int(v)
+		} else {
+			Self::Nothing
+		}
+	}
+}
+
+impl From<Option<bool>> for SetValue {
+	fn from(v: Option<bool>) -> Self {
+		if let Some(v) = v {
+			Self::Bool(v)
+		} else {
+			Self::Nothing
+		}
+	}
+}
+
+impl From<Option<Vec<u8>>> for SetValue {
+	fn from(v: Option<Vec<u8>>) -> Self {
+		if let Some(v) = v {
+			Self::Serialized(v)
+		} else {
+			Self::Nothing
+		}
+	}
+}
+
+impl SetValue {
+	/// Returns the float value if it is a float value, otherwise returns None.
+	pub fn float(&self) -> Option<f32> {
+		if let Self::Float(v) = self {
+			Some(*v)
+		} else {
+			None
+		}
+	}
+
+	/// Returns the int value if it is an int value, otherwise returns None.
+	pub fn int(&self) -> Option<i32> {
+		if let Self::Int(v) = self {
+			Some(*v)
+		} else {
+			None
+		}
+	}
+
+	/// Returns the bool value if it is a bool value, otherwise returns None.
+	pub fn bool(&self) -> Option<bool> {
+		if let Self::Bool(v) = self {
+			Some(*v)
+		} else {
+			None
+		}
+	}
+
+	/// Returns the serialized value if it is a serialized value, otherwise returns None.
+	pub fn serialized(self) -> Option<Vec<u8>> {
+		if let Self::Serialized(v) = self {
+			Some(v)
+		} else {
+			None
+		}
+	}
+
+	/// Returns the nothing value if it is a nothing value, otherwise returns None.
+	pub fn nothing(&self) -> Option<()> {
+		if let Self::Nothing = self {
+			Some(())
+		} else {
+			None
+		}
+	}
 }
 
 /// A helper trait for report parameters change to hosts.
@@ -449,10 +649,10 @@ impl<T: Parameters> Parameters for Option<T> {
 /// # Panics
 /// 
 /// This function will panic if the value cannot be serialized.
-pub fn to_binary<T: serde::Serialize>(value: &T) -> Vec<u8> {
+pub fn to_binary<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, ciborium::ser::Error<std::io::Error>> {
 	let mut output = vec![];
-	into_writer(value, &mut output).expect("Can not serialized input value");
-	output
+	into_writer(value, &mut output)?;
+	Ok(output)
 }
 
 /// A helper function
@@ -463,9 +663,9 @@ pub fn to_binary<T: serde::Serialize>(value: &T) -> Vec<u8> {
 /// # Panics
 /// 
 /// This function will panic if the data cannot be deserialized.
-pub fn from_binary<T: serde::de::DeserializeOwned>(data: Vec<u8>) -> T {
+pub fn from_binary<T: serde::de::DeserializeOwned>(data: Vec<u8>) -> Result<T, ciborium::de::Error<std::io::Error>> {
 	let slice = data.as_slice();
-	from_reader(slice).expect("Can note deserialized input value")
+	from_reader(slice)
 }
 
 /// A simple wrapper around a sturct makes it possible to have a sturct with multiple parameter setters.
@@ -595,7 +795,34 @@ pub struct ParamMap {
 	id: Arc<BiMap<String, usize>>,
 }
 
+impl Index<usize> for ParamMap {
+	type Output = AtomicValue;
+
+	fn index(&self, index: usize) -> &Self::Output {
+		&self.values[index]
+	}
+}
+
+impl Index<&str> for ParamMap {
+	type Output = AtomicValue;
+
+	fn index(&self, index: &str) -> &Self::Output {
+		let index = self.id.get_by_left(index).unwrap_or_else(|| panic!("index `{}` not found", index));
+		self.values.get(*index).unwrap_or_else(|| panic!("index `{}` not found", index))
+	}
+}
+
 impl ParamMap {
+	/// Check if the parameter map is empty.
+	pub fn is_empty(&self) -> bool {
+		self.values.is_empty()
+	}
+
+	/// Get the number of parameters.
+	pub fn len(&self) -> usize {
+		self.values.len()
+	}
+
 	/// Get the parameter value by its identifier.
 	pub fn get(&self, id: &str) -> Option<Arc<AtomicValue>> {
 		let index = self.id.get_by_left(id)?;
@@ -688,7 +915,7 @@ mod tests {
 		assert!(params.boo);
 		params.set_parameter("_e", SetValue::Nothing);
 		assert_eq!(params._e, Vec::new());
-		params.set_parameter("d.h", SetValue::Serialized(to_binary(&(2.0, 3.0))));
+		params.set_parameter("d.h", SetValue::Serialized(to_binary(&(2.0, 3.0)).unwrap()));
 		assert_eq!(params.d.h, (2.0, 3.0));
 	}
 }

@@ -6,7 +6,7 @@
 
 use std::time::Instant;
 
-use i_am_dsp::{NoteEvent, ProcessContext};
+use i_am_dsp::{NoteEvent, ProcessContext, prelude::{Paramed, Parameters}};
 use iced::Element;
 
 pub mod styles;
@@ -16,7 +16,7 @@ pub mod plugins;
 pub mod demo;
 
 /// A trait for views that can be synced with the processor.
-pub trait SyncedView {
+pub trait SyncedView: Send {
 	type Message;
 
 	/// Updates the view with the current state of the processor.
@@ -37,21 +37,44 @@ pub trait Message: Clone + Send + Sync + 'static {
 }
 
 /// A trait for processors that can be used in the iced gui.
-pub trait Processor: Send + Sync + 'static {
+pub trait Processor: Parameters + Send + Sync + 'static {
 	/// The message type used by the processor.
 	type Message: Message;
 	/// The view type used by the processor.
 	type SyncedView: SyncedView<Message = Self::Message>;
 
 	/// Processes the input samples and sends the output samples to the output buffer.
-	fn process(&mut self, samples: &mut [f32; 2], other: &[&[f32; 2]], process_context: &mut Box<dyn ProcessContext>);
+	fn process(&mut self, samples: &mut [f32; 2], other: &[[f32; 2]], process_context: &mut Box<dyn ProcessContext>);
 
 	/// The delay of the processor in samples.
 	fn delay(&self) -> usize;
 
-	/// The number of input channels of the processor.
-	fn on_message(&mut self, message: Self::Message);
+	/// The function that is called when a message is received.
+	/// 
+	/// You need to use internel mutability to modify the processor's state, therefor the function takes a mutable reference to the processor.
+	fn on_message(&self, message: Self::Message);
 
 	/// The view for the processor.
-	fn synced_view(&mut self) -> Self::SyncedView;
+	fn synced_view(&self) -> Self::SyncedView;
+}
+
+impl<P: Processor> Processor for Paramed<P> {
+	type Message = P::Message;
+	type SyncedView = P::SyncedView;
+
+	fn process(&mut self, samples: &mut [f32; 2], other: &[[f32; 2]], process_context: &mut Box<dyn ProcessContext>) {
+		self.value.process(samples, other, process_context)
+	}
+
+	fn delay(&self) -> usize {
+		self.value.delay()
+	}
+
+	fn on_message(&self, message: Self::Message) {
+		self.value.on_message(message)
+	}
+
+	fn synced_view(&self) -> Self::SyncedView {
+		self.value.synced_view()
+	}
 }

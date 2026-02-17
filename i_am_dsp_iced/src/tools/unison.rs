@@ -1,42 +1,32 @@
-use std::sync::atomic::Ordering;
+use std::sync::{Arc, atomic::Ordering};
 
-use i_am_dsp::prelude::{Adsr, Oscillator, Tuning};
+use i_am_dsp::prelude::{Adsr, AtomicValue, Oscillator, Paramed, Tuning};
 use iced::{Point, Renderer, Theme, mouse::Cursor, widget::canvas::{Frame, Path, Program, Stroke}};
-use portable_atomic::{AtomicBool, AtomicF32, AtomicUsize};
-
 use crate::{styles::PADDING, tools::utils::{bend, card}};
 
 pub struct UnisonEditor {
-	pub random_pan: AtomicF32,
-	pub random_phase: AtomicF32,
-	pub random_phase_by_channel: AtomicBool,
-	pub unison_detune: AtomicF32,
-	pub unison_bend: AtomicF32,
-	pub unison_blend: AtomicF32,
-	pub unisons: AtomicUsize,
+	pub random_pan: Arc<AtomicValue>,
+	pub random_phase: Arc<AtomicValue>,
+	pub unison_detune: Arc<AtomicValue>,
+	pub unison_bend: Arc<AtomicValue>,
+	pub unison_blend: Arc<AtomicValue>,
+	pub random_phase_by_channel: Arc<AtomicValue>,
+	pub unisons: Arc<AtomicValue>,
 }
 
 impl UnisonEditor {
-	pub fn new<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>(adsr: &Adsr<Osc, TuningSys, CHANNELS>) -> Self {
-		Self {
-			random_pan: AtomicF32::new(adsr.random_pan),
-			random_phase: AtomicF32::new(adsr.random_phase),
-			random_phase_by_channel: AtomicBool::new(adsr.random_phase_by_channel),
-			unison_detune: AtomicF32::new(adsr.unison_detune),
-			unison_bend: AtomicF32::new(adsr.unison_bend),
-			unison_blend: AtomicF32::new(adsr.unison_blend),
-			unisons: AtomicUsize::new(adsr.unisons),
-		}
-	}
+	pub fn new<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>(adsr: &Paramed<Adsr<Osc, TuningSys, CHANNELS>>) -> Self {
+		let param_map = adsr.param_map();
 
-	pub fn adjust<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>(&self, adsr: &mut Adsr<Osc, TuningSys, CHANNELS>) {
-		adsr.random_pan = self.random_pan.load(Ordering::Relaxed);
-		adsr.random_phase = self.random_phase.load(Ordering::Relaxed);
-		adsr.random_phase_by_channel = self.random_phase_by_channel.load(Ordering::Relaxed);
-		adsr.unison_detune = self.unison_detune.load(Ordering::Relaxed);
-		adsr.unison_bend = self.unison_bend.load(Ordering::Relaxed);
-		adsr.unison_blend = self.unison_blend.load(Ordering::Relaxed);
-		adsr.unisons = self.unisons.load(Ordering::Relaxed);
+		Self {
+			random_pan: param_map.get("random_pan").unwrap(),
+			random_phase: param_map.get("random_phase").unwrap(),
+			random_phase_by_channel: param_map.get("random_phase_by_channel").unwrap(),
+			unison_detune: param_map.get("unison_detune").unwrap(),
+			unison_bend: param_map.get("unison_bend").unwrap(),
+			unison_blend: param_map.get("unison_blend").unwrap(),
+			unisons: param_map.get("unisons").unwrap(),
+		}
 	}
 }
 
@@ -58,10 +48,10 @@ impl<Message> Program<Message> for UnisonEditor {
 		let usable_height = bounds.height - 2.0 * PADDING;
 
 		let path = Path::new(|builder| {
-			let unisons = self.unisons.load(Ordering::Relaxed);
-			let unison_bend = self.unison_bend.load(Ordering::Relaxed);
-			let unison_blend = self.unison_blend.load(Ordering::Relaxed);
-			let unison_detune = self.unison_detune.load(Ordering::Relaxed);
+			let unisons = self.unisons.load(Ordering::Relaxed).int().unwrap() as usize;
+			let unison_bend = self.unison_bend.load(Ordering::Relaxed).float().unwrap();
+			let unison_blend = self.unison_blend.load(Ordering::Relaxed).float().unwrap();
+			let unison_detune = self.unison_detune.load(Ordering::Relaxed).float().unwrap();
 
 			let mid_point = (unisons - 1) as f32 / 2.0;
 			for i in 0..unisons {

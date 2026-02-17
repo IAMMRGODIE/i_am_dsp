@@ -104,7 +104,7 @@ impl<P: Processor> Demo<P> {
 		let config = device.default_output_config().expect("no default output config");
 		let config = StreamConfig::from(config);
 		let sample_rate = config.sample_rate as usize;
-		let mut processor = builder(sample_rate);
+		let processor = builder(sample_rate);
 		let view = processor.synced_view();
 		let mut shared_data = CpalInner {
 			processor,

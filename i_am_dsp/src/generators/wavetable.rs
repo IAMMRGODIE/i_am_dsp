@@ -21,7 +21,7 @@ lazy_static::lazy_static! {
 /// A trait for wave tables that can be used by oscillators or be used as LFO.
 /// 
 /// Note that `Vec<f32>` and [`RingBuffer<f32>`] is also implemented for this trait.
-pub trait WaveTable: Parameters {
+pub trait WaveTable: Parameters + Send {
 	/// Returns the sample value at time t.
 	/// 
 	/// t in the range [0, 1]
@@ -99,7 +99,7 @@ impl<const CHANNELS: usize, O: Oscillator<CHANNELS>> Parameters for OscTable<CHA
 	}
 }
 
-impl<const CHANNELS: usize, O: Oscillator<CHANNELS>> WaveTable for OscTable<CHANNELS, O> {
+impl<const CHANNELS: usize, O: Oscillator<CHANNELS> + Send> WaveTable for OscTable<CHANNELS, O> {
 	fn sample(&self, t: f32, _: usize) -> f32 {
 		if CHANNELS == 0 {
 			return 0.0;

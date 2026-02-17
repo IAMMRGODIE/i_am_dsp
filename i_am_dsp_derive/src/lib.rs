@@ -280,7 +280,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 			}
 		}else if config.is_serde {
 			parameter_imply.push(quote! {
-				let parsed = i_am_dsp::prelude::to_binary(&self.#field_name);
+				let parsed = i_am_dsp::prelude::to_binary(&self.#field_name).expect("Failed to serialize value");
 				parameters.push(i_am_dsp::prelude::Parameter {
 					identifier: stringify!(#id).to_string(),
 					value: i_am_dsp::prelude::Value::Serialized(parsed),
@@ -291,7 +291,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 					let owned_value = std::mem::take(&mut value);
 					match owned_value {
 						i_am_dsp::prelude::SetValue::Serialized(parsed) => {
-							let value = i_am_dsp::prelude::from_binary(parsed);
+							let value = i_am_dsp::prelude::from_binary(parsed).expect("Failed to deserialize value");
 							self.#field_name = value;
 							return true;
 						},

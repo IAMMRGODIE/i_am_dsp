@@ -1,11 +1,22 @@
-use std::{ops::RangeInclusive, sync::{Arc, atomic::Ordering}, time::Instant};
+use std::{ops::RangeInclusive, sync::{Arc, Mutex, atomic::Ordering}, time::Instant};
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
-use i_am_dsp::{Generator, NoteEvent, prelude::{Adsr, EqualTemperament, PmTable, TableOsc, WaveTable, WaveTableSmoother}};
+use i_am_dsp::{Generator, NoteEvent, prelude::{Adsr, AtomicValue, EqualTemperament, ParamMap, Paramed, Parameters, PmTable, TableOsc, WaveTable, WaveTableSmoother}};
 use iced::{Border, Element, Length, Theme, alignment::{Horizontal, Vertical}, widget::{button, canvas, column, container, row, text}};
-use portable_atomic::{AtomicF32, AtomicUsize};
+use portable_atomic::AtomicUsize;
 
-use crate::{Message, Processor, SyncedView, styles::{BORDER_WIDTH, ERROR_COLOR, PADDING, PRIMARY_COLOR}, tools::{adsr_editor::AdsrEditor, knob::knob, selector::selector, slider::slider, unison::UnisonEditor, waveform::{Waveform, WaveformBuf}}};
+use crate::{
+	Message, Processor, SyncedView, 
+	styles::{BORDER_WIDTH, ERROR_COLOR, PADDING, PRIMARY_COLOR}, 
+	tools::{
+		adsr_editor::AdsrEditor, 
+		knob::knob, 
+		selector::selector, 
+		slider::slider, 
+		unison::UnisonEditor, 
+		waveform::{Waveform, WaveformBuf}
+	}
+};
 
 #[derive(Clone)]
 pub enum WavetableSynthMessage {
@@ -22,17 +33,27 @@ pub type TableBuildFn = Box<dyn Fn(usize) -> Vec<Box<dyn WaveTable + Send + Sync
 pub type SynthTable = PmTable<WaveTableSmoother, WaveTableSmoother>;
 
 pub struct WavetableSynth {
-	sample_rate: usize,
-	table: Adsr<TableOsc<SynthTable>, EqualTemperament, 2>,
+	// sample_rate: usize,
+	table: Paramed<Adsr<TableOsc<SynthTable>, EqualTemperament, 2>>,
 	adsr_params: Arc<AdsrEditor>,
-	smooth_factor_carrier: Arc<AtomicF32>,
-	smooth_factor_modulator: Arc<AtomicF32>,
-	pm_factor: Arc<AtomicF32>,
+	// smooth_factor_carrier: Arc<AtomicF32>,
+	// smooth_factor_modulator: Arc<AtomicF32>,
+	// pm_factor: Arc<AtomicF32>,
 	unison_editor: Arc<UnisonEditor>,
-	senders: Vec<Sender<f32>>,
+	senders: Arc<Mutex<Vec<Sender<f32>>>>,
 	table_builder: TableBuildFn,
-	pitch_factor: Arc<AtomicF32>,
-	gain: Arc<AtomicF32>,
+	// pitch_factor: Arc<AtomicF32>,
+	// gain: Arc<AtomicF32>,
+}
+
+impl Parameters for WavetableSynth {
+	fn set_parameter(&mut self, parameter: &str, value: i_am_dsp::prelude::SetValue) -> bool {
+		self.table.set_parameter(parameter, value)
+	}
+
+	fn get_parameters(&self) -> Vec<i_am_dsp::prelude::Parameter> {
+		self.table.get_parameters()
+	}
 }
 
 impl WavetableSynth {
@@ -47,26 +68,28 @@ impl WavetableSynth {
 			sample_rate
 		);
 
+		let table = Paramed::new(table);
+
 		let adsr_params = Arc::new(AdsrEditor::new(&table));
 		let unison_editor = Arc::new(UnisonEditor::new(&table));
 
 		Self {
-			pitch_factor: Arc::new(AtomicF32::new(table.pitch_factor)),
-			gain: Arc::new(AtomicF32::new(table.gain)),
-			sample_rate,
+			// pitch_factor: Arc::new(AtomicF32::new(table.pitch_factor)),
+			// gain: Arc::new(AtomicF32::new(table.gain)),
+			// sample_rate,
 			table,
 			adsr_params,
-			smooth_factor_carrier: Arc::default(),
-			smooth_factor_modulator: Arc::default(),
-			pm_factor: Arc::default(),
-			senders: vec![],
+			// smooth_factor_carrier: Arc::default(),
+			// smooth_factor_modulator: Arc::default(),
+			// pm_factor: Arc::default(),
+			senders: Default::default(),
 			table_builder: Box::new(table_builder),
 			unison_editor,
 		}
 	}
 }
 
-pub struct WavetableSynthView{
+pub struct WavetableSynthView {
 	wavetable: Waveform<SynthTable>,
 	waveform: WaveformBuf,
 
@@ -75,14 +98,16 @@ pub struct WavetableSynthView{
 
 	error_msg: Option<String>,
 	reciver: Receiver<f32>,
+
 	adsr_editor: Arc<AdsrEditor>,
 	unison_editor: Arc<UnisonEditor>,
-	pitch_factor: Arc<AtomicF32>,
-	gain: Arc<AtomicF32>,
+	param_map: ParamMap,
+	// pitch_factor: Arc<AtomicF32>,
+	// gain: Arc<AtomicF32>,
 
-	smooth_factor_carrier: Arc<AtomicF32>,
-	smooth_factor_modulator: Arc<AtomicF32>,
-	pm_factor: Arc<AtomicF32>,
+	// smooth_factor_carrier: Arc<AtomicF32>,
+	// smooth_factor_modulator: Arc<AtomicF32>,
+	// pm_factor: Arc<AtomicF32>,
 	current_pos: Arc<AtomicUsize>,
 	tables: Vec<Waveform<Box<dyn WaveTable + 'static>>>,
 }
@@ -114,9 +139,9 @@ impl SyncedView for WavetableSynthView {
 			}
 		}
 
-		let smooth_factor_carrier = self.smooth_factor_carrier.load(Ordering::Relaxed);
-		let smooth_factor_modulator = self.smooth_factor_modulator.load(Ordering::Relaxed);
-		let pm_factor = self.pm_factor.load(Ordering::Relaxed);
+		let smooth_factor_carrier = self.param_map["oscillator.carrier.smooth_factor"].load(Ordering::Relaxed).float().unwrap();
+		let smooth_factor_modulator = self.param_map["oscillator.modulator.smooth_factor"].load(Ordering::Relaxed).float().unwrap();
+		let pm_factor = self.param_map["oscillator.pm_factor"].load(Ordering::Relaxed).float().unwrap();
 
 		if smooth_factor_carrier != self.wavetable.table.carrier.smooth_factor {
 			self.wavetable.table.carrier.smooth_factor = smooth_factor_carrier;
@@ -141,12 +166,12 @@ impl SyncedView for WavetableSynthView {
 	fn view(&self) -> Element<'_, Self::Message> {
 		let current_pos = self.current_pos.load(Ordering::Relaxed);
 		let smooth_factor_now = match current_pos {
-			0 => &self.smooth_factor_carrier,
-			1 => &self.smooth_factor_modulator,
-			_ => &self.pm_factor,
+			0 => &self.param_map["oscillator.carrier.smooth_factor"],
+			1 => &self.param_map["oscillator.modulator.smooth_factor"],
+			_ => &self.param_map["oscillator.pm_factor"],
 		};
 
-		let smooth_factor = smooth_factor_now.load(Ordering::Relaxed);
+		let smooth_factor = smooth_factor_now.load(Ordering::Relaxed).float().unwrap();
 		let tables_len = self.tables.len();
 		let tables = self.tables.iter().enumerate().map(|(i, table)| {
 			let selected = if i + 1 == tables_len {
@@ -165,15 +190,11 @@ impl SyncedView for WavetableSynthView {
 			_ => Element::from(canvas(&self.wavetable).width(Length::FillPortion(5)).height(Length::FillPortion(5))),
 		};
 
-		let factor = match current_pos {
-			0 => &self.smooth_factor_carrier,
-			1 => &self.smooth_factor_modulator,
-			_ => &self.pm_factor,
-		};
+		let factor = smooth_factor_now;
 
 		#[inline(always)]
-		fn knob_wrapped(range: RangeInclusive<f32>, param: &AtomicF32) -> crate::tools::knob::Knob<'_, WavetableSynthMessage> {
-			knob(range, param.load(Ordering::Relaxed), |value| {
+		fn knob_wrapped(range: RangeInclusive<f32>, param: &AtomicValue) -> crate::tools::knob::Knob<'_, WavetableSynthMessage> {
+			knob(range, param.load(Ordering::Relaxed).float().unwrap(), |value| {
 				param.store(value, Ordering::Relaxed);
 				WavetableSynthMessage::Empty
 			}).width(32.0).height(32.0)
@@ -212,23 +233,23 @@ impl SyncedView for WavetableSynthView {
 						knob_wrapped(0.0..=1.0, &self.unison_editor.random_phase),
 						knob_wrapped(0.0..=1.0, &self.unison_editor.random_pan),
 					].spacing(16.0).align_y(Vertical::Center),
-					slider(1.0..=32.0, self.unison_editor.unisons.load(Ordering::Relaxed) as f32, |value| {
-						self.unison_editor.unisons.store(value as usize, Ordering::Relaxed);
+					slider(1.0..=32.0, self.unison_editor.unisons.load(Ordering::Relaxed).int().unwrap() as f32, |value| {
+						self.unison_editor.unisons.store(value as i32, Ordering::Relaxed);
 						WavetableSynthMessage::Empty
 					}).step(1.0).text("Unison").formatter(|float| format!("{:.0}", float)),
-					slider(0.0..=1.0, factor.load(Ordering::Relaxed), |value| {
+					slider(0.0..=1.0, factor.load(Ordering::Relaxed).float().unwrap(), |value| {
 						factor.store(value, Ordering::Relaxed);
 						WavetableSynthMessage::Empty
 					}).text("Factor"),
-					slider(0.25..=4.0, self.pitch_factor.load(Ordering::Relaxed), |value| {
-						self.pitch_factor.store(value, Ordering::Relaxed);
+					slider(0.25..=4.0, self.param_map["pitch_factor"].load(Ordering::Relaxed).float().unwrap(), |value| {
+						self.param_map["pitch_factor"].store(value, Ordering::Relaxed);
 						WavetableSynthMessage::Empty
 					}).text("Pitch").on_release(|_| {
-						let value = self.pitch_factor.load(Ordering::Relaxed);
+						let value = self.param_map["pitch_factor"].load(Ordering::Relaxed).float().unwrap();
 						let note = value.ln() / 2.0_f32.powf(1.0 / 12.0).ln();
 						let note = note.round();
 						let value = 2.0_f32.powf(1.0 / 12.0).powf(note);
-						self.pitch_factor.store(value, Ordering::Relaxed);
+						self.param_map["pitch_factor"].store(value, Ordering::Relaxed);
 						WavetableSynthMessage::Empty
 					}).formatter(|float| format!("{:.0}semi", float.ln() / 2.0_f32.powf(1.0 / 12.0).ln()))
 						.logarithmic().speed(0.3),
@@ -253,8 +274,8 @@ impl SyncedView for WavetableSynthView {
 						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.decay_time).logarithmic(true).speed(0.01),
 						knob_wrapped(0.0001..=1.0, &self.adsr_editor.sustain_level).logarithmic(true).speed(0.01),
 						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.release_time).logarithmic(true).speed(0.01),
-						slider(0.01..=4.0, self.gain.load(Ordering::Relaxed), |value| {
-							self.gain.store(value, Ordering::Relaxed);
+						slider(0.01..=4.0, self.param_map["gain"].load(Ordering::Relaxed).float().unwrap(), |value| {
+							self.param_map["gain"].store(value, Ordering::Relaxed);
 							WavetableSynthMessage::Empty
 						}).text("Gain").formatter(|float| format!("{:.2}dB", float.log10() * 20.0)),
 					]
@@ -290,54 +311,60 @@ impl Processor for WavetableSynth {
 	type Message = WavetableSynthMessage;
 	type SyncedView = WavetableSynthView;
 
-	fn process(&mut self, samples: &mut [f32; 2], _: &[&[f32; 2]], process_context: &mut Box<dyn i_am_dsp::ProcessContext>) {
+	fn process(&mut self, samples: &mut [f32; 2], _: &[[f32; 2]], process_context: &mut Box<dyn i_am_dsp::ProcessContext>) {
 		*samples = self.table.generate(process_context);
 		let to_send = (samples[0] + samples[1]) / 2.0;
+		let Ok(mut senders) = self.senders.try_lock() else {
+			return;
+		};
 
-		self.senders.retain(|inner| {
+		senders.retain(|inner| {
 			inner.try_send(to_send).is_ok()
-		});
+		}); 
+
+		self.table.value.sample_rate = process_context.infos().sample_rate;
 	}
 
 	fn delay(&self) -> usize {
 		0
 	}
 
-	fn on_message(&mut self, _message: Self::Message) {
-		self.adsr_params.adjust(&mut self.table);
-		self.unison_editor.adjust(&mut self.table);
-		self.table.oscillator.0.carrier.smooth_factor = self.smooth_factor_carrier.load(Ordering::Relaxed);
-		self.table.oscillator.0.modulator.smooth_factor = self.smooth_factor_modulator.load(Ordering::Relaxed);
-		self.table.oscillator.0.pm_factor = self.pm_factor.load(Ordering::Relaxed);
-		self.table.pitch_factor = self.pitch_factor.load(Ordering::Relaxed);
-		self.table.gain = self.gain.load(Ordering::Relaxed);
+	fn on_message(&self, _message: Self::Message) {
+		// self.adsr_params.adjust(&mut self.table);
+		// self.unison_editor.adjust(&mut self.table);
+		// self.table.oscillator.0.carrier.smooth_factor = self.smooth_factor_carrier.load(Ordering::Relaxed);
+		// self.table.oscillator.0.modulator.smooth_factor = self.smooth_factor_modulator.load(Ordering::Relaxed);
+		// self.table.oscillator.0.pm_factor = self.pm_factor.load(Ordering::Relaxed);
+		// self.table.pitch_factor = self.pitch_factor.load(Ordering::Relaxed);
+		// self.table.gain = self.gain.load(Ordering::Relaxed);
 	}
 
-	fn synced_view(&mut self) -> Self::SyncedView {
+	fn synced_view(&self) -> Self::SyncedView {
 		let (sender, reciver) = crossbeam_channel::unbounded();
-		self.senders.push(sender);
+		let param_map = self.table.param_map();
+		let sample_rate = self.table.value.sample_rate;
 
-		let smooth_factor_carrier = self.smooth_factor_carrier.load(Ordering::Relaxed);
-		let smooth_factor_modulator = self.smooth_factor_modulator.load(Ordering::Relaxed);
-		let pm_factor = self.pm_factor.load(Ordering::Relaxed);
+		let smooth_factor_carrier = param_map["oscillator.carrier.smooth_factor"].load(Ordering::Relaxed).float().unwrap();
+		let smooth_factor_modulator = param_map["oscillator.modulator.smooth_factor"].load(Ordering::Relaxed).float().unwrap();
+		let pm_factor = param_map["oscillator.pm_factor"].load(Ordering::Relaxed).float().unwrap();
 
-		let carrier = WaveTableSmoother::new((self.table_builder)(self.sample_rate), smooth_factor_carrier);
-		let modulator = WaveTableSmoother::new((self.table_builder)(self.sample_rate), smooth_factor_modulator);
+		let carrier = WaveTableSmoother::new((self.table_builder)(sample_rate), smooth_factor_carrier);
+		let modulator = WaveTableSmoother::new((self.table_builder)(sample_rate), smooth_factor_modulator);
 		let mut table = PmTable::new(carrier, modulator);
-		let carrier = WaveTableSmoother::new((self.table_builder)(self.sample_rate), smooth_factor_carrier);
-		let modulator = WaveTableSmoother::new((self.table_builder)(self.sample_rate), smooth_factor_modulator);
+		let carrier = WaveTableSmoother::new((self.table_builder)(sample_rate), smooth_factor_carrier);
+		let modulator = WaveTableSmoother::new((self.table_builder)(sample_rate), smooth_factor_modulator);
 		let current_postion = Arc::new(AtomicUsize::new(0));
 
 		table.pm_factor = pm_factor;
 
-		let tables = (self.table_builder)(self.sample_rate);
+		let tables = (self.table_builder)(sample_rate);
 		let tables_len = tables.len();
 
 		let tables = tables.into_iter().enumerate().map(|(i, table)| {
 			let current_postion = current_postion.clone();
-			let smooth_factor_carrier = self.smooth_factor_carrier.clone();
-			let smooth_factor_modulator = self.smooth_factor_modulator.clone();
-			let pm_factor = self.pm_factor.clone();
+			let smooth_factor_carrier = param_map.get("oscillator.carrier.smooth_factor").unwrap();
+			let smooth_factor_modulator = param_map.get("oscillator.modulator.smooth_factor").unwrap();
+			let pm_factor = param_map.get("oscillator.pm_factor").unwrap();
 			Waveform::new(table as Box<dyn WaveTable + 'static>, 256, false)
 				.on_change(move |_| {
 					let to_set = match current_postion.load(Ordering::Relaxed) {
@@ -355,8 +382,12 @@ impl Processor for WavetableSynth {
 				})
 		}).collect();
 
+		if let Ok(mut senders) = self.senders.lock() {
+			senders.push(sender);
+		}
+
 		WavetableSynthView {
-			waveform: WaveformBuf::new(self.sample_rate * 2, 300.0),
+			waveform: WaveformBuf::new(sample_rate * 2, 300.0),
 			wavetable: Waveform::new(table, 256, false)
 				.on_change(|_| false)
 				.disable_hover()
@@ -374,12 +405,13 @@ impl Processor for WavetableSynth {
 			reciver,
 			adsr_editor: self.adsr_params.clone(),
 			unison_editor: self.unison_editor.clone(),
-			pitch_factor: self.pitch_factor.clone(),
-			gain: self.gain.clone(),
+			param_map,
+			// pitch_factor: self.pitch_factor.clone(),
+			// gain: self.gain.clone(),
 
-			smooth_factor_carrier: self.smooth_factor_carrier.clone(),
-			smooth_factor_modulator: self.smooth_factor_modulator.clone(),
-			pm_factor: self.pm_factor.clone(),
+			// smooth_factor_carrier: self.smooth_factor_carrier.clone(),
+			// smooth_factor_modulator: self.smooth_factor_modulator.clone(),
+			// pm_factor: self.pm_factor.clone(),
 			current_pos: current_postion,
 			tables,
 		}

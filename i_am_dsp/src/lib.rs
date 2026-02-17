@@ -9,6 +9,8 @@
 
 #![warn(missing_docs)]
 
+use std::any::Any;
+
 use crate::prelude::{Parameter, Parameters};
 
 extern crate self as i_am_dsp;
@@ -213,7 +215,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for () {
 }
 
 /// Main trait for process context.
-pub trait ProcessContext: Send + Sync {
+pub trait ProcessContext: Any {
 	/// Returns the process infos.
 	fn infos(&self) -> &ProcessInfos;
 	/// Returns the next note event in the process.
