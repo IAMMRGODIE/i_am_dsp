@@ -37,7 +37,13 @@ clap_wrapper::export_vst3!();
 
 之后你需要参考对应 VST3 的文档去打包，不过目前我还没试过（
 
-AU 还不支持，因为我还没实现
+AU 的话你需要额外实现一个叫做 `PluginAuExt` 的 trait，然后你就可以通过
+
+```rust
+clap_wrapper::export_auv2!(); 
+```
+
+来导出 Au 的 Symbol 了，之后你还是要参考 Au 的文档去打包，不过目前我也没试过（
 
 不过需要注意一下开源协议问题，因为我在这里并没有分发一份 `clap_wrapper`, 所以我无法固定 `clap_wrapper` 的协议
 

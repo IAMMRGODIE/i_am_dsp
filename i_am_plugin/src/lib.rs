@@ -54,6 +54,103 @@ pub struct Descriptor {
 	pub tags: &'static [&'static str],
 }
 
+impl Descriptor {
+	/// Create a new descriptor with the given values.
+	pub const fn new(
+		id: &'static str,
+		name: &'static str,
+	) -> Self {
+		Self {
+			id,
+			name,
+			vendor: None,
+			url: None,
+			manual_url: None,
+			support_url: None,
+			version: None,
+			description: None,
+			tags: &[],
+		}
+	}
+
+	/// Set the vendor of the plugin.
+	pub const fn with_vendor(
+		self,
+		vendor: &'static str,
+	) -> Self {
+		Self {
+			vendor: Some(vendor),
+			..self
+		}
+	}
+
+	/// Set the URL of the plugin's website.
+	pub const fn with_url(
+		self,
+		url: &'static str,
+	) -> Self {
+		Self {
+			url: Some(url),
+			..self
+		}
+	}
+
+	/// Set the URL of the plugin's manual.
+	pub const fn with_manual_url(
+		self,
+		manual_url: &'static str,
+	) -> Self {
+		Self {
+			manual_url: Some(manual_url),
+			..self
+		}
+	}
+
+	/// Set the URL of the plugin's support.
+	pub const fn with_support_url(
+		self,
+		support_url: &'static str,
+	) -> Self {
+		Self {
+			support_url: Some(support_url),
+			..self
+		}
+	}
+
+	/// Set the version of the plugin.
+	pub const fn with_version(
+		self,
+		version: &'static str,
+	) -> Self {
+		Self {
+			version: Some(version),
+			..self
+		}
+	}
+
+	/// Set the description of the plugin.
+	pub const fn with_description(
+		self,
+		description: &'static str,
+	) -> Self {
+		Self {
+			description: Some(description),
+			..self
+		}
+	}
+
+	/// Set the tags of the plugin.
+	pub const fn with_tags(
+		self,
+		tags: &'static [&'static str],
+	) -> Self {
+		Self {
+			tags,
+			..self
+		}
+	}
+}
+
 /// A trait for plugins that can be used with the `i_am_dsp_iced` crate.
 /// 
 /// Will automatically generate the id for audio ports.
