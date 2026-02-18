@@ -34,6 +34,8 @@ pub enum AtomicValue {
 		range: RangeInclusive<f32>,
 		/// Whether the value is logarithmic.
 		logarithmic: bool,
+		/// Whether the value has been changed.
+		changed: AtomicBool,
 	},
 	/// An integer value with a range.
 	Int {
@@ -43,9 +45,16 @@ pub enum AtomicValue {
 		range: RangeInclusive<i32>,
 		/// Whether the value is logarithmic.
 		logarithmic: bool,
+		/// Whether the value has been changed.
+		changed: AtomicBool,
 	},
 	/// A boolean value.
-	Bool(AtomicBool),
+	Bool{
+		/// The actual value.
+		value: AtomicBool,
+		/// Whether the value has been changed.
+		changed: AtomicBool,
+	},
 	/// A placeholder value, used for parameters that are not yet implemented or is None.
 	#[default] Nothing,
 }
@@ -58,7 +67,7 @@ impl AtomicValue {
 	/// Panics if order is [`Ordering::Release`] or [`Ordering::AcqRel`].
 	pub fn load(&self, order: Ordering) -> SetValue {
 		match self {
-			Self::Bool(v) => SetValue::Bool(v.load(order)),
+			Self::Bool{ value, ..} => SetValue::Bool(value.load(order)),
 			Self::Float { value, .. } => SetValue::Float(value.load(order)),
 			Self::Int { value, .. } => SetValue::Int(value.load(order)),
 			Self::Nothing => SetValue::Nothing,
@@ -67,17 +76,17 @@ impl AtomicValue {
 
 	/// Returns true if the value is a float.
 	pub fn is_float(&self) -> bool {
-		matches!(self, Self::Float {.. })
+		matches!(self, Self::Float { .. })
 	}
 
 	/// Returns true if the value is an int.
 	pub fn is_int(&self) -> bool {
-		matches!(self, Self::Int {.. })
+		matches!(self, Self::Int { .. })
 	}
 
 	/// Returns true if the value is a bool.
 	pub fn is_bool(&self) -> bool {
-		matches!(self, Self::Bool(_))
+		matches!(self, Self::Bool { .. })
 	}
 
 	/// Returns true if the value is nothing.
@@ -97,18 +106,21 @@ impl AtomicValue {
 	pub fn store(&self, value: impl Into<SetValue>, order: Ordering) -> bool {
 		let value = value.into();
 		match (self, value) {
-			(Self::Bool(v), SetValue::Bool(value)) => {
+			(Self::Bool{ value: v, changed }, SetValue::Bool(value)) => {
+				v.store(value, order);
+				changed.store(true, order);
+				true
+			},
+			(Self::Float { value: v, range, changed, .. }, SetValue::Float(value)) => {
+				let value = value.clamp(*range.start(), *range.end());
+				changed.store(true, order);
 				v.store(value, order);
 				true
 			},
-			(Self::Float { value: v, range, .. }, SetValue::Float(value)) => {
+			(Self::Int { value: v, range, changed, .. }, SetValue::Int(value)) => {
 				let value = value.clamp(*range.start(), *range.end());
 				v.store(value, order);
-				true
-			},
-			(Self::Int { value: v, range, .. }, SetValue::Int(value)) => {
-				let value = value.clamp(*range.start(), *range.end());
-				v.store(value, order);
+				changed.store(true, order);
 				true
 			},
 			(Self::Nothing, SetValue::Nothing) => true,
@@ -140,6 +152,26 @@ impl AtomicValue {
 		};
 
 		Ok(self.load(fetch_order))
+	}
+
+	/// Sets the changed flag with the given ordering.
+	pub fn set_changed(&self, changed: bool, order: Ordering) {
+		match self {
+			Self::Bool{ changed: c, .. } => c.store(changed, order),
+			Self::Float { changed: c, .. } => c.store(changed, order),
+			Self::Int { changed: c, .. } => c.store(changed, order),
+			Self::Nothing => {},
+		}
+	}
+
+	/// Returns true if the value has been changed.
+	pub fn is_chanegd(&self) -> bool {
+		match self {
+			Self::Bool{ changed, .. } => changed.load(Ordering::Relaxed),
+			Self::Float { changed, .. } => changed.load(Ordering::Relaxed),
+			Self::Int { changed, .. } => changed.load(Ordering::Relaxed),
+			Self::Nothing => false,
+		}
 	}
 }
 
@@ -190,21 +222,22 @@ impl Value {
 	/// Returns the value as an atomic value.
 	pub fn to_atomic_value(self) -> AtomicValue {
 		match self {
-			Value::Float { value, range, logarithmic } => {
-				AtomicValue::Float {
-					value: AtomicF32::new(value),
-					range,
-					logarithmic,
-				}
+			Value::Float { value, range, logarithmic } => AtomicValue::Float {
+				value: AtomicF32::new(value),
+				range,
+				logarithmic,
+				changed: AtomicBool::new(false),
 			},
-			Value::Int { value, range, logarithmic } => {
-				AtomicValue::Int {
-					value: AtomicI32::new(value),
-					range,
-					logarithmic,
-				}
+			Value::Int { value, range, logarithmic } => AtomicValue::Int {
+				value: AtomicI32::new(value),
+				range,
+				logarithmic,
+				changed: AtomicBool::new(false),
 			},
-			Value::Bool(value) => AtomicValue::Bool(AtomicBool::new(value)),
+			Value::Bool(value) => AtomicValue::Bool{
+				value: AtomicBool::new(value),
+				changed: AtomicBool::new(false),
+			},
 			Value::Serialized(_) => AtomicValue::Nothing,
 			Value::Nothing => AtomicValue::Nothing,
 		}
@@ -848,6 +881,11 @@ impl ParamMap {
 		// self.update_queue(index);
 
 		Some(value.clone())
+	}
+
+	/// Iterate over the parameter values.
+	pub fn iter(&self) -> impl Iterator<Item = &Arc<AtomicValue>> {
+		self.values.iter()
 	}
 }
 

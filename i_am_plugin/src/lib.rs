@@ -4,15 +4,19 @@ use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::f
 
 use clack_extensions::{
 	audio_ports::{AudioPortFlags, AudioPortInfo, AudioPortType, PluginAudioPorts, PluginAudioPortsImpl}, 
-	clap_wrapper::vst3::{PluginAsVST3, PluginAsVST3Impl, PluginFactoryAsVST3Impl, PluginInfoAsVST3}, 
+	clap_wrapper::{
+		auv2::PluginFactoryAsAUv2Impl, 
+		vst3::{PluginAsVST3, PluginAsVST3Impl, PluginFactoryAsVST3Impl, PluginInfoAsVST3}
+	}, 
 	gui::{GuiApiType, GuiConfiguration, GuiResizeHints, PluginGui, PluginGuiImpl}, 
+	latency::{PluginLatency, PluginLatencyImpl}, 
 	params::{ParamInfo, ParamInfoFlags, PluginAudioProcessorParams, PluginMainThreadParams, PluginParams}, 
 	state::{PluginState, PluginStateImpl}
 };
 use clack_plugin::{
 	entry::DefaultPluginFactory, 
 	events::{Event, Match, Pckn, 
-		event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, TransportEvent}, 
+		event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamValueEvent, TransportEvent}, 
 		spaces::CoreEventSpace
 	}, 
 	plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, 
@@ -70,7 +74,16 @@ pub trait Plugin: Processor {
 	/// Create a new instance of the plugin.
 	fn new() -> Self;
 
+	/// Get window options for the plugin GUI.
 	fn window_options() -> WindowOptions;
+}
+
+/// A trait for plugin to export as Auv2 plugin.
+pub trait PluginAuExt: Plugin {
+	/// The AU type of the plugin.
+	const AU_TYPE: [u8; 4];
+	/// The AU subtype of the plugin.
+	const AU_SUBTYPE: [u8; 4];
 }
 
 /// The window options for the plugin GUI.
@@ -745,7 +758,7 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 		};
 
 		let (min_value, max_value) = match &*param {
-			AtomicValue::Bool(_) => (0.0, 1.0),
+			AtomicValue::Bool { .. } => (0.0, 1.0),
 			AtomicValue::Nothing => (0.0, 0.0),
 			AtomicValue::Float { range, .. } => (*range.start() as f64, *range.end() as f64),
 			AtomicValue::Int { range, .. } => (*range.start() as f64, *range.end() as f64),
@@ -806,13 +819,17 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 	fn flush(
 		&mut self,
 		input_parameter_changes: &clack_plugin::prelude::InputEvents,
-		_: &mut OutputEvents,
+		output_parameter_changes: &mut OutputEvents,
 	) {
-		flush(input_parameter_changes, &self.param_map);
+		flush(input_parameter_changes, output_parameter_changes, &self.param_map);
 	}
 }
 
-fn flush(input_parameter_changes: &clack_plugin::prelude::InputEvents, param_map: &ParamMap) {
+fn flush(
+	input_parameter_changes: &clack_plugin::prelude::InputEvents,
+	output_parameter_changes: &mut OutputEvents, 
+	param_map: &ParamMap
+) {
 	for event in input_parameter_changes {
 		match event.as_core_event() {
 			Some(CoreEventSpace::ParamValue(param)) => {
@@ -846,6 +863,25 @@ fn flush(input_parameter_changes: &clack_plugin::prelude::InputEvents, param_map
 				}
 			},
 			_ => {}
+		}
+	}
+
+	for (index, val) in param_map.iter().enumerate() {
+		if val.is_chanegd() {
+			let value = match val.load(std::sync::atomic::Ordering::SeqCst) {
+				SetValue::Bool(v) => if v { 1.0 } else { 0.0 },
+				SetValue::Int(v) => v as f64,
+				SetValue::Float(v) => v as f64,
+				_ => continue
+			};
+
+			let _ = output_parameter_changes.try_push(ParamValueEvent::new(
+				0,
+				(index as u32).into(),
+				Pckn::match_all(),
+				value,
+				Default::default(),
+			));
 		}
 	}
 }
@@ -889,9 +925,9 @@ impl<'a, P: Plugin> PluginAudioProcessorParams for AudioProcessor<'a, P> {
 	fn flush(
 		&mut self,
 		input_parameter_changes: &clack_plugin::prelude::InputEvents,
-		_: &mut OutputEvents,
+		output_parameter_changes: &mut OutputEvents,
 	) {
-		flush(input_parameter_changes, &self.param_map);
+		flush(input_parameter_changes, output_parameter_changes, &self.param_map);
 	}
 }
 
@@ -961,6 +997,12 @@ where
 	}
 }
 
+impl<P: Plugin> PluginLatencyImpl for PluginMain<P> {
+	fn get(&mut self) -> u32 {
+		self.processor.delay() as u32
+	}
+}
+
 impl<P: Plugin> clack_plugin::plugin::Plugin for ClapPlugin<P> 
 where 
 	<P as i_am_dsp_iced::Processor>::Message: std::fmt::Debug
@@ -975,6 +1017,7 @@ where
 			.register::<PluginParams>()
 			.register::<PluginState>()
 			.register::<PluginAsVST3>()
+			.register::<PluginLatency>()
 			.register::<PluginGui>();
 	}
 }
@@ -1012,6 +1055,21 @@ impl<P: Plugin> PluginFactoryAsVST3Impl for ClapPlugin<P>
 	fn get_vst3_info(&self, index: u32) -> Option<&PluginInfoAsVST3<'_>> {
 		if index == 0 {
 			Some(&Self::VST3_PLUGIN_INFO)
+		}else {
+			None
+		}
+	}
+}
+
+impl<P: PluginAuExt> PluginFactoryAsAUv2Impl for ClapPlugin<P> {
+	fn get_auv2_info(&self, index: u32) -> Option<clack_extensions::clap_wrapper::auv2::PluginInfoAsAUv2> {
+		if index == 0 {
+			unsafe {
+				Some(clack_extensions::clap_wrapper::auv2::PluginInfoAsAUv2::new(
+					str::from_utf8_unchecked(&P::AU_TYPE), 
+					str::from_utf8_unchecked(&P::AU_SUBTYPE)
+				))
+			}
 		}else {
 			None
 		}

@@ -18,7 +18,7 @@ use crate::{
 	}
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum WavetableSynthMessage {
 	MidiEvent(NoteEvent),
 	Tick(Instant),
