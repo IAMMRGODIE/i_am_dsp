@@ -1,4 +1,61 @@
 //! helper library for `i_am_dsp_iced` crate to export CLAP plugin based on `clack`
+//! 
+//! # Minimal Example
+//! 
+//! ```ignore
+//! // first, build a `Processor` based on `i_am_dsp_iced`
+//! struct MyProcessor;
+//! 
+//! impl Processor for MyProcessor {
+//!     // see more in `i_am_dsp_iced` crate
+//!     //...
+//! }
+//! 
+//! // The imply `Plugin` trait for the `Processor`
+//! impl Plugin for MyProcessor {
+//!     const DESCRIPTOR: Descriptor = Descriptor::new("i.am.example.processor", "My Processor");
+//!     
+//!     fn new() -> Self {
+//!         MyProcessor
+//!     }
+//!     
+//!     fn window_options() -> WindowOptions {
+//!         WindowOptions::default()
+//!     }
+//! }
+//! 
+//! // Finally, export the plugin as a CLAP plugin
+//! export_clap!(MyProcessor);
+//! 
+//! // Additionaly, you can impl `PluginAuExt` to prepare the plugin for AU support
+//! //
+//! // You should check AU's manual for meaning and usage of `AU_TYPE` and `AU_SUBTYPE` fields.
+//! impl PluginAuExt for MyProcessor {
+//!     const AU_TYPE: [u8; 4] = *b"aufx";
+//!     const AU_SUBTYPE: [u8; 4] = *b"mypr";
+//! }
+//! 
+//! // And use `clap_wrapper` crate to prepare for VST3 and AUv2 support
+//! // 
+//! // You should check VST3 or AUv2's manual for packing your clap plugin as a VST3 or AUv2 plugin.
+//! //
+//! // Note: `clap_wrapper` crate is not included in `i_am_plugin` crate. 
+//! // You need to add it to your `Cargo.toml` file.
+//! //
+//! // Also, you should always use `export_clap` macro even if you dont need to export clap plugin.
+//! clap_wrapper::export_auv2!();
+//! clap_wrapper::export_vst3!();
+//! ```
+//! 
+//! Do **NOT** forget to add following settings to your `Cargo.toml` file:
+//! 
+//! ```toml
+//! [lib]
+//! crate-type = ["cdylib"]
+//! ```
+//! 
+//! Finally, you can build the plugin with `cargo build --release` and rename the suffix to `.clap`.
+//! Then you should be able to load the plugin in your DAW.
 
 use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::from_raw_parts};
 
@@ -210,6 +267,8 @@ impl Default for WindowOptions {
 }
 
 /// A struct to hold the parent window handle and the window handle for the plugin on main thread.
+/// 
+/// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
 pub struct PluginMain<P: Plugin> {
 	/// The window Options used to create the plugin GUI.
 	window_size: Size,
@@ -294,6 +353,8 @@ impl<P: Plugin> PluginMain<P> {
 }
 
 /// A struct to hold a [`Processor`]'s [`SyncedView`] for displaying the plugin GUI.
+/// 
+/// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
 pub struct GuiProgram<P: Plugin> {
 	synced_view: P::SyncedView,
 	message_sender: Sender<P::Message>,
@@ -413,6 +474,8 @@ where
 }
 
 /// A struct to hold a [`Processor`] for the plugin audio thread.
+/// 
+/// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
 pub struct AudioProcessor<'a, P: Plugin> {
 	processor: usize,
 	temp_buffer_1: Vec<&'a [usize]>,
@@ -449,6 +512,8 @@ impl<P: Plugin> PluginMainThread<'_, ()> for PluginMain<P> {
 }
 
 /// The context for the CLAP plugin.
+/// 
+/// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
 pub struct ClapContext {
 	current_event: usize,
 	events_buffer: usize,
