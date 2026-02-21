@@ -61,7 +61,7 @@ impl Plugin for SynthWrapper {
     }
 
     fn window_options() -> WindowOptions {
-        WindowOptions::new().with_size((720.0, 560.0)).with_scale_factor(1.0)
+        WindowOptions::new().with_size((720.0, 560.0))
     }
 
     fn param_map(&self) -> i_am_dsp::prelude::ParamMap {

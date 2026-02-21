@@ -314,8 +314,8 @@ pub trait PluginAuExt: Plugin {
 pub struct WindowOptions {
 	/// The window Options used to create the plugin GUI.
 	pub window_size: Size,
-	/// The window scale policy used to create the plugin GUI.
-	pub scale_factor: WindowScalePolicy,
+	// /// The window scale policy used to create the plugin GUI.
+	// pub scale_factor: WindowScalePolicy,
 	/// The title of the plugin GUI.
 	pub title: String,
 	/// The resize hints of the plugin GUI.
@@ -338,7 +338,7 @@ impl WindowOptions {
 		}
 	}
 
-	/// Set the window size of the plugin GUI to the system scale factor.
+	/* /// Set the window size of the plugin GUI to the system scale factor.
 	pub fn with_system_scale_factor(self) -> Self {
 		Self {
 			scale_factor: WindowScalePolicy::SystemScaleFactor,
@@ -352,7 +352,7 @@ impl WindowOptions {
 			scale_factor: WindowScalePolicy::ScaleFactor(scale_factor),
 			..self
 		}
-	}
+	} */
 
 	/// Set the title of the plugin GUI.
 	pub fn with_title(self, title: &str) -> Self {
@@ -367,7 +367,7 @@ impl Default for WindowOptions {
 	fn default() -> Self {
 		Self {
 			window_size: Size::new(640.0, 480.0),
-			scale_factor: WindowScalePolicy::SystemScaleFactor,
+			// scale_factor: WindowScalePolicy::SystemScaleFactor,
 			title: "Plugin GUI".to_string(),
 			resize_hints: None,
 		}
@@ -380,8 +380,7 @@ impl Default for WindowOptions {
 pub struct PluginMain<P: Plugin> {
 	/// The window Options used to create the plugin GUI.
 	window_size: Size,
-	/// The window scale policy used to create the plugin GUI.
-	scale_factor: WindowScalePolicy,
+	scale_factor: f64,
 	/// The title of the plugin GUI.
 	title: String,
 	/// The resize hints of the plugin GUI.
@@ -428,7 +427,7 @@ impl<P: Plugin> PluginMain<P> {
 		let settings = Settings { 
 			window: WindowOpenOptions {
 				size: self.window_size,
-				scale: self.scale_factor,
+				scale: WindowScalePolicy::ScaleFactor(self.scale_factor),
 				title: self.title.clone(),
 			}, 
 			iced_baseview: iced_baseview::IcedBaseviewSettings { 
@@ -535,7 +534,7 @@ where
 	fn destroy(&mut self) {}
 
 	fn set_scale(&mut self, scale: f64) -> Result<(), clack_plugin::prelude::PluginError> {
-		self.scale_factor = WindowScalePolicy::ScaleFactor(scale);
+		self.scale_factor = scale;
 		Ok(())
 	}
 
@@ -549,13 +548,14 @@ where
 
 	fn get_size(&mut self) -> Option<clack_extensions::gui::GuiSize> {
 		Some(clack_extensions::gui::GuiSize {
-			width: self.window_size.width as u32,
-			height: self.window_size.height as u32,
+			width: (self.window_size.width * self.scale_factor) as u32,
+			height: (self.window_size.height * self.scale_factor) as u32,
 		})
 	}
 
 	fn set_size(&mut self, size: clack_extensions::gui::GuiSize) -> Result<(), clack_plugin::prelude::PluginError> {
-		self.window_size = Size::new(size.width as f64, size.height as f64);
+		let scale_factor = self.scale_factor;
+		self.window_size = Size::new(size.width as f64 / scale_factor, size.height as f64 / scale_factor);
 		Ok(())
 	}
 
@@ -1273,7 +1273,7 @@ where
 
 		Ok(PluginMain {
 			window_size: options.window_size,
-			scale_factor: options.scale_factor,
+			scale_factor: 1.0,
 			title: options.title,
 			resize_hints: options.resize_hints,
 			param_map,
