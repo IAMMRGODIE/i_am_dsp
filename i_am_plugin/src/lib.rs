@@ -275,7 +275,7 @@ impl Descriptor {
 /// Will automatically generate the id for audio ports.
 /// 
 /// Currently dynamical audio ports are not supported.
-pub trait Plugin: Processor + Unpin {
+pub trait Plugin: Processor {
 	/// The plugin's descriptor.
 	const DESCRIPTOR: Descriptor;
 	/// The input ports of the plugin.
@@ -980,7 +980,9 @@ impl<P: Plugin> PluginStateImpl for PluginMain<P> {
 		let mut buf = vec![];
 		input.read_to_end(&mut buf)?;
 		let params: Vec<i_am_dsp::prelude::Parameter> = from_binary(buf)?;
-		let processor = self.processor.as_mut().get_mut();
+		let processor = unsafe {
+			self.processor.as_mut().get_unchecked_mut()
+		};
 
 		for param in params {
 			if param.value.is_serialized() {
