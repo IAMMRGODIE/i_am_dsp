@@ -15,6 +15,9 @@ pub mod plugins;
 #[cfg(feature = "standalone")]
 pub mod demo;
 
+/// Re-exports of the `iced` crate.
+pub use iced;
+
 /// A function that returns a subscription that ticks the processor every 16ms.
 pub fn timer<P: Processor>() -> Subscription<P::Message> {
 	iced::time::every(std::time::Duration::from_millis(16)).map(P::Message::tick)
