@@ -4,7 +4,7 @@ members = [
 	"i_am_dsp_derive",
 	"i_am_dsp", 
 	"i_am_dsp_iced", 
-	"i_am_plugin", 
+	"i_am_plugin", "plugin_example", 
 ]
 
 [workspace.dependencies]

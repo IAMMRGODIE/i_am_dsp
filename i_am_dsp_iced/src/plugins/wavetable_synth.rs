@@ -57,6 +57,10 @@ impl Parameters for WavetableSynth {
 }
 
 impl WavetableSynth {
+	pub fn param_map(&self) -> ParamMap {
+		self.table.param_map()
+	}
+
 	pub fn new(sample_rate: usize, table_builder: impl Fn(usize) -> Vec<Box<dyn WaveTable + Send + Sync>> + Send + Sync +'static) -> Self {
 		let carrier = WaveTableSmoother::new(table_builder(sample_rate), 0.0);
 		let modulator = WaveTableSmoother::new(table_builder(sample_rate), 0.0);
@@ -245,11 +249,13 @@ impl SyncedView for WavetableSynthView {
 						self.param_map["pitch_factor"].store(value, Ordering::Relaxed);
 						WavetableSynthMessage::Empty
 					}).text("Pitch").on_release(|_| {
-						let value = self.param_map["pitch_factor"].load(Ordering::Relaxed).float().unwrap();
-						let note = value.ln() / 2.0_f32.powf(1.0 / 12.0).ln();
+						let old_value = self.param_map["pitch_factor"].load(Ordering::Relaxed).float().unwrap();
+						let note = old_value.ln() / 2.0_f32.powf(1.0 / 12.0).ln();
 						let note = note.round();
 						let value = 2.0_f32.powf(1.0 / 12.0).powf(note);
-						self.param_map["pitch_factor"].store(value, Ordering::Relaxed);
+						if old_value != value {
+							self.param_map["pitch_factor"].store(value, Ordering::Relaxed);
+						}
 						WavetableSynthMessage::Empty
 					}).formatter(|float| format!("{:.0}semi", float.ln() / 2.0_f32.powf(1.0 / 12.0).ln()))
 						.logarithmic().speed(0.3),

@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 clack-extensions = { path = "../../clack/extensions", features = [
 	"gui", "clack-plugin", "raw-window-handle_05", "audio-ports",
-	"state", "params", "clap-wrapper", "latency"
+	"state", "params", "clap-wrapper", "latency", "note-ports"
 ] }
 clack-plugin = { path = "../../clack/plugin" }
 iced_baseview = { path = "../../iced_baseview" }

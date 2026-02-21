@@ -130,6 +130,7 @@ pub struct Adsr<
 	#[range(min = 1, max = 32)]
 	pub unisons: usize,
 	/// Maxium detune of each unison, the unit is note
+	#[range(min = 0.0, max = 2.0)]
 	pub unison_detune: f32,
 	/// Bend of each unison, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]

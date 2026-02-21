@@ -1,0 +1,13 @@
+[package]
+name = "plugin_example"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+
+i_am_plugin = { workspace = true }
+i_am_dsp_iced = { workspace = true }
+i_am_dsp = { workspace = true }

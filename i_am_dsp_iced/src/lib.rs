@@ -7,13 +7,18 @@
 use std::time::Instant;
 
 use i_am_dsp::{NoteEvent, ProcessContext, prelude::{Paramed, Parameters}};
-use iced::Element;
+use iced::{Element, Subscription};
 
 pub mod styles;
 pub mod tools;
 pub mod plugins;
 #[cfg(feature = "standalone")]
 pub mod demo;
+
+/// A function that returns a subscription that ticks the processor every 16ms.
+pub fn timer<P: Processor>() -> Subscription<P::Message> {
+	iced::time::every(std::time::Duration::from_millis(16)).map(P::Message::tick)
+}
 
 /// A trait for views that can be synced with the processor.
 pub trait SyncedView: Send {

@@ -219,6 +219,31 @@ impl Value {
 		}
 	}
 
+	/// Returns true if the value is a float.
+	pub fn is_float(&self) -> bool {
+		matches!(self, Value::Float { .. })
+	}
+
+	/// Returns true if the value is an int.
+	pub fn is_int(&self) -> bool {
+		matches!(self, Value::Int { .. })
+	}
+
+	/// Returns true if the value is a bool.
+	pub fn is_bool(&self) -> bool {
+		matches!(self, Value::Bool(_))
+	}
+
+	/// Returns true if the value is nothing.
+	pub fn is_nothing(&self) -> bool {
+		matches!(self, Value::Nothing)
+	}
+
+	/// Returns true if the value is serialized.
+	pub fn is_serialized(&self) -> bool {
+		matches!(self, Value::Serialized(_))
+	}
+
 	/// Returns the value as an atomic value.
 	pub fn to_atomic_value(self) -> AtomicValue {
 		match self {
@@ -845,7 +870,37 @@ impl Index<&str> for ParamMap {
 	}
 }
 
+impl Default for ParamMap {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl ParamMap {
+	/// Create a new empty parameter map.
+	pub fn new() -> Self {
+		Self {
+			values: Arc::new(Vec::new()),
+			id: Arc::new(BiMap::new()),
+		}
+	}
+
+	/// Create a new parameter map with a pre-defined map.
+	pub fn new_with(map: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) -> Self {
+		let mut values = Vec::new();
+		let mut id = BiMap::new();
+
+		for (i, (k, v)) in map.into_iter().enumerate() {
+			id.insert(k, i);
+			values.push(v);
+		}
+
+		Self {
+			values: Arc::new(values),
+			id: Arc::new(id),
+		}
+	}
+
 	/// Check if the parameter map is empty.
 	pub fn is_empty(&self) -> bool {
 		self.values.is_empty()
@@ -864,6 +919,22 @@ impl ParamMap {
 		
 		Some(value.clone())
 	}
+
+	/// Set the parameter value by its identifier.
+	/// 
+	/// Returns `true` if the parameter is set successfully, `false` otherwise.
+	pub fn set(&self, id: &str, to_set: impl Into<SetValue>, ordering: Ordering) -> bool {
+		let Some(index) = self.id.get_by_left(id) else {
+			return false;
+		};
+		let Some(value) = self.values.get(*index) else {
+			return false;
+		};
+
+		value.store(to_set, ordering);
+		
+		true
+	} 
 
 	/// Query the parameter value by its index.
 	pub fn query_param_index(&self, id: &str) -> Option<usize> {
@@ -886,6 +957,19 @@ impl ParamMap {
 	/// Iterate over the parameter values.
 	pub fn iter(&self) -> impl Iterator<Item = &Arc<AtomicValue>> {
 		self.values.iter()
+	}
+
+	/// Iterate over the parameter values and their indices.
+	/// 
+	/// Will automatically set the `changed` flag to `false` for each value.
+	pub fn iter_changed(&self) -> impl Iterator<Item = (usize, &Arc<AtomicValue>)> {
+		self.values.iter().enumerate().filter(|(_, val)| {
+			let out = val.is_chanegd();
+			if out {
+				val.set_changed(false, Ordering::SeqCst);
+			}
+			out
+		})
 	}
 }
 

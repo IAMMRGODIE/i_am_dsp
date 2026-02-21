@@ -22,6 +22,10 @@
 //!     fn window_options() -> WindowOptions {
 //!         WindowOptions::default()
 //!     }
+//! 
+//!     fn param_map(&self) -> ParamMap {
+//!         ParamMap::default()
+//!     }
 //! }
 //! 
 //! // Finally, export the plugin as a CLAP plugin
@@ -57,7 +61,7 @@
 //! Finally, you can build the plugin with `cargo build --release` and rename the suffix to `.clap`.
 //! Then you should be able to load the plugin in your DAW.
 
-use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::from_raw_parts};
+use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::from_raw_parts, sync::{Arc, RwLock}};
 
 use clack_extensions::{
 	audio_ports::{AudioPortFlags, AudioPortInfo, AudioPortType, PluginAudioPorts, PluginAudioPortsImpl}, 
@@ -67,13 +71,14 @@ use clack_extensions::{
 	}, 
 	gui::{GuiApiType, GuiConfiguration, GuiResizeHints, PluginGui, PluginGuiImpl}, 
 	latency::{PluginLatency, PluginLatencyImpl}, 
+	note_ports::{NoteDialect, NoteDialects, NotePortInfo, PluginNotePorts, PluginNotePortsImpl}, 
 	params::{ParamInfo, ParamInfoFlags, PluginAudioProcessorParams, PluginMainThreadParams, PluginParams}, 
 	state::{PluginState, PluginStateImpl}
 };
 use clack_plugin::{
 	entry::DefaultPluginFactory, 
 	events::{Event, Match, Pckn, 
-		event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamValueEvent, TransportEvent}, 
+		event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamModEvent, ParamValueEvent, TransportEvent}, 
 		spaces::CoreEventSpace
 	}, 
 	plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, 
@@ -81,8 +86,8 @@ use clack_plugin::{
 	process::{Audio, Events, Process, ProcessStatus}
 };
 use crossbeam_channel::{Receiver, Sender};
-use i_am_dsp::{ProcessContext, ProcessInfos, prelude::{AtomicValue, ParamMap, Paramed, Parameters, SetValue, from_binary, to_binary}};
-use i_am_dsp_iced::{Message, Processor, SyncedView};
+use i_am_dsp::{ProcessContext, ProcessInfos, prelude::{AtomicValue, ParamMap, SetValue, from_binary, to_binary}};
+use i_am_dsp_iced::{Message, Processor, SyncedView, timer};
 use iced_baseview::{Application, Settings, Theme, baseview::{Size, WindowOpenOptions, WindowScalePolicy}, open_parented, window::WindowHandle};
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
@@ -98,6 +103,12 @@ pub struct AudioPort {
 	pub name: &'static str,
 }
 
+/// A struct to hold a plugin's MIDI port.
+pub struct MidiPort {
+	/// The name of the Midi port.
+	pub name: &'static str,
+}
+
 /// The plugin's descriptor.
 pub struct Descriptor {
 	pub id: &'static str,
@@ -108,7 +119,58 @@ pub struct Descriptor {
 	pub support_url: Option<&'static str>,
 	pub version: Option<&'static str>,
 	pub description: Option<&'static str>,
-	pub tags: &'static [&'static str],
+	pub tags: &'static [Tag],
+}
+
+/// A tag for the plugin.
+pub enum Tag {
+	Instrument,
+	AudioEffect,
+	NoteEffect,
+	Analyzer,
+	Synthesizer,
+	Sampler,
+	Drum,
+	DrumMachine,
+	Filter,
+	Phaser,
+	Equalizer,
+	Deesser,
+	PhaseVocoder,
+	Granular,
+	FrequencyShifter,
+	PitchShifter,
+	Distortion,
+	TransientShaper,
+	Compressor,
+	Limiter,
+}
+
+impl Tag {
+	fn as_cstr(&self) -> &CStr {
+		match self {
+			Self::Instrument => clack_plugin::plugin::features::INSTRUMENT,
+			Self::AudioEffect => clack_plugin::plugin::features::AUDIO_EFFECT,
+			Self::NoteEffect => clack_plugin::plugin::features::NOTE_EFFECT,
+			Self::Analyzer => clack_plugin::plugin::features::ANALYZER,
+			Self::Synthesizer => clack_plugin::plugin::features::SYNTHESIZER,
+			Self::Sampler => clack_plugin::plugin::features::SAMPLER,
+			Self::Drum => clack_plugin::plugin::features::DRUM,
+			Self::DrumMachine => clack_plugin::plugin::features::DRUM_MACHINE,
+			Self::Filter => clack_plugin::plugin::features::FILTER,
+			Self::Phaser => clack_plugin::plugin::features::PHASER,
+			Self::Equalizer => clack_plugin::plugin::features::EQUALIZER,
+			Self::Deesser => clack_plugin::plugin::features::DEESSER,
+			Self::PhaseVocoder => clack_plugin::plugin::features::PHASE_VOCODER,
+			Self::Granular => clack_plugin::plugin::features::GRANULAR,
+			Self::FrequencyShifter => clack_plugin::plugin::features::FREQUENCY_SHIFTER,
+			Self::PitchShifter => clack_plugin::plugin::features::PITCH_SHIFTER,
+			Self::Distortion => clack_plugin::plugin::features::DISTORTION,
+			Self::TransientShaper => clack_plugin::plugin::features::TRANSIENT_SHAPER,
+			Self::Compressor => clack_plugin::plugin::features::COMPRESSOR,
+			Self::Limiter => clack_plugin::plugin::features::LIMITER,
+		}
+	}
 }
 
 impl Descriptor {
@@ -199,7 +261,7 @@ impl Descriptor {
 	/// Set the tags of the plugin.
 	pub const fn with_tags(
 		self,
-		tags: &'static [&'static str],
+		tags: &'static [Tag],
 	) -> Self {
 		Self {
 			tags,
@@ -213,7 +275,7 @@ impl Descriptor {
 /// Will automatically generate the id for audio ports.
 /// 
 /// Currently dynamical audio ports are not supported.
-pub trait Plugin: Processor {
+pub trait Plugin: Processor + Unpin {
 	/// The plugin's descriptor.
 	const DESCRIPTOR: Descriptor;
 	/// The input ports of the plugin.
@@ -224,12 +286,19 @@ pub trait Plugin: Processor {
 	const OUTPUT_PORTS: &'static [AudioPort] = &[AudioPort {
 		name: "Main",
 	}];
+	/// The MIDI input ports of the plugin.
+	const INPUT_MIDI_PORTS: &'static [MidiPort] = &[];
+	/// The MIDI output ports of the plugin.
+	const OUTPUT_MIDI_PORTS: &'static [MidiPort] = &[];
 
 	/// Create a new instance of the plugin.
 	fn new() -> Self;
 
 	/// Get window options for the plugin GUI.
 	fn window_options() -> WindowOptions;
+
+	/// Get the plugin's parameter map.
+	fn param_map(&self) -> ParamMap;
 }
 
 /// A trait for plugin to export as Auv2 plugin.
@@ -253,6 +322,45 @@ pub struct WindowOptions {
 	/// 
 	/// None for can't resize.
 	pub resize_hints: Option<GuiResizeHints>,
+}
+
+impl WindowOptions {
+	/// Create a new `WindowOptions` with default values.
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	/// Set the window size of the plugin GUI.
+	pub fn with_size(self, size: (f64, f64)) -> Self {
+		Self {
+			window_size: Size::new(size.0, size.1),
+			..self
+		}
+	}
+
+	/// Set the window size of the plugin GUI to the system scale factor.
+	pub fn with_system_scale_factor(self) -> Self {
+		Self {
+			scale_factor: WindowScalePolicy::SystemScaleFactor,
+			..self
+		}
+	}
+
+	/// Set the window scale factor of the plugin GUI.
+	pub fn with_scale_factor(self, scale_factor: f64) -> Self {
+		Self {
+			scale_factor: WindowScalePolicy::ScaleFactor(scale_factor),
+			..self
+		}
+	}
+
+	/// Set the title of the plugin GUI.
+	pub fn with_title(self, title: &str) -> Self {
+		Self {
+			title: title.to_string(),
+			..self
+		}
+	}
 }
 
 impl Default for WindowOptions {
@@ -282,7 +390,7 @@ pub struct PluginMain<P: Plugin> {
 	resize_hints: Option<GuiResizeHints>,
 
 	param_map: ParamMap,
-	processor: Pin<Box<Paramed<P>>>,
+	processor: Pin<Box<P>>,
 	parent: Option<RawWindowHandle>,
 	handle: Option<WindowHandle<P::Message>>,
 	message_receivers: Vec<Receiver<P::Message>>,
@@ -331,7 +439,7 @@ impl<P: Plugin> PluginMain<P> {
 			fonts: vec![],
 		};
 
-		let synced_view = self.processor.value.synced_view();
+		let synced_view = self.processor.synced_view();
 		let (message_sender, message_receiver) = crossbeam_channel::unbounded();
 		self.message_receivers.push(message_receiver);
 
@@ -369,6 +477,13 @@ where
 	type Message = P::Message;
 	type Flags = (P::SyncedView, Sender<P::Message>);
 	type Theme = Theme;
+
+	fn subscription(
+		&self,
+		_window_subs: &mut iced_baseview::WindowSubs<Self::Message>,
+	) -> iced_baseview::futures::Subscription<Self::Message> {
+		timer::<P>()
+	}
 
 	fn new(flags: Self::Flags) -> (Self, iced_baseview::Task<Self::Message>) {
 		let (synced_view, message_sender) = flags;
@@ -483,7 +598,7 @@ pub struct AudioProcessor<'a, P: Plugin> {
 	temp_buffer_3: Vec<[f32; 2]>,
 	sample_rate: usize,
 	last_timer: Option<u64>,
-	events_buffer: Vec<i_am_dsp::NoteEvent>,
+	events_buffer: Arc<RwLock<Vec<i_am_dsp::NoteEvent>>>,
 	event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
 	event_receiver: Receiver<(usize, i_am_dsp::NoteEvent)>,
 	param_map: ParamMap,
@@ -516,8 +631,7 @@ impl<P: Plugin> PluginMainThread<'_, ()> for PluginMain<P> {
 /// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
 pub struct ClapContext {
 	current_event: usize,
-	events_buffer: usize,
-	buffer_len: usize,
+	events_buffer: Arc<RwLock<Vec<i_am_dsp::NoteEvent>>>,
 	info: Option<ProcessInfos>,
 	current_sample: usize,
 	event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
@@ -533,22 +647,22 @@ impl ProcessContext for ClapContext {
 	}
 
 	fn events(&self) -> &[i_am_dsp::NoteEvent] {
+		let events_buffer = self.events_buffer.try_read().expect("cannot read events");
 		unsafe {
-			from_raw_parts(self.events_buffer as *const i_am_dsp::NoteEvent, self.buffer_len)
+			from_raw_parts(events_buffer.as_ptr(), events_buffer.len())
 		}
 	}
 
 	fn next_event(&mut self) -> Option<i_am_dsp::NoteEvent> {
-		if self.current_event >= self.events_buffer {
+		let events_buffer = self.events_buffer.try_read().expect("cannot read events");
+
+		if self.current_event >= events_buffer.len() {
 			return None;
 		}
 
-		unsafe {
-			let events = from_raw_parts(self.events_buffer as *const i_am_dsp::NoteEvent, self.buffer_len);
-			let event = events[self.current_event].clone();
-			self.current_event += 1;
-			Some(event)
-		}
+		let event = events_buffer[self.current_event].clone();
+		self.current_event += 1;
+		Some(event)
 	}
 
 	fn send_event(&mut self, event: i_am_dsp::NoteEvent) {
@@ -579,21 +693,24 @@ impl ClapContext {
 		sample_rate: usize,
 		last_timer: Option<u64>,
 		process: Process,
-		events_buffer: &[i_am_dsp::NoteEvent],
+		events_buffer: Arc<RwLock<Vec<i_am_dsp::NoteEvent>>>,
 		event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
 	) -> Self {
 		let info = if let Some(inner) = process.transport {
-			let info = convert_transport(inner, last_timer != process.steady_time || process.steady_time.is_none(), sample_rate);
+			let info = convert_transport(
+				inner, 
+				last_timer != process.steady_time || process.steady_time.is_none(), 
+				sample_rate
+			);
 			Some(info)
 		}else {
 			None
 		};
 		Self {
-			buffer_len: events_buffer.len(),
 			current_event: 0,
 			event_sender,
 			// process, 
-			events_buffer: events_buffer.as_ptr() as usize,
+			events_buffer,
 			current_sample: 0,
 			info 
 		}
@@ -607,9 +724,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		_: &'a (),
 		config: clack_plugin::prelude::PluginAudioConfiguration,
 	) -> Result<Self, PluginError> {
-		let ptr = main_thread.processor.as_ref().get_ref() as *const Paramed<P> as usize;
+		let ptr = main_thread.processor.as_ref().get_ref() as *const P as usize;
 		let (event_sender, event_receiver) = crossbeam_channel::unbounded();
-
 
 		Ok(AudioProcessor { 
 			processor: ptr,
@@ -618,7 +734,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			temp_buffer_3: vec![],
 			sample_rate: config.sample_rate as usize,
 			last_timer: None,
-			events_buffer: vec![],
+			events_buffer: Default::default(),
 			event_sender,
 			event_receiver,
 			param_map: main_thread.processor.param_map(),
@@ -632,7 +748,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		mut audio: Audio,
 		events: Events,
 	) -> Result<ProcessStatus, PluginError> {
-		let processor = unsafe { &mut *(self.processor as *mut Paramed<P>) };
+		let processor = unsafe { &mut *(self.processor as *mut P) };
 		self.temp_buffer_1.clear();
 		self.temp_buffer_2.clear();
 		self.temp_buffer_3.clear();
@@ -640,7 +756,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			self.sample_rate, 
 			self.last_timer, 
 			process,
-			&self.events_buffer, 
+			self.events_buffer.clone(), 
 			self.event_sender.clone()
 		));
 		let mut output_temp = [0.0; 2];
@@ -681,11 +797,15 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 
 		for i in 0..buffer_size {
 			if i >= next_event_sample && let (Some(batch), Some(ctx)) = (bacthced.next(), &mut context) {
-				self.events_buffer.clear();
+				let mut events_buffer = ctx.events_buffer
+					.try_write()
+					.map_err(|_| PluginError::Message("cannot read events"))?;
+
+				events_buffer.clear();
 				for event in batch.events() {
 					match event.as_core_event() {
 						Some(CoreEventSpace::NoteOn(note)) => {
-							self.events_buffer.push(i_am_dsp::NoteEvent::NoteOn { 
+							events_buffer.push(i_am_dsp::NoteEvent::NoteOn { 
 								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 								note: note.pckn().key.into_specific().unwrap_or_default() as u8, 
@@ -693,7 +813,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 							});
 						},
 						Some(CoreEventSpace::NoteOff(note)) => {
-							self.events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
+							events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
 								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 								note: note.pckn().key.into_specific().unwrap_or_default() as u8, 
@@ -701,14 +821,14 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 							});
 						},
 						Some(CoreEventSpace::NoteChoke(note)) => {
-							self.events_buffer.push(i_am_dsp::NoteEvent::Stop { 
+							events_buffer.push(i_am_dsp::NoteEvent::Stop { 
 								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 								note: note.pckn().key.into_specific().unwrap_or_default() as u8, 
 							});
 						},
 						Some(CoreEventSpace::NoteEnd(note)) => {
-							self.events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
+							events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
 								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 								note: note.pckn().key.into_specific().unwrap_or_default() as u8, 
@@ -717,34 +837,10 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						},
 
 						Some(CoreEventSpace::ParamValue(param)) => {
-							if let Some(param_id) = param.param_id() {
-								let id = param_id.get() as usize;
-								let value = param.value() as f32;
-								if let Some(inner) = self.param_map.get_by_index(id) {
-									if inner.is_int() {
-										inner.store(value as i32, std::sync::atomic::Ordering::SeqCst);
-									}else if inner.is_float() {
-										inner.store(value, std::sync::atomic::Ordering::SeqCst);
-									}else if inner.is_bool() {
-										inner.store(value > 0.5, std::sync::atomic::Ordering::SeqCst);
-									}
-								}
-							}
+							handle_param_value_event(param, &self.param_map);
 						},
 						Some(CoreEventSpace::ParamMod(param)) => {
-							if let Some(param_id) = param.param_id() {
-								let id = param_id.get() as usize;
-								let value = param.amount() as f32;
-								if let Some(inner) = self.param_map.get_by_index(id) {
-									if inner.is_int() {
-										let amount = inner.load(std::sync::atomic::Ordering::SeqCst).int().unwrap() + value as i32;
-										inner.store(amount, std::sync::atomic::Ordering::SeqCst);
-									}else if inner.is_float() {
-										let amount = inner.load(std::sync::atomic::Ordering::SeqCst).float().unwrap() + value;
-										inner.store(amount, std::sync::atomic::Ordering::SeqCst);
-									}
-								}
-							}
+							handle_param_mod_event(param, &self.param_map);
 						},
 						Some(CoreEventSpace::ParamGestureBegin(_)) => {},
 						Some(CoreEventSpace::ParamGestureEnd(_)) => {},
@@ -764,7 +860,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						None => {}
 					}
 				}
-				ctx.buffer_len = self.events_buffer.len();
+				ctx.current_event = 0;
 				next_event_sample = batch.next_batch_first_sample().unwrap_or(buffer_size);
 			}
 
@@ -836,6 +932,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			note_event_to_clap(events.output, offset + process.steady_time.unwrap_or_default() as usize, event)?;
 		}
 
+		sync_params(events.output, &self.param_map);
+
 		self.last_timer = process.steady_time;
 
 		Ok(ProcessStatus::Continue)
@@ -882,14 +980,14 @@ impl<P: Plugin> PluginStateImpl for PluginMain<P> {
 		let mut buf = vec![];
 		input.read_to_end(&mut buf)?;
 		let params: Vec<i_am_dsp::prelude::Parameter> = from_binary(buf)?;
-		let processor = unsafe {
-			let ptr = self.processor.as_ref().get_ref() as *const Paramed<P> as usize;
-			let ptr = ptr + 1;
+		let processor = self.processor.as_mut().get_mut();
 
-			&mut *((ptr - 1) as *mut Paramed<P>) 
-		};
 		for param in params {
-			processor.set_parameter(&param.identifier, param.value.to_set_value());
+			if param.value.is_serialized() {
+				processor.set_parameter(&param.identifier, param.value.to_set_value());
+			}else {
+				self.param_map.set(&param.identifier, param.value.to_set_value(), std::sync::atomic::Ordering::SeqCst);
+			}
 		}
 		Ok(())
 	}
@@ -914,9 +1012,9 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 		};
 
 		let flags = if param.is_float() {
-			ParamInfoFlags::IS_AUTOMATABLE | ParamInfoFlags::IS_MODULATABLE 
+			ParamInfoFlags::IS_AUTOMATABLE
 		}else {
-			ParamInfoFlags::IS_AUTOMATABLE | ParamInfoFlags::IS_MODULATABLE | ParamInfoFlags::IS_ENUM
+			ParamInfoFlags::IS_AUTOMATABLE | ParamInfoFlags::IS_ENUM
 		};
 
 		let (min_value, max_value) = match &*param {
@@ -987,47 +1085,53 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 	}
 }
 
-fn flush(
-	input_parameter_changes: &clack_plugin::prelude::InputEvents,
+fn handle_param_value_event(
+	param: &ParamValueEvent,
+	param_map: &ParamMap,
+) {
+	if let Some(param_id) = param.param_id() {
+		let id = param_id.get() as usize;
+		let value = param.value() as f32;
+		if let Some(inner) = param_map.get_by_index(id) {
+			if inner.is_int() {
+				inner.store(value as i32, std::sync::atomic::Ordering::SeqCst);
+				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
+			}else if inner.is_float() {
+				inner.store(value, std::sync::atomic::Ordering::SeqCst);
+				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
+			}else if inner.is_bool() {
+				inner.store(value > 0.5, std::sync::atomic::Ordering::SeqCst);
+				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
+			}
+		}
+	}
+}
+
+fn handle_param_mod_event(
+	param: &ParamModEvent,
+	param_map: &ParamMap,
+) {
+	if let Some(param_id) = param.param_id() {
+		let id = param_id.get() as usize;
+		let value = param.amount() as f32;
+		if let Some(inner) = param_map.get_by_index(id) {
+			if inner.is_int() {
+				let amount = inner.load(std::sync::atomic::Ordering::SeqCst).int().unwrap() + value as i32;
+				inner.store(amount, std::sync::atomic::Ordering::SeqCst);
+				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
+			}else if inner.is_float() {
+				let amount = inner.load(std::sync::atomic::Ordering::SeqCst).float().unwrap() + value;
+				inner.store(amount, std::sync::atomic::Ordering::SeqCst);
+				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
+			}
+		}
+	}
+}
+
+fn sync_params(
 	output_parameter_changes: &mut OutputEvents, 
 	param_map: &ParamMap
 ) {
-	for event in input_parameter_changes {
-		match event.as_core_event() {
-			Some(CoreEventSpace::ParamValue(param)) => {
-				if let Some(param_id) = param.param_id() {
-					let id = param_id.get() as usize;
-					let value = param.value() as f32;
-					if let Some(inner) = param_map.get_by_index(id) {
-						if inner.is_int() {
-							inner.store(value as i32, std::sync::atomic::Ordering::SeqCst);
-						}else if inner.is_float() {
-							inner.store(value, std::sync::atomic::Ordering::SeqCst);
-						}else if inner.is_bool() {
-							inner.store(value > 0.5, std::sync::atomic::Ordering::SeqCst);
-						}
-					}
-				}
-			},
-			Some(CoreEventSpace::ParamMod(param)) => {
-				if let Some(param_id) = param.param_id() {
-					let id = param_id.get() as usize;
-					let value = param.amount() as f32;
-					if let Some(inner) = param_map.get_by_index(id) {
-						if inner.is_int() {
-							let amount = inner.load(std::sync::atomic::Ordering::SeqCst).int().unwrap() + value as i32;
-							inner.store(amount, std::sync::atomic::Ordering::SeqCst);
-						}else if inner.is_float() {
-							let amount = inner.load(std::sync::atomic::Ordering::SeqCst).float().unwrap() + value;
-							inner.store(amount, std::sync::atomic::Ordering::SeqCst);
-						}
-					}
-				}
-			},
-			_ => {}
-		}
-	}
-
 	for (index, val) in param_map.iter().enumerate() {
 		if val.is_chanegd() {
 			let value = match val.load(std::sync::atomic::Ordering::SeqCst) {
@@ -1044,8 +1148,30 @@ fn flush(
 				value,
 				Default::default(),
 			));
+
+			val.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 		}
 	}
+}
+
+fn flush(
+	input_parameter_changes: &clack_plugin::prelude::InputEvents,
+	output_parameter_changes: &mut OutputEvents, 
+	param_map: &ParamMap
+) {
+	for event in input_parameter_changes {
+		match event.as_core_event() {
+			Some(CoreEventSpace::ParamValue(param)) => {
+				handle_param_value_event(param, param_map);
+			},
+			Some(CoreEventSpace::ParamMod(param)) => {
+				handle_param_mod_event(param, param_map);
+			},
+			_ => {}
+		}
+	}
+
+	sync_params(output_parameter_changes, param_map);
 }
 
 impl<P: Plugin> PluginAudioPortsImpl for PluginMain<P> {
@@ -1129,7 +1255,7 @@ where
 		if let Some(description) = descriptor.description {
 			out = out.with_description(description)
 		}
-		out = out.with_features(descriptor.tags.iter().filter_map(|inner| CStr::from_bytes_until_nul(inner.as_bytes()).ok()));
+		out = out.with_features(descriptor.tags.iter().map(|inner| inner.as_cstr()));
 		out
 	}
 
@@ -1142,7 +1268,7 @@ where
 		_: &'a Self::Shared<'a>,
 	) -> Result<Self::MainThread<'a>, PluginError> {
 		let options = P::window_options();
-		let processor = Paramed::new(P::new());
+		let processor = P::new();
 		let param_map = processor.param_map();
 
 		Ok(PluginMain {
@@ -1165,6 +1291,35 @@ impl<P: Plugin> PluginLatencyImpl for PluginMain<P> {
 	}
 }
 
+impl<P: Plugin> PluginNotePortsImpl for PluginMain<P> {
+	fn count(&mut self, is_input: bool) -> u32 {
+		if is_input {
+			P::INPUT_MIDI_PORTS.len() as u32
+		}else {
+			P::OUTPUT_MIDI_PORTS.len() as u32
+		}
+	}
+
+	fn get(&mut self, index: u32, is_input: bool, writer: &mut clack_extensions::note_ports::NotePortInfoWriter) {
+		let ports = if is_input {
+			P::INPUT_MIDI_PORTS
+		}else {
+			P::OUTPUT_MIDI_PORTS
+		};
+
+		if index >= ports.len() as u32 {
+			return;
+		}
+
+		writer.set(&NotePortInfo {
+			id: index.into(),
+			name: ports[index as usize].name.as_bytes(),
+			supported_dialects: NoteDialects::CLAP,
+			preferred_dialect: Some(NoteDialect::Clap),
+		});
+	}
+}
+
 impl<P: Plugin> clack_plugin::plugin::Plugin for ClapPlugin<P> 
 where 
 	<P as i_am_dsp_iced::Processor>::Message: std::fmt::Debug
@@ -1180,6 +1335,7 @@ where
 			.register::<PluginState>()
 			.register::<PluginAsVST3>()
 			.register::<PluginLatency>()
+			.register::<PluginNotePorts>()
 			.register::<PluginGui>();
 	}
 }
