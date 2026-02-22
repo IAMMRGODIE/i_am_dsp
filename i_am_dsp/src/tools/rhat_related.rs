@@ -163,6 +163,8 @@ impl GenFreqInfo for RhaiFreqGen {
 			return FreqInfo {
 				ratio: index as f32 + 1.0,
 				amplitude: (2.0 / PI) * (- 1.0_f32).powi(index as i32) / (index as f32 + 1.0),
+				damping: 0.0,
+				phase: 0.0,
 			};
 		};
 
@@ -188,11 +190,21 @@ impl GenFreqInfo for RhaiFreqGen {
 			self.error = Some(RhaiFreqGenError::MissingVariable("amplitude".to_string()));
 			return Default::default();
 		};
+		let Some(damping) = scope.get_value::<f32>("damping") else {
+			self.error = Some(RhaiFreqGenError::MissingVariable("damping".to_string()));
+			return Default::default();
+		};
+		let Some(phase) = scope.get_value::<f32>("phase") else {
+			self.error = Some(RhaiFreqGenError::MissingVariable("phase".to_string()));
+			return Default::default();
+		};
 
 
 		FreqInfo {
 			ratio,
 			amplitude,
+			damping,
+			phase,
 		}
 	}
 

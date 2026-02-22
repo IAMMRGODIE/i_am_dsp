@@ -25,6 +25,14 @@ pub struct FreqInfo {
 	pub ratio: f32,
 	/// The amplitude of the oscillator
 	pub amplitude: f32,
+	/// The damping factor of current frequency
+	/// 
+	/// 0.0 means no damping.
+	/// 
+	/// The damping function we use is `exp(-t * damping)`
+	pub damping: f32,
+	/// the phase of the oscillator, in [0.0, 1.0]
+	pub phase: f32,
 }
 
 impl Default for FreqInfo {
@@ -32,6 +40,8 @@ impl Default for FreqInfo {
 		Self {
 			ratio: 1.0,
 			amplitude: 0.0,
+			damping: 0.0,
+			phase: 0.0,
 		}
 	}
 }
@@ -49,6 +59,10 @@ pub struct AdditiveOsc<
 	calculated_ratios: [f32; MAX_SINES],
 	#[skip]
 	calculated_amplitudes: [f32; MAX_SINES],
+	#[skip]
+	calculated_dampings: [f32; MAX_SINES],
+	#[skip]
+	calculated_phases: [f32; MAX_SINES],
 	#[skip]
 	max_ratio: f32,
 	#[skip]
@@ -95,15 +109,24 @@ impl<
 			calculated_ratios[i].amplitude
 		});
 
+		let calculated_dampings = core::array::from_fn(|i| {
+			(- calculated_ratios[i].damping).exp()
+		});
+
+		let calculated_phases = core::array::from_fn(|i| {
+			calculated_ratios[i].phase
+		});
+
 		let calculated_ratios = core::array::from_fn(|i| {
 			calculated_ratios[i].ratio
 		});
-
 
 		Self {
 			freq_gen,
 			calculated_ratios,
 			calculated_amplitudes,
+			calculated_dampings,
+			calculated_phases,
 			max_amplitude,
 			max_ratio,
 			min_ratio: min_ratio.max(1.0),
@@ -137,11 +160,22 @@ impl<
 			calculated_ratios[i].amplitude
 		});
 
+		let calculated_dampings = core::array::from_fn(|i| {
+			(- calculated_ratios[i].damping).exp()
+		});
+
+		let calculated_phases = core::array::from_fn(|i| {
+			calculated_ratios[i].phase
+		});
+
 		let calculated_ratios = core::array::from_fn(|i| {
 			calculated_ratios[i].ratio
 		});
+		
 		self.max_ratio = max_ratio;
 		self.min_ratio = min_ratio.max(1.0);
+		self.calculated_phases = calculated_phases;
+		self.calculated_dampings = calculated_dampings;
 		self.calculated_ratios = calculated_ratios;
 		self.calculated_amplitudes = calculated_amplitudes;
 		self.max_amplitude = max_amplitude;
@@ -163,9 +197,9 @@ impl<
 				for i in 0..CHANNELS {
 					for j in 0..self.num_sines.min(MAX_SINES) {
 						let freq = self.calculated_ratios[j] * frequency;
-						let t = time * freq + phase[i];
+						let t = time * freq + phase[i] + self.calculated_phases[j];
 						let amp = self.calculated_amplitudes[j] * self.gain;
-						output[i] += sin.sample(t, i) * amp;
+						output[i] += sin.sample(t, i) * amp * self.calculated_dampings[j].powf(t);
 					}
 				}
 
@@ -176,9 +210,12 @@ impl<
 				for i in 0..CHANNELS {
 					for j in (0..self.num_sines.min(MAX_SINES)).step_by(4) {
 						let freq = f32x4::from(&self.calculated_ratios[j..(j + 4).min(len)]) * frequency;
-						let t = time * freq + phase[i];
+						let phase_freq = f32x4::from(&self.calculated_phases[j..(j + 4).min(len)]);
+						let t = time * freq + phase[i] + phase_freq;
 						let amp = f32x4::from(&self.calculated_amplitudes[j..(j + 4).min(len)]) * self.gain;
-						output[i] += ((t * 2.0 * PI).sin() * amp).reduce_add();
+						let damping = f32x4::from(&self.calculated_dampings[j..(j + 4).min(len)]).pow_f32x4(t);
+
+						output[i] += ((t * 2.0 * PI).sin() * amp * damping).reduce_add();
 						// output[i] += sin.sample(t, i) * self.calculated_amplitudes[j] * self.gain;
 					}
 				}
@@ -228,7 +265,7 @@ impl<
 				{
 					let lerped_ratio = (ratio.ln() - min_ratio.ln()) / (max_ratio.ln() - min_ratio.ln());
 					let x = lerped_ratio * 0.99 + 0.005;
-					let y = amplitude / max_amp;
+					let y = - amplitude / max_amp;
 					Shape::line_segment([
 						to_screen * pos2(x, y),
 						to_screen * pos2(x, 0.0),
@@ -293,6 +330,8 @@ impl GenFreqInfo for BendedSawGen {
 			return FreqInfo {
 				ratio: 1.0,
 				amplitude: 1.0,
+				damping: 0.0,
+				phase: 0.0,
 			};
 		}
 
@@ -313,6 +352,8 @@ impl GenFreqInfo for BendedSawGen {
 		FreqInfo {
 			ratio,
 			amplitude,
+			damping: 0.0,
+			phase: 0.0,
 		}
 	}
 
