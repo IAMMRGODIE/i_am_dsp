@@ -264,6 +264,24 @@ impl WaveTable for RingBuffer<Complex<f32>> {
 	}
 }
 
+impl WaveTable for f32 {
+	fn sample(&self, _: f32, _: usize) -> f32 {
+		*self
+	}
+}
+
+impl WaveTable for Complex<f32> {
+	fn sample(&self, _: f32, _: usize) -> f32 {
+		self.re
+	}
+}
+
+impl WaveTable for () {
+	fn sample(&self, _: f32, _: usize) -> f32 {
+		0.0
+	}
+}
+
 /// A sine wave wave table.
 #[derive(Parameters)]
 pub struct SineWave;

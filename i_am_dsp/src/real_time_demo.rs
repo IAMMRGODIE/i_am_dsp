@@ -103,6 +103,33 @@ lazy_static::lazy_static! {
 					let canvas = MultiStereoGenerators::new();
 					Box::new(Adsr::new(canvas, EqualTemperament, sample_rate)) as Box<dyn Generator>
 				})
+			),
+			(
+				"Plucked String".to_string(),
+				Box::new(|sample_rate| {
+					let tables: Vec<Box<dyn WaveTable + Send + Sync>> = vec![
+						Box::new(-1.0),
+						Box::new(1.0),
+						Box::new(SineWave),
+						Box::new(TriangleWave),
+						Box::new(SawWave),
+						Box::new(SquareWave),
+					];
+					let smoother = WaveTableSmoother::new(tables, 0.0);
+
+					let fill_tables: Vec<Box<dyn WaveTable + Send + Sync>> = vec![
+						Box::new(SineWave),
+						Box::new(TriangleWave),
+						Box::new(SawWave),
+						Box::new(SquareWave),
+						Box::new(NoiseWave),
+					];
+
+					let fill_smoother = WaveTableSmoother::new(fill_tables, 0.0);
+
+					let plucked = SimplePluck::new(sample_rate, fill_smoother, smoother, 1000.0, 1000.0);
+					Box::new(Adsr::new(plucked, EqualTemperament, sample_rate)) as Box<dyn Generator>
+				})
 			)
 		];
 

@@ -4,6 +4,10 @@ use std::ops::IndexMut;
 use std::ops::Index;
 use std::ops::Range;
 
+use rand::random_range;
+use rand_distr::uniform::SampleRange;
+use rand_distr::uniform::SampleUniform;
+
 use crate::prelude::Parameter;
 use crate::prelude::Parameters;
 use crate::prelude::SetValue;
@@ -35,6 +39,17 @@ impl<T: Default + Clone> RingBuffer<T> {
 	pub fn resize(&mut self, new_capacity: usize) {
 		self.capacity = new_capacity;
 		self.buffer.resize(new_capacity, T::default());
+		self.current_pos = 0;
+	}
+}
+
+impl<T: Default + SampleUniform> RingBuffer<T> {
+	/// using the given range to fill the buffer with random values.
+	pub fn fill_random<R: SampleRange<T> + Clone>(&mut self, range: R) {
+		for i in 0..self.capacity {
+			self.buffer[i] = random_range(range.clone());
+		}
+
 		self.current_pos = 0;
 	}
 }
@@ -102,6 +117,15 @@ impl<T: Default> RingBuffer<T> {
 	/// Returns an iterator over the buffer's values.
 	pub fn iter(&'_ self) -> RangendRingBufferIterator<'_, T> {
 		self.range(0..self.capacity)
+	}
+
+	/// Fills the buffer with the given value.
+	pub fn fill_with<F: Fn(usize) -> T>(&mut self, f: F) {
+		for i in 0..self.capacity {
+			self.buffer[i] = f(i);
+		}
+
+		self.current_pos = 0;
 	}
 
 	// pub(crate) fn set_current_pos(&mut self, pos: usize) {
