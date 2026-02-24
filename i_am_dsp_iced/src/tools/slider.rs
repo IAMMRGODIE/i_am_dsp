@@ -1,9 +1,17 @@
+//! A simple slider widget with a different style than the default one.
+
 use std::ops::RangeInclusive;
 
-use iced::{Element, Length, Pixels, Point, Renderer, Size, Theme, advanced::{Widget, graphics::geometry::{Renderer as _, frame::Backend}, layout, renderer}, mouse::Event, theme::palette::lighten, widget::canvas::{Path, Stroke, Text}};
+use iced::{
+	Element, Length, Pixels, Point, Renderer, Size, Theme, 
+	advanced::{Widget, graphics::geometry::{Renderer as _, frame::Backend}, layout, renderer}, 
+	mouse::Event, theme::palette::lighten, 
+	widget::canvas::{Path, Stroke, Text}
+};
 
 use crate::{styles::{BORDER_WIDTH, BRIGHT_FACTOR, PADDING}, tools::{Number, utils::Animator}};
 
+/// A simple slider
 pub struct Slider<'a, Message> {
 	value: f32,
 	step: f32,
@@ -26,11 +34,13 @@ struct SliderState {
 	click_animator: Animator,
 }
 
+/// Create a new slider with the given range and initial value.
 pub fn slider<'a, Message, T: Number>(range: RangeInclusive<T>, value: T, on_change: impl Fn(T) -> Message + 'a) -> Slider<'a, Message> {
 	Slider::new(range, value, on_change)
 }
 
 impl<'a, Message> Slider<'a, Message> {
+	/// Create a new slider with the given range and initial value.
 	pub fn new<T: Number>(range: RangeInclusive<T>, value: T, on_change: impl Fn(T) -> Message + 'a) -> Self {
 		let (from, to) = range.into_inner();
 		let from = from.into_f32();
@@ -50,6 +60,7 @@ impl<'a, Message> Slider<'a, Message> {
 		}
 	}
 
+	/// Set the on_release callback.
 	pub fn on_release(self, on_release: impl Fn(f32) -> Message + 'a) -> Self {
 		Self {
 			on_release: Some(Box::new(on_release)),
@@ -57,6 +68,7 @@ impl<'a, Message> Slider<'a, Message> {
 		}
 	}
 
+	/// Set the width of the slider.
 	pub fn width(self, width: impl Into<Length>) -> Self {
 		Self {
 			width: width.into(),
@@ -64,6 +76,7 @@ impl<'a, Message> Slider<'a, Message> {
 		}
 	}
 
+	/// Set the text of the slider.
 	pub fn text(self, text: impl Into<String>) -> Self {
 		Self {
 			text: text.into(),
@@ -71,6 +84,7 @@ impl<'a, Message> Slider<'a, Message> {
 		}
 	}
 
+	/// Set the slider to be logarithmic.
 	pub fn logarithmic(self) -> Self {
 		Self {
 			is_logarithmic: true,
@@ -78,6 +92,7 @@ impl<'a, Message> Slider<'a, Message> {
 		}
 	}
 
+	/// Set the step of the slider.
 	pub fn step(self, step: f32) -> Self {
 		Self {
 			step,
@@ -85,6 +100,7 @@ impl<'a, Message> Slider<'a, Message> {
 		}
 	}
 
+	/// Set the speed of the slider.
 	pub fn speed(self, speed: f32) -> Self {
 		Self {
 			speed,
@@ -92,6 +108,7 @@ impl<'a, Message> Slider<'a, Message> {
 		}
 	}
 
+	/// Set the value formatter.
 	pub fn formatter(self, formatter: impl Fn(f32) -> String + 'a) -> Self {
 		Self {
 			value_formatter: Some(Box::new(formatter)),

@@ -6,7 +6,13 @@ use i_am_dsp_derive::Parameters;
 
 #[cfg(feature = "real_time_demo")]
 use crate::tools::ring_buffer::RingBuffer;
-use crate::{Generator, NoteEvent, generators::Note, prelude::Oscillator};
+use crate::{Generator, NoteEvent, prelude::Oscillator};
+
+pub(crate) struct Note {
+	// pub channel: u8,
+	pub note: u8,
+	pub velocity: f32,	
+}
 
 /// A tuning system that converts MIDI note numbers to frequencies in Hz
 pub trait Tuning {
@@ -31,16 +37,18 @@ impl Tuning for EqualTemperament {
 
 /// A struct to hold the state of a playing note
 pub struct PlayingNote<const CHANNELS: usize> {
-	note: Note,
-	count: usize,
-	release: Option<(f32, usize)>,
-	phase_start: Vec<[f32; CHANNELS]>,
-	pan_factors: Vec<f32>,
-	last_time: f32,
-	last_phase: Vec<f32>,
+	pub(crate) note: Note,
+	pub(crate) count: usize,
+	pub(crate) release: Option<(f32, usize)>,
+	pub(crate) phase_start: Vec<[f32; CHANNELS]>,
+	pub(crate) pan_factors: Vec<f32>,
+	pub(crate) last_time: f32,
+	pub(crate) last_phase: Vec<f32>,
 	/// The current pitch factor of the oscillator, used for pitch shifting.
 	pub current_pitch_factor: f32,
 }
+
+type NoteProcessor<const CHANNELS: usize> = Box<dyn Fn(&mut [f32; CHANNELS], &PlayingNote<CHANNELS>, usize) + Send + Sync>;
 
 impl<const CHANNELS: usize> PlayingNote<CHANNELS> {
 	/// Get how long since the note has been playing in ms
@@ -72,8 +80,6 @@ impl<const CHANNELS: usize> PlayingNote<CHANNELS> {
 		self.release.as_ref().map(|(level, _)| *level)
 	}
 }
-
-type NoteProcessor<const CHANNELS: usize> = Box<dyn Fn(&mut [f32; CHANNELS], &PlayingNote<CHANNELS>, usize) + Send + Sync>;
 
 /// A warper to play an oscillator with ADSR envelope. 
 /// 
@@ -199,7 +205,7 @@ impl<
 			hold_time: 100.0,
 			decay_time: 100.0,
 			decay_bend: 0.0,
-			sustain_level: 0.5,
+			sustain_level: 1.0,
 			release_time: 100.0,
 			release_bend: 0.0,
 			gain: 0.8,
@@ -361,6 +367,7 @@ impl<
 
 		let mut output = [0.0; CHANNELS];
 
+		self.sample_rate = process_context.infos().sample_rate;
 		let sample_rate = self.sample_rate as f32;
 		let mut note_playing = std::mem::take(&mut self.note_playing);
 		note_playing.retain(|note, playing_note| {

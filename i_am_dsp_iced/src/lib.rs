@@ -4,6 +4,8 @@
 //! 
 //! TODO: Documentation
 
+#![warn(missing_docs)]
+
 use std::time::Instant;
 
 use i_am_dsp::{NoteEvent, ProcessContext, prelude::{Paramed, Parameters}};
@@ -25,6 +27,7 @@ pub fn timer<P: Processor>() -> Subscription<P::Message> {
 
 /// A trait for views that can be synced with the processor.
 pub trait SyncedView: Send {
+	/// The message type used by the view.
 	type Message;
 
 	/// Updates the view with the current state of the processor.
@@ -42,6 +45,20 @@ pub trait Message: Clone + Send + Sync + 'static {
 	fn note_event(&self) -> Option<NoteEvent>;
 	/// The tick function for the processor.
 	fn tick(instant: Instant) -> Self;
+}
+
+impl Message for () {
+	fn from_note_event(_: NoteEvent) -> Self {
+		
+	}
+
+	fn note_event(&self) -> Option<NoteEvent> {
+		None
+	}
+
+	fn tick(_: Instant) -> Self {
+		
+	}
 }
 
 /// A trait for processors that can be used in the iced gui.

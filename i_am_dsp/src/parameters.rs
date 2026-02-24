@@ -805,6 +805,21 @@ impl<T: Parameters> Paramed<T> {
 		empty_self
 	}
 
+	/// Create a new parameterized object with additional parameters.
+	pub fn new_with_additional(to_parameterize: T, additional_params: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) -> Self {
+		let mut empty_self = Self {
+			value: to_parameterize,
+			params: ParamMap {
+				values: Arc::new(Vec::new()),
+				id: Arc::new(BiMap::new()),
+				// update_queue: Arc::new(SegQueue::new()),
+			},
+			// sync_set_cached: HashSet::new(),
+		};
+		empty_self.update_map_with_additional(additional_params);
+		empty_self
+	}
+
 	/// Synchronize the parameters with the host.
 	pub fn sync_params(&mut self) {
 		for (id, param) in self.params.values.iter().enumerate() {
@@ -823,7 +838,7 @@ impl<T: Parameters> Paramed<T> {
 
 	/// Update the parameter map.
 	/// 
-	/// Ussful for those structs that have unfixed number of parameters.
+	/// Useful for those structs that have unfixed number of parameters.
 	/// 
 	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`Self::param_map`].
 	pub fn update_map(&mut self) {
@@ -834,6 +849,34 @@ impl<T: Parameters> Paramed<T> {
 		for (i, param) in params.into_iter().enumerate() {
 			new_map.insert(param.identifier, i);
 			new_values.push(Arc::new(param.value.to_atomic_value()));
+		}
+
+		self.params = ParamMap {
+			values: Arc::new(new_values),
+			id: Arc::new(new_map),
+			// update_queue: Arc::new(SegQueue::new()),
+		}
+	}
+
+	/// Update the parameter map and add additional parameters.
+	/// 
+	/// Useful for those structs that have unfixed number of parameters.
+	/// 
+	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`Self::param_map`].
+	pub fn update_map_with_additional(&mut self, additional_params: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) {
+		let params = self.value.get_parameters();
+		let start = params.len();
+		let mut new_map = BiMap::with_capacity(params.len());
+		let mut new_values = Vec::with_capacity(params.len());
+
+		for (i, param) in params.into_iter().enumerate() {
+			new_map.insert(param.identifier, i);
+			new_values.push(Arc::new(param.value.to_atomic_value()));
+		}
+
+		for (i, (k, v)) in additional_params.into_iter().enumerate() {
+			new_map.insert(k, start + i);
+			new_values.push(v);
 		}
 
 		self.params = ParamMap {

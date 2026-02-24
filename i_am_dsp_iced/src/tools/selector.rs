@@ -1,9 +1,17 @@
-use iced::{Element, Length, Point, Rectangle, Renderer, Size, Theme, advanced::{Widget, graphics::geometry::{Renderer as _, frame::Backend}, layout}, border::Radius, mouse::Event, theme::palette::lighten, widget::canvas::{Path, Stroke, Text}};
+//! A horizontal selector that allows the user to select a slot from a list of options.
+
+use iced::{
+	Element, Length, Point, Rectangle, Renderer, Size, Theme, 
+	advanced::{Widget, graphics::geometry::{Renderer as _, frame::Backend}, layout}, 
+	border::Radius, mouse::Event, theme::palette::lighten, 
+	widget::canvas::{Path, Stroke, Text}
+};
 
 use crate::{styles::{BORDER_WIDTH, BRIGHT_FACTOR, PADDING}, tools::utils::Animator};
 
 type ChangeFunc<'a, Message, Slot> = Box<dyn Fn(&Vec<Slot>, usize) -> Message + 'a>;
 
+/// A horizontal selector that allows the user to select a slot from a list of options.
 pub struct Selector<'a, Message, Slot: ToString> {
 	slots: Vec<Slot>,
 	current_id: usize,
@@ -12,6 +20,7 @@ pub struct Selector<'a, Message, Slot: ToString> {
 	height: Length,
 }
 
+/// Create a new selector with the given list of options and the current id.
 pub fn selector<'a, Message, Slot: ToString>(
 	slots: Vec<Slot>,
 	current_id: usize,
@@ -20,6 +29,7 @@ pub fn selector<'a, Message, Slot: ToString>(
 }
 
 impl<'a, Message, Slot: ToString> Selector<'a, Message, Slot> {
+	/// Create a new selector with the given list of options and the current id.
 	pub fn new(
 		slots: Vec<Slot>,
 		current_id: usize,
@@ -48,17 +58,22 @@ impl<'a, Message, Slot: ToString> Selector<'a, Message, Slot> {
 		}
 	}
 
+	/// Get the current slot
 	pub fn current_slot(&self) -> &Slot {
 		&self.slots[self.current_id % self.slots.len()]
 	}
 
-	pub fn on_change(self, f: impl  Fn(&Vec<Slot>, usize) -> Message + 'a) -> Self {
+	/// Set the on_change callback
+	/// 
+	/// Function takes a closure wich takes the list of slots and the current id as parameters and returns a message.
+	pub fn on_change(self, f: impl Fn(&Vec<Slot>, usize) -> Message + 'a) -> Self {
 		Self {
 			on_change: Some(Box::new(f)),
 			..self
 		}
 	}
 
+	/// Remove the on_change callback
 	pub fn remove_on_change(self) -> Self {
 		Self {
 			on_change: None,
@@ -66,6 +81,7 @@ impl<'a, Message, Slot: ToString> Selector<'a, Message, Slot> {
 		}
 	}
 
+	/// Set the width of the selector
 	pub fn width(self, width: impl Into<Length>) -> Self {
 		Self {
 			width: width.into(),
@@ -73,6 +89,7 @@ impl<'a, Message, Slot: ToString> Selector<'a, Message, Slot> {
 		}
 	}
 
+	/// Set the height of the selector
 	pub fn height(self, height: impl Into<Length>) -> Self {
 		Self {
 			height: height.into(),

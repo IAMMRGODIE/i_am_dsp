@@ -1,6 +1,13 @@
+//! A Simple knob controller.
+
 use std::ops::RangeInclusive;
 
-use iced::{Element, Length, Point, Radians, Renderer, Size, Theme, advanced::{Widget, graphics::geometry::{Renderer as _, frame::Backend}, layout, renderer}, mouse::Event, theme::palette::lighten, widget::canvas::{self, Path, Stroke}};
+use iced::{
+	Element, Length, Point, Radians, Renderer, Size, Theme, 
+	advanced::{Widget, graphics::geometry::{Renderer as _, frame::Backend}, layout, renderer}, 
+	mouse::Event, theme::palette::lighten, 
+	widget::canvas::{self, Path, Stroke}
+};
 
 use crate::{styles::{BORDER_WIDTH, BRIGHT_FACTOR}, tools::{Number, utils::Animator}};
 
@@ -54,6 +61,7 @@ impl<'a, Message> Knob<'a, Message> {
 		}
 	}
 
+	/// Set the on_release callback of the knob.
 	pub fn on_release(self, on_release: impl Fn(f32) -> Message + 'a) -> Self {
 		Self {
 			on_release: Some(Box::new(on_release)),

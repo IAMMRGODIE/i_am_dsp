@@ -3,7 +3,11 @@
 use std::sync::{atomic::Ordering};
 
 use i_am_dsp::{prelude::WaveTable, tools::ring_buffer::RingBuffer};
-use iced::{Point, Rectangle, Renderer, Size, Theme, mouse::{self, Event}, theme::palette::lighten, widget::canvas::{Path, Program, Stroke, path::Builder}};
+use iced::{
+	Point, Rectangle, Renderer, Size, Theme, mouse::{self, Event}, 
+	theme::palette::lighten, 
+	widget::canvas::{Path, Program, Stroke, path::Builder}
+};
 use portable_atomic::{AtomicBool, AtomicF32};
 
 use crate::{styles::{ALPHA_FACTOR, BRIGHT_FACTOR, PADDING}, tools::utils::{Animator, card, card_border_sized}};
@@ -104,10 +108,12 @@ impl<Message> Program<Message> for WaveformBuf {
 }
 
 impl WaveformBuf {
+	/// Returns the current cache capacity of the waveform displayer.
 	pub fn cache_capacity(&self) -> usize {
 		self.cache.capacity()
 	}
 
+	/// Creates a new [`WaveformBuf`] with the given cache size and target width.
 	pub fn new(cache_size: usize, target_width: f32) -> Self {
 		let cache = RingBuffer::new(cache_size);
 		let max_cache = RingBuffer::new(target_width.ceil() as usize);
@@ -129,6 +135,7 @@ impl WaveformBuf {
 		}
 	}
 
+	/// Resizes the cache of the waveform displayer to the given size.
 	pub fn resize_cache(&mut self, new_size: usize) {
 		self.cache.resize(new_size);
 		self.cache.clear();
@@ -136,6 +143,9 @@ impl WaveformBuf {
 		self.min_cache.clear();
 	}
 
+	/// Updates the waveform displayer with the given samples.
+	/// 
+	/// The `samples` parameter refers to a multi-channel one-sample-per-channel buffer.
 	pub fn update(&mut self, samples: &[f32]) {
 		let sample = samples.iter().sum::<f32>() / samples.len() as f32;
 
@@ -173,8 +183,10 @@ impl WaveformBuf {
 }
 
 // #[derive(Clone)]
+/// A waveform displayer based on a [`i_am_dsp::prelude::WaveTable`]
 pub struct Waveform<Table: WaveTable> {
-	pub table: Table,
+	/// The table to display
+	table: Table,
 	selected: AtomicBool,
 	sample_points: usize,
 	canvas_cache: iced::widget::canvas::Cache,
@@ -184,6 +196,9 @@ pub struct Waveform<Table: WaveTable> {
 }
 
 #[derive(Default)]
+/// The internal state of the [`Waveform`]
+/// 
+/// Normally, you don't need to use this directly.
 pub struct WaveformState {
 	mouse_pos: Point,
 	last_selected: bool,
@@ -302,6 +317,7 @@ impl<Table: WaveTable, Message> Program<Message> for Waveform<Table> {
 }
 
 impl<Table: WaveTable> Waveform<Table> {
+	/// Creates a new [`Waveform`] with the given table, sample points, and initial selected state.
 	pub fn new(table: Table, sample_points: usize, selected: bool) -> Self {
 		Self {
 			table,
@@ -314,11 +330,13 @@ impl<Table: WaveTable> Waveform<Table> {
 		}
 	}
 
+	/// Sets the selected state of the [`Waveform`] and clears the canvas cache.
 	pub fn set_selected(&self, selected: bool) {
 		self.selected.store(selected, Ordering::Relaxed);
 		self.canvas_cache.clear();
 	}
 
+	/// Sets the on_change callback of the [`Waveform`].
 	pub fn on_change<F: 'static + Fn(bool) -> bool + Send + Sync>(self, f: F) -> Self {
 		Self {
 			on_change: Some(Box::new(f)),
@@ -326,28 +344,40 @@ impl<Table: WaveTable> Waveform<Table> {
 		}
 	}
 
+	/// Toggles the selected state of the [`Waveform`] and clears the canvas cache.
 	pub fn toggle_update(&mut self) {
 		self.canvas_cache.clear();
 	}
 
+	/// Change the table to display.
 	pub fn change_table(&mut self, table: Table) {
 		self.table = table;
 		self.canvas_cache.clear();
 	}
 
+	/// Get the table to display.
 	pub fn get_table(&self) -> &Table {
 		&self.table
 	}
 
+	/// Get the table to display but with a mutable reference.
+	pub fn get_table_mut(&mut self) -> &mut Table {
+		self.canvas_cache.clear();
+		&mut self.table
+	}
+
+	/// Set the sample points of the [`Waveform`].
 	pub fn set_sample_points(&mut self, sample_points: usize) {
 		self.sample_points = sample_points;
 		self.canvas_cache.clear();
 	}
 
+	/// Get the sample points of the [`Waveform`].
 	pub fn get_sample_points(&self) -> usize {
 		self.sample_points
 	}
 
+	/// Disable the hover effect of the [`Waveform`].
 	pub fn disable_hover(self) -> Self {
 		Self {
 			disable_hover: true,
@@ -355,6 +385,7 @@ impl<Table: WaveTable> Waveform<Table> {
 		}
 	}
 
+	/// Set the color of the [`Waveform`].
 	pub fn color(self, color: impl Into<iced::Color>) -> Self {
 		Self {
 			color: Some(color.into()),

@@ -1,3 +1,5 @@
+//! A simple runable demo based on a processor
+
 use std::collections::HashMap;
 use std::time::Duration;
 use cpal::StreamConfig;
@@ -51,6 +53,7 @@ lazy_static::lazy_static! {
 	};
 }
 
+/// A simple context that just holds the midi events
 pub struct SimpleContext {
 	/// The process infos
 	pub info: ProcessInfos,

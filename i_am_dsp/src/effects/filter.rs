@@ -3,30 +3,98 @@
 use std::f32::consts::PI;
 
 pub(crate) const MIN_FREQUENCY: f32 = 10.0;
-
 use i_am_dsp_derive::Parameters;
 use wide::f32x4;
 
-use crate::{tools::ring_buffer::RingBuffer, Effect, ProcessContext};
+use crate::{Effect, ProcessContext, prelude::{Parameter, Parameters, Value, from_binary, to_binary}, tools::ring_buffer::RingBuffer};
 
 #[derive(Clone)]
-#[derive(Parameters)]
 /// A simple biquad filter
 pub struct Biquad<const CHANNELS: usize = 2> {
-	#[serde]
-	b: [f32; 3],
-	#[serde]
-	a: [f32; 2],
-	#[skip]
+	/// biquad coefficients
+	pub b: [f32; 3],
+	/// biquad coefficients
+	pub a: [f32; 2],
 	x: [[f32; CHANNELS]; 2],
-	#[skip]
 	y: [[f32; CHANNELS]; 2],
-	#[skip]
 	sample_rate: usize,
 
 	#[cfg(feature = "real_time_demo")]
-	#[skip]
 	gui_state: GuiState,
+}
+
+impl<const CHANNELS: usize> Parameters for Biquad<CHANNELS> {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		vec![
+			Parameter {
+				identifier: "a".to_string(),
+				value: Value::Serialized(to_binary(&self.a).expect("cannot serialize")),
+			},
+			Parameter {
+				identifier: "b".to_string(),
+				value: Value::Serialized(to_binary(&self.b).expect("cannot serialize")),
+			},
+		]
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: crate::prelude::SetValue) -> bool {
+		match identifier {
+			"a" => {
+				if let crate::prelude::SetValue::Serialized(v) = value {
+					let value: [f32; 2] = if let Ok(value) = from_binary(v) {
+						value
+					} else {
+						return false;
+					};
+					self.a = value;
+					return true;
+				}
+			},
+			"b" => {
+				if let crate::prelude::SetValue::Serialized(v) = value {
+					let value: [f32; 3] = if let Ok(value) = from_binary(v) {
+						value
+					} else {
+						return false;
+					};
+					self.b = value;
+					return true;
+				}
+			},
+			"a1" => {
+				if let crate::prelude::SetValue::Float(v) = value {
+					self.a[0] = v;
+					return true;
+				}
+			},
+			"a2" => {
+				if let crate::prelude::SetValue::Float(v) = value {
+					self.a[1] = v;
+					return true;
+				}
+			},
+			"b0" => {
+				if let crate::prelude::SetValue::Float(v) = value {
+					self.b[0] = v;
+					return true;
+				}
+			},
+			"b1" => {
+				if let crate::prelude::SetValue::Float(v) = value {
+					self.b[1] = v;
+					return true;
+				}
+			},
+			"b2" => {
+				if let crate::prelude::SetValue::Float(v) = value {
+					self.b[2] = v;
+					return true;
+				}
+			},
+			_ => {},
+		}
+		false
+	}
 }
 
 #[cfg(feature = "real_time_demo")]

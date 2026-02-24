@@ -1,8 +1,13 @@
+//! A simple wavetable synth plugin for iced.
+
 use std::{ops::RangeInclusive, sync::{Arc, Mutex, atomic::Ordering}, time::Instant};
 
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
-use i_am_dsp::{Generator, NoteEvent, prelude::{Adsr, AtomicValue, EqualTemperament, ParamMap, Paramed, Parameters, PmTable, TableOsc, WaveTable, WaveTableSmoother}};
-use iced::{Border, Element, Length, Theme, alignment::{Horizontal, Vertical}, widget::{button, canvas, column, container, row, text}};
+use i_am_dsp::{
+	Generator, NoteEvent, 
+	prelude::{Adsr, AtomicValue, EqualTemperament, ParamMap, Paramed, Parameters, PmTable, TableOsc, WaveTable, WaveTableSmoother}
+};
+use iced::{Border, Element, Length, Theme, alignment::{Horizontal, Vertical}, widget::{button, canvas, column, container, hover, row, text}};
 use portable_atomic::AtomicUsize;
 
 use crate::{
@@ -13,16 +18,21 @@ use crate::{
 		knob::knob, 
 		selector::selector, 
 		slider::slider, 
-		unison::UnisonEditor, 
+		unison::UnisonDisplayer, 
 		waveform::{Waveform, WaveformBuf}
 	}
 };
 
 #[derive(Clone, Debug)]
+/// A message that can be sent to the synth.
 pub enum WavetableSynthMessage {
+	/// A midi event that should be processed by the synth.
 	MidiEvent(NoteEvent),
+	/// Tick event
 	Tick(Instant),
+	/// Nothing
 	Empty,
+	/// Clear error message
 	ClearError,
 }
 
@@ -32,6 +42,7 @@ pub type TableBuildFn = Box<dyn Fn(usize) -> Vec<Box<dyn WaveTable + Send + Sync
 /// A shortcut for the PmTable type.
 pub type SynthTable = PmTable<WaveTableSmoother, WaveTableSmoother>;
 
+/// Main synth struct.
 pub struct WavetableSynth {
 	// sample_rate: usize,
 	table: Paramed<Adsr<TableOsc<SynthTable>, EqualTemperament, 2>>,
@@ -39,7 +50,7 @@ pub struct WavetableSynth {
 	// smooth_factor_carrier: Arc<AtomicF32>,
 	// smooth_factor_modulator: Arc<AtomicF32>,
 	// pm_factor: Arc<AtomicF32>,
-	unison_editor: Arc<UnisonEditor>,
+	unison_editor: Arc<UnisonDisplayer>,
 	senders: Arc<Mutex<Vec<Sender<f32>>>>,
 	table_builder: TableBuildFn,
 	// pitch_factor: Arc<AtomicF32>,
@@ -57,10 +68,12 @@ impl Parameters for WavetableSynth {
 }
 
 impl WavetableSynth {
+	/// Get the parameter map of underlying the synth.
 	pub fn param_map(&self) -> ParamMap {
 		self.table.param_map()
 	}
 
+	/// Create a new synth with the given sample rate and table builder function.
 	pub fn new(sample_rate: usize, table_builder: impl Fn(usize) -> Vec<Box<dyn WaveTable + Send + Sync>> + Send + Sync +'static) -> Self {
 		let carrier = WaveTableSmoother::new(table_builder(sample_rate), 0.0);
 		let modulator = WaveTableSmoother::new(table_builder(sample_rate), 0.0);
@@ -75,7 +88,7 @@ impl WavetableSynth {
 		let table = Paramed::new(table);
 
 		let adsr_params = Arc::new(AdsrEditor::new(&table));
-		let unison_editor = Arc::new(UnisonEditor::new(&table));
+		let unison_editor = Arc::new(UnisonDisplayer::new(&table));
 
 		Self {
 			// pitch_factor: Arc::new(AtomicF32::new(table.pitch_factor)),
@@ -93,6 +106,7 @@ impl WavetableSynth {
 	}
 }
 
+/// A view for the synth.
 pub struct WavetableSynthView {
 	wavetable: Waveform<SynthTable>,
 	waveform: WaveformBuf,
@@ -104,7 +118,7 @@ pub struct WavetableSynthView {
 	reciver: Receiver<f32>,
 
 	adsr_editor: Arc<AdsrEditor>,
-	unison_editor: Arc<UnisonEditor>,
+	unison_editor: Arc<UnisonDisplayer>,
 	param_map: ParamMap,
 	// pitch_factor: Arc<AtomicF32>,
 	// gain: Arc<AtomicF32>,
@@ -147,22 +161,22 @@ impl SyncedView for WavetableSynthView {
 		let smooth_factor_modulator = self.param_map["oscillator.modulator.smooth_factor"].load(Ordering::Relaxed).float().unwrap();
 		let pm_factor = self.param_map["oscillator.pm_factor"].load(Ordering::Relaxed).float().unwrap();
 
-		if smooth_factor_carrier != self.wavetable.table.carrier.smooth_factor {
-			self.wavetable.table.carrier.smooth_factor = smooth_factor_carrier;
-			self.carrier.table.smooth_factor = smooth_factor_carrier;
+		if smooth_factor_carrier != self.wavetable.get_table().carrier.smooth_factor {
+			self.wavetable.get_table_mut().carrier.smooth_factor = smooth_factor_carrier;
+			self.carrier.get_table_mut().smooth_factor = smooth_factor_carrier;
 			self.wavetable.toggle_update();
 			self.carrier.toggle_update();
 		}
 
-		if smooth_factor_modulator != self.wavetable.table.modulator.smooth_factor {
-			self.wavetable.table.modulator.smooth_factor = smooth_factor_modulator;
-			self.modulator.table.smooth_factor = smooth_factor_modulator;
+		if smooth_factor_modulator != self.wavetable.get_table().modulator.smooth_factor {
+			self.wavetable.get_table_mut().modulator.smooth_factor = smooth_factor_modulator;
+			self.modulator.get_table_mut().smooth_factor = smooth_factor_modulator;
 			self.wavetable.toggle_update();
 			self.modulator.toggle_update();
 		}
 
-		if pm_factor != self.wavetable.table.pm_factor {
-			self.wavetable.table.pm_factor = pm_factor;
+		if pm_factor != self.wavetable.get_table().pm_factor {
+			self.wavetable.get_table_mut().pm_factor = pm_factor;
 			self.wavetable.toggle_update();
 		}
 	}
@@ -197,14 +211,6 @@ impl SyncedView for WavetableSynthView {
 		let factor = smooth_factor_now;
 
 		#[inline(always)]
-		fn knob_wrapped(range: RangeInclusive<f32>, param: &AtomicValue) -> crate::tools::knob::Knob<'_, WavetableSynthMessage> {
-			knob(range, param.load(Ordering::Relaxed).float().unwrap(), |value| {
-				param.store(value, Ordering::Relaxed);
-				WavetableSynthMessage::Empty
-			}).width(32.0).height(32.0)
-		}
-
-		#[inline(always)]
 		fn theme_func(theme: &Theme) -> iced::widget::container::Style {
 			iced::widget::container::Style::default()
 				.border(Border::default()
@@ -213,6 +219,27 @@ impl SyncedView for WavetableSynthView {
 				.rounded(PADDING)
 			)
 			.background(theme.extended_palette().background.weakest.color)
+		}
+
+		#[inline(always)]
+		fn knob_wrapped(range: RangeInclusive<f32>, param: &AtomicValue, log: bool) -> Element<'_, WavetableSynthMessage> {
+			let value = param.load(Ordering::Relaxed).float().unwrap();
+
+			let knob = if log {
+				knob(range, value, |value| {
+					param.store(value, Ordering::Relaxed);
+					WavetableSynthMessage::Empty
+				}).width(32.0).height(32.0).logarithmic(true).speed(0.01)
+			}else {
+				knob(range, value, |value| {
+					param.store(value, Ordering::Relaxed);
+					WavetableSynthMessage::Empty
+				}).width(32.0).height(32.0)
+			};
+
+			hover(knob, container(
+				text!("{}", value).size(12.0)
+			).style(theme_func))
 		}
 
 		column![
@@ -231,11 +258,11 @@ impl SyncedView for WavetableSynthView {
 				).style(theme_func).height(Length::Fill).align_y(Vertical::Center),
 				container(column![
 					row![
-						knob_wrapped(0.0..=2.0, &self.unison_editor.unison_detune),
-						knob_wrapped(-10.0..=10.0, &self.unison_editor.unison_bend),
-						knob_wrapped(0.0..=1.0, &self.unison_editor.unison_blend),
-						knob_wrapped(0.0..=1.0, &self.unison_editor.random_phase),
-						knob_wrapped(0.0..=1.0, &self.unison_editor.random_pan),
+						knob_wrapped(0.0..=2.0, &self.unison_editor.unison_detune, false),
+						knob_wrapped(-10.0..=10.0, &self.unison_editor.unison_bend, false),
+						knob_wrapped(0.0..=1.0, &self.unison_editor.unison_blend, false),
+						knob_wrapped(0.0..=1.0, &self.unison_editor.random_phase, false),
+						knob_wrapped(0.0..=1.0, &self.unison_editor.random_pan, false),
 					].spacing(16.0).align_y(Vertical::Center),
 					slider(1.0..=32.0, self.unison_editor.unisons.load(Ordering::Relaxed).int().unwrap() as f32, |value| {
 						self.unison_editor.unisons.store(value as i32, Ordering::Relaxed);
@@ -267,19 +294,19 @@ impl SyncedView for WavetableSynthView {
 			].spacing(16.0).width(Length::Fill).height(Length::FillPortion(1)),
 			row![
 				container(column![
-					knob_wrapped(-10.0..=10.0, &self.adsr_editor.attack_bend),
-					knob_wrapped(-10.0..=10.0, &self.adsr_editor.decay_bend),
-					knob_wrapped(-10.0..=10.0, &self.adsr_editor.release_bend),
+					knob_wrapped(-10.0..=10.0, &self.adsr_editor.attack_bend, false),
+					knob_wrapped(-10.0..=10.0, &self.adsr_editor.decay_bend, false),
+					knob_wrapped(-10.0..=10.0, &self.adsr_editor.release_bend, false),
 				].spacing(16.0).width(64.0).align_x(Horizontal::Center)).style(theme_func).height(Length::Fill).align_y(Vertical::Center),
 				container(column![
 					canvas(self.adsr_editor.as_ref()).width(Length::Fill).height(Length::FillPortion(4)),
 					container(row![
-						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.delay_time).logarithmic(true).speed(0.01),
-						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.attack_time).logarithmic(true).speed(0.01),
-						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.hold_time).logarithmic(true).speed(0.01),
-						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.decay_time).logarithmic(true).speed(0.01),
-						knob_wrapped(0.0001..=1.0, &self.adsr_editor.sustain_level).logarithmic(true).speed(0.01),
-						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.release_time).logarithmic(true).speed(0.01),
+						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.delay_time, true),
+						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.attack_time, true),
+						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.hold_time, true),
+						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.decay_time, true),
+						knob_wrapped(0.0001..=1.0, &self.adsr_editor.sustain_level, true),
+						knob_wrapped(0.0001..=10000.0, &self.adsr_editor.release_time, true),
 						slider(0.01..=4.0, self.param_map["gain"].load(Ordering::Relaxed).float().unwrap(), |value| {
 							self.param_map["gain"].store(value, Ordering::Relaxed);
 							WavetableSynthMessage::Empty

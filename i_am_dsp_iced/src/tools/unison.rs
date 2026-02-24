@@ -1,20 +1,33 @@
+//! A simple displayer for current unison
+
 use std::sync::{Arc, atomic::Ordering};
 
 use i_am_dsp::prelude::{Adsr, AtomicValue, Oscillator, Paramed, Tuning};
 use iced::{Point, Renderer, Theme, mouse::Cursor, widget::canvas::{Frame, Path, Program, Stroke}};
 use crate::{styles::PADDING, tools::utils::{bend, card}};
 
-pub struct UnisonEditor {
+/// A simple displayer for current unison
+/// 
+/// See more in [`i_am_dsp::generators::adsr::Adsr`]
+pub struct UnisonDisplayer {
+	/// The random pan value
 	pub random_pan: Arc<AtomicValue>,
+	/// The random phase value
 	pub random_phase: Arc<AtomicValue>,
+	/// The unison detune value
 	pub unison_detune: Arc<AtomicValue>,
+	/// The unison bend value
 	pub unison_bend: Arc<AtomicValue>,
+	/// The unison blend value
 	pub unison_blend: Arc<AtomicValue>,
+	/// A flag to show if the phase should be randomized by channel
 	pub random_phase_by_channel: Arc<AtomicValue>,
+	/// The number of unisons
 	pub unisons: Arc<AtomicValue>,
 }
 
-impl UnisonEditor {
+impl UnisonDisplayer {
+	/// Create a new [`UnisonDisplayer`] from an [`Adsr`]
 	pub fn new<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>(adsr: &Paramed<Adsr<Osc, TuningSys, CHANNELS>>) -> Self {
 		let param_map = adsr.param_map();
 
@@ -30,7 +43,7 @@ impl UnisonEditor {
 	}
 }
 
-impl<Message> Program<Message> for UnisonEditor {
+impl<Message> Program<Message> for UnisonDisplayer {
 	type State = ();
 
 	fn draw(

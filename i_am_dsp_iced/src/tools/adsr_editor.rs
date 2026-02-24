@@ -1,3 +1,5 @@
+//! Adsr editor for real-time audio processing.
+
 use std::{collections::HashMap, sync::{Arc, atomic::Ordering}};
 
 use i_am_dsp::prelude::{Adsr, AtomicValue, Oscillator, Paramed, Tuning};
@@ -7,15 +9,24 @@ use crate::{styles::{ALPHA_FACTOR, PADDING}, tools::utils::{Animator, bend, card
 #[derive(Debug)]
 /// Adsr editor for real-time audio processing.
 pub struct AdsrEditor {
+	/// The delay time of the Adsr, in milliseconds.
 	pub delay_time: Arc<AtomicValue>,
+	/// The attack time of the Adsr, in milliseconds.
 	pub attack_time: Arc<AtomicValue>,
+	/// The hold time of the Adsr, in milliseconds.
 	pub hold_time: Arc<AtomicValue>,
+	/// The decay time of the Adsr, in milliseconds.
 	pub decay_time: Arc<AtomicValue>,
+	/// The sustain level of the Adsr, in linear scale (0.0 to 1.0)
 	pub sustain_level: Arc<AtomicValue>,
+	/// The release time of the Adsr, in milliseconds.
 	pub release_time: Arc<AtomicValue>,
 
+	/// The bend of the attack time of the Adsr.
 	pub attack_bend: Arc<AtomicValue>,
+	/// The bend of the decay time of the Adsr.
 	pub decay_bend: Arc<AtomicValue>,
+	/// The bend of the release time of the Adsr.
 	pub release_bend: Arc<AtomicValue>,
 }
 
@@ -165,8 +176,11 @@ impl AdsrEditor {
 }
 
 #[derive(Default)]
+/// The internal state of the AdsrEditor.
+/// 
+/// Normally, user dont need to use this struct directly.
 pub struct AdsrState {
-	pub current_mouse_pos: Point,
+	current_mouse_pos: Point,
 	hovering: HashMap<NodeId, Animator>,
 	dragging: Option<DraggingInfo>,
 	dragging_animator: Animator,
@@ -268,16 +282,16 @@ impl<Message> Program<Message> for AdsrEditor {
 			info.last_pos = state.current_mouse_pos;
 		}
 
-		let (points, _, _) = self.get_circle_positions(
+		let (points, total_time, _) = self.get_circle_positions(
 			usable_width, 
 			usable_height, 
 			false
 		);
-		for (point, start_node_id) in points {
-			if state.current_mouse_pos.distance(Point::new(point.x + bounds.x, point.y + bounds.y)) < 10.0 && state.dragging.is_none() {
-				state.hovering.entry(start_node_id).or_default().in_if_out();
+		for (point, start_node_id) in points.iter() {
+			if state.current_mouse_pos.distance(Point::new(point.x + bounds.x + PADDING, point.y + bounds.y + PADDING)) < 10.0 && state.dragging.is_none() {
+				state.hovering.entry(*start_node_id).or_default().in_if_out();
 			}else {
-				state.hovering.entry(start_node_id).or_default().out_if_in();
+				state.hovering.entry(*start_node_id).or_default().out_if_in();
 			}
 		}
 
@@ -296,13 +310,8 @@ impl<Message> Program<Message> for AdsrEditor {
 				state.current_mouse_pos = *position;
 			},
 			Event::ButtonPressed(_) if state.dragging.is_none() => {
-				let (points, total_time, _) = self.get_circle_positions(
-					usable_width, 
-					usable_height, 
-					false
-				);
 				for (point, start_node_id) in points {
-					if state.current_mouse_pos.distance(Point::new(point.x + bounds.x, point.y + bounds.y)) < 10.0 {
+					if state.current_mouse_pos.distance(Point::new(point.x + bounds.x + PADDING, point.y + bounds.y + PADDING)) < 10.0 {
 						state.dragging = Some(DraggingInfo { 
 							start_node_id, 
 							total_time, 

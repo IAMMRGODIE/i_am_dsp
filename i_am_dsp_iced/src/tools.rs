@@ -1,13 +1,19 @@
+//! useful tools for gui
+
 pub mod waveform;
 pub mod adsr_editor;
 pub mod unison;
 pub mod knob;
 pub mod selector;
 pub mod slider;
+pub mod equalizer;
 pub(crate) mod utils;
 
+/// A number trait that provides a conversion from f32 to the number type and vice versa.
 pub trait Number {
+	/// Converts a f32 to the number type.
 	fn from_f32(input: f32) -> Self;
+	/// Converts the number type to a f32.
 	fn into_f32(self) -> f32;
 }
 
