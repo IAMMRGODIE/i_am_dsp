@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["rhai", "room_gen"]
+default = ["standalone"]
 room_gen = ["parry3d"]
 sin_table = []
 standalone = ["eframe", "real_time_demo", "cpal"]

@@ -13,6 +13,7 @@ use crate::tools::ring_buffer::RingBuffer;
 /// 4. ref_range is not greater than 0,
 /// 5. hop is not greater or equal than ref_range,
 /// 6. input size is not greater than 2 * hop size,
+// TODO: Current implementation doesnt function correctly.
 pub fn wsola(
 	input: &RingBuffer<f32>,
 	last_output: &[f32],

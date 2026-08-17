@@ -616,6 +616,9 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE>
 		}
 	}
 
+	// TODO：This Algorithm cannot function correctly.
+	// The basic idea is Non-Uniformly Partitioned Convolution
+	// And maybe introduce SIMD to caculate the first window to make fftconvolver be delay-free.
 	fn frame(&mut self, input: [f32; CHANNELS]) -> [f32; CHANNELS] {
 		let mut ctx = Box::new(()) as Box<dyn ProcessContext + 'static>;
 		for channel in 0..CHANNELS {

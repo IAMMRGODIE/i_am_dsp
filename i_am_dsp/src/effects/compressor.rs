@@ -1,9 +1,5 @@
 //! A basic compressor effect
 
-// use i_am_dsp_derive::Parameters;
-
-// use crate as i_am_dsp;
-
 use i_am_dsp_derive::Parameters;
 
 #[cfg(feature = "real_time_demo")]

@@ -300,15 +300,14 @@ impl<Table: WaveTable, Message> Program<Message> for Waveform<Table> {
 			Event::CursorMoved { position } => {
 				state.mouse_pos = *position;
 			},
-			Event::ButtonPressed(_) if bounds.contains(state.mouse_pos) => {
-				if if let Some(f) = &self.on_change {
+			Event::ButtonPressed(_) if bounds.contains(state.mouse_pos)
+				&& if let Some(f) = &self.on_change {
 					f(!selected)
 				}else {
 					true
-				} {
+				} => {
 					self.selected.store(!selected, Ordering::Relaxed);
 				}
-			}
 			_ => {}
 		}
 		

@@ -936,7 +936,7 @@ impl SharedData {
 		let mut out_effects = std::array::from_fn(|_| vec![]);
 		for (i, effects_in_track) in effects.into_iter().enumerate() {
 			let mut effects_vec = effects_in_track.into_iter().collect::<Vec<_>>();
-			effects_vec.sort_by(|(a, _), (b, _)| a.cmp(b));
+			effects_vec.sort_by_key(|(a, _)| *a);
 			let effects = effects_vec.into_iter().map(|(_, effect)| effect).collect();
 			out_effects[i] = effects;
 		}
@@ -1578,7 +1578,7 @@ impl DspDemo {
 					let params_old = generator.generator.get_parameters();
 					generator.generator.demo_ui(ui, prefix);
 					let params_new = generator.generator.get_parameters();
-					for (param_old, param_new) in params_old.into_iter().zip(params_new.into_iter()) {
+					for (param_old, param_new) in params_old.into_iter().zip(params_new) {
 						if param_old != param_new {
 							let range = get_range(&param_new.value);
 							let history = ListenedValue { 
@@ -1658,7 +1658,7 @@ impl DspDemo {
 					effect.effect.demo_ui(ui, prefix);
 					let params_new = effect.effect.get_parameters();
 
-					for (param_old, param_new) in params_old.into_iter().zip(params_new.into_iter()) {
+					for (param_old, param_new) in params_old.into_iter().zip(params_new) {
 						if param_old != param_new {
 							let range = get_range(&param_new.value);
 							let history = ListenedValue { 

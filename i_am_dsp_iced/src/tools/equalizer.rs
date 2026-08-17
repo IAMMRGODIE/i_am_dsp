@@ -173,8 +173,8 @@ impl EqualizerEditor {
 
 			let cos_f = frequency.cos();
 			let sin_f = frequency.sin();
-			let cos_2f = 2.0 * cos_f * cos_f - 1.0;
-			let sin_2f = 2.0 * cos_f * sin_f;
+			let cos_2f = (frequency * 2.0).cos();
+			let sin_2f = (frequency * 2.0).sin();
 
 			let real_n = b[0] + b[1] * cos_f + b[2] * cos_2f;
 			let imag_n = - (b[1] * sin_f + b[2] * sin_2f);
@@ -215,7 +215,7 @@ impl EqualizerEditor {
 			Path::new(|builder| {
 				builder.move_to(Point::new(2.0, padding + usable_height / 2.0));
 				for (i, (amp, _)) in cr_vec.iter().enumerate() {
-					let amp_db = 20.0 * amp.log10();
+					let amp_db = 20.0 * amp.max(1e-10).log10();
 					let height = (1.0 - (amp_db + max_gain_db) / (2.0 * max_gain_db)) * usable_height;
 					let width = (i as f32 / (self.sample_points - 1) as f32) * usable_width;
 					let point = Point::new(padding + width, padding + height);
