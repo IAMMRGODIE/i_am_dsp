@@ -8,10 +8,12 @@ use crate::{
 	Effect, ProcessContext, 
 	effects::{
 		filter::{Biquad, MIN_FREQUENCY}, 
-		prelude::{Convolver, HilbertTransform, hilbert_transform}
+		prelude::{Convolver, hilbert_transform}
 	}, 
 	tools::ring_buffer::RingBuffer
 };
+
+use super::hilbert_transform::HilbertTransform as IIRHilbert;
 
 /// A frequency shifter using an FIR Hilbert transform.
 #[derive(Parameters)]
@@ -142,7 +144,7 @@ pub struct IIRFreqShifter<const ORDER: usize, const CHANNELS: usize = 2> {
 	#[skip]
 	pub sample_rate: usize,
 	#[sub_param]
-	hilbert_transform: HilbertTransform<ORDER, CHANNELS>,
+	hilbert_transform: IIRHilbert<ORDER, CHANNELS>,
 	#[skip]
 	phase_state: f32,
 	#[range(min = -20000.0, max = 20000.0)]
@@ -155,12 +157,12 @@ impl<const ORDER: usize, const CHANNELS: usize> IIRFreqShifter<ORDER, CHANNELS> 
 	/// Creates a new frequency shifter with the given sample rate and shift frequency.
 	/// 
 	/// Panics if `CHANNELS` is 0.
-	pub const fn new(sample_rate: usize, shift_freq: f32) -> Self {
+	pub fn new(sample_rate: usize, shift_freq: f32) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
 		
 		Self {
 			sample_rate,
-			hilbert_transform: HilbertTransform::new(sample_rate),
+			hilbert_transform: IIRHilbert::new(sample_rate),
 			phase_state: 0.0,
 			shift_freq,
 			filter: Biquad::new(sample_rate)
@@ -185,7 +187,8 @@ impl<const ORDER: usize, const CHANNELS: usize> IIRFreqShifter<ORDER, CHANNELS> 
 
 impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for IIRFreqShifter<ORDER, CHANNELS> {
 	fn delay(&self) -> usize {
-		self.hilbert_transform.delay()
+		// IIR filters have negligible delay compared to FIR
+		0
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -200,13 +203,17 @@ impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for IIRFreqShif
 		self.filter.process(samples, other, ctx);
 
 		let phase_increment = 2.0 * PI * self.shift_freq / self.sample_rate as f32;
-		let mut imag_parts = *samples;
-		self.hilbert_transform.process(&mut imag_parts, other, ctx);
+		
+		// Apply Hilbert transform to get complex analytic signal
+		let complex_samples = self.hilbert_transform.apply_transform(samples);
+		
 		let phase_real = self.phase_state.cos();
 		let phase_imag = self.phase_state.sin();
 
-		for (i, real_part) in samples.iter_mut().enumerate() {
-			*real_part = *real_part * phase_real - imag_parts[i] * phase_imag;
+		// Frequency shift: multiply by e^(j*phase) and take real part
+		// output = real * cos(phase) - imag * sin(phase)
+		for (i, complex_sample) in complex_samples.iter().enumerate() {
+			samples[i] = complex_sample.real * phase_real - complex_sample.imag * phase_imag;
 		}
 
 		self.phase_state = (self.phase_state + phase_increment) % (2.0 * PI);

@@ -164,10 +164,6 @@ lazy_static::lazy_static! {
 				Box::new(|sample_rate| Box::new(Disperser::new(sample_rate)) as Box<dyn Effect>)
 			),
 			(
-				"IIR Hilbert Transform".to_string(),
-				Box::new(|sample_rate| Box::new(HilbertTransform::<8>::new(sample_rate)) as Box<dyn Effect>)
-			),
-			(
 				"Lowpass".to_string(),
 				Box::new(|sample_rate| Box::new(Lowpass::new(sample_rate, 1000.0, Biquad::<2>::Q1)) as Box<dyn Effect>)
 			),
@@ -267,7 +263,7 @@ lazy_static::lazy_static! {
 			(
 				"IIR Frequency Shifter".to_string(),
 				Box::new(|sample_rate| {
-					let effect = IIRFreqShifter::<8>::new(sample_rate, 0.0);
+					let effect = IIRFreqShifter::<10>::new(sample_rate, 0.0);
 					Box::new(effect) as Box<dyn Effect> 
 				})
 			),
@@ -320,7 +316,7 @@ lazy_static::lazy_static! {
 			(
 				"Compressor(IIR Hilbert Transform)".to_string(),
 				Box::new(|sample_rate| {
-					let env = IIRHilbertEnvelope::<8>::new(sample_rate);
+					let env = IIRHilbertEnvelope::<10>::new(sample_rate);
 					let env = EnvelopeWithHistory::new(env, 32768);
 					let effect = Compressor::new(env, sample_rate, 46.0, 200.0, -3.0, 5.0);
 					Box::new(effect) as Box<dyn Effect> 
@@ -1610,7 +1606,7 @@ impl DspDemo {
 							should_swap = Some((i, i - 1));
 						}
 					}
-					if i < generators_len - 1 {
+					if i < generators_len - 1 && generators_len != 1 {
 						let btn = ui.button("Move Down");
 						if btn.clicked() {
 							should_swap = Some((i, i + 1));
@@ -1687,7 +1683,7 @@ impl DspDemo {
 							should_swap = Some((i, i - 1));
 						}
 					}
-					if i < effects_len - 1 {
+					if i < effects_len - 1 && effects_len != 1 {
 						let btn = ui.button("Move Down");
 						if btn.clicked() {
 							should_swap = Some((i, i + 1));

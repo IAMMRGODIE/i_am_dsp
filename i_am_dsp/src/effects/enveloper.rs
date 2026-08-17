@@ -185,12 +185,11 @@ impl<const ORDER: usize, const CHANNELS: usize> Enveloper<CHANNELS> for IIRHilbe
 	}
 
 	fn input_value(&mut self, input: &mut [f32; CHANNELS]) {
-		let mut transformed_input = *input;
-		let mut ctx = Box::new(()) as Box<dyn ProcessContext>;
-		self.hilbert_transformer.process(&mut transformed_input, &[], &mut ctx);
+		// Apply Hilbert transform to get complex analytic signal
+		let complex_samples = self.hilbert_transformer.apply_transform(input);
 
 		for (i, val) in self.history.iter_mut().enumerate() {
-			*val = input[i].hypot(transformed_input[i])
+			*val = complex_samples[i].magnitude() * self.gain_factor;
 		}
 	}
 
