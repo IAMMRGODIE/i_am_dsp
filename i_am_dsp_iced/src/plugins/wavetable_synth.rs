@@ -229,7 +229,7 @@ impl SyncedView for WavetableSynthView {
 				knob(range, value, |value| {
 					param.store(value, Ordering::Relaxed);
 					WavetableSynthMessage::Empty
-				}).width(32.0).height(32.0).logarithmic(true).speed(0.01)
+				}).width(32.0).height(32.0).logarithmic(true).speed(0.01_f32)
 			}else {
 				knob(range, value, |value| {
 					param.store(value, Ordering::Relaxed);
