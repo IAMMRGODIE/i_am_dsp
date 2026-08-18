@@ -1416,7 +1416,7 @@ impl DspDemo {
 			},
 		};
 
-		egui::TopBottomPanel::top("state_pan").show_inside(ui, |ui| {
+		egui::Panel::top("state_pan").show(ui, |ui| {
 			ui.horizontal(|ui| {
 				for track in 0..=MAX_OUTPUT_TRACKS {
 					let text = if track == MAX_OUTPUT_TRACKS {
@@ -1431,9 +1431,8 @@ impl DspDemo {
 
 		#[cfg(feature = "standalone")]
 		let mut clear_all_notes = false;
-		egui::TopBottomPanel::bottom("lfo_panel").resizable(true).show_inside(ui, |ui| {
-			
-			egui::TopBottomPanel::bottom("midi_panel").show_inside(ui, |ui| {
+		egui::Panel::bottom("lfo_panel").resizable(true).show(ui, |ui| {
+			egui::Panel::bottom("midi_panel").show(ui, |ui| {
 				#[cfg(feature = "standalone")]
 				{
 					let mut key_holding = self.key_holding.iter().copied().collect::<Vec<_>>();
@@ -1461,7 +1460,7 @@ impl DspDemo {
 				ui.separator();
 			});
 			let current_phase = shared_data.current_phase;
-			egui::CentralPanel::default().show_inside(ui, |ui| {
+			egui::CentralPanel::default().show(ui, |ui| {
 				egui::ScrollArea::vertical().show(ui, |ui| {
 					let mut should_remove_lfo = None;
 					for (i, lfo) in shared_data.lfos.iter_mut().enumerate() {
@@ -1730,12 +1729,12 @@ impl DspDemo {
 
 #[cfg(feature = "standalone")]
 impl eframe::App for DspDemo {
-	fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
-		egui::CentralPanel::default().show(ctx, |ui| {
+	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+		egui::CentralPanel::default().show(ui, |ui| {
 			self.ui(ui);
 		});
 	
-		ctx.request_repaint();
+		ui.ctx().request_repaint();
 	}
 }
 
@@ -1746,13 +1745,13 @@ fn generator_add_menu(ui: &mut egui::Ui, sample_rate: usize, output_track: usize
 		if ui.button(name).clicked() {
 			output = Some(generator(sample_rate));
 			path = Some(name.clone());
-			ui.close_menu();
+			ui.close();
 			break;
 		}
 	}
 
 	if ui.button("Close").clicked() {
-		ui.close_menu();
+		ui.close();
 	}
 
 	if let (Some(generator), Some(path)) = (output, path) {
@@ -1777,7 +1776,7 @@ fn effect_add_menu(ui: &mut egui::Ui, sample_rate: usize) -> Option<EffectWarppe
 				if ui.button(name).clicked() {
 					output = Some(effect(sample_rate));
 					path = Some((name_1.clone(), name.clone()));
-					ui.close_menu();
+					ui.close();
 					break;
 				}
 			}
@@ -1785,7 +1784,7 @@ fn effect_add_menu(ui: &mut egui::Ui, sample_rate: usize) -> Option<EffectWarppe
 	}
 
 	if ui.button("Close").clicked() {
-		ui.close_menu();
+		ui.close();
 	}
 
 	if let (Some(effect), Some((path_1, path_2))) = (output, path) {
@@ -1925,7 +1924,7 @@ fn draw_change_history(
 						end: range.1,
 						logarithmic: range.2
 					});
-					ui.close_menu();
+					ui.close();
 					break;
 				} 
 			},
@@ -1941,7 +1940,7 @@ fn draw_change_history(
 						end: range.1,
 						logarithmic: range.2
 					});
-					ui.close_menu();
+					ui.close();
 					break;
 				}
 			}

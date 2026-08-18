@@ -455,13 +455,13 @@ impl Oscillator<2> for MultiStereoGenerators {
 						if !self.generators.is_empty() {
 							self.smooth_factor = i as f32 / (self.generators.len() - 1) as f32;
 						}
-						ui.close_menu();
+						ui.close();
 					}
 				}
 
 				if ui.button("Add Page").clicked() {
 					self.generators.push(StereoGenerator::default());
-					ui.close_menu();
+					ui.close();
 				}
 			});
 			if ui.button("Remove Page").clicked() {

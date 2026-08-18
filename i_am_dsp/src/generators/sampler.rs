@@ -452,8 +452,8 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 
 				ui.input(|input| {
 					path = input.raw.dropped_files.first().map(|inner| {
-						inner.path.clone()
-					}).unwrap_or_default();
+						inner.path().to_path_buf()
+					});
 				});
 				
 				if ui.button("Load PCM data").clicked() {
@@ -466,7 +466,10 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 							path.extension() == ext
 						}
 					});
-					let mut dialog = FileDialog::open_file(self.gui_state.opened_file.clone()).show_files_filter(filter);
+					let mut dialog = FileDialog::open_file().show_files_filter(filter);
+					if let Some(opened_file) = &self.gui_state.opened_file {
+						dialog = dialog.initial_path(opened_file.clone());
+					}
 					dialog.open();
 
 					self.gui_state.dialog = Some(dialog);
@@ -622,7 +625,10 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 							path.extension() == ext
 						}
 					});
-					let mut dialog = FileDialog::open_file(self.gui_state.opened_file.clone()).show_files_filter(filter);
+					let mut dialog = FileDialog::open_file().show_files_filter(filter);
+					if let Some(opened_file) = &self.gui_state.opened_file {
+						dialog = dialog.initial_path(opened_file.clone());
+					}
 					dialog.open();
 
 					self.gui_state.dialog = Some(dialog);

@@ -384,8 +384,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 				if self.allow_change_ir {
 					ui.input(|input| {
 						path = input.raw.dropped_files.first().map(|inner| {
-							inner.path.clone()
-						}).unwrap_or_default();
+							inner.path().to_path_buf()
+						});
 					});
 				}
 
@@ -399,7 +399,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 							path.extension() == ext
 						}
 					});
-					let mut dialog = FileDialog::open_file(self.opened_file.clone()).show_files_filter(filter);
+					let mut dialog = FileDialog::open_file().show_files_filter(filter);
+					if let Some(opened_file) = &self.opened_file {
+						dialog = dialog.initial_path(opened_file.clone())
+					}
 					dialog.open();
 
 					self.dialog = Some(dialog);
@@ -824,8 +827,8 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 			if self.allow_change_ir {
 				ui.input(|input| {
 					path = input.raw.dropped_files.first().map(|inner| {
-						inner.path.clone()
-					}).unwrap_or_default();
+						inner.path().to_path_buf()
+					});
 				});
 			}
 
@@ -839,7 +842,10 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 						path.extension() == ext
 					}
 				});
-				let mut dialog = FileDialog::open_file(self.opened_file.clone()).show_files_filter(filter);
+				let mut dialog = FileDialog::open_file().show_files_filter(filter);
+				if let Some(opened_file) = &self.opened_file {
+					dialog = dialog.initial_path(opened_file.clone())
+				}
 				dialog.open();
 
 				self.dialog = Some(dialog);

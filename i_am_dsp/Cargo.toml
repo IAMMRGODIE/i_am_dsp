@@ -18,8 +18,8 @@ anyhow = { version = "1.0.104", optional = true }
 bitvec = "1.1.1"
 cpal = { version = "0.18.2", optional = true }
 crossbeam-channel = "0.5.16"
-eframe = { version = "0.31.1", optional = true }
-egui = { version = "0.31.1", optional = true }
+eframe = { version = "0.36", optional = true }
+egui = { version = "0.36", optional = true }
 lazy_static = "1.5.0"
 rand = "0.10.2"
 rand_distr = "0.6.0"
@@ -36,7 +36,7 @@ ciborium = "0.2.2"
 # threadpool = "1.8.1"
 hound = "3.5.1"
 parry3d = { version = "0.30.2", optional = true }
-egui_file = { version = "0.22.1", optional = true }
+egui_file = { version = "0.28", optional = true }
 wide = "1.6.1"
 # fft-convolver = "0.2.0"
 portable-atomic = { version = "1.15.0", features = ["float", "serde"] }
