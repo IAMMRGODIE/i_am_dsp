@@ -14,9 +14,9 @@ use crate::styles::ERROR_COLOR;
 use crate::{Message, Processor, SyncedView};
 
 lazy_static::lazy_static! {
-	static ref NoteMap: HashMap<Code, u8> = {
-		const C5: u8 = 60;
-		const C4: u8 = 60 - 12;
+	static ref NoteMap: HashMap<Code, usize> = {
+		const C5: usize = 60;
+		const C4: usize = 60 - 12;
 
 		HashMap::from([
 			(Code::KeyQ, C5),

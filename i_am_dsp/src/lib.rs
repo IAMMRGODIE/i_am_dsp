@@ -324,7 +324,7 @@ pub enum NoteEvent {
 		/// The pitch of the note.
 		/// 
 		/// in 0..128 for most cases, 60 = middle C.
-		note: u8,
+		note: usize,
 		/// The velocity of the note.
 		/// 
 		/// in 0.0..=1.0 for most cases.
@@ -341,7 +341,7 @@ pub enum NoteEvent {
 		/// The pitch of the note.
 		/// 
 		/// in 0..128 for most cases, 60 = middle C.
-		note: u8,
+		note: usize,
 		/// The velocity of the note.
 		/// 
 		/// in 0.0..=1.0 for most cases.
@@ -356,7 +356,7 @@ pub enum NoteEvent {
 		/// the channel of the event.
 		channel: u8,
 		/// The pitch of the note.
-		note: u8,
+		note: usize,
 	},
 	/// Midi CC event.
 	MidiCC {
@@ -380,8 +380,8 @@ pub enum NoteEvent {
 const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 /// Format a note number as a string.
-pub fn format_note(note: u8) -> String {
-	let note_index = (note % 12) as usize;
-	let octave = (note / 12) as i32;
+pub fn format_note(note: usize) -> String {
+	let note_index = note % 12;
+	let octave = (note / 12) as isize;
 	format!("{}{}", NOTE_NAMES[note_index], octave)
 }

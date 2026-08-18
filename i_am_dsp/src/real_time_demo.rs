@@ -463,9 +463,9 @@ pub struct DspDemo {
 	shared_data: Arc<Mutex<SharedData>>,
 	sample_rate: usize,
 	#[cfg(feature = "standalone")]
-	key_holding: HashSet<u8>,
+	key_holding: HashSet<usize>,
 	#[cfg(feature = "standalone")]
-	note_shift: i8,
+	note_shift: isize,
 
 	changed_history: RingBuffer<Option<ListenedValue>>,
 	current_track_effect: usize,
@@ -1801,9 +1801,9 @@ fn effect_add_menu(ui: &mut egui::Ui, sample_rate: usize) -> Option<EffectWarppe
 
 #[cfg(feature = "standalone")]
 lazy_static::lazy_static! {
-	static ref NoteMap: HashMap<Key, u8> = {
-		const C5: u8 = 60;
-		const C4: u8 = 60 - 12;
+	static ref NoteMap: HashMap<Key, usize> = {
+		const C5: usize = 60;
+		const C4: usize = 60 - 12;
 
 		HashMap::from([
 			(Key::Q, C5),
@@ -1844,15 +1844,15 @@ lazy_static::lazy_static! {
 fn simulate_midi(
 	ui: &mut egui::Ui, 
 	ctx: &mut SimpleContext, 
-	key_holding: &mut HashSet<u8>,
+	key_holding: &mut HashSet<usize>,
 	clear_all: bool,
-	note_shift: i8,
+	note_shift: isize,
 ) {
 	ui.input(|input| {
 		for (key, note) in NoteMap.iter() {
 			if input.key_down(*key) {
 				let note = if note_shift >= 0 {
-					note + note_shift as u8
+					note + note_shift as usize
 				}else {
 					note.saturating_sub(note_shift.unsigned_abs())
 				};
@@ -1862,7 +1862,7 @@ fn simulate_midi(
 				}
 			}else if input.key_released(*key) {
 				let note = if note_shift >= 0 {
-					note + note_shift as u8
+					note + note_shift as usize
 				}else {
 					note.saturating_sub(note_shift.unsigned_abs())
 				};

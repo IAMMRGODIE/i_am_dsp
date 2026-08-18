@@ -10,7 +10,7 @@ use crate::{Generator, NoteEvent, prelude::Oscillator};
 
 pub(crate) struct Note {
 	// pub channel: u8,
-	pub note: u8,
+	pub note: usize,
 	pub velocity: f32,	
 }
 
@@ -164,7 +164,7 @@ impl<const CHANNELS: usize> PlayingNote<CHANNELS> {
 	}
 
 	/// Get the note number of the playing note
-	pub fn note(&self) -> u8 {
+	pub fn note(&self) -> usize {
 		self.note.note
 	}
 
@@ -208,7 +208,7 @@ pub struct Adsr<
 	#[skip]
 	tuning_sys: TuningSys,
 	#[skip]
-	note_playing: HashMap<u8, PlayingNote<CHANNELS>>,
+	note_playing: HashMap<usize, PlayingNote<CHANNELS>>,
 	/// The sample rate of the audio processing system
 	/// 
 	/// Saves in Hz

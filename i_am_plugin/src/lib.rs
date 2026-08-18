@@ -808,7 +808,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 							events_buffer.push(i_am_dsp::NoteEvent::NoteOn { 
 								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
-								note: note.pckn().key.into_specific().unwrap_or_default() as u8, 
+								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								velocity: note.velocity() as f32, 
 							});
 						},
@@ -816,7 +816,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 							events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
 								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
-								note: note.pckn().key.into_specific().unwrap_or_default() as u8, 
+								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								velocity: note.velocity() as f32, 
 							});
 						},
@@ -824,14 +824,14 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 							events_buffer.push(i_am_dsp::NoteEvent::Stop { 
 								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
-								note: note.pckn().key.into_specific().unwrap_or_default() as u8, 
+								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 							});
 						},
 						Some(CoreEventSpace::NoteEnd(note)) => {
 							events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
 								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
-								note: note.pckn().key.into_specific().unwrap_or_default() as u8, 
+								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								velocity: 1.0, 
 							});
 						},
