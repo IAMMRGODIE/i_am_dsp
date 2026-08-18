@@ -447,13 +447,17 @@ pub trait Parameters {
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool;
 
 	/// Sets the value of a parameter by index, will return false if index is out of range.
+	///
+	/// The `index` is the position in the flattened parameter list returned by
+	/// [`Self::get_parameters`]. In derive-based implementations `#[sub_param]` fields
+	/// contribute one entry per sub-parameter, so indices are *not* the same as the
+	/// struct's field ordinals.
 	fn set_parameter_by_index(&mut self, index: usize, value: SetValue) -> bool {
 		let params = self.get_parameters();
-		if index >= params.len() {
+		let Some(param) = params.get(index) else {
 			return false;
-		}
+		};
 
-		let param = self.get_parameters().remove(index);
 		self.set_parameter(&param.identifier, value)
 	}
 }

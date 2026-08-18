@@ -14,32 +14,32 @@ rhai = ["dep:rhai", "dep:rhai-rand"]
 [dependencies]
 i_am_dsp_derive.workspace = true
 
-anyhow = { version = "1.0.100", optional = true }
-bitvec = "1.0.1"
-cpal = { version = "0.17.1", optional = true }
-crossbeam-channel = "0.5.15"
+anyhow = { version = "1.0.104", optional = true }
+bitvec = "1.1.1"
+cpal = { version = "0.18.2", optional = true }
+crossbeam-channel = "0.5.16"
 eframe = { version = "0.31.1", optional = true }
 egui = { version = "0.31.1", optional = true }
 lazy_static = "1.5.0"
-rand = "0.10.0"
+rand = "0.10.2"
 rand_distr = "0.6.0"
 # rayon = "1.11.0"
-rhai = { version = "1.23.4", features = ["f32_float", "sync", "only_i32"], optional = true }
-rhai-rand = { version = "0.1.6", optional = true }
-rubato = "0.16.2"
+rhai = { version = "1.25.1", features = ["f32_float", "sync", "only_i32"], optional = true }
+rhai-rand = { version = "0.2.0", optional = true }
+rubato = "5.0.0"
 rustfft = "6.4.1"
-symphonia = "0.5.4"
-thiserror = "2.0.17"
-cfg-if = "1.0.3"
-serde = { version = "1.0.228", features = ["derive"] }
+symphonia = "0.6.1"
+thiserror = "2.0.20"
+cfg-if = "1.0.4"
+serde = { version = "1.0.229", features = ["derive"] }
 ciborium = "0.2.2"
 # threadpool = "1.8.1"
 hound = "3.5.1"
-parry3d = { version = "0.26.0", optional = true }
+parry3d = { version = "0.30.2", optional = true }
 egui_file = { version = "0.22.1", optional = true }
-wide = "1.1.1"
+wide = "1.6.1"
 # fft-convolver = "0.2.0"
-portable-atomic = { version = "1.13.0", features = ["float", "serde"] }
+portable-atomic = { version = "1.15.0", features = ["float", "serde"] }
 bimap = "0.6.3"
-phf = { version = "0.13.1", features = ["macros"] }
+phf = { version = "0.14.0", features = ["macros"] }
 # crossbeam-queue = "0.3.12"

@@ -4,7 +4,10 @@ use std::{path::Path, thread::JoinHandle};
 
 use crossbeam_channel::Receiver;
 use i_am_dsp_derive::Parameters;
-use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
+use rubato::{
+	Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+	audioadapter_buffers::direct::{SequentialSliceOfSlices, SequentialSliceOfVecs},
+};
 
 use crate::{
 	prelude::Oscillator, 
@@ -142,18 +145,19 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 		let thread_handle = std::thread::spawn(move || {
 			let resample_params = SincInterpolationParameters {
 				sinc_len: 256,
-				f_cutoff: 0.95,
+				f_cutoff: Some(0.95),
 				interpolation: SincInterpolationType::Linear,
 				oversampling_factor: 256,
 				window: WindowFunction::BlackmanHarris2,
 			};
 
-			let mut resampler = SincFixedIn::<f32>::new(
+			let mut resampler = Async::<f32>::new_sinc(
 				ratio,
 				1.1,
-				resample_params,
+				&resample_params,
 				4096,
 				CHANNELS,
+				FixedAsync::Input,
 			)?;
 
 			// println!("In Sample Length: {}", pcm_data[0].len());
@@ -174,11 +178,22 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 			let mut processed = 0;
 
 			while rest_buffer[0].len() >= input_frames_next {
-				let (nbr_in, nbr_out) = resampler.process_into_buffer(
-					&rest_buffer, 
-					&mut temp_buffer, 
-					None
-				)?;
+				let frames_out = resampler.output_frames_next();
+				for buffer in &mut temp_buffer {
+					if buffer.len() < frames_out {
+						*buffer = vec![0.0_f32; frames_out];
+					}
+				}
+
+				let input_adapter =
+					SequentialSliceOfSlices::new(&rest_buffer, CHANNELS, input_frames_next)
+						.expect("rest_buffer sized correctly");
+				let mut output_adapter =
+					SequentialSliceOfVecs::new_mut(&mut temp_buffer[..], CHANNELS, frames_out)
+						.expect("temp_buffer sized correctly");
+
+				let (nbr_in, nbr_out) = resampler
+					.process_into_buffer(&input_adapter, &mut output_adapter, None)?;
 
 				for buffer in &mut rest_buffer {
 					*buffer = &buffer[nbr_in..];
@@ -193,8 +208,25 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 			}
 
 			if !rest_buffer[0].is_empty() {
+				let frames_out = resampler.output_frames_next();
+				for buffer in &mut temp_buffer {
+					if buffer.len() < frames_out {
+						*buffer = vec![0.0_f32; frames_out];
+					}
+				}
+
+				let input_adapter =
+					SequentialSliceOfSlices::new(&rest_buffer, CHANNELS, rest_buffer[0].len())
+						.expect("rest_buffer sized correctly");
+				let mut output_adapter =
+					SequentialSliceOfVecs::new_mut(&mut temp_buffer[..], CHANNELS, frames_out)
+						.expect("temp_buffer sized correctly");
+
+				// Partial (final) chunk that is shorter than `input_frames_next`: the
+				// resampler pads the remainder with silence and still produces a full chunk.
+				let indexing = Indexing::new().partial_len(rest_buffer[0].len());
 				let (_nbr_in, nbr_out) = resampler
-					.process_partial_into_buffer(Some(&rest_buffer), &mut temp_buffer, None)?;
+					.process_into_buffer(&input_adapter, &mut output_adapter, Some(&indexing))?;
 				for (i, data) in temp_buffer.iter().enumerate() {
 					output_buffer[i].extend_from_slice(&data[..nbr_out]);
 				}

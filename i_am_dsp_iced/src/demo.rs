@@ -118,7 +118,7 @@ impl<P: Processor> Demo<P> {
 		let other_sender = error_sender.clone();
 
 		let stream = device.build_output_stream(
-			&config,
+			config,
 			move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
 				loop {
 					match receiver.try_recv() {

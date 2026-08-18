@@ -2,7 +2,12 @@
 
 use std::path::Path;
 
-use symphonia::core::{audio::AudioBuffer, codecs::CODEC_TYPE_NULL, io::MediaSourceStream, probe::Hint};
+use symphonia::core::{
+	codecs::audio::AudioDecoderOptions,
+	codecs::CodecParameters,
+	formats::{probe::Hint, TrackType},
+	io::MediaSourceStream,
+};
 
 #[derive(Debug, thiserror::Error)]
 /// Error type for the `load_from_file` function.
@@ -47,50 +52,47 @@ pub fn load_from_file<const CHANNELS: usize>(path: impl AsRef<Path>) -> Result<P
 	let stream = MediaSourceStream::new(Box::new(file), Default::default());
 	let mut binding = Hint::new();
 	let hint = binding.with_extension("wav");
-	let probed = symphonia::default::get_probe().format(
+
+	let mut format = symphonia::default::get_probe().probe(
 		hint,
 		stream,
-		&Default::default(),
-		&Default::default(),
+		Default::default(),
+		Default::default(),
 	)?;
 
-	let mut format = probed.format;
-	let codec_params = &format.tracks()
-		.iter()
-		.find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-		.ok_or(ReadFileError::NoAudioTrack)?
-		.codec_params;
+	// Find the first audio track that has a known (non-null) codec.
+	let track = format
+		.first_track_known_codec(TrackType::Audio)
+		.ok_or(ReadFileError::NoAudioTrack)?;
 
-	let audio_sample_rate = codec_params.sample_rate.ok_or(ReadFileError::MissingSampleRate)? as usize;
-	
+	let audio_params = match &track.codec_params {
+		Some(CodecParameters::Audio(params)) => params,
+		_ => return Err(ReadFileError::NoAudioTrack),
+	};
+
+	let audio_sample_rate = audio_params.sample_rate.ok_or(ReadFileError::MissingSampleRate)? as usize;
+
 	let mut decoder = symphonia::default::get_codecs()
-		.make(codec_params, &Default::default())?;
+		.make_audio_decoder(audio_params, &AudioDecoderOptions::default())?;
 
 	let mut pcm_data = [const { Vec::new() }; CHANNELS];
 
-	loop {
-		let packet = match format.next_packet() {
-			Ok(packet) => packet,
-			Err(symphonia::core::errors::Error::IoError(_)) => break,
-			Err(e) => return Err(ReadFileError::Format(e)),
-		};
+	while let Some(packet) = format.next_packet()? {
 		let buf = decoder.decode(&packet)?;
-		let mut float_buffer = AudioBuffer::<f32>::new(
-			buf.capacity() as u64, 
-			*buf.spec()
-		);
-		buf.convert(&mut float_buffer);
-		for (id, plane) in float_buffer.planes().planes().iter().enumerate() {
+	
+		let mut frames: Vec<Vec<f32>> = Vec::new();
+		buf.copy_to_vecs_planar(&mut frames);
+		for (id, plane) in frames.iter().enumerate() {
 			if id >= CHANNELS {
-				break
+				break;
 			}
 			pcm_data[id].extend_from_slice(plane);
 		}
 	}
 
-	Ok(PcmOutput { 
-		sample_rate: audio_sample_rate, 
-		pcm_data 
+	Ok(PcmOutput {
+		sample_rate: audio_sample_rate,
+		pcm_data,
 	})
 }
 

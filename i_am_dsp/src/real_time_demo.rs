@@ -1127,7 +1127,7 @@ impl DspDemo {
 				let shared_data_stream = shared_data.clone();
 
 				let stream = device.build_output_stream(
-					&config,
+					config,
 					move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
 						let lock_result = shared_data_stream.lock();
 						let mut shared_data = match lock_result {
