@@ -213,7 +213,7 @@ impl<
 						let phase_freq = f32x4::from(&self.calculated_phases[j..(j + 4).min(len)]);
 						let t = time * freq + phase[i] + phase_freq;
 						let amp = f32x4::from(&self.calculated_amplitudes[j..(j + 4).min(len)]) * self.gain;
-						let damping = f32x4::from(&self.calculated_dampings[j..(j + 4).min(len)]).pow_f32x4(t);
+						let damping = f32x4::from(&self.calculated_dampings[j..(j + 4).min(len)]).powf_simd(t);
 
 						output[i] += ((t * 2.0 * PI).sin() * amp * damping).reduce_add();
 						// output[i] += sin.sample(t, i) * self.calculated_amplitudes[j] * self.gain;
