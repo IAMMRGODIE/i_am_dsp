@@ -208,7 +208,7 @@ pub struct Adsr<
 	#[skip]
 	tuning_sys: TuningSys,
 	#[skip]
-	note_playing: HashMap<usize, PlayingNote<CHANNELS>>,
+	note_playing: HashMap<usize, Vec<PlayingNote<CHANNELS>>>,
 	/// The sample rate of the audio processing system
 	/// 
 	/// Saves in Hz
@@ -447,16 +447,18 @@ impl<
 						last_time: 0.0,
 						current_pitch_factor: 1.0,
 					};
-					self.note_playing.insert(playing_note.note.note, playing_note);
+					self.note_playing.entry(playing_note.note.note).or_default().push(playing_note);
 				}
 				NoteEvent::NoteOff {
 					note,
 					..
 				} => {
-					if let Some(mut playing_note) = self.note_playing.remove(note) {
-						let sample = self.sample_count(playing_note.count);
-						playing_note.release = Some((sample, playing_note.count));
-						self.note_playing.insert(*note, playing_note);
+					if let Some(playing_notes) = self.note_playing.remove(note) {
+						for mut playing_note in playing_notes {
+							let sample = self.sample_count(playing_note.count);
+							playing_note.release = Some((sample, playing_note.count));
+							self.note_playing.entry(*note).or_default().push(playing_note);
+						} 
 					}
 				}
 				NoteEvent::Stop {
@@ -477,78 +479,81 @@ impl<
 		self.sample_rate = process_context.infos().sample_rate;
 		let sample_rate = self.sample_rate as f32;
 		let mut note_playing = std::mem::take(&mut self.note_playing);
-		note_playing.retain(|note, playing_note| {
-			let unisons = playing_note.phase_start.len();
-			
-			let gain = if let Some((release, release_count)) = playing_note.release {
-				let time = (playing_note.count - release_count) as f32 / sample_rate * 1000.0;
-				let Some(gain) = self.sample_release_time(time) else {
-					return false;
-				};
-				gain * playing_note.note.velocity * release
-			}else {
-				let time = playing_note.count as f32 / sample_rate * 1000.0;
-				self.sample_time(time) * playing_note.note.velocity
-			};
-
-			let time = playing_note.count as f32 / sample_rate;
-			let mut output_samples = [0.0; CHANNELS];
-			let mid_point = (unisons - 1) as f32 / 2.0;
-			// let channels_f32 = CHANNELS as f32 - 1.0;
-			for i in 0..unisons {
-				let index = if mid_point == 0.0 {
-					0.0
-				}else {
-					(i as f32 - mid_point) / mid_point
-				};
-				let blend = 1.0 - index.abs() * self.unison_blend;
-				let index = if index >= 0.0 {
-					bend(index, self.unison_bend)
-				}else {
-					- bend(index.abs(), self.unison_bend)
-				};
-				let detune_factor = self.unison_detune * index;
-				let pitch_factor = playing_note.current_pitch_factor * self.pitch_factor;
-				let frequency = self.tuning_sys.get_frequency(*note as f32 + detune_factor) * pitch_factor;
-
-				let t = frequency * (time - playing_note.last_time) + playing_note.last_phase[i];
-				playing_note.last_phase[i] = t;
+		note_playing.retain(|note, playing_notes| {
+			playing_notes.retain_mut(|playing_note| {
+				let unisons = playing_note.phase_start.len();
 				
-				let samples = self.oscillator.play_at(
-					1.0, 
-					t,
-					if self.random_phase_by_channel {
-						playing_note.phase_start[i]
-					}else {
-						std::array::from_fn(|_| playing_note.phase_start[i][0])
-					}
-				);
-				
-				for (j, output_samples) in output_samples.iter_mut().enumerate() {
-					// let pan_gain = i as f32 / channels_f32 * index * 2.0 - index + 1.0;
-					let gain_factor = if CHANNELS == 1 {
-						1.0
-					}else {
-						let angle_uniformed = j as f32 / (CHANNELS - 1) as f32;
-						let pan_factor = playing_note.pan_factors[i] / 2.0 * self.random_pan + 0.5;
-						let delta = (angle_uniformed - pan_factor).abs();
-						2.0 - delta * 2.0
+				let gain = if let Some((release, release_count)) = playing_note.release {
+					let time = (playing_note.count - release_count) as f32 / sample_rate * 1000.0;
+					let Some(gain) = self.sample_release_time(time) else {
+						return false;
 					};
+					gain * playing_note.note.velocity * release
+				}else {
+					let time = playing_note.count as f32 / sample_rate * 1000.0;
+					self.sample_time(time) * playing_note.note.velocity
+				};
+	
+				let time = playing_note.count as f32 / sample_rate;
+				let mut output_samples = [0.0; CHANNELS];
+				let mid_point = (unisons - 1) as f32 / 2.0;
+				// let channels_f32 = CHANNELS as f32 - 1.0;
+				for i in 0..unisons {
+					let index = if mid_point == 0.0 {
+						0.0
+					}else {
+						(i as f32 - mid_point) / mid_point
+					};
+					let blend = 1.0 - index.abs() * self.unison_blend;
+					let index = if index >= 0.0 {
+						bend(index, self.unison_bend)
+					}else {
+						- bend(index.abs(), self.unison_bend)
+					};
+					let detune_factor = self.unison_detune * index;
+					let pitch_factor = playing_note.current_pitch_factor * self.pitch_factor;
+					let frequency = self.tuning_sys.get_frequency(*note as f32 + detune_factor) * pitch_factor;
+	
+					let t = frequency * (time - playing_note.last_time) + playing_note.last_phase[i];
+					playing_note.last_phase[i] = t;
 					
-					*output_samples += samples[j] * gain / unisons as f32 * blend * gain_factor;
+					let samples = self.oscillator.play_at(
+						1.0, 
+						t,
+						if self.random_phase_by_channel {
+							playing_note.phase_start[i]
+						}else {
+							std::array::from_fn(|_| playing_note.phase_start[i][0])
+						}
+					);
+					
+					for (j, output_samples) in output_samples.iter_mut().enumerate() {
+						// let pan_gain = i as f32 / channels_f32 * index * 2.0 - index + 1.0;
+						let gain_factor = if CHANNELS == 1 {
+							1.0
+						}else {
+							let angle_uniformed = j as f32 / (CHANNELS - 1) as f32;
+							let pan_factor = playing_note.pan_factors[i] / 2.0 * self.random_pan + 0.5;
+							let delta = (angle_uniformed - pan_factor).abs();
+							2.0 - delta * 2.0
+						};
+						
+						*output_samples += samples[j] * gain / unisons as f32 * blend * gain_factor;
+					}
 				}
-			}
-			playing_note.last_time = time;
-			if let Some(processor) = &self.note_effect {
-				processor(&mut output_samples, playing_note, self.sample_rate)
-			}
-			for i in 0..CHANNELS {
-				output[i] += output_samples[i] * gain;
-			}
-
-			playing_note.count += 1;
-
-			true
+				playing_note.last_time = time;
+				if let Some(processor) = &self.note_effect {
+					processor(&mut output_samples, playing_note, self.sample_rate)
+				}
+				for i in 0..CHANNELS {
+					output[i] += output_samples[i] * gain;
+				}
+	
+				playing_note.count += 1;
+	
+				true
+			});
+			!playing_notes.is_empty()
 		});
 		self.note_playing = note_playing;
 
