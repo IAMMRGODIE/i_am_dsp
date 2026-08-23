@@ -51,7 +51,6 @@ pub const C4_FREQ: f32 = 261.625_58;
 /// (the root / C) and the remaining entries are frequency ratios to the root
 /// within the octave. Notes outside 0..scale.len() map across octaves.
 fn scale_frequency(note: f32, scale: &[f32]) -> f32 {
-
 	if scale.is_empty() {
 		return 0.0;
 	}

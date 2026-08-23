@@ -3,10 +3,7 @@
 use std::path::Path;
 
 use symphonia::core::{
-	codecs::audio::AudioDecoderOptions,
-	codecs::CodecParameters,
-	formats::{probe::Hint, TrackType},
-	io::MediaSourceStream,
+	codecs::{CodecParameters, audio::AudioDecoderOptions}, formats::{TrackType, probe::Hint}, io::{MediaSource, MediaSourceStream},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -41,15 +38,9 @@ pub struct PcmOutput<const CHANNELS: usize> {
 	pub pcm_data: [Vec<f32>; CHANNELS],
 }
 
-/// Load PCM data from a WAV file.
-pub fn load_from_file<const CHANNELS: usize>(path: impl AsRef<Path>) -> Result<PcmOutput<CHANNELS>, ReadFileError> {
-	let path = path.as_ref();
-	if path.extension().map(|ext| ext != "wav").unwrap_or(true) {
-		return Err(ReadFileError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Only Wav files are supported for now")));
-	}
-
-	let file = std::fs::File::open(path)?;
-	let stream = MediaSourceStream::new(Box::new(file), Default::default());
+/// Load PCM data from a binary file.
+pub fn load_from_binary<const CHANNELS: usize>(data: impl MediaSource) -> Result<PcmOutput<CHANNELS>, ReadFileError> {
+	let stream = MediaSourceStream::new(Box::new(data), Default::default());
 	let mut binding = Hint::new();
 	let hint = binding.with_extension("wav");
 
@@ -94,6 +85,17 @@ pub fn load_from_file<const CHANNELS: usize>(path: impl AsRef<Path>) -> Result<P
 		sample_rate: audio_sample_rate,
 		pcm_data,
 	})
+}
+
+/// Load PCM data from a WAV file.
+pub fn load_from_file<const CHANNELS: usize>(path: impl AsRef<Path>) -> Result<PcmOutput<CHANNELS>, ReadFileError> {
+	let path = path.as_ref();
+	if path.extension().map(|ext| ext != "wav").unwrap_or(true) {
+		return Err(ReadFileError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Only Wav files are supported for now")));
+	}
+
+	let file = std::fs::File::open(path)?;
+	load_from_binary(file)
 }
 
 /// Save PCM data to a WAV file.
