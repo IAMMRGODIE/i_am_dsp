@@ -51,6 +51,10 @@ impl ProcessContext for SimpleContext {
 	fn events(&self) -> &[NoteEvent] {
 		&self.midi_events
 	}
+
+	fn clear_events(&mut self) {
+		self.midi_events.clear();
+	}
 }
 
 lazy_static::lazy_static! {
@@ -1148,6 +1152,7 @@ impl DspDemo {
 							}
 
 							let output = shared_data.generate(&mut ctx);
+							ctx.clear_events();
 
 							val[0] = output[0];
 							val[1] = output[1];
@@ -1858,6 +1863,7 @@ fn simulate_midi(
 				if key_holding.insert(note) {
 					// println!("semi-note on: {}", note);
 					ctx.send_event(NoteEvent::NoteOn { time: 0, channel: 0, note, velocity: 1.0 });
+					// dbg!("q");
 				}
 			}else if input.key_released(*key) {
 				let note = if note_shift >= 0 {

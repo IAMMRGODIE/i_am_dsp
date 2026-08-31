@@ -672,6 +672,12 @@ impl ProcessContext for ClapContext {
 	fn should_stop(&self) -> bool {
 		false
 	}
+
+	fn clear_events(&mut self) {
+		self.current_event = 0;
+		let mut events_buffer = self.events_buffer.try_write().expect("cannot read events");
+		events_buffer.clear();
+	}
 }
 
 fn convert_transport(inner: &TransportEvent, playing: bool, sample_rate: usize) -> i_am_dsp::ProcessInfos {

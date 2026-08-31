@@ -228,6 +228,8 @@ pub trait ProcessContext: Any {
 	fn send_event(&mut self, event: NoteEvent);
 	/// Returns the note events sent to the process, but not consumed them.
 	fn events(&self) -> &[NoteEvent];
+	/// Clear all note events in the process.
+	fn clear_events(&mut self);
 
 	/// Whether the process should stop immediately or not.
 	fn should_stop(&self) -> bool {
@@ -250,6 +252,8 @@ impl ProcessContext for () {
 
 	fn send_event(&mut self, _: NoteEvent) {}
 
+	fn clear_events(&mut self) {}
+
 	fn events(&self) -> &[NoteEvent] {
 		&[]
 	}
@@ -266,6 +270,10 @@ impl<T: ProcessContext> ProcessContext for Box<T> {
 
 	fn send_event(&mut self, event: NoteEvent) {
 		self.as_mut().send_event(event)
+	}
+
+	fn clear_events(&mut self) {
+		self.as_mut().clear_events()
 	}
 
 	fn events(&self) -> &[NoteEvent] {

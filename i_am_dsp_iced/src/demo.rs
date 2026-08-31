@@ -74,6 +74,10 @@ impl ProcessContext for SimpleContext {
 		self.midi_events.push(event);
 	}
 
+	fn clear_events(&mut self) {
+		self.midi_events.clear();
+	}
+
 	fn events(&self) -> &[NoteEvent] {
 		&self.midi_events
 	}
