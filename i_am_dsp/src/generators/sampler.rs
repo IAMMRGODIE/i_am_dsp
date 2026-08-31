@@ -468,7 +468,11 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 					});
 					let mut dialog = FileDialog::open_file().show_files_filter(filter);
 					if let Some(opened_file) = &self.gui_state.opened_file {
-						dialog = dialog.initial_path(opened_file.clone());
+						dialog = dialog.initial_path(opened_file
+							.parent()
+							.map(|inner| inner.to_path_buf())
+							.unwrap_or(std::path::PathBuf::from("."))
+						)
 					}
 					dialog.open();
 
@@ -627,7 +631,11 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 					});
 					let mut dialog = FileDialog::open_file().show_files_filter(filter);
 					if let Some(opened_file) = &self.gui_state.opened_file {
-						dialog = dialog.initial_path(opened_file.clone());
+						dialog = dialog.initial_path(opened_file
+							.parent()
+							.map(|inner| inner.to_path_buf())
+							.unwrap_or(std::path::PathBuf::from("."))
+						)
 					}
 					dialog.open();
 

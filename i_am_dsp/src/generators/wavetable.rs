@@ -557,7 +557,11 @@ impl<const CHANNELS: usize> Oscillator<CHANNELS> for WaveTableSmoother {
 				});
 				let mut dialog = FileDialog::open_file().show_files_filter(filter);
 				if let Some(opened_file) = &self.opened_file {
-					dialog = dialog.initial_path(opened_file.clone());
+					dialog = dialog.initial_path(opened_file
+						.parent()
+						.map(|inner| inner.to_path_buf())
+						.unwrap_or(std::path::PathBuf::from("."))
+					)
 				}
 				dialog.open();
 
