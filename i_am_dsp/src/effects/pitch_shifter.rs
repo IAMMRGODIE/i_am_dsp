@@ -70,13 +70,19 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PitchShifter<CHANNELS> {
 		let half_len = self.buffer[0].capacity() / 2;
 		if current_pos.is_multiple_of(half_len) {
 			for (buffer, stretched_buffer) in self.buffer.iter().zip(self.stretched_buffer.iter_mut()) {
+				// The WSOLA window is 2 * hop samples, so hop must be well below
+				// the buffer capacity or only a single analysis position exists.
+				// Use a window of half the buffer with hop = window / 2, which
+				// gives both several splice points and enough overlap to search.
+				let hop = (buffer.capacity() / 4).max(1);
+				let ref_range = (buffer.capacity() / 8).clamp(1, hop);
 				*stretched_buffer = wsola(
 					buffer, 
 					stretched_buffer,
 					self.pitch_shift_factor, 
 					10, 
-					buffer.capacity() / 2, 
-					300, 
+					hop, 
+					ref_range, 
 					negative_mean_square_error,
 				);
 
