@@ -70,15 +70,17 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PitchShifter<CHANNELS> {
 		let half_len = self.buffer[0].capacity() / 2;
 		if current_pos.is_multiple_of(half_len) {
 			for (buffer, stretched_buffer) in self.buffer.iter().zip(self.stretched_buffer.iter_mut()) {
-				// The WSOLA window is 2 * hop samples, so hop must be well below
-				// the buffer capacity or only a single analysis position exists.
-				// Use a window of half the buffer with hop = window / 2, which
-				// gives both several splice points and enough overlap to search.
 				let hop = (buffer.capacity() / 4).max(1);
 				let ref_range = (buffer.capacity() / 8).clamp(1, hop);
+				let prev: &[f32] = if stretched_buffer.len() >= 2 * hop {
+					let end = (stretched_buffer.len() / 2 + hop).min(stretched_buffer.len());
+					&stretched_buffer[..end]
+				}else {
+					&[]
+				};
 				*stretched_buffer = wsola(
 					buffer, 
-					stretched_buffer,
+					prev,
 					self.pitch_shift_factor, 
 					10, 
 					hop, 
@@ -112,5 +114,59 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PitchShifter<CHANNELS> {
 			.text("Pitch Shift Factor")
 			.logarithmic(true)
 		);
+	}
+}
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::Effect;
+
+	/// Feeds a sine wave through the pitch shifter and returns the output samples.
+	fn run_shifter(alpha: f32, total: usize) -> Vec<f32> {
+		let fs = 48_000.0f32;
+		let freq = 440.0f32;
+		let mut shifter = PitchShifter::<1>::new(1024);
+		shifter.pitch_shift_factor = alpha;
+
+		let mut output = Vec::with_capacity(total);
+		let mut context: Box<dyn crate::ProcessContext> = Box::new(());
+		for i in 0..total {
+			let sample = (2.0 * std::f32::consts::PI * freq * i as f32 / fs).sin();
+			let mut block = [sample];
+			shifter.process(&mut block, &[], &mut context);
+			output.push(block[0]);
+		}
+		output
+	}
+
+	/// The effect must not produce clicks at the recompute boundary (every
+	/// `capacity / 2` = 512 samples): the maximum sample-to-sample step should
+	/// stay in the same order as the signal's own slope. A click shows up as a
+	/// step close to the full signal amplitude.
+	#[test]
+	fn no_click_at_block_boundary() {
+		// At stretch factor 1.0 the sine's largest genuine step is
+		// 2*pi*f/fs ~= 0.058; a boundary click would be ~1.0 or larger.
+		let output = run_shifter(1.0, 8 * 1024);
+
+		let mut max_step = 0.0f32;
+		for i in 2048..output.len() {
+			max_step = max_step.max((output[i] - output[i - 1]).abs());
+		}
+		assert!(max_step < 0.3, "click found at block boundary, max step = {max_step}");
+	}
+
+	/// Same check for other stretch factors: the discontinuity was independent
+	/// of alpha, so it must be gone for alpha != 1 as well.
+	#[test]
+	fn no_click_at_block_boundary_other_alphas() {
+		for alpha in [0.5f32, 1.5, 2.0] {
+			let output = run_shifter(alpha, 6 * 1024);
+			let mut max_step = 0.0f32;
+			for i in 2048..output.len() {
+				max_step = max_step.max((output[i] - output[i - 1]).abs());
+			}
+			assert!(max_step < 0.5, "alpha={alpha}: click found, max step = {max_step}");
+		}
 	}
 }

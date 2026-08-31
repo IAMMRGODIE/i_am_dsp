@@ -54,18 +54,13 @@ pub fn wsola(
 	}
 
 	let input_len = input.capacity();
-	// Analysis positions advance by `hop / stretch_factor` so that the output
-	// covers `stretch_factor` samples per input sample. Round to the nearest
-	// integer analysis hop, but never stall completely.
 	let analysis_hop = ((hop as f32 / stretch_factor).round() as usize).max(1);
 	let output_len = (input_len as f32 * stretch_factor).ceil() as usize;
-	// The last input position at which a full window can still start.
+
 	let max_fit_offset = input_len - window_size;
 
 	let mut output = vec![0.0; output_len];
 
-	// The tail of the previous output block. Used as the similarity reference
-	// and as the cross-fade partner for the very first frame.
 	let no_previous = last_output.is_empty();
 	let mut prev_tail = vec![0.0; hop];
 	if !no_previous {
@@ -73,22 +68,13 @@ pub fn wsola(
 		prev_tail[hop - copied..].copy_from_slice(&last_output[last_output.len() - copied..]);
 	}
 
-	let mut analysis_pos = 0usize; // nominal analysis position in the input
-	let mut output_pos = 0usize;   // synthesis position of the current frame
+	let mut analysis_pos = 0usize;
+	let mut output_pos = 0usize;
 	let mut frame_idx = 0usize;
 
 	while output_pos < output_len {
-		// The analysis pointer may advance past the last full-window position
-		// (e.g. when stretching heavily). Saturate it so the tail of the input
-		// is reused instead of dropping out to silence.
 		let center = analysis_pos.min(max_fit_offset);
 
-		// The reference is the signal already synthesized directly before the
-		// splice point. For the first frame that is the previous output block,
-		// for later frames it is the region of *this* output that the previous
-		// frame has already written (`ref_range <= hop` guarantees those
-		// samples exist). Near the end of the output there is nothing to splice
-		// against, so the frame is simply placed at the analysis center.
 		let best_offset = if frame_idx == 0 && !no_previous {
 			let reference = &prev_tail[prev_tail.len() - ref_range..];
 			find_best_offset(input, center, max_offset, max_fit_offset, reference, similarity_measure).0
