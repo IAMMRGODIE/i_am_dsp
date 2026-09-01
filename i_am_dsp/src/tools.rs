@@ -5,6 +5,7 @@ pub mod pcm_data;
 pub mod audio_io_chooser;
 pub mod smoother;
 pub mod wsola;
+pub mod bpm_syncer;
 pub(crate) mod interpolate;
 pub(crate) mod matrix;
 

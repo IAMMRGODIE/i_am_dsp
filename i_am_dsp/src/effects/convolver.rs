@@ -543,19 +543,17 @@ impl FftPartition {
 	fn process_block(&mut self, out_block: &mut [f32], block_size: usize) {
 		self.forward_fft.process(&mut self.work);
 		for (a, b) in self.work.iter_mut().zip(self.ir_fft.iter()) {
-			*a = *a * *b;
+			*a *= *b;
 		}
 		self.inverse_fft.process(&mut self.work);
 
-		// Overlap-add: accumulate the linear convolution of this input block
-		// with the IR segment, then emit the oldest `block_size` samples.
 		for i in 0..self.fft_size {
 			self.acc[i] += self.work[i].re / self.fft_size as f32;
 		}
-		for i in 0..block_size {
-			out_block[i] += self.acc[i];
+		for (i, inner) in out_block.iter_mut().take(block_size).enumerate() {
+			*inner += self.acc[i];
 		}
-		// Keep the tail for the next block, zero the vacated region.
+
 		for i in 0..self.fft_size - block_size {
 			self.acc[i] = self.acc[i + block_size];
 		}
@@ -635,13 +633,14 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE>
 	fn frame(&mut self, input: [f32; CHANNELS]) -> [f32; CHANNELS] {
 		// Step 1: emit the oldest sample of the current output block.
 		let mut output = [0.0; CHANNELS];
-		for channel in 0..CHANNELS {
-			output[channel] = self.output_block[channel][self.pos];
+
+		for (channel, output) in output.iter_mut().enumerate() {
+			*output = self.output_block[channel][self.pos];
 		}
 
 		// Step 2: collect the current input sample.
-		for channel in 0..CHANNELS {
-			self.current_block[channel][self.pos] = input[channel];
+		for (channel, input) in input.iter().enumerate() {
+			self.current_block[channel][self.pos] = *input;
 		}
 		self.pos += 1;
 
@@ -957,7 +956,10 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 	}
 }
 
-
+/// Generate a convolve ir that does nothing.
+pub fn convolve_identity<const CHANNELS: usize>(len: usize) -> [Vec<f32>; CHANNELS] {
+	core::array::from_fn(|_| (0..len).map(|i| if i == 0 { 1.0 } else { 0.0 }).collect())
+}
 
 #[cfg(test)]
 mod fft_convolver_tests {
@@ -1074,8 +1076,4 @@ mod fft_convolver_tests {
 			assert!(diff < 1e-4, "dry/wet mix mismatch at {n}: {}", diff);
 		}
 	}
-}
-/// Generate a convolve ir that does nothing.
-pub fn convolve_identity<const CHANNELS: usize>(len: usize) -> [Vec<f32>; CHANNELS] {
-	core::array::from_fn(|_| (0..len).map(|i| if i == 0 { 1.0 } else { 0.0 }).collect())
 }
