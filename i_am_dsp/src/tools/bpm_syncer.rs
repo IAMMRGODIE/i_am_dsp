@@ -33,6 +33,11 @@ impl BpmSyncer {
 	pub fn read(&self) -> f32 {
 		self.current_signature
 	}
+
+	/// Reset the current signature to 0.0
+	pub fn reset(&mut self) {
+		self.current_signature = 0.0;
+	}
 }
 
 impl Parameters for BpmSyncer {

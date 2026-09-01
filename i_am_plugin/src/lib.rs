@@ -299,6 +299,10 @@ pub trait Plugin: Processor {
 
 	/// Get the plugin's parameter map.
 	fn param_map(&self) -> ParamMap;
+
+	/// Optional embedded font bytes (e.g. `include_bytes!(...)`). When set,
+	/// the GUI loads it as it opens so `Family::Name(...)` text renders with it.
+	const EMBEDDED_FONT: Option<&'static [u8]> = None;
 }
 
 /// A trait for plugin to export as Auv2 plugin.
@@ -489,10 +493,21 @@ where
 		let program = GuiProgram {
 			synced_view,
 			message_sender,
-			// gui,
-			// _phantom: PhantomData,
 		};
-		(program, iced_baseview::Task::none())
+
+		let mut tasks = vec![];
+		if let Some(bytes) = P::EMBEDDED_FONT {
+			tasks.push(
+				i_am_dsp_iced::iced::font::load(bytes)
+					.map(|_| P::Message::tick(i_am_dsp_iced::iced::time::Instant::now())),
+			);
+		}
+		let task = if tasks.is_empty() {
+			iced_baseview::Task::none()
+		}else {
+			iced_baseview::Task::batch(tasks)
+		};
+		(program, task)
 	}
 
 	fn theme(&self) -> Self::Theme {
