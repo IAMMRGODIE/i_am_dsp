@@ -2,7 +2,6 @@
 
 use i_am_dsp_derive::Parameters;
 
-#[cfg(feature = "real_time_demo")]
 use crate::tools::ring_buffer::RingBuffer;
 use crate::{
 	prelude::Enveloper, 
@@ -46,6 +45,16 @@ pub struct Compressor<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize = 2> 
 	#[logarithmic]
 	/// The gain factor for the output signal, saves in linear scale
 	pub gain_factor: f32,
+	/// The lookahead of the compressor, saves in samples.
+	/// 
+	/// The audio path is delayed by this amount while the gain is computed
+	/// from the undelayed input, letting the compressor react to a transient
+	/// before it reaches the output.
+	#[range(min = 0, max = 4096)]
+	pub lookahead: usize,
+	#[skip]
+	/// Per-channel delay line used to implement the lookahead.
+	delay_buffer: [RingBuffer<f32>; CHANNELS],
 
 	#[cfg(feature = "real_time_demo")]
 	#[skip]
@@ -77,6 +86,8 @@ impl<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize> Compressor<Envelope, 
 			audio_io_chooser: AudioIoChooser::Current,
 			gain_factor: 1.0,
 			gain_linear: 1.0,
+			lookahead: 0,
+			delay_buffer: core::array::from_fn(|_| RingBuffer::new(0)),
 
 			#[cfg(feature = "real_time_demo")]
 			history: RingBuffer::new(HISTORY_LEN),
@@ -86,7 +97,7 @@ impl<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize> Compressor<Envelope, 
 
 impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for Compressor<Envelope, CHANNELS> {
 	fn delay(&self) -> usize {
-		self.enveloper.delay()
+		self.enveloper.delay() + self.lookahead
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -114,13 +125,32 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 		self.gain_factor = self.smoother.get_smoothed_result()[0];
 		self.gain_factor = 10.0_f32.powf(self.gain_factor / 20.0);
 
+		// Keep the per-channel delay lines in sync with the lookahead
+		// parameter (it may have been changed at runtime).
+		if self.delay_buffer[0].capacity() != self.lookahead {
+			for buffer in self.delay_buffer.iter_mut() {
+				buffer.resize(self.lookahead);
+			}
+		}
+
 		#[cfg(feature = "real_time_demo")]
 		{
 			self.history.push(self.gain_factor);
 		}
 
-		for sample in samples.iter_mut() {
-			*sample *= self.gain_factor * self.gain_linear;
+		if self.lookahead > 0 {
+			// The gain was computed from the *undelayed* input above, so the
+			// compressor already reacts to transients that will only reach the
+			// output lookahead samples later. Apply it to the delayed audio.
+			for (i, sample) in samples.iter_mut().enumerate() {
+				let delayed = self.delay_buffer[i][0];
+				self.delay_buffer[i].push(*sample);
+				*sample = delayed * self.gain_factor * self.gain_linear;
+			}
+		}else {
+			for sample in samples.iter_mut() {
+				*sample *= self.gain_factor * self.gain_linear;
+			}
 		}
 			
 	}
@@ -194,7 +224,91 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 		ui.add(Slider::new(&mut self.smoother.release_time, 0.0..=1000.0).text("Release time (ms)"));
 		ui.add(Slider::new(&mut self.threshold, -60.0..=0.0).text("Threshold (dB)"));
 		ui.add(Slider::new(&mut self.ratio, 1.0..=10.0).text("Ratio"));
+		ui.add(Slider::new(&mut self.lookahead, 0..=4096).text("Lookahead (samples)"));
 
 		// self.enveloper.demo_ui(ui, format!("{}_compresser_env_gui", id_prefix));
+	}
+}
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::prelude::RectifyEnvelope;
+
+	/// With no actual compression (ratio 1), lookahead = L simply delays the
+	/// signal by L samples: out[n] == in[n - L]. Also checks that delay()
+	/// reports the added latency.
+	#[test]
+	fn lookahead_delays_signal() {
+		let lookahead = 64usize;
+		let mut compressor = Compressor::new(RectifyEnvelope::<1>::new(48_000, 48_000.0), 48_000, 1.0, 1.0, 0.0, 1.0);
+		compressor.lookahead = lookahead;
+
+		assert_eq!(compressor.delay(), lookahead);
+
+		let input: Vec<f32> = (0..1024).map(|i| (i as f32 * 0.05).sin()).collect();
+		let mut output = Vec::with_capacity(input.len());
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		for &x in &input {
+			let mut block = [x];
+			compressor.process(&mut block, &[], &mut context);
+			output.push(block[0]);
+		}
+
+		// The first `lookahead` samples come from the zero-filled delay line,
+		// everything after must exactly match the delayed input.
+		assert!(output[..lookahead].iter().all(|&s| s == 0.0));
+		for n in lookahead..input.len() {
+			let diff = (output[n] - input[n - lookahead]).abs();
+			assert!(diff < 1e-5, "mismatch at {n}: output={} input={}", output[n], input[n - lookahead]);
+		}
+	}
+
+	/// lookahead = 0 keeps the original (already delayed by enveloper only)
+	/// pass-through behaviour: out[n] == in[n] when nothing compresses.
+	#[test]
+	fn zero_lookahead_is_passthrough() {
+		let mut compressor = Compressor::new(RectifyEnvelope::<1>::new(48_000, 48_000.0), 48_000, 1.0, 1.0, 0.0, 1.0);
+		compressor.lookahead = 0;
+
+		let input: Vec<f32> = (0..256).map(|i| (i as f32 * 0.1).cos()).collect();
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		for (i, &x) in input.iter().enumerate() {
+			let mut block = [x];
+			compressor.process(&mut block, &[], &mut context);
+			assert!((block[0] - x).abs() < 1e-6, "mismatch at {i}");
+		}
+	}
+
+	/// Changing lookahead at runtime must resize the delay line without
+	/// panicking and keep the delay correct afterwards.
+	#[test]
+	fn runtime_lookahead_change_resizes_delay_line() {
+		let mut compressor = Compressor::new(RectifyEnvelope::<1>::new(48_000, 48_000.0), 48_000, 1.0, 1.0, 0.0, 1.0);
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+
+		// warm up with lookahead = 8
+		compressor.lookahead = 8;
+		let input: Vec<f32> = (0..1024).map(|i| (i as f32 * 0.05).sin()).collect();
+		let mut output = Vec::with_capacity(input.len());
+		for &x in &input {
+			let mut block = [x];
+			compressor.process(&mut block, &[], &mut context);
+			output.push(block[0]);
+		}
+		for n in 8..input.len() {
+			assert!((output[n] - input[n - 8]).abs() < 1e-5, "delay=8 mismatch at {n}");
+		}
+
+		// switch to lookahead = 32
+		compressor.lookahead = 32;
+		let mut output = Vec::with_capacity(input.len());
+		for &x in &input {
+			let mut block = [x];
+			compressor.process(&mut block, &[], &mut context);
+			output.push(block[0]);
+		}
+		for n in 32..input.len() {
+			assert!((output[n] - input[n - 32]).abs() < 1e-5, "delay=32 mismatch at {n}");
+		}
 	}
 }

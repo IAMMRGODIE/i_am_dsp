@@ -779,6 +779,87 @@ impl<Carrier: WaveTable, Modulator: WaveTable> WaveTable for PmTable<Carrier, Mo
 	}
 }
 
+/// A wave table that smoothly transitions between 4 multiple wave tables.
+#[derive(Parameters)]
+pub struct BilinearSmoother<A: WaveTable, B: WaveTable, C: WaveTable, D: WaveTable> {
+	/// The first wave table.
+	#[sub_param]
+	pub a: A,
+	/// The second wave table.
+	#[sub_param]
+	pub b: B,
+	/// The third wave table.
+	#[sub_param]
+	pub c: C,
+	/// The fourth wave table.
+	#[sub_param]
+	pub d: D,
+	/// The smoothing factor, should be between 0 and 1.
+	pub smooth_factor_1: f32,
+	/// The smoothing factor, should be between 0 and 1.
+	pub smooth_factor_2: f32,
+}
+
+impl<A: WaveTable, B: WaveTable, C: WaveTable, D: WaveTable> BilinearSmoother<A, B, C, D> {
+	/// Create a new [`BilinearSmoother`] from four wave tables and two smoothing factors.
+	pub fn new(a: A, b: B, c: C, d: D) -> Self {
+		Self {
+			a,
+			b,
+			c,
+			d,
+			smooth_factor_1: 0.0,
+			smooth_factor_2: 0.0,
+		}
+	}
+}
+
+impl<const CHANNELS: usize, A: WaveTable, B: WaveTable, C: WaveTable, D: WaveTable> Oscillator<CHANNELS> for BilinearSmoother<A, B, C, D> {
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		use crate::tools::ui_tools::draw_wavetable;
+
+		egui::Resize::default().resizable([false, true])
+			.min_width(ui.available_width())
+			.max_width(ui.available_width())
+			.id_salt(format!("{id_prefix}_wavtable_smoother"))
+			.show(ui, |ui| 
+		{
+			draw_wavetable(ui, |t| self.sample(t, 0));
+		});
+
+		ui.horizontal(|ui| {
+			ui.add(egui::Slider::new(&mut self.smooth_factor_1, 0.0..=1.0).text("Smooth Factor 1"));
+			ui.add(egui::Slider::new(&mut self.smooth_factor_2, 0.0..=1.0).text("Smooth Factor 2"));
+		});
+	}
+
+	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		let mut output = [0.0; CHANNELS];
+
+		for i in 0..CHANNELS {
+			let t = (time * frequency + phase[i]) % 1.0;
+			output[i] = self.sample(t, i);
+		}
+
+		output
+	}
+}
+
+impl<A: WaveTable, B: WaveTable, C: WaveTable, D: WaveTable> WaveTable for BilinearSmoother<A, B, C, D> {
+	fn sample(&self, t: f32, channel: usize) -> f32 {
+		let a = self.a.sample(t, channel);
+		let b = self.b.sample(t, channel);
+		let c = self.c.sample(t, channel);
+		let d = self.d.sample(t, channel);
+
+		let p = self.smooth_factor_1.clamp(0.0, 1.0);
+		let q = self.smooth_factor_2.clamp(0.0, 1.0);
+
+		(1.0 - p) * (1.0 - q) * a + (1.0 - p) * q * b + p * (1.0 - q) * c + p * q * d
+	}
+}
+
 /// An FM oscillator that modulates the frequency of the carrier wave.
 #[derive(Parameters)]
 pub struct FmOsc<Carrier: WaveTable, Modulator: WaveTable> {

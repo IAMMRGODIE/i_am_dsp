@@ -90,6 +90,13 @@ lazy_static::lazy_static! {
 				})
 			),
 			(
+				"BilinearSmoother".to_string(),
+				Box::new(|sample_rate| {
+					let smoother = BilinearSmoother::new(SineWave, TriangleWave, SawWave, SquareWave);
+					Box::new(Adsr::new(smoother, EqualTemperament, sample_rate)) as Box<dyn Generator>
+				})
+			),
+			(
 				"Noise Wave".to_string(),
 				Box::new(|sample_rate| Box::new(Adsr::new(TableOsc(NoiseWave), EqualTemperament, sample_rate)) as Box<dyn Generator>)
 			),
@@ -619,11 +626,37 @@ struct EffectWarpper {
 	path: (String, String),
 	effect: Box<dyn Effect>,
 	mix: f32,
+	/// Per-channel delay lines used to align the dry signal with the wet
+	/// signal, whose latency is reported by Effect::delay().
+	dry_delay: [RingBuffer<f32>; 2],
 }
 
+impl EffectWarpper {
+	/// Delays the dry signal by the effect's latency so that dry and wet are
+	/// time-aligned when mixed. The delay line is resized automatically when
+	/// the effect latency changes at runtime.
+	fn align_dry(&mut self, dry: [f32; 2]) -> [f32; 2] {
+		let latency = self.effect.delay();
+		if self.dry_delay[0].capacity() != latency {
+			for buffer in self.dry_delay.iter_mut() {
+				buffer.resize(latency);
+			}
+		}
+
+		if latency == 0 {
+			return dry;
+		}
+
+		let delayed = [self.dry_delay[0][0], self.dry_delay[1][0]];
+		self.dry_delay[0].push(dry[0]);
+		self.dry_delay[1].push(dry[1]);
+		delayed
+	}
+}
 struct SharedData {
 	generators: Vec<GeneratorWarpper>,
 	effects: [Vec<EffectWarpper>; MAX_OUTPUT_TRACKS + 1],
+	track_delay: [[RingBuffer<f32>; 2]; MAX_OUTPUT_TRACKS],
 	#[cfg(feature = "standalone")]
 	ctx: Option<SimpleContext>,
 	lfos: Vec<LfoedParams>,
@@ -793,10 +826,20 @@ pub enum PersistData {
 }
 
 impl SharedData {
+	/// Total latency of the current signal graph, in samples.
+	///
+	/// The output tracks are mixed in parallel, so the graph latency is the
+	/// latency of the slowest output track plus the latency of the master
+	/// bus effects, which every track passes through.
 	fn delay(&self) -> usize {
-		self.effects.iter().map(|g| {
-			g.iter().map(|e| e.effect.delay()).sum::<usize>()
-		}).sum::<usize>()
+		let max_track_delay = (0..MAX_OUTPUT_TRACKS).map(|i| {
+			self.effects[i].iter().map(|e| e.effect.delay()).sum::<usize>()
+		}).max().unwrap_or(0);
+		let master_delay = self.effects[MAX_OUTPUT_TRACKS]
+			.iter()
+			.map(|e| e.effect.delay())
+			.sum::<usize>();
+		max_track_delay + master_delay
 	}
 
 	fn get_persist_data(&self) -> Vec<PersistData> {
@@ -903,6 +946,7 @@ impl SharedData {
 						path,
 						effect,
 						mix,
+						dry_delay: std::array::from_fn(|_| RingBuffer::new(0)),
 					};
 					effects[track].insert(index, effect_warpper);
 				},
@@ -947,6 +991,7 @@ impl SharedData {
 			sample_rate, 
 			current_phase: 0.0,
 			effects: out_effects, 
+			track_delay: std::array::from_fn(|_| std::array::from_fn(|_| RingBuffer::new(0))),
 			#[cfg(feature = "standalone")]
 			ctx: Some(SimpleContext {
 				info: ProcessInfos {
@@ -1032,6 +1077,18 @@ impl SharedData {
 			}
 		}
 
+		// Total latency of each output track: the latencies of its effect chain
+		// add up, because each effect's output is delayed by its own latency.
+		let mut track_total_delay = [0usize; MAX_OUTPUT_TRACKS];
+		let mut max_track_delay = 0usize;
+		for (i, effects) in self.effects.iter().enumerate() {
+			if i == MAX_OUTPUT_TRACKS {
+				break;
+			}
+			track_total_delay[i] = effects.iter().map(|e| e.effect.delay()).sum::<usize>();
+			max_track_delay = max_track_delay.max(track_total_delay[i]);
+		}
+
 		for (i, effects) in self.effects.iter_mut().enumerate() {
 			if i == MAX_OUTPUT_TRACKS {
 				break;
@@ -1049,10 +1106,31 @@ impl SharedData {
 
 			
 			for effect in effects.iter_mut() {
-				let before_backup = output_tracks[i];
+				// The effect's process() output is delayed by effect.delay(), so
+				// delay the dry signal by the same amount before mixing, otherwise
+				// dry and wet are time-misaligned and the mix comb-filters.
+				let dry = output_tracks[i];
+				let dry_delayed = effect.align_dry(dry);
 				effect.effect.process(&mut output_tracks[i], &other_tracks_ref, ctx);
-				output_tracks[i][0] = before_backup[0] * (1.0 - effect.mix) + output_tracks[i][0] * effect.mix;
-				output_tracks[i][1] = before_backup[1] * (1.0 - effect.mix) + output_tracks[i][1] * effect.mix;
+				output_tracks[i][0] = dry_delayed[0] * (1.0 - effect.mix) + output_tracks[i][0] * effect.mix;
+				output_tracks[i][1] = dry_delayed[1] * (1.0 - effect.mix) + output_tracks[i][1] * effect.mix;
+			}
+		}
+
+		// Align every track to the slowest one before summing, so parallel
+		// tracks with different effect-chain latencies stay time-aligned.
+		for (i, track) in output_tracks.iter_mut().enumerate() {
+			let extra_delay = max_track_delay - track_total_delay[i];
+			if extra_delay > 0 {
+				if self.track_delay[i][0].capacity() != extra_delay {
+					for buffer in self.track_delay[i].iter_mut() {
+						buffer.resize(extra_delay);
+					}
+				}
+				let delayed = [self.track_delay[i][0][0], self.track_delay[i][1][0]];
+				self.track_delay[i][0].push(track[0]);
+				self.track_delay[i][1].push(track[1]);
+				*track = delayed;
 			}
 		}
 
@@ -1065,10 +1143,14 @@ impl SharedData {
 			output[1] += track[1];
 		}
 		for effect in &mut self.effects[MAX_OUTPUT_TRACKS] {
-			let before_backup = output;
+			// Master effects are common to every track, so their latency only
+			// shifts the whole mix; the dry signal still has to be aligned for
+			// a correct dry/wet mix.
+			let dry = output;
+			let dry_delayed = effect.align_dry(dry);
 			effect.effect.process(&mut output, &[], ctx);
-			output[0] = before_backup[0] * (1.0 - effect.mix) + output[0] * effect.mix;
-			output[1] = before_backup[1] * (1.0 - effect.mix) + output[1] * effect.mix;
+			output[0] = dry_delayed[0] * (1.0 - effect.mix) + output[0] * effect.mix;
+			output[1] = dry_delayed[1] * (1.0 - effect.mix) + output[1] * effect.mix;
 		}
 
 		output
@@ -1105,6 +1187,7 @@ impl DspDemo {
 		let shared_data = Arc::new(Mutex::new(SharedData {
 			generators: vec![],
 			effects: std::array::from_fn(|_| vec![]),
+			track_delay: std::array::from_fn(|_| std::array::from_fn(|_| RingBuffer::new(0))),
 			sample_rate,
 			current_phase: 0.0,
 			lfos: vec![],
@@ -1743,6 +1826,92 @@ impl eframe::App for DspDemo {
 	}
 }
 
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn compressor_with_lookahead(lookahead: usize) -> Compressor<RectifyEnvelope<2>, 2> {
+		let mut compressor = Compressor::new(RectifyEnvelope::<2>::new(48_000, 48_000.0), 48_000, 1.0, 100.0, 0.0, 1.0);
+		compressor.lookahead = lookahead;
+		compressor
+	}
+
+	fn wrapper_of(effect: impl Effect<2> + 'static) -> EffectWarpper {
+		EffectWarpper {
+			path: (String::new(), String::new()),
+			effect: Box::new(effect),
+			mix: 1.0,
+			dry_delay: std::array::from_fn(|_| RingBuffer::new(0)),
+		}
+	}
+
+	/// The dry signal must be delayed by exactly the effect latency so that it
+	/// lines up with the (latency-delayed) wet signal when mixed.
+	#[test]
+	fn align_dry_delays_by_effect_latency() {
+		let mut wrapper = wrapper_of(compressor_with_lookahead(16));
+		assert_eq!(wrapper.effect.delay(), 16);
+
+		for i in 0..40usize {
+			let delayed = wrapper.align_dry([i as f32, i as f32 * 2.0]);
+			let expected = i as isize - 16;
+			if expected >= 0 {
+				assert!((delayed[0] - expected as f32).abs() < 1e-6, "ch0 at {i}: {} vs {expected}", delayed[0]);
+				assert!((delayed[1] - expected as f32 * 2.0).abs() < 1e-6, "ch1 at {i}");
+			}else {
+				assert_eq!(delayed[0], 0.0, "ch0 should be silence before latency, at {i}");
+				assert_eq!(delayed[1], 0.0);
+			}
+		}
+	}
+
+	/// Changing the effect latency at runtime must resize the dry delay line.
+	/// The retained history may show up briefly, but once the line has been
+	/// flushed the delay must equal the new latency exactly.
+	#[test]
+	fn align_dry_resizes_when_latency_changes() {
+		let mut wrapper = wrapper_of(compressor_with_lookahead(4));
+		for i in 0..12usize { wrapper.align_dry([i as f32, 0.0]); }
+
+		// change latency via a new effect with different latency
+		wrapper.effect = Box::new(compressor_with_lookahead(8));
+		assert_eq!(wrapper.effect.delay(), 8);
+		for i in 0..24usize {
+			let delayed = wrapper.align_dry([i as f32, 0.0]);
+			// once the buffer has been fully overwritten with post-change
+			// inputs, the delay must be the new latency
+			if i >= 8 {
+				let expected = i - 8;
+				assert!((delayed[0] - expected as f32).abs() < 1e-6, "ch0 at {i}: {} vs {expected}", delayed[0]);
+			}
+		}
+	}
+
+	/// Graph latency: parallel output tracks count once at their maximum, and
+	/// the master bus latency is added on top.
+	#[test]
+	fn delay_is_max_track_plus_master() {
+		let mut shared = SharedData {
+			generators: vec![],
+			effects: std::array::from_fn(|_| vec![]),
+			track_delay: std::array::from_fn(|_| std::array::from_fn(|_| RingBuffer::new(0))),
+			#[cfg(feature = "standalone")]
+			ctx: None,
+			lfos: vec![],
+			sample_rate: 48_000,
+			current_phase: 0.0,
+		};
+
+		// track 0 has 64 samples of latency, track 1 has 32
+		shared.effects[0].push(wrapper_of(compressor_with_lookahead(64)));
+		shared.effects[1].push(wrapper_of(compressor_with_lookahead(32)));
+		// master bus adds 8 more
+		shared.effects[MAX_OUTPUT_TRACKS].push(wrapper_of(compressor_with_lookahead(8)));
+
+		assert_eq!(shared.delay(), 64 + 8);
+	}
+}
 fn generator_add_menu(ui: &mut egui::Ui, sample_rate: usize, output_track: usize) -> Option<GeneratorWarpper> {
 	let mut output = None;
 	let mut path = None;
@@ -1796,7 +1965,8 @@ fn effect_add_menu(ui: &mut egui::Ui, sample_rate: usize) -> Option<EffectWarppe
 		Some(EffectWarpper { 
 			path: (path_1, path_2), 
 			effect, 
-			mix: 1.0 
+			mix: 1.0, 
+			dry_delay: std::array::from_fn(|_| RingBuffer::new(0)),
 		})
 	}else {
 		None
