@@ -6,7 +6,7 @@ use i_am_dsp_derive::Parameters;
 use rustfft::{Fft, FftPlanner, num_complex::Complex};
 use wide::f32x4;
 
-use crate::{Effect, ProcessContext, prelude::{Biquad, WaveTable}, tools::ring_buffer::RingBuffer};
+use crate::{Effect, ProcessContext, tools::ring_buffer::RingBuffer};
 
 fn format_ir<const CHANNELS: usize>(ir: &[Vec<f32>; CHANNELS]) -> Vec<u8> {
 	assert_eq!(std::mem::size_of::<f32>(), 4);
@@ -477,205 +477,245 @@ pub fn hilbert_transform<const CHANNELS: usize>(filter_len: usize) -> [Vec<f32>;
 
 const FFT_CONVOLVER_HISTORY_LEN: usize = 256;
 
-#[derive(Parameters)]
+/// A single partition of the impulse response.
+///
+/// The IR is split into non-uniformly sized partitions: partition `k` covers
+/// `[offset, offset + len)` where the lengths grow by powers of two. Each
+/// partition is convolved with the input stream via block-FFT (overlap-add)
+/// and its result is added to the output block corresponding to the
+/// partition's offset. No downsampling is used; larger partitions simply use
+/// larger FFT sizes.
+struct FftPartition {
+	/// Delay in whole input blocks: the partition consumes the input block
+	/// `block_delay` blocks in the past, so its result lines up with the
+	/// partition's offset in the impulse response.
+	block_delay: usize,
+	/// FFT size for this partition (next power of two >= FFT_SIZE + ir_len - 1).
+	fft_size: usize,
+	/// Precomputed FFT of the zero-padded IR segment.
+	ir_fft: Vec<Complex<f32>>,
+	/// Overlap-add accumulator for the partition's convolution result.
+	acc: Vec<f32>,
+	/// Scratch buffer holding the current input block, zero-padded.
+	work: Vec<Complex<f32>>,
+	/// Forward FFT of size `fft_size`.
+	forward_fft: Arc<dyn Fft<f32>>,
+	/// Inverse FFT of size `fft_size`.
+	inverse_fft: Arc<dyn Fft<f32>>,
+}
+
+impl FftPartition {
+	fn new(
+		ir_segment: &[f32],
+		offset: usize,
+		block_size: usize,
+		planner: &mut FftPlanner<f32>,
+	) -> Self {
+		let ir_len = ir_segment.len();
+		let fft_size = (block_size + ir_len - 1).next_power_of_two();
+
+		let mut ir_fft = vec![Complex::ZERO; fft_size];
+		for (i, sample) in ir_segment.iter().enumerate() {
+			ir_fft[i] = Complex::new(*sample, 0.0);
+		}
+		let forward_fft = planner.plan_fft_forward(fft_size);
+		let inverse_fft = planner.plan_fft_inverse(fft_size);
+		forward_fft.process(&mut ir_fft);
+
+		Self {
+			block_delay: offset / block_size,
+			fft_size,
+			ir_fft,
+			acc: vec![0.0; fft_size],
+			work: vec![Complex::ZERO; fft_size],
+			forward_fft,
+			inverse_fft,
+		}
+	}
+
+	/// Convolve the given (already zero-padded) input block `work` against this
+	/// partition and add the result into `out_block`.
+	///
+	/// `work` must contain the input block in `[0..block_size)` followed by
+	/// zeros up to `fft_size`. Both the forward and inverse FFTs used here are
+	/// unnormalized, so the result is divided by `fft_size` to obtain the true
+	/// linear convolution.
+	fn process_block(&mut self, out_block: &mut [f32], block_size: usize) {
+		self.forward_fft.process(&mut self.work);
+		for (a, b) in self.work.iter_mut().zip(self.ir_fft.iter()) {
+			*a = *a * *b;
+		}
+		self.inverse_fft.process(&mut self.work);
+
+		// Overlap-add: accumulate the linear convolution of this input block
+		// with the IR segment, then emit the oldest `block_size` samples.
+		for i in 0..self.fft_size {
+			self.acc[i] += self.work[i].re / self.fft_size as f32;
+		}
+		for i in 0..block_size {
+			out_block[i] += self.acc[i];
+		}
+		// Keep the tail for the next block, zero the vacated region.
+		for i in 0..self.fft_size - block_size {
+			self.acc[i] = self.acc[i + block_size];
+		}
+		for i in self.fft_size - block_size..self.fft_size {
+			self.acc[i] = 0.0;
+		}
+	}
+}
+
+/// The streaming FFT convolution engine.
+///
+/// The impulse response is split into non-uniform partitions (doubling
+/// lengths). Each partition runs its own block-overlap-add convolution with
+/// the input stream, consuming the input block located `block_delay` blocks
+/// in the past so its output lands at the partition's offset in the result.
 struct FftBuffer<
 	const CHANNELS: usize = 2,
 	const FFT_SIZE: usize = FFT_CONVOLVER_HISTORY_LEN,
 > {
-	#[persist(serialize = "format_ir_splited", deserialize = "parse_ir_splited")]
-	ir_splited: [Vec<[Complex<f32>; FFT_SIZE]>; CHANNELS],
-	#[skip]
-	historys: [Vec<RingBuffer<Complex<f32>>>; CHANNELS],
-	#[skip]
-	outputs: [Vec<[Complex<f32>; FFT_SIZE]>; CHANNELS],
-	#[skip]
-	history_counts: Vec<usize>,
-	#[skip]
-	downsample_filters: [Vec<Biquad<1>>; CHANNELS],
-	#[skip]
-	forward_fft: Arc<dyn Fft<f32>>,
-	#[skip]
-	inverse_fft: Arc<dyn Fft<f32>>,
-	#[skip]
-	output_count: usize
-}
-
-fn format_ir_splited<const CHANNELS: usize, const FFT_SIZE: usize>(ir_splited: &[Vec<[Complex<f32>; FFT_SIZE]>; CHANNELS]) -> Vec<u8> {
-	let mut writer = vec![];
-	let ir_splited = ir_splited.iter()
-		.map(|inner| {
-			inner.iter().map(|inner| {
-				inner.iter().map(|complex| (complex.re, complex.im)).collect::<Vec<_>>()
-			}).collect::<Vec<_>>()
-		}).collect::<Vec<_>>();
-	let _ = ciborium::into_writer(&ir_splited, &mut writer);
-	writer
-}
-
-fn parse_ir_splited<const CHANNELS: usize, const FFT_SIZE: usize>(data: Vec<u8>) -> [Vec<[Complex<f32>; FFT_SIZE]>; CHANNELS] {
-	let ir_splited: Vec<Vec<Vec<(f32, f32)>>> = ciborium::from_reader(data.as_slice()).unwrap();
-
-	core::array::from_fn(|channel| {
-		ir_splited[channel].iter().map(|inner| {
-			core::array::from_fn(|id| {
-				Complex::new(inner[id].0, inner[id].1)
-			})
-		}).collect::<Vec<[Complex<f32>; FFT_SIZE]>>()
-	})
+	/// The raw impulse response, kept for serialization.
+	ir: [Vec<f32>; CHANNELS],
+	/// Per-channel partition structures.
+	partitions: [Vec<FftPartition>; CHANNELS],
+	/// Completed input blocks, newest at the back.
+	history: Vec<[Vec<f32>; CHANNELS]>,
+	/// The input block currently being filled.
+	current_block: [Vec<f32>; CHANNELS],
+	/// The output block currently being played out.
+	output_block: [Vec<f32>; CHANNELS],
+	/// Position within the current input/output block.
+	pos: usize,
+	/// Largest block delay over all partitions (history size needed).
+	max_block_delay: usize,
 }
 
 impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE> {
-	fn new(ir: [Vec<f32>; CHANNELS], sample_rate: usize) -> Self {
+	fn new(ir: [Vec<f32>; CHANNELS], _sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
-
-		let mut planner = FftPlanner::new();
-		let forward_fft = planner.plan_fft_forward(FFT_SIZE);
-		let inverse_fft = planner.plan_fft_inverse(FFT_SIZE);
-
-		let ir_len = ir.iter().map(|inner| inner.len()).min().unwrap_or_default();
-		let mut downsample_filters: [Vec<Biquad<1>>; CHANNELS] = core::array::from_fn(|_| {
-			let mut filters = vec![];
-			let mut current_freq = sample_rate as f32;
-			let mut i = 0;
-			loop {
-				if i >= ir_len {
-					break;
-				}
-
-				if i == 0 {
-					filters.push(Biquad::<1>::new(sample_rate));
-					i = FFT_SIZE;
-					current_freq = current_freq / 2.0 - 10.0;
-					continue;
-				}
-
-				filters.push(Biquad::<1>::lowpass(sample_rate, current_freq, Biquad::<1>::Q1));
-				i *= 2;
-				current_freq /= 2.0;
-			}
-
-			filters
-		});
-		let ir_splited: [Vec<[Complex<f32>; FFT_SIZE]>; CHANNELS] = core::array::from_fn(|channel| {
-			let mut ir_splited = vec![];
-			let mut i = 0;
-			let mut current_freq = sample_rate as f32;
-			let mut ctx = Box::new(()) as Box<dyn ProcessContext + 'static>;
-			loop {
-				let factor = if i == 0 {
-					0
-				}else {
-					2_usize.pow(i as u32 - 1)
-				};
-				if factor * FFT_SIZE >= ir_len {
-					break;
-				}
-				let mut output = [Complex::ZERO; FFT_SIZE];
-
-				if i == 0 {
-					for (id, sample) in ir[channel].iter().take(FFT_SIZE).enumerate() {
-						output[id] = Complex::new(*sample, 0.0);
-					}
-					forward_fft.process(&mut output);
-					ir_splited.push(output);
-					i = 1;
-					current_freq = current_freq / 2.0 - 10.0;
-					continue;
-				}
-				
-				let downsample_factor = 2_usize.pow(i as u32 - 1);
-				for (id, sample) in ir[channel].iter()
-					.skip(FFT_SIZE * downsample_factor)
-					.take(FFT_SIZE * downsample_factor * 2)
-					.enumerate() 
-				{
-					let mut input = [*sample];
-					downsample_filters[channel][i].process(&mut input, &[], &mut ctx);
-
-					if id % downsample_factor == 0 {
-						output[id % downsample_factor] = Complex::new(input[0], 0.0);
-					}
-				}
-
-				forward_fft.process(&mut output);
-				ir_splited.push(output);
-				i += 1;
-				current_freq /= 2.0;
-			}
-			ir_splited
-		});
-
-		downsample_filters.iter_mut().for_each(|inner| {
-			inner.iter_mut().for_each(|filter| {
-				filter.clear_state();
-			});
-		});
-
-		Self {
-			historys: core::array::from_fn(|_| vec![RingBuffer::new(FFT_SIZE); ir_splited[0].len()]),
-			downsample_filters,
-			forward_fft,
-			inverse_fft,
-			history_counts: vec![0; ir_splited[0].len()],
-			outputs: core::array::from_fn(|_| vec![[Complex::ZERO; FFT_SIZE]; ir_splited[0].len()]),
-			ir_splited,
-			output_count: 0,
-		}
+		let mut buffer = Self {
+			ir,
+			partitions: core::array::from_fn(|_| vec![]),
+			history: vec![],
+			current_block: core::array::from_fn(|_| vec![0.0; FFT_SIZE]),
+			output_block: core::array::from_fn(|_| vec![0.0; FFT_SIZE]),
+			pos: 0,
+			max_block_delay: 0,
+		};
+		buffer.rebuild_partitions();
+		buffer
 	}
 
-	// TODO：This Algorithm cannot function correctly.
-	// The basic idea is Non-Uniformly Partitioned Convolution
-	// And maybe introduce SIMD to caculate the first window to make fftconvolver be delay-free.
-	fn frame(&mut self, input: [f32; CHANNELS]) -> [f32; CHANNELS] {
-		let mut ctx = Box::new(()) as Box<dyn ProcessContext + 'static>;
-		for channel in 0..CHANNELS {
-			let input = input[channel];
-			for (id, (history, filter)) in self.historys[channel]
-				.iter_mut().zip(self.downsample_filters[channel].iter_mut())
-				.enumerate() 
-			{
-				if id == 0 {
-					history.push(Complex::new(input, 0.0));
-					continue;
-				}
-				let mut input = [input];
-				filter.process(&mut input, &[], &mut ctx);
-				if self.history_counts[id] == 0 {
-					history.push(Complex::new(input[0], 0.0));
-				}
-				self.history_counts[id] += 1;
-				self.history_counts[id] %= 2_usize.pow(id as u32 - 1);
-
-				if history.current_pos() == 0 {
-					let underlying_buffer = history.underlying_buffer_mut();
-					self.forward_fft.process(underlying_buffer);
-
-					self.outputs[channel][id].iter_mut().enumerate().for_each(|(i, inner)| {
-						*inner = self.ir_splited[channel][id][i] * underlying_buffer[i] / FFT_SIZE as f32;
-					});
-
-					self.inverse_fft.process(underlying_buffer);
-					self.inverse_fft.process(&mut self.outputs[channel][id]);
-				}
+	/// Recompute all partitions from the current IR, clearing all running state.
+	fn rebuild_partitions(&mut self) {
+		let mut planner = FftPlanner::new();
+		self.partitions = core::array::from_fn(|channel| {
+			let mut partitions = vec![];
+			let ir = &self.ir[channel];
+			let mut offset = 0usize;
+			let mut len = FFT_SIZE;
+			while offset < ir.len() {
+				let end = (offset + len).min(ir.len());
+				partitions.push(FftPartition::new(&ir[offset..end], offset, FFT_SIZE, &mut planner));
+				offset = end;
+				len *= 2;
 			}
+			partitions
+		});
+		self.max_block_delay = self.partitions.iter()
+			.flat_map(|inner| inner.iter().map(|p| p.block_delay))
+			.max().unwrap_or(0);
+		self.history.clear();
+		self.pos = 0;
+		for block in self.current_block.iter_mut() { block.fill(0.0); }
+		for block in self.output_block.iter_mut() { block.fill(0.0); }
+	}
+
+	fn frame(&mut self, input: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		// Step 1: emit the oldest sample of the current output block.
+		let mut output = [0.0; CHANNELS];
+		for channel in 0..CHANNELS {
+			output[channel] = self.output_block[channel][self.pos];
 		}
 
-		let mut output = [0.0; CHANNELS];
+		// Step 2: collect the current input sample.
+		for channel in 0..CHANNELS {
+			self.current_block[channel][self.pos] = input[channel];
+		}
+		self.pos += 1;
 
-		for (channel, output) in output.iter_mut().enumerate() {
-			for (id, output_array) in self.outputs[channel].iter().enumerate() {
-				if id == 0 {
-					*output += output_array[0].re;
-					continue;
-				}
-				let downsample_factor = 2_usize.pow(id as u32 - 1);
-				let count = self.output_count % (downsample_factor * FFT_SIZE);
-				let time = count as f32 / (downsample_factor * FFT_SIZE) as f32;
-				*output += output_array.as_slice().sample(time, 0);
-			}
+		// Step 3: once a full block has been collected, run every partition and
+		// synthesize the next output block.
+		if self.pos == FFT_SIZE {
+			self.pos = 0;
+			self.compute_next_block();
 		}
 
 		output
+	}
+
+	fn compute_next_block(&mut self) {
+		let block_size = FFT_SIZE;
+
+		// Push the completed input block into the history.
+		let completed: [Vec<f32>; CHANNELS] = core::array::from_fn(|ch| std::mem::take(&mut self.current_block[ch]));
+		self.history.push(completed);
+		if self.history.len() > self.max_block_delay + 1 {
+			self.history.remove(0);
+		}
+		for ch in 0..CHANNELS {
+			self.current_block[ch] = vec![0.0; block_size];
+		}
+
+		// Reset the output block, then let every partition add its contribution.
+		for ch in 0..CHANNELS {
+			self.output_block[ch].iter_mut().for_each(|v| *v = 0.0);
+		}
+
+		let num_blocks = self.history.len(); // index of the just-completed block
+		for ch in 0..CHANNELS {
+			for partition in self.partitions[ch].iter_mut() {
+				let delay = partition.block_delay;
+				// This partition needs the block `delay` positions in the past.
+				if num_blocks <= delay {
+					continue;
+				}
+				let input_index = num_blocks - 1 - delay;
+				let input_block = &self.history[input_index][ch];
+
+				partition.work.iter_mut().for_each(|v| *v = Complex::ZERO);
+				for (i, &sample) in input_block.iter().enumerate() {
+					partition.work[i] = Complex::new(sample, 0.0);
+				}
+				partition.process_block(&mut self.output_block[ch], block_size);
+			}
+		}
+	}
+}
+
+// Manual Parameters implementation so the FftBuffer can be serialized together
+// with FftConvolver. The raw impulse response is what gets persisted; the
+// FFT partitions are state derived from it and rebuild automatically.
+impl<const CHANNELS: usize, const FFT_SIZE: usize> crate::prelude::Parameters for FftBuffer<CHANNELS, FFT_SIZE> {
+	fn get_parameters(&self) -> Vec<crate::prelude::Parameter> {
+		vec![crate::prelude::Parameter {
+			identifier: "ir".to_string(),
+			value: crate::prelude::Value::Serialized(format_ir(&self.ir)),
+		}]
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: crate::prelude::SetValue) -> bool {
+		if identifier != "ir" {
+			return false;
+		}
+		if let crate::prelude::SetValue::Serialized(data) = value {
+			self.ir = parse_ir(data);
+			self.rebuild_partitions();
+			true
+		}else {
+			false
+		}
 	}
 }
 
@@ -691,6 +731,11 @@ pub struct FftConvolver<
 	#[cfg(feature = "real_time_demo")]
 	#[skip]
 	ir: [Vec<f32>; CHANNELS],
+
+	/// Per-channel delay line delaying the dry signal by FFT_SIZE samples so
+	/// it lines up with the (equally delayed) convolved wet signal at mix time.
+	#[skip]
+	dry_delay: [RingBuffer<f32>; CHANNELS],
 
 	// #[skip]
 	// other_way_convolver: [fft_convolver::FFTConvolver<f32>; CHANNELS],
@@ -740,6 +785,7 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 			ir: ir.clone(),
 
 			buffer: FftBuffer::new(ir, sample_rate),
+			dry_delay: core::array::from_fn(|_| RingBuffer::new(FFT_SIZE)),
 
 			// other_way_convolver,
 			
@@ -775,7 +821,7 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 
 impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvolver<CHANNELS, FFT_SIZE> {
 	fn delay(&self) -> usize {
-		FFT_CONVOLVER_HISTORY_LEN
+		FFT_SIZE
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -789,7 +835,16 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 		_: &[&[f32; CHANNELS]],
 		_: &mut Box<dyn ProcessContext>,
 	) {
-		*samples = self.buffer.frame(*samples);
+		let dry = *samples;
+		// The wet path (FFT convolution) is delayed by FFT_SIZE samples, so
+		// delay the dry path by the same amount to keep the mix time-aligned.
+		let wet = self.buffer.frame(dry);
+
+		for (i, sample) in samples.iter_mut().enumerate() {
+			let dry_delayed = self.dry_delay[i][0];
+			self.dry_delay[i].push(dry[i]);
+			*sample = dry_delayed * self.dry_gain + wet[i] * self.wet_gain;
+		}
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -902,6 +957,124 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 	}
 }
 
+
+
+#[cfg(test)]
+mod fft_convolver_tests {
+	use super::*;
+
+	fn direct_conv(x: &[f32], h: &[f32]) -> Vec<f32> {
+		let mut y = vec![0.0; x.len()];
+		for n in 0..x.len() {
+			for k in 0..h.len() {
+				if k <= n {
+					y[n] += x[n - k] * h[k];
+				}
+			}
+		}
+		y
+	}
+
+	/// delta IR: the FFT convolver must reproduce the input (with one block of
+	/// latency), and match the direct convolution exactly.
+	#[test]
+	fn delta_ir_is_delayed_passthrough() {
+		let ir = convolve_identity::<1>(8);
+		let mut conv = FftConvolver::<1, 8>::new(ir, 48_000);
+		conv.dry_gain = 0.0;
+		conv.wet_gain = 1.0;
+
+
+		let x: Vec<f32> = (0..1024).map(|i| (i as f32 * 0.1).sin()).collect();
+		let mut out = vec![];
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+		for &s in &x {
+			let mut block = [s];
+			conv.process(&mut block, &[], &mut ctx);
+			out.push(block[0]);
+		}
+
+		// latency = FFT_SIZE samples
+		for n in 8..x.len() {
+			let diff = (out[n] - x[n - 8]).abs();
+			assert!(diff < 1e-4, "delta passthrough mismatch at {n}: {}", diff);
+		}
+	}
+
+	/// For a short IR that spans several partitions, the FFT convolver must
+	/// agree with a direct (!) convolution (up to the block latency).
+	#[test]
+	fn matches_direct_convolution() {
+		// IR longer than a few blocks, spanning multiple partitions
+		let ir_len = 257usize;
+		let ir: Vec<f32> = (0..ir_len).map(|i| (i as f32 * 0.3).sin() * (-(i as f32) / 40.0).exp()).collect();
+		let ir_channels = [ir.clone()];
+
+		let mut fft_conv = FftConvolver::<1, 8>::new(ir_channels.clone(), 48_000);
+		fft_conv.dry_gain = 0.0;
+		fft_conv.wet_gain = 1.0;
+
+
+		let x: Vec<f32> = (0..2048).map(|i| (i as f32 * 0.05).sin() + 0.3 * (i as f32 * 0.9).cos()).collect();
+
+		let mut out = vec![];
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+		for &s in &x {
+			let mut block = [s];
+			fft_conv.process(&mut block, &[], &mut ctx);
+			out.push(block[0]);
+		}
+
+		let reference = direct_conv(&x, &ir);
+
+		let block = 8usize; // FFT_SIZE
+		let mut max_err = 0.0f32;
+		for n in block..x.len() {
+			let err = (out[n] - reference[n - block]).abs();
+			max_err = max_err.max(err);
+		}
+		assert!(max_err < 1e-3, "FFT convolver disagrees with direct: max err = {max_err}");
+	}
+
+	/// No IR (empty) must not panic and should behave as a passthrough.
+	#[test]
+	fn empty_ir_does_not_panic() {
+		let mut conv = FftConvolver::<1, 8>::new([vec![]], 48_000);
+		conv.wet_gain = 0.0;
+
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+		for i in 0..128usize {
+			let mut block = [i as f32 * 0.01];
+			conv.process(&mut block, &[], &mut ctx);
+		}
+	}
+
+	/// dry_gain and wet_gain must both be applied, and the dry path must be
+	/// delayed by the block latency so dry and wet stay time-aligned: with a
+	/// delta IR and gains of 1.0/1.0 the output is twice the delayed input.
+	#[test]
+	fn dry_wet_mix_is_time_aligned() {
+		let ir = convolve_identity::<1>(8);
+		let mut conv = FftConvolver::<1, 8>::new(ir, 48_000);
+		conv.dry_gain = 1.0;
+		conv.wet_gain = 1.0;
+
+		let x: Vec<f32> = (0..1024).map(|i| (i as f32 * 0.1).sin()).collect();
+		let mut out = vec![];
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+		for &s in &x {
+			let mut block = [s];
+			conv.process(&mut block, &[], &mut ctx);
+			out.push(block[0]);
+		}
+
+		// both paths are delayed by FFT_SIZE, so out[n] = 2 * x[n - 8]
+		for n in 8..x.len() {
+			let diff = (out[n] - 2.0 * x[n - 8]).abs();
+			assert!(diff < 1e-4, "dry/wet mix mismatch at {n}: {}", diff);
+		}
+	}
+}
 /// Generate a convolve ir that does nothing.
 pub fn convolve_identity<const CHANNELS: usize>(len: usize) -> [Vec<f32>; CHANNELS] {
 	core::array::from_fn(|_| (0..len).map(|i| if i == 0 { 1.0 } else { 0.0 }).collect())

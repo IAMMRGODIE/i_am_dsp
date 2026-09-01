@@ -92,6 +92,16 @@ fn len(a: (f32, f32, f32)) -> f32 {
 }
 
 #[inline(always)]
+fn normalized(a: (f32, f32, f32)) -> (f32, f32, f32) {
+	let l = len(a);
+	if l == 0.0 {
+		(0.0, 0.0, 0.0)
+	}else {
+		(a.0 / l, a.1 / l, a.2 / l)
+	}
+}
+
+#[inline(always)]
 fn distance(a: (f32, f32, f32), b: (f32, f32, f32)) -> f32 {
 	len((a.0 - b.0, a.1 - b.1, a.2 - b.2))
 }
@@ -307,6 +317,27 @@ impl RayTracing {
 			Triangle { v_1: v010, v_2: v111, v_3: v110 },
 		];
 
+		// The hand-written triangles above are not wound consistently: some of
+		// them produce a normal that points *outwards*. Flip any face whose
+		// normal points away from the room interior (the centroid) so that
+		// normal_vector() always points into the room.
+		let interior = (width / 2.0, height / 2.0, depth / 2.0);
+		let tris = tris.into_iter().map(|tri| {
+			let center = (
+				(tri.v_1.0 + tri.v_2.0 + tri.v_3.0) / 3.0,
+				(tri.v_1.1 + tri.v_2.1 + tri.v_3.1) / 3.0,
+				(tri.v_1.2 + tri.v_2.2 + tri.v_3.2) / 3.0,
+			);
+			let n = tri.normal_vector();
+			let inward = (interior.0 - center.0, interior.1 - center.1, interior.2 - center.2);
+			if dot(n, inward) < 0.0 {
+				// swap two vertices to reverse the winding (and thus the normal)
+				Triangle { v_1: tri.v_1, v_2: tri.v_3, v_3: tri.v_2 }
+			}else {
+				tri
+			}
+		}).collect::<Vec<_>>();
+
 		Self {
 			sound_velocity: VELOCITY_OF_SOUND,
 			sample_rate,
@@ -417,6 +448,22 @@ impl RayTracing {
 				break;
 			}
 
+			// The ray grazes the face (or re-hits the very surface it just
+			// left): the intersection is numerically degenerate, stop instead
+			// of accumulating thousands of pointless micro-reflections.
+			if min_t < 1e-4 {
+				break;
+			}
+
+			// The ray always travels inside a convex room, so the wall normal it
+			// hits must point *towards* the interior (opposing the incoming
+			// direction). Triangle winding is not guaranteed to agree across all
+			// faces, so flip the computed normal when needed. This keeps the
+			// diffuse-hemisphere sampling and the reflection law consistent.
+			if dot(normal, dir) > 0.0 {
+				normal = (-normal.0, -normal.1, -normal.2);
+			}
+
 			current_pos = (
 				current_pos.0 + dir.0 * min_t,
 				current_pos.1 + dir.1 * min_t,
@@ -425,6 +472,8 @@ impl RayTracing {
 
 			accumulated_distance += min_t;
 
+			// Pick a random direction on the hemisphere facing the room interior
+			// (towards the flipped normal).
 			let random_dir = loop {
 				let random_theta = rand::random_range(0.0..=2.0 * PI);
 				let random_phi = rand::random_range(0.0..=PI);
@@ -447,27 +496,22 @@ impl RayTracing {
 				}
 			};
 
-			let randomed_normal = (
-				normal.0 * (1.0 - relative_roughness) + random_dir.0 * relative_roughness,
-				normal.1 * (1.0 - relative_roughness) + random_dir.1 * relative_roughness,
-				normal.2 * (1.0 - relative_roughness) + random_dir.2 * relative_roughness
-			);
-
-			let len_normal = len(randomed_normal);
-			
-			let randomed_normal = (
-				randomed_normal.0 / len_normal,
-				randomed_normal.1 / len_normal,
-				randomed_normal.2 / len_normal
-			);
-
-			let normal_dot_dir = dot(randomed_normal, dir);
-			
+			// Specular reflection off the (inward) surface normal, then blend
+			// towards the diffuse direction by the roughness. Normalize afterwards
+			// so `dir` stays a unit vector: `mt_alg`'s t is then a real distance,
+			// and accumulated_distance / time / decay stay physically correct.
+			let normal_dot_dir = dot(normal, dir);
 			dir = (
 				dir.0 - 2.0 * normal_dot_dir * normal.0,
 				dir.1 - 2.0 * normal_dot_dir * normal.1,
 				dir.2 - 2.0 * normal_dot_dir * normal.2
 			);
+
+			let dir = normalized((
+				dir.0 * (1.0 - relative_roughness) + random_dir.0 * relative_roughness,
+				dir.1 * (1.0 - relative_roughness) + random_dir.1 * relative_roughness,
+				dir.2 * (1.0 - relative_roughness) + random_dir.2 * relative_roughness
+			));
 
 			current_amp *= (1.0 - relative_factor).sqrt();
 			// an experiential phase shift formula
@@ -479,7 +523,16 @@ impl RayTracing {
 			let sound_to_listener = distance(current_pos, self.listener);
 			let decay_factor = - self.decay_factor * (accumulated_distance + sound_to_listener);
 			let decayed_amp = current_amp * decay_factor.exp();
-			if distance_to_listener <= self.hearable_distance {
+
+			// Only record an echo when the listener lies ahead of the reflection
+			// point along the outgoing ray (distance_to_line alone cannot tell
+			// whether the listener is in front of or behind the ray origin).
+			let to_listener = (
+				self.listener.0 - current_pos.0,
+				self.listener.1 - current_pos.1,
+				self.listener.2 - current_pos.2,
+			);
+			if distance_to_listener <= self.hearable_distance && dot(dir, to_listener) > 0.0 {
 				let time = (accumulated_distance + sound_to_listener) / self.sound_velocity;
 				if let Some(max_ir_len) = maxium_ir_len && time > max_ir_len {
 					break;
@@ -593,6 +646,41 @@ impl<T: GenIr + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for IrBased
 }
 
 mod tests {
+
+	#[test]
+	fn room_normals_point_inwards() {
+		// 10x10x10 房间，声源/听众在 (5,5,5)。验证每个面的法向指向房间内侧
+		// （法向与 面中心->内部一点 的方向点积 > 0）。
+		use super::*;
+		let rt = RayTracing::rectangular_room(10.0, 10.0, 10.0, 0.001, 3.0, 48000);
+		let interior = (5.0, 5.0, 5.0);
+
+		for face in &rt.shape {
+			let tri = &face.tri;
+			let center = (
+				(tri.v_1.0 + tri.v_2.0 + tri.v_3.0) / 3.0,
+				(tri.v_1.1 + tri.v_2.1 + tri.v_3.1) / 3.0,
+				(tri.v_1.2 + tri.v_2.2 + tri.v_3.2) / 3.0,
+			);
+			let n = tri.normal_vector();
+			// 从面中心指向房间内部点的向量
+			let inward = (interior.0 - center.0, interior.1 - center.1, interior.2 - center.2);
+			assert!(dot(n, inward) > 0.0, "face normal points outwards: n={n:?}");
+		}
+	}
+
+	#[test]
+	fn test_ir_has_peaks_and_early_reflection() {
+		use super::*;
+		let rt = RayTracing::rectangular_room(10.0, 10.0, 10.0, 0.001, 6.0, 48000);
+		let ir = rt.generate_ir(Some(48000));
+		// 归一化后峰值应为 1.0
+		let max = ir.iter().cloned().fold(0.0f32, f32::max);
+		assert!(max > 0.5, "IR peak too small: {max}");
+		// 有非零样本（房间反射产生回声）
+		let nonzero = ir.iter().filter(|&&x| x.abs() > 1e-4).count();
+		assert!(nonzero > 10, "IR has too few nonzero taps: {nonzero}");
+	}
 	#[test]
 	fn test_ray_tracing() {
 		use crate::{effects::reverb_ir_gen::RayTracing, tools::pcm_data::save_pcm_data};
