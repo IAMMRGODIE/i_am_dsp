@@ -76,14 +76,8 @@ use clack_extensions::{
 	state::{PluginState, PluginStateImpl}
 };
 use clack_plugin::{
-	entry::DefaultPluginFactory, 
-	events::{Event, Match, Pckn, 
-		event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamModEvent, ParamValueEvent, TransportEvent}, 
-		spaces::CoreEventSpace
-	}, 
-	plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, 
-	prelude::{OutputEvents, SampleType}, 
-	process::{Audio, Events, Process, ProcessStatus}
+	entry::DefaultPluginFactory, events::{Event, Match, Pckn, event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamModEvent, ParamValueEvent, TransportEvent, TransportFlags}, spaces::CoreEventSpace
+	}, plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, prelude::{OutputEvents, SampleType}, process::{Audio, Events, Process, ProcessStatus}
 };
 use crossbeam_channel::{Receiver, Sender};
 use i_am_dsp::{ProcessContext, ProcessInfos, prelude::{AtomicValue, ParamMap, SetValue, from_binary, to_binary}};
@@ -612,7 +606,7 @@ pub struct AudioProcessor<'a, P: Plugin> {
 	temp_buffer_2: Vec<bool>,
 	temp_buffer_3: Vec<[f32; 2]>,
 	sample_rate: usize,
-	last_timer: Option<u64>,
+	last_available_info: Option<ProcessInfos>,
 	events_buffer: Arc<RwLock<Vec<i_am_dsp::NoteEvent>>>,
 	event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
 	event_receiver: Receiver<(usize, i_am_dsp::NoteEvent)>,
@@ -712,7 +706,7 @@ fn convert_transport(inner: &TransportEvent, playing: bool, sample_rate: usize) 
 impl ClapContext {
 	fn from_clap(
 		sample_rate: usize,
-		last_timer: Option<u64>,
+		last_available_info: &mut Option<ProcessInfos>,
 		process: Process,
 		events_buffer: Arc<RwLock<Vec<i_am_dsp::NoteEvent>>>,
 		event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
@@ -720,13 +714,15 @@ impl ClapContext {
 		let info = if let Some(inner) = process.transport {
 			let info = convert_transport(
 				inner, 
-				last_timer != process.steady_time || process.steady_time.is_none(), 
+				inner.flags.contains(TransportFlags::IS_PLAYING), 
 				sample_rate
 			);
+			*last_available_info = Some(info.clone());
 			Some(info)
-		}else {
-			None
+		}else { 
+			last_available_info.as_mut().map(|info| info.clone()) 
 		};
+		
 		Self {
 			current_event: 0,
 			event_sender,
@@ -754,7 +750,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			temp_buffer_2: vec![],
 			temp_buffer_3: vec![],
 			sample_rate: config.sample_rate as usize,
-			last_timer: None,
+			last_available_info: None,
 			events_buffer: Default::default(),
 			event_sender,
 			event_receiver,
@@ -775,7 +771,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		self.temp_buffer_3.clear();
 		let mut context = Some(ClapContext::from_clap(
 			self.sample_rate, 
-			self.last_timer, 
+			&mut self.last_available_info, 
 			process,
 			self.events_buffer.clone(), 
 			self.event_sender.clone()
@@ -868,9 +864,10 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						Some(CoreEventSpace::Transport(param)) => {
 							let info = convert_transport(
 								param, 
-								self.last_timer != process.steady_time || process.steady_time.is_none(), 
+								param.flags.contains(TransportFlags::IS_PLAYING), 
 								self.sample_rate
 							);
+							self.last_available_info = Some(info.clone());
 							ctx.info = Some(info);
 						},
 						
@@ -954,8 +951,6 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		}
 
 		sync_params(events.output, &self.param_map);
-
-		self.last_timer = process.steady_time;
 
 		Ok(ProcessStatus::Continue)
 	}

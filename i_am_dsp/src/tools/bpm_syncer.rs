@@ -38,6 +38,11 @@ impl BpmSyncer {
 	pub fn reset(&mut self) {
 		self.current_signature = 0.0;
 	}
+
+	/// Set the current signature to the given value
+	pub fn set_current(&mut self, signature: f32) {
+		self.current_signature = signature;	
+	}
 }
 
 impl Parameters for BpmSyncer {
