@@ -37,7 +37,7 @@ ciborium = "0.2.2"
 hound = "3.5.1"
 parry3d = { version = "0.30.2", optional = true }
 egui_file = { version = "0.28", optional = true }
-wide = "1.6.1"
+wide = "1.7.0"
 # fft-convolver = "0.2.0"
 portable-atomic = { version = "1.15.0", features = ["float", "serde"] }
 bimap = "0.6.3"
