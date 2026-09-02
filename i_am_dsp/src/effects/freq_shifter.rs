@@ -145,8 +145,17 @@ pub struct IIRFreqShifter<const ORDER: usize, const CHANNELS: usize = 2> {
 	pub sample_rate: usize,
 	#[sub_param]
 	hilbert_transform: IIRHilbert<ORDER, CHANNELS>,
+	/// Unit carrier vector (rotated per sample instead of calling cos/sin,
+	/// which is a measurable cost at high per-voice counts).
 	#[skip]
-	phase_state: f32,
+	phase_real: f32,
+	#[skip]
+	phase_imag: f32,
+	/// Fixed unit rotation per sample.
+	#[skip]
+	step_c: f32,
+	#[skip]
+	step_s: f32,
 	#[range(min = -20000.0, max = 20000.0)]
 	shift_freq: f32,
 	#[sub_param]
@@ -160,10 +169,14 @@ impl<const ORDER: usize, const CHANNELS: usize> IIRFreqShifter<ORDER, CHANNELS> 
 	pub fn new(sample_rate: usize, shift_freq: f32) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
 		
+		let phase_inc = 2.0 * PI * shift_freq / sample_rate as f32;
 		Self {
 			sample_rate,
 			hilbert_transform: IIRHilbert::new(sample_rate),
-			phase_state: 0.0,
+			phase_real: 1.0,
+			phase_imag: 0.0,
+			step_c: phase_inc.cos(),
+			step_s: phase_inc.sin(),
 			shift_freq,
 			filter: Biquad::new(sample_rate)
 		}
@@ -187,7 +200,6 @@ impl<const ORDER: usize, const CHANNELS: usize> IIRFreqShifter<ORDER, CHANNELS> 
 
 impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for IIRFreqShifter<ORDER, CHANNELS> {
 	fn delay(&self) -> usize {
-		// IIR filters have negligible delay compared to FIR
 		0
 	}
 
@@ -202,21 +214,22 @@ impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for IIRFreqShif
 		}
 		self.filter.process(samples, other, ctx);
 
-		let phase_increment = 2.0 * PI * self.shift_freq / self.sample_rate as f32;
-		
-		// Apply Hilbert transform to get complex analytic signal
 		let complex_samples = self.hilbert_transform.apply_transform(samples);
-		
-		let phase_real = self.phase_state.cos();
-		let phase_imag = self.phase_state.sin();
 
-		// Frequency shift: multiply by e^(j*phase) and take real part
-		// output = real * cos(phase) - imag * sin(phase)
-		for (i, complex_sample) in complex_samples.iter().enumerate() {
-			samples[i] = complex_sample.real * phase_real - complex_sample.imag * phase_imag;
+		let c = self.phase_real;
+		let s = self.phase_imag;
+		self.phase_real = c * self.step_c - s * self.step_s;
+		self.phase_imag = c * self.step_s + s * self.step_c;
+		let mag2 = self.phase_real * self.phase_real + self.phase_imag * self.phase_imag;
+		if (mag2 - 1.0).abs() > 1e-4 {
+			let n = mag2.sqrt();
+			self.phase_real /= n;
+			self.phase_imag /= n;
 		}
 
-		self.phase_state = (self.phase_state + phase_increment) % (2.0 * PI);
+		for (i, complex_sample) in complex_samples.iter().enumerate() {
+			samples[i] = complex_sample.real * self.phase_real - complex_sample.imag * self.phase_imag;
+		}
 	}
 
 	#[cfg(feature = "real_time_demo")]
