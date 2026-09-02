@@ -700,6 +700,7 @@ fn convert_transport(inner: &TransportEvent, playing: bool, sample_rate: usize) 
 		inner.time_signature_denominator as usize
 	));
 	info.current_time = inner.song_pos_seconds.to_float() as f32;
+	info.trustable = true;
 	info
 }
 
