@@ -294,6 +294,15 @@ pub trait Plugin: Processor {
 	/// Get the plugin's parameter map.
 	fn param_map(&self) -> ParamMap;
 
+	/// The function to be called when host sends `reset` to plugin.
+	fn on_reset(&mut self) {}
+
+	/// The function to be called when host requests to start processing.
+	fn on_start_processing(&mut self) {}
+
+	/// The function to be called when host requests to stop processing.
+	fn on_stop_processing(&mut self) {}
+
 	/// Optional embedded font bytes (e.g. `include_bytes!(...)`). When set,
 	/// the GUI loads it as it opens so `Family::Name(...)` text renders with it.
 	const EMBEDDED_FONT: Option<&'static [u8]> = None;
@@ -765,6 +774,34 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			param_map: main_thread.processor.param_map(),
 			_phantom: std::marker::PhantomData,
 		})
+	}
+
+	fn reset(&mut self) {
+		self.temp_buffer_1.clear();
+		self.temp_buffer_2.clear();
+		self.temp_buffer_3.clear();
+		self.last_available_info = None;
+		let processor = unsafe { &mut *(self.processor as *mut P) };
+		processor.on_reset();
+	}
+
+	fn stop_processing(&mut self) {
+		self.temp_buffer_1.clear();
+		self.temp_buffer_2.clear();
+		self.temp_buffer_3.clear();
+		self.last_available_info = None;
+		let processor = unsafe { &mut *(self.processor as *mut P) };
+		processor.on_stop_processing();
+	}
+
+	fn start_processing(&mut self) -> Result<(), PluginError> {
+		self.temp_buffer_1.clear();
+		self.temp_buffer_2.clear();
+		self.temp_buffer_3.clear();
+		self.last_available_info = None;
+		let processor = unsafe { &mut *(self.processor as *mut P) };
+		processor.on_start_processing();
+		Ok(())
 	}
 
 	fn process(
