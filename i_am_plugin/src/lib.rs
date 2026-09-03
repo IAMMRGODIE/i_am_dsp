@@ -689,16 +689,24 @@ impl ProcessContext for ClapContext {
 	}
 }
 
-fn convert_transport(inner: &TransportEvent, playing: bool, sample_rate: usize) -> i_am_dsp::ProcessInfos {
+fn convert_transport(inner: &TransportEvent, sample_rate: usize) -> i_am_dsp::ProcessInfos {
 	let mut info = ProcessInfos::default();
 	info.sample_rate = sample_rate;
-	info.playing = playing;
-	info.tempo = Some(inner.tempo as f32);
-	info.current_bar_number = Some(inner.bar_number as f32);
-	info.time_signature = Some((
-		inner.time_signature_numerator as usize, 
-		inner.time_signature_denominator as usize
-	));
+	info.playing = inner.flags.contains(TransportFlags::IS_PLAYING);
+	info.tempo = if inner.flags.contains(TransportFlags::HAS_TEMPO) { Some(inner.tempo as f32) } else { None };
+	info.current_beat_number = if inner.flags.contains(TransportFlags::HAS_BEATS_TIMELINE) {  
+		Some(inner.song_pos_beats.to_float() as f32)
+	}else {
+		None
+	};
+	info.time_signature = if inner.flags.contains(TransportFlags::HAS_TIME_SIGNATURE) {
+		Some((
+			inner.time_signature_numerator as usize, 
+			inner.time_signature_denominator as usize
+		))
+	}else {
+		None
+	};
 	info.current_time = inner.song_pos_seconds.to_float() as f32;
 	info.trustable = true;
 	info
@@ -715,7 +723,6 @@ impl ClapContext {
 		let info = if let Some(inner) = process.transport {
 			let info = convert_transport(
 				inner, 
-				inner.flags.contains(TransportFlags::IS_PLAYING), 
 				sample_rate
 			);
 			*last_available_info = Some(info.clone());
@@ -865,7 +872,6 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						Some(CoreEventSpace::Transport(param)) => {
 							let info = convert_transport(
 								param, 
-								param.flags.contains(TransportFlags::IS_PLAYING), 
 								self.sample_rate
 							);
 							self.last_available_info = Some(info.clone());

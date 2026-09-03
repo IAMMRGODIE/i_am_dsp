@@ -297,9 +297,9 @@ pub struct ProcessInfos {
 	pub tempo: Option<f32>,
 	/// The time signature of the process.
 	/// 
-	/// The trunc part is current bar number. 
-	/// the fract part is how long have passed in the current bar(in percentage).
-	pub current_bar_number: Option<f32>,
+	/// The trunc part is current beat number. 
+	/// the fract part is how long have passed in the current beat(in percentage).
+	pub current_beat_number: Option<f32>,
 	/// The time signature of the process.
 	/// 
 	/// The first element is the numerator, the second element is the denominator.
