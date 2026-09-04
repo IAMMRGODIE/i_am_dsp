@@ -4,6 +4,7 @@
 
 ## TODO
 
+- [ ] 升级到 clack 2.0
 - [ ] 完善 README
 - [ ] 完善 example
 - [ ] 视觉效果器
@@ -17,7 +18,7 @@
 如果你想要编译 CLAP 插件的话，你可以用 `i_am_plugin` 这个库。
 
 但是因为开发方便，目前 `i_am_plugin` 里的 `Cargo.toml` 写的是本地的依赖，你需要手动将 `clack` 相关的依赖换成
-[这里](https://github.com/prokopyl/clack)的对应库，以及将 `iced_baseview` 换成[这里](https://github.com/IAMMRGODIE/iced_baseview)的对应实现
+[这里](https://github.com/prokopyl/clack)的对应库（用的是 57e89b3 这个 commit，后续 clack 有破坏性变更因此升级还在日程中），以及将 `iced_baseview` 换成[这里](https://github.com/IAMMRGODIE/iced_baseview)的对应实现
 
 然后你需要为你的插件实现 `Plugin` trait，之后使用 `export_clap` 这个宏创建 entry，然后就可以愉快 
 `cargo build --release` 了，把输出的库文件换成 `.clap` 后缀名放到 CLAP 要求的地方应该就能使了 
