@@ -2032,7 +2032,7 @@ fn simulate_midi(
 				};
 				if key_holding.insert(note) {
 					// println!("semi-note on: {}", note);
-					ctx.send_event(NoteEvent::NoteOn { time: 0, channel: 0, note, velocity: 1.0 });
+					ctx.send_event(NoteEvent::NoteOn { channel: 0, note, velocity: 1.0 });
 					// dbg!("q");
 				}
 			}else if input.key_released(*key) {
@@ -2043,7 +2043,7 @@ fn simulate_midi(
 				};
 				if key_holding.remove(&note) {
 					// println!("semi-note off: {}", note);
-					ctx.send_event(NoteEvent::NoteOff { time: 0, channel: 0, note, velocity: 1.0 });
+					ctx.send_event(NoteEvent::NoteOff { channel: 0, note, velocity: 1.0 });
 				}
 			}
 		}

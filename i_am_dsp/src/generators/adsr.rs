@@ -406,7 +406,6 @@ impl<
 					note,
 					velocity,
 					channel,
-					..
 				} => {
 					let note = Note { 
 						// channel: *channel, 

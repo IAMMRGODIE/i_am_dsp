@@ -323,8 +323,6 @@ impl ProcessInfos {
 pub enum NoteEvent {
 	/// Note on event.
 	NoteOn {
-		/// the time of the event, in samples.
-		time: usize,
 		/// the channel of the event.
 		/// 
 		/// in 0..16 for most cases.
@@ -340,8 +338,6 @@ pub enum NoteEvent {
 	},
 	/// Note off event.
 	NoteOff {
-		/// the time of the event, in samples.
-		time: usize,
 		/// the channel of the event.
 		/// 
 		/// in 0..16 for most cases.
@@ -359,8 +355,6 @@ pub enum NoteEvent {
 	/// 
 	/// If you receive this event, you should stop the note attached to it immediately.
 	Stop {
-		/// the time of the event, in samples.
-		time: usize,
 		/// the channel of the event.
 		channel: u8,
 		/// The pitch of the note.
@@ -377,8 +371,6 @@ pub enum NoteEvent {
 	},
 	/// Midi CC event.
 	MidiCC {
-		/// the time of the event, in samples.
-		time: usize,
 		/// the channel of the event.
 		/// 
 		/// in 0..16 for most cases.

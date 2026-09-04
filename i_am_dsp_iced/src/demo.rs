@@ -206,7 +206,7 @@ impl<P: Processor> Demo<P> {
 
 					let note = *NoteMap.get(&code)?;
 
-					Some(P::Message::from_note_event(NoteEvent::NoteOn { time: 0, channel: 0, note, velocity: 1.0 }))
+					Some(P::Message::from_note_event(NoteEvent::NoteOn { channel: 0, note, velocity: 1.0 }))
 				},
 				iced::keyboard::Event::KeyReleased { physical_key, .. } => {
 					let Physical::Code(code) = physical_key else {
@@ -215,7 +215,7 @@ impl<P: Processor> Demo<P> {
 
 					let note = *NoteMap.get(&code)?;
 
-					Some(P::Message::from_note_event(NoteEvent::NoteOff { time: 0, channel: 0, note, velocity: 0.0 }))
+					Some(P::Message::from_note_event(NoteEvent::NoteOff { channel: 0, note, velocity: 0.0 }))
 				},
 				_ => None,
 			}

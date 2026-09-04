@@ -76,7 +76,7 @@ use clack_extensions::{
 	state::{PluginState, PluginStateImpl}
 };
 use clack_plugin::{
-	entry::DefaultPluginFactory, events::{Event, Match, Pckn, event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamModEvent, ParamValueEvent, TransportEvent, TransportFlags}, spaces::CoreEventSpace
+	entry::DefaultPluginFactory, events::{Match, Pckn, event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamModEvent, ParamValueEvent, TransportEvent, TransportFlags}, spaces::CoreEventSpace
 	}, plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, prelude::{OutputEvents, SampleType}, process::{Audio, Events, Process, ProcessStatus}
 };
 use crossbeam_channel::{Receiver, Sender};
@@ -868,7 +868,6 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 					match event.as_core_event() {
 						Some(CoreEventSpace::NoteOn(note)) => {
 							events_buffer.push(i_am_dsp::NoteEvent::NoteOn { 
-								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								velocity: note.velocity() as f32, 
@@ -876,7 +875,6 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						},
 						Some(CoreEventSpace::NoteOff(note)) => {
 							events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
-								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								velocity: note.velocity() as f32, 
@@ -887,7 +885,6 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 								events_buffer.push(i_am_dsp::NoteEvent::ImmediateStop); 
 							}else {
 								events_buffer.push(i_am_dsp::NoteEvent::Stop { 
-									time: note.time() as usize, 
 									channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 									note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								});
@@ -895,7 +892,6 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						},
 						Some(CoreEventSpace::NoteEnd(note)) => {
 							events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
-								time: note.time() as usize, 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								velocity: 1.0, 
@@ -1006,9 +1002,9 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 
 fn note_event_to_clap<'a>(to_send: &mut OutputEvents<'a>, offset: usize, note_event: i_am_dsp::NoteEvent) -> Result<(), PluginError> {
 	match note_event {
-		i_am_dsp::NoteEvent::NoteOn { time, channel, note, velocity } => {
+		i_am_dsp::NoteEvent::NoteOn { channel, note, velocity } => {
 			to_send.try_push(NoteOnEvent::new(
-				time as u32,
+				offset as u32,
 				Pckn::new(Match::All, channel as u16, note as u16, Match::All),
 				velocity as f64,
 			))?;
@@ -1020,16 +1016,16 @@ fn note_event_to_clap<'a>(to_send: &mut OutputEvents<'a>, offset: usize, note_ev
 			))?;
 		}
 		i_am_dsp::NoteEvent::MidiCC { .. } => {},
-		i_am_dsp::NoteEvent::NoteOff { time, channel, note, velocity } => {
+		i_am_dsp::NoteEvent::NoteOff { channel, note, velocity } => {
 			to_send.try_push(NoteOffEvent::new(
-				time as u32,
+				offset as u32,
 				Pckn::new(Match::All, channel as u16, note as u16, Match::All),
 				velocity as f64,
 			))?;
 		},
-		i_am_dsp::NoteEvent::Stop { time, channel, note } => {
+		i_am_dsp::NoteEvent::Stop { channel, note } => {
 			to_send.try_push(NoteOffEvent::new(
-				time as u32,
+				offset as u32,
 				Pckn::new(Match::All, channel as u16, note as u16, Match::All),
 				0.0,
 			))?;
