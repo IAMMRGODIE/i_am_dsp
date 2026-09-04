@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clack-extensions = { path = "../../clack/extensions", features = [
+clack-extensions = { version = "0.1.1", features = [
 	"gui", "clack-plugin", "raw-window-handle_05", "audio-ports",
 	"state", "params", "clap-wrapper", "latency", "note-ports"
 ] }
-clack-plugin = { path = "../../clack/plugin" }
+clack-plugin = "0.1.1"
 iced_baseview = { path = "../../iced_baseview" }
 i_am_dsp = { workspace = true }
 i_am_dsp_iced = { workspace = true }
