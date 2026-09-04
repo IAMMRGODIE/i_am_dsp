@@ -4,6 +4,7 @@
 
 ## TODO
 
+- [ ] 用 crates.io 上的 `iced_baseview` 替换本地的 `iced_baseview` 依赖
 - [ ] 完善 README
 - [ ] 完善 example
 - [ ] 视觉效果器
