@@ -88,6 +88,11 @@ impl<T: Default> RingBuffer<T> {
 		self.current_pos
 	}
 
+	/// Sets the current position of the buffer.
+	pub fn set_current_pos(&mut self, pos: usize) {
+		self.current_pos = pos % self.capacity;
+	}
+
 	/// Returns a reference to the underlying buffer.
 	/// 
 	/// Note: This buffer's start position may not be same with [`Self::current_pos`]
