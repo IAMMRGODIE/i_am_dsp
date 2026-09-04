@@ -144,6 +144,7 @@ pub const PENTATONIC_MINOR: ScaleTuning<5> = ScaleTuning::new([1.0, 6.0 / 5.0, 4
 /// A struct to hold the state of a playing note
 pub struct PlayingNote<const CHANNELS: usize> {
 	pub(crate) note: Note,
+	pub(crate) channel: u8,
 	pub(crate) count: usize,
 	pub(crate) release: Option<(f32, usize)>,
 	pub(crate) phase_start: Vec<[f32; CHANNELS]>,
@@ -404,7 +405,7 @@ impl<
 				NoteEvent::NoteOn {
 					note,
 					velocity,
-					// channel,
+					channel,
 					..
 				} => {
 					let note = Note { 
@@ -445,6 +446,7 @@ impl<
 						last_phase: vec![0.0; self.unisons],
 						last_time: 0.0,
 						current_pitch_factor: 1.0,
+						channel: *channel
 					};
 					self.note_playing.entry(playing_note.note.note).or_default().push(playing_note);
 				}
@@ -485,6 +487,10 @@ impl<
 				let gain = if let Some((release, release_count)) = playing_note.release {
 					let time = (playing_note.count - release_count) as f32 / sample_rate * 1000.0;
 					let Some(gain) = self.sample_release_time(time) else {
+						process_context.send_event(NoteEvent::NoteEnd { 
+							channel: playing_note.channel, 
+							note: playing_note.note() 
+						});
 						return false;
 					};
 					gain * playing_note.note.velocity * release

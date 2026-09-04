@@ -366,6 +366,15 @@ pub enum NoteEvent {
 		/// The pitch of the note.
 		note: usize,
 	},
+	/// Note end event.
+	/// 
+	/// This usually to be sent to the host by the plugin when the note is finished playing.
+	NoteEnd {
+		/// the channel of the event.
+		channel: u8,
+		/// The pitch of the note.
+		note: usize,
+	},
 	/// Midi CC event.
 	MidiCC {
 		/// the time of the event, in samples.

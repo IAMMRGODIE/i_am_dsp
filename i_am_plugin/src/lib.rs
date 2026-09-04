@@ -883,11 +883,15 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 							});
 						},
 						Some(CoreEventSpace::NoteChoke(note)) => {
-							events_buffer.push(i_am_dsp::NoteEvent::Stop { 
-								time: note.time() as usize, 
-								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
-								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
-							});
+							if note.pckn().key.is_all() {
+								events_buffer.push(i_am_dsp::NoteEvent::ImmediateStop); 
+							}else {
+								events_buffer.push(i_am_dsp::NoteEvent::Stop { 
+									time: note.time() as usize, 
+									channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
+									note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
+								});
+							}
 						},
 						Some(CoreEventSpace::NoteEnd(note)) => {
 							events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
@@ -991,7 +995,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		}
 
 		for (offset, event) in self.event_receiver.try_iter() {
-			note_event_to_clap(events.output, offset + process.steady_time.unwrap_or_default() as usize, event)?;
+			note_event_to_clap(events.output, offset, event)?;
 		}
 
 		sync_params(events.output, &self.param_map);
@@ -1000,7 +1004,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 	}
 }
 
-fn note_event_to_clap<'a>(to_send: &mut OutputEvents<'a>, time_stamp: usize, note_event: i_am_dsp::NoteEvent) -> Result<(), PluginError> {
+fn note_event_to_clap<'a>(to_send: &mut OutputEvents<'a>, offset: usize, note_event: i_am_dsp::NoteEvent) -> Result<(), PluginError> {
 	match note_event {
 		i_am_dsp::NoteEvent::NoteOn { time, channel, note, velocity } => {
 			to_send.try_push(NoteOnEvent::new(
@@ -1011,7 +1015,7 @@ fn note_event_to_clap<'a>(to_send: &mut OutputEvents<'a>, time_stamp: usize, not
 		},
 		i_am_dsp::NoteEvent::ImmediateStop => {
 			to_send.try_push(NoteChokeEvent::new(
-				time_stamp as u32,
+				offset as u32,
 				Pckn::new(Match::All, Match::All, Match::All, Match::All),
 			))?;
 		}
@@ -1026,6 +1030,13 @@ fn note_event_to_clap<'a>(to_send: &mut OutputEvents<'a>, time_stamp: usize, not
 		i_am_dsp::NoteEvent::Stop { time, channel, note } => {
 			to_send.try_push(NoteOffEvent::new(
 				time as u32,
+				Pckn::new(Match::All, channel as u16, note as u16, Match::All),
+				0.0,
+			))?;
+		},
+		i_am_dsp::NoteEvent::NoteEnd { channel, note } => {
+			to_send.try_push(NoteOffEvent::new(
+				offset as u32,
 				Pckn::new(Match::All, channel as u16, note as u16, Match::All),
 				0.0,
 			))?;
