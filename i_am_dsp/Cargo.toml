@@ -26,6 +26,7 @@ rand_distr = "0.6.0"
 # rayon = "1.11.0"
 rhai = { version = "1.25.1", features = ["f32_float", "sync", "only_i32"], optional = true }
 rhai-rand = { version = "0.2.0", optional = true }
+realfft = "3.5.0"
 rubato = "5.0.0"
 rustfft = "6.4.1"
 symphonia = "0.6.1"
