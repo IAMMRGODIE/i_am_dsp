@@ -62,11 +62,37 @@ pub fn enable_flush_to_zero() {
 	}
 }
 
+/// Turns on flush to zero and denormals are zero for the calling thread.
+///
+/// On this target the mode lives in the floating point control register, and
+/// setting it also makes denormal inputs read as zero, which is the same
+/// behaviour as the x86 control register above.
+#[cfg(target_arch = "aarch64")]
+pub fn enable_flush_to_zero() {
+	/// Flush to zero.
+	const FLUSH_TO_ZERO: u64 = 1 << 24;
+
+	unsafe {
+		let mut control: u64 = 0;
+		core::arch::asm!(
+			"mrs {}, fpcr",
+			out(reg) control,
+			options(nomem, nostack, preserves_flags)
+		);
+		control |= FLUSH_TO_ZERO;
+		core::arch::asm!(
+			"msr fpcr, {}",
+			in(reg) control,
+			options(nomem, nostack, preserves_flags)
+		);
+	}
+}
+
 /// Turns on flush to zero for the calling thread.
 ///
 /// This target has no control register this library knows about, so nothing
 /// has to be done: the behaviour is defined by the platform.
-#[cfg(not(target_arch = "x86_64"))]
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 pub fn enable_flush_to_zero() {}
 
 // /// re-export lazy_static for derive macro
@@ -425,6 +451,22 @@ pub enum NoteEvent {
 	/// 
 	/// If you receive this event, you should stop all sound immediately.
 	ImmediateStop,
+}
+
+#[cfg(all(test, any(target_arch = "x86_64", target_arch = "aarch64")))]
+mod flush_to_zero_tests {
+	use super::enable_flush_to_zero;
+
+	#[test]
+	fn subnormals_are_flushed_to_zero() {
+		enable_flush_to_zero();
+
+		// A plain product of constants would be folded at compile time, and the compiler does not
+		// model the control register, so both operands go through an opaque call.
+		let half_of_the_smallest_normal = std::hint::black_box(f32::MIN_POSITIVE) * std::hint::black_box(0.5);
+
+		assert_eq!(half_of_the_smallest_normal, 0.0, "flush to zero is not enabled");
+	}
 }
 
 const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];

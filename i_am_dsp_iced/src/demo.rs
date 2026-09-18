@@ -124,6 +124,10 @@ impl<P: Processor> Demo<P> {
 		let stream = device.build_output_stream(
 			config,
 			move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+				// Reverb and convolution tails decay through the subnormal range, where x86
+				// arithmetic is an order of magnitude slower. This is the audio thread, so the
+				// control register has to be set here.
+				i_am_dsp::enable_flush_to_zero();
 				loop {
 					match receiver.try_recv() {
 						Ok(message) => {

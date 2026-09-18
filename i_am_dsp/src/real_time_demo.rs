@@ -3,6 +3,9 @@
 //! To start with, see [`DspDemo`]
 
 use crate::{prelude::*, tools::{ring_buffer::RingBuffer, ui_tools::gain_ui}};
+
+#[cfg(feature = "string")]
+use crate::generators::string_engine::StringInstrument;
 use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 #[cfg(feature = "standalone")]
@@ -144,6 +147,16 @@ lazy_static::lazy_static! {
 				})
 			)
 		];
+
+		#[cfg(feature = "string")]
+		{
+			list.push((
+				"Modelled Strings".to_string(),
+				Box::new(|sample_rate| {
+					Box::new(StringInstrument::new(sample_rate)) as Box<dyn Generator>
+				})
+			));
+		}
 
 		#[cfg(feature = "rhai")]
 		{

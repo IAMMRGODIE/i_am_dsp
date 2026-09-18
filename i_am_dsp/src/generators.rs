@@ -7,3 +7,6 @@ pub mod adsr;
 pub mod additive;
 pub mod stereo_generator;
 pub mod string_generator;
+
+#[cfg(feature = "string")]
+pub mod string_engine;

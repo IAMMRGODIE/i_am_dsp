@@ -1,0 +1,10 @@
+[package]
+name = "i_am_string"
+version = "0.1.0"
+edition = "2024"
+description = "Physical modelling of plucked, struck and bowed strings."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+
+[dev-dependencies]

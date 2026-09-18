@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["standalone"]
+default = ["standalone", "string"]
+# Physical string modelling: plucked, struck and bowed.
+string = ["dep:i_am_string"]
 room_gen = ["parry3d"]
 sin_table = []
 standalone = ["eframe", "real_time_demo", "cpal"]
@@ -13,6 +15,7 @@ rhai = ["dep:rhai", "dep:rhai-rand"]
 
 [dependencies]
 i_am_dsp_derive.workspace = true
+i_am_string = { workspace = true, optional = true }
 
 anyhow = { version = "1.0.104", optional = true }
 bitvec = "1.1.1"

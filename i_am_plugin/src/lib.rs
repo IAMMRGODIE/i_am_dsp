@@ -839,6 +839,9 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		mut audio: Audio,
 		events: Events,
 	) -> Result<ProcessStatus, PluginError> {
+		// The host owns this thread, so it may not have flushed subnormals for us: a decaying
+		// reverb or convolution tail would then run an order of magnitude slower on x86.
+		i_am_dsp::enable_flush_to_zero();
 		// SAFETY: `activate` stored the address of the `P` owned by the still-alive and
 		// pinned `PluginMain`, so the pointer is valid and the value is never moved.
 		let processor = unsafe { &mut *(self.processor as *mut P) };
