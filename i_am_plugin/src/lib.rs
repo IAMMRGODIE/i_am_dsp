@@ -61,7 +61,7 @@
 //! Finally, you can build the plugin with `cargo build --release` and rename the suffix to `.clap`.
 //! Then you should be able to load the plugin in your DAW.
 
-use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::from_raw_parts, sync::{Arc, RwLock}};
+use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::from_raw_parts};
 
 use clack_extensions::{
 	audio_ports::{AudioPortFlags, AudioPortInfo, AudioPortType, PluginAudioPorts, PluginAudioPortsImpl}, 
@@ -415,6 +415,8 @@ pub struct PluginMain<P: Plugin> {
 // 	}
 // }
 
+// SAFETY: the handle is a copy of the parent window handle the host handed us in
+// `set_parent`, and it stays valid for as long as the host keeps that window open.
 unsafe impl<P: Plugin> HasRawWindowHandle for PluginMain<P> {
 	fn raw_window_handle(&self) -> RawWindowHandle {
 		self.parent.expect("No parent window provided")
@@ -609,6 +611,17 @@ where
 /// A struct to hold a [`Processor`] for the plugin audio thread.
 /// 
 /// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
+/// 
+/// # Threading
+/// 
+/// The processor itself is owned by [`PluginMain`] on the main thread; this struct only
+/// keeps its address, stored as an `usize` because [`AudioProcessor`] has to be `Send`
+/// while raw pointers are not.
+/// 
+/// While the audio thread uses `&mut P` here, the main thread can still reach the same
+/// `P` through `&P` (`on_message`, `delay`, `synced_view`, …) or, when loading state,
+/// through `&mut P`. Those references overlap, so a plugin must share state between the
+/// two sides only through atomics or other interior mutability.
 pub struct AudioProcessor<'a, P: Plugin> {
 	processor: usize,
 	temp_buffer_1: Vec<&'a [usize]>,
@@ -616,7 +629,6 @@ pub struct AudioProcessor<'a, P: Plugin> {
 	temp_buffer_3: Vec<[f32; 2]>,
 	sample_rate: usize,
 	last_available_info: Option<ProcessInfos>,
-	events_buffer: Arc<RwLock<Vec<i_am_dsp::NoteEvent>>>,
 	event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
 	event_receiver: Receiver<(usize, i_am_dsp::NoteEvent)>,
 	param_map: ParamMap,
@@ -649,7 +661,12 @@ impl<P: Plugin> PluginMainThread<'_, ()> for PluginMain<P> {
 /// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
 pub struct ClapContext {
 	current_event: usize,
-	events_buffer: Arc<RwLock<Vec<i_am_dsp::NoteEvent>>>,
+	/// The note events of the current process block.
+	///
+	/// They are produced and consumed exclusively by the audio thread inside a
+	/// single call to [`AudioProcessor::process`], so the context owns them
+	/// directly instead of sharing them behind a lock.
+	events: Vec<i_am_dsp::NoteEvent>,
 	info: Option<ProcessInfos>,
 	current_sample: usize,
 	event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
@@ -665,20 +682,15 @@ impl ProcessContext for ClapContext {
 	}
 
 	fn events(&self) -> &[i_am_dsp::NoteEvent] {
-		let events_buffer = self.events_buffer.try_read().expect("cannot read events");
-		unsafe {
-			from_raw_parts(events_buffer.as_ptr(), events_buffer.len())
-		}
+		&self.events
 	}
 
 	fn next_event(&mut self) -> Option<i_am_dsp::NoteEvent> {
-		let events_buffer = self.events_buffer.try_read().expect("cannot read events");
-
-		if self.current_event >= events_buffer.len() {
+		if self.current_event >= self.events.len() {
 			return None;
 		}
 
-		let event = events_buffer[self.current_event].clone();
+		let event = self.events[self.current_event].clone();
 		self.current_event += 1;
 		Some(event)
 	}
@@ -693,8 +705,7 @@ impl ProcessContext for ClapContext {
 
 	fn clear_events(&mut self) {
 		self.current_event = 0;
-		let mut events_buffer = self.events_buffer.try_write().expect("cannot read events");
-		events_buffer.clear();
+		self.events.clear();
 	}
 }
 
@@ -726,7 +737,6 @@ impl ClapContext {
 		sample_rate: usize,
 		last_available_info: &mut Option<ProcessInfos>,
 		process: Process,
-		events_buffer: Arc<RwLock<Vec<i_am_dsp::NoteEvent>>>,
 		event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
 	) -> Self {
 		let info = if let Some(inner) = process.transport {
@@ -744,7 +754,7 @@ impl ClapContext {
 			current_event: 0,
 			event_sender,
 			// process, 
-			events_buffer,
+			events: Vec::new(),
 			current_sample: 0,
 			info 
 		}
@@ -768,7 +778,6 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			temp_buffer_3: vec![],
 			sample_rate: config.sample_rate as usize,
 			last_available_info: None,
-			events_buffer: Default::default(),
 			event_sender,
 			event_receiver,
 			param_map: main_thread.processor.param_map(),
@@ -781,6 +790,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		self.temp_buffer_2.clear();
 		self.temp_buffer_3.clear();
 		self.last_available_info = None;
+		// SAFETY: `activate` stored the address of the `P` owned by the still-alive and
+		// pinned `PluginMain`, so the pointer is valid and the value is never moved.
 		let processor = unsafe { &mut *(self.processor as *mut P) };
 		processor.on_reset();
 	}
@@ -790,6 +801,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		self.temp_buffer_2.clear();
 		self.temp_buffer_3.clear();
 		self.last_available_info = None;
+		// SAFETY: `activate` stored the address of the `P` owned by the still-alive and
+		// pinned `PluginMain`, so the pointer is valid and the value is never moved.
 		let processor = unsafe { &mut *(self.processor as *mut P) };
 		processor.on_stop_processing();
 	}
@@ -799,6 +812,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		self.temp_buffer_2.clear();
 		self.temp_buffer_3.clear();
 		self.last_available_info = None;
+		// SAFETY: `activate` stored the address of the `P` owned by the still-alive and
+		// pinned `PluginMain`, so the pointer is valid and the value is never moved.
 		let processor = unsafe { &mut *(self.processor as *mut P) };
 		processor.on_start_processing();
 		Ok(())
@@ -810,6 +825,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		mut audio: Audio,
 		events: Events,
 	) -> Result<ProcessStatus, PluginError> {
+		// SAFETY: `activate` stored the address of the `P` owned by the still-alive and
+		// pinned `PluginMain`, so the pointer is valid and the value is never moved.
 		let processor = unsafe { &mut *(self.processor as *mut P) };
 		self.temp_buffer_1.clear();
 		self.temp_buffer_2.clear();
@@ -818,7 +835,6 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			self.sample_rate, 
 			&mut self.last_available_info, 
 			process,
-			self.events_buffer.clone(), 
 			self.event_sender.clone()
 		));
 		let mut output_temp = [0.0; 2];
@@ -830,22 +846,26 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		for input_port in input_ports {
 			match input_port.channels()? {
 				SampleType::F32(inner) | SampleType::Both(inner, _) => {
-					let data_len = inner.frames_count() as usize;
+					// SAFETY: `raw_data()` returns the host's array of per-channel sample
+					// pointers, so its length is the port's *channel count*, not the block's
+					// frame count. A `*mut f32` and an `usize` have the same size and
+					// alignment, so viewing the pointer array as a `&[usize]` of exactly
+					// `raw_data().len()` elements stays in bounds.
+					let channel_count = inner.raw_data().len();
 					let ptr = inner.raw_data().as_ptr() as *const usize;
 					unsafe {
-						self.temp_buffer_1.push(from_raw_parts(ptr, data_len));
+						self.temp_buffer_1.push(from_raw_parts(ptr, channel_count));
 					}
 					self.temp_buffer_2.push(false);
-					// min_buffer_size = min_buffer_size.min(data_len);
 				},
 				SampleType::F64(inner) => {
-					let data_len = inner.frames_count() as usize;
+					// SAFETY: see the F32 arm above.
+					let channel_count = inner.raw_data().len();
 					let ptr = inner.raw_data().as_ptr() as *const usize;
 					unsafe {
-						self.temp_buffer_1.push(from_raw_parts(ptr, data_len));
+						self.temp_buffer_1.push(from_raw_parts(ptr, channel_count));
 					}
 					self.temp_buffer_2.push(true);
-					// min_buffer_size = min_buffer_size.min(data_len);
 				}
 			}
 		}
@@ -859,22 +879,18 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 
 		for i in 0..buffer_size {
 			if i >= next_event_sample && let (Some(batch), Some(ctx)) = (bacthced.next(), &mut context) {
-				let mut events_buffer = ctx.events_buffer
-					.try_write()
-					.map_err(|_| PluginError::Message("cannot read events"))?;
-
-				events_buffer.clear();
+				ctx.events.clear();
 				for event in batch.events() {
 					match event.as_core_event() {
 						Some(CoreEventSpace::NoteOn(note)) => {
-							events_buffer.push(i_am_dsp::NoteEvent::NoteOn { 
+							ctx.events.push(i_am_dsp::NoteEvent::NoteOn { 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								velocity: note.velocity() as f32, 
 							});
 						},
 						Some(CoreEventSpace::NoteOff(note)) => {
-							events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
+							ctx.events.push(i_am_dsp::NoteEvent::NoteOff { 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								velocity: note.velocity() as f32, 
@@ -882,16 +898,16 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						},
 						Some(CoreEventSpace::NoteChoke(note)) => {
 							if note.pckn().key.is_all() {
-								events_buffer.push(i_am_dsp::NoteEvent::ImmediateStop); 
+								ctx.events.push(i_am_dsp::NoteEvent::ImmediateStop); 
 							}else {
-								events_buffer.push(i_am_dsp::NoteEvent::Stop { 
+								ctx.events.push(i_am_dsp::NoteEvent::Stop { 
 									channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 									note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								});
 							}
 						},
 						Some(CoreEventSpace::NoteEnd(note)) => {
-							events_buffer.push(i_am_dsp::NoteEvent::NoteOff { 
+							ctx.events.push(i_am_dsp::NoteEvent::NoteOff { 
 								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
 								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
 								velocity: 1.0, 
@@ -932,6 +948,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						continue;
 					}
 
+					// SAFETY: `buffer[channel]` is a per-channel sample pointer provided by the
+					// host, valid for `buffer_size` samples, and `i` is inside this block.
 					unsafe {
 						if self.temp_buffer_2[j] {
 							let ptr = buffer[channel] as *const f64;
@@ -969,6 +987,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 							if channel >= 2 {
 								break;
 							}
+							// SAFETY: `ptr` points to a host-provided output channel buffer of
+							// `buffer_size` samples, and `i` indexes within this block.
 							unsafe {
 								let to_write = ptr.add(i);
 								*to_write = output_temp[channel];
@@ -980,6 +1000,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 							if channel >= 2 {
 								break;
 							}
+							// SAFETY: `ptr` points to a host-provided output channel buffer of
+							// `buffer_size` samples, and `i` indexes within this block.
 							unsafe {
 								let to_write = ptr.add(i);
 								*to_write = output_temp[channel] as f64;
@@ -1047,6 +1069,8 @@ impl<P: Plugin> PluginStateImpl for PluginMain<P> {
 		let mut buf = vec![];
 		input.read_to_end(&mut buf)?;
 		let params: Vec<i_am_dsp::prelude::Parameter> = from_binary(buf)?;
+		// SAFETY: the processor is pinned inside the `PluginMain` box for as long as the
+		// plugin lives, and we never move `P` out of it, so unwrapping the pin is sound.
 		let processor = unsafe {
 			self.processor.as_mut().get_unchecked_mut()
 		};
@@ -1451,12 +1475,12 @@ impl<P: Plugin> PluginFactoryAsVST3Impl for ClapPlugin<P>
 impl<P: PluginAuExt> PluginFactoryAsAUv2Impl for ClapPlugin<P> {
 	fn get_auv2_info(&self, index: u32) -> Option<clack_extensions::clap_wrapper::auv2::PluginInfoAsAUv2> {
 		if index == 0 {
-			unsafe {
-				Some(clack_extensions::clap_wrapper::auv2::PluginInfoAsAUv2::new(
-					str::from_utf8_unchecked(&P::AU_TYPE), 
-					str::from_utf8_unchecked(&P::AU_SUBTYPE)
-				))
-			}
+			// A four-character code is not guaranteed to be valid UTF-8, so this
+			// has to be a checked conversion rather than `from_utf8_unchecked`.
+			Some(clack_extensions::clap_wrapper::auv2::PluginInfoAsAUv2::new(
+				str::from_utf8(&P::AU_TYPE).expect("`AU_TYPE` must be valid UTF-8"),
+				str::from_utf8(&P::AU_SUBTYPE).expect("`AU_SUBTYPE` must be valid UTF-8")
+			))
 		}else {
 			None
 		}
