@@ -5,6 +5,7 @@ members = [
 	"i_am_dsp", 
 	"i_am_dsp_iced", 
 	"i_am_plugin", "plugin_example", 
+	"i_am_bundler",
 ]
 
 [workspace.dependencies]

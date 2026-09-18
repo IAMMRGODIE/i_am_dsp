@@ -1,0 +1,3 @@
+# "cargo bundle ..." is a shortcut for "cargo run -p i_am_bundler -- ...".
+[alias]
+bundle = "run --package i_am_bundler --"

@@ -260,8 +260,9 @@ impl GenFreqInfo for RhaiFreqGen {
 			if self.allow_load_code {
 				ui.input(|input| {
 					path = input.raw.dropped_files.first().map(|inner| {
-						inner.path.clone()
-					}).unwrap_or_default();
+						// egui 0.36 made `DroppedFile` a trait: the path is a method now.
+						inner.path().to_path_buf()
+					});
 				});
 			}
 
@@ -275,7 +276,10 @@ impl GenFreqInfo for RhaiFreqGen {
 						path.extension() == ext
 					}
 				});
-				let mut dialog = FileDialog::open_file(self.opened_file.clone()).show_files_filter(filter);
+				let mut dialog = FileDialog::open_file().show_files_filter(filter);
+				if let Some(opened) = &self.opened_file {
+					dialog = dialog.initial_path(opened.parent().unwrap_or(opened));
+				}
 				dialog.open();
 
 				self.dialog = Some(dialog);

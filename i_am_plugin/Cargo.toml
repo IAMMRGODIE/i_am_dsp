@@ -3,6 +3,13 @@ name = "i_am_plugin"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+# Exports the VST3 entry points (GetPluginFactory, InitDll, ...) from the plug-in
+# library by linking clap-wrapper and the VST3 SDK into it.
+# Off by default: turning it on needs a C++ toolchain and a longer first build.
+vst3 = ["dep:clap-wrapper", "clap-wrapper/vst3", "clap-wrapper/parallel"]
+
 [dependencies]
 clack-extensions = { version = "0.1.1", features = [
 	"gui", "clack-plugin", "raw-window-handle_05", "audio-ports",
@@ -15,3 +22,4 @@ i_am_dsp_iced = { workspace = true }
 raw-window-handle = { version = "0.5.2" }
 crossbeam-channel = "0.5.16"
 xxhash-rust = { version = "0.8.18", features = ["const_xxh3"] }
+clap-wrapper = { version = "0.3.1", optional = true, default-features = false }

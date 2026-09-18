@@ -3,8 +3,18 @@ name = "plugin_example"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Adds the VST3 entry points to the exported library (through i_am_plugin).
+vst3 = ["i_am_plugin/vst3"]
+
 [lib]
 crate-type = ["cdylib"]
+
+# Read by "cargo bundle" (the i_am_bundler tool) when naming the .vst3 / .clap bundle.
+[package.metadata.i_am_dsp]
+name = "I Am Table Synth"
+vendor = "iamplugins"
+id = "iamdsp.example.wavetable.synth"
 
 [dependencies]
 

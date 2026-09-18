@@ -1,0 +1,13 @@
+[package]
+name = "i_am_bundler"
+version = "0.1.0"
+edition = "2024"
+description = "Turns a built i_am_plugin cdylib into the .vst3 / .clap layouts audio hosts expect."
+readme = "README.md"
+publish = false
+
+[[bin]]
+name = "i_am_bundler"
+path = "src/main.rs"
+
+[dependencies]

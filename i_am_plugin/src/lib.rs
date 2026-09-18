@@ -39,17 +39,31 @@
 //!     const AU_SUBTYPE: [u8; 4] = *b"mypr";
 //! }
 //! 
-//! // And use `clap_wrapper` crate to prepare for VST3 and AUv2 support
-//! // 
-//! // You should check VST3 or AUv2's manual for packing your clap plugin as a VST3 or AUv2 plugin.
-//! //
-//! // Note: `clap_wrapper` crate is not included in `i_am_plugin` crate. 
-//! // You need to add it to your `Cargo.toml` file.
-//! //
-//! // Also, you should always use `export_clap` macro even if you dont need to export clap plugin.
-//! clap_wrapper::export_auv2!();
-//! clap_wrapper::export_vst3!();
+//! # Exporting a VST3 plug-in
+//! 
+//! [`export_clap`] always exports the CLAP entry point (`clap_entry`). It also exports the
+//! VST3 entry points (`GetPluginFactory`, `InitDll`, `ExitDll`) when the `vst3` feature of
+//! this crate is enabled, which links `clap-wrapper` and the VST3 SDK into your library.
+//! Turn it on from your plug-in crate:
+//! 
+//! ```toml
+//! [features]
+//! vst3 = ["i_am_plugin/vst3"]
+//! 
+//! [package.metadata.i_am_dsp]
+//! name = "My Processor"               # bundle name, defaults to the package name
+//! vendor = "My Company"               # optional
+//! id = "com.mycompany.myprocessor"    # optional, used by the macOS Info.plist
 //! ```
+//! 
+//! ```sh
+//! cargo build --release --features vst3
+//! cargo bundle -p my_plugin --features vst3
+//! ```
+//! 
+//! `cargo bundle` is the `i_am_bundler` tool of this workspace: it writes
+//! `My Processor.vst3` and `My Processor.clap` next to the built library, and it refuses
+//! to write a VST3 bundle for a library that has no VST3 entry points.
 //! 
 //! Do **NOT** forget to add following settings to your `Cargo.toml` file:
 //! 
@@ -58,8 +72,8 @@
 //! crate-type = ["cdylib"]
 //! ```
 //! 
-//! Finally, you can build the plugin with `cargo build --release` and rename the suffix to `.clap`.
-//! Then you should be able to load the plugin in your DAW.
+//! Without the `vst3` feature you can still build with `cargo build --release`, rename the
+//! suffix to `.clap` and load the plugin in a CLAP host.
 
 use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::from_raw_parts};
 
@@ -1487,9 +1501,39 @@ impl<P: PluginAuExt> PluginFactoryAsAUv2Impl for ClapPlugin<P> {
 	}
 }
 
+/// Re-exported so that [`export_clap`] can add the VST3 entry points to the exported
+/// library without the plug-in crate having to depend on `clap-wrapper` itself.
+#[cfg(feature = "vst3")]
+#[doc(hidden)]
+pub use clap_wrapper::export_vst3 as __export_vst3;
+
+/// Emitted by [`export_clap`] to add the entry points of every wrapper format this
+/// crate was built with. With no wrapper format enabled it expands to nothing.
+#[cfg(feature = "vst3")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __export_wrapped_entry_points {
+	() => {
+		$crate::__export_vst3!();
+	};
+}
+
+/// No wrapper format is enabled, so there is nothing to add.
+#[cfg(not(feature = "vst3"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __export_wrapped_entry_points {
+	() => {};
+}
+
 /// Exports a plugin for the CLAP audio plugin host.
+/// 
+/// With the `vst3` feature of this crate enabled, the exported library also carries
+/// the VST3 entry points, ready to be packed into a `.vst3` bundle by the
+/// `i_am_bundler` tool (`cargo bundle`).
 #[macro_export] macro_rules! export_clap {
 	($plugin_ty: ty) => {
 		i_am_plugin::clack_export_entry!(i_am_plugin::SinglePluginEntry<i_am_plugin::ClapPlugin<$plugin_ty>>);
+		$crate::__export_wrapped_entry_points!();
 	}
 }
