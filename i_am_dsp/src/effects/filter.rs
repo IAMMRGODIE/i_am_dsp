@@ -3,6 +3,13 @@
 use std::f32::consts::PI;
 
 pub(crate) const MIN_FREQUENCY: f32 = 10.0;
+
+/// Feedback values below this are flushed to zero.
+///
+/// Every feedback loop walks through the subnormal range as it decays, and on
+/// x86 arithmetic on subnormals is an order of magnitude slower. Anything this
+/// small is below -500 dB and inaudible.
+const DENORMAL_THRESHOLD: f32 = 1e-25;
 use i_am_dsp_derive::Parameters;
 use wide::f32x4;
 
@@ -1137,6 +1144,11 @@ pub struct Lowpass<const CHANNELS: usize> {
 	pub q: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,
+	/// The values the filter coefficients were computed from, so an effect
+	/// that re-applies its settings every sample does not recompute
+	/// trigonometric functions.
+	#[skip]
+	cached: Option<(f32, f32, f32)>,
 }
 
 impl<const CHANNELS: usize> Lowpass<CHANNELS> {
@@ -1146,6 +1158,7 @@ impl<const CHANNELS: usize> Lowpass<CHANNELS> {
 			cutoff,
 			q,
 			filter: Biquad::lowpass(sample_rate, cutoff, q),
+			cached: None,
 		}
 	}
 }
@@ -1166,7 +1179,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Lowpass<CHANNELS> {
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
-		self.filter.set_to_lowpass(self.cutoff, self.q);
+		if self.cached != Some((self.cutoff, self.q, 0.0)) {
+			self.filter.set_to_lowpass(self.cutoff, self.q);
+			self.cached = Some((self.cutoff, self.q, 0.0));
+		}
 		self.filter.process(samples, other, process_context);
 	}
 
@@ -1203,6 +1219,11 @@ pub struct Highpass<const CHANNELS: usize> {
 	pub q: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,
+	/// The values the filter coefficients were computed from, so an effect
+	/// that re-applies its settings every sample does not recompute
+	/// trigonometric functions.
+	#[skip]
+	cached: Option<(f32, f32, f32)>,
 }
 
 impl<const CHANNELS: usize> Highpass<CHANNELS> {
@@ -1212,6 +1233,7 @@ impl<const CHANNELS: usize> Highpass<CHANNELS> {
 			cutoff,
 			q,
 			filter: Biquad::highpass(sample_rate, cutoff, q),
+			cached: None,
 		}
 	}
 }
@@ -1232,7 +1254,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Highpass<CHANNELS> {
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
-		self.filter.set_to_highpass(self.cutoff, self.q);
+		if self.cached != Some((self.cutoff, self.q, 0.0)) {
+			self.filter.set_to_highpass(self.cutoff, self.q);
+			self.cached = Some((self.cutoff, self.q, 0.0));
+		}
 		self.filter.process(samples, other, process_context);
 	}
 
@@ -1270,6 +1295,11 @@ pub struct Bandpass<const CHANNELS: usize> {
 	pub bandwidth: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,
+	/// The values the filter coefficients were computed from, so an effect
+	/// that re-applies its settings every sample does not recompute
+	/// trigonometric functions.
+	#[skip]
+	cached: Option<(f32, f32, f32)>,
 }
 
 impl<const CHANNELS: usize> Bandpass<CHANNELS> {
@@ -1279,6 +1309,7 @@ impl<const CHANNELS: usize> Bandpass<CHANNELS> {
 			cutoff,
 			bandwidth,
 			filter: Biquad::bandpass(sample_rate, cutoff, bandwidth),
+			cached: None,
 		}
 	}
 }
@@ -1299,7 +1330,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Bandpass<CHANNELS> {
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
-		self.filter.set_to_bandpass(self.cutoff, self.bandwidth);
+		if self.cached != Some((self.cutoff, self.bandwidth, 0.0)) {
+			self.filter.set_to_bandpass(self.cutoff, self.bandwidth);
+			self.cached = Some((self.cutoff, self.bandwidth, 0.0));
+		}
 		self.filter.process(samples, other, process_context);
 	}
 
@@ -1408,6 +1442,11 @@ pub struct Peak<const CHANNELS: usize> {
 	pub bandwidth: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,
+	/// The values the filter coefficients were computed from, so an effect
+	/// that re-applies its settings every sample does not recompute
+	/// trigonometric functions.
+	#[skip]
+	cached: Option<(f32, f32, f32)>,
 }
 
 impl<const CHANNELS: usize> Peak<CHANNELS> {
@@ -1418,6 +1457,7 @@ impl<const CHANNELS: usize> Peak<CHANNELS> {
 			gain,
 			bandwidth,
 			filter: Biquad::peak(sample_rate, cutoff, gain, bandwidth),
+			cached: None,
 		}
 	}
 }
@@ -1438,7 +1478,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Peak<CHANNELS> {
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
-		self.filter.set_to_peak(self.cutoff, self.gain, self.bandwidth);
+		if self.cached != Some((self.cutoff, self.gain, self.bandwidth)) {
+			self.filter.set_to_peak(self.cutoff, self.gain, self.bandwidth);
+			self.cached = Some((self.cutoff, self.gain, self.bandwidth));
+		}
 		self.filter.process(samples, other, process_context);
 	}
 
@@ -1480,6 +1523,11 @@ pub struct HighShelf<const CHANNELS: usize> {
 	pub slope: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,
+	/// The values the filter coefficients were computed from, so an effect
+	/// that re-applies its settings every sample does not recompute
+	/// trigonometric functions.
+	#[skip]
+	cached: Option<(f32, f32, f32)>,
 }
 
 impl<const CHANNELS: usize> HighShelf<CHANNELS> {
@@ -1490,6 +1538,7 @@ impl<const CHANNELS: usize> HighShelf<CHANNELS> {
 			gain,
 			slope,
 			filter: Biquad::high_shelf(sample_rate, cutoff, gain, slope),
+			cached: None,
 		}
 	}
 }
@@ -1510,7 +1559,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HighShelf<CHANNELS> {
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
-		self.filter.set_to_high_shelf(self.cutoff, self.gain, self.slope);
+		if self.cached != Some((self.cutoff, self.gain, self.slope)) {
+			self.filter.set_to_high_shelf(self.cutoff, self.gain, self.slope);
+			self.cached = Some((self.cutoff, self.gain, self.slope));
+		}
 		self.filter.process(samples, other, process_context);
 	}
 
@@ -1551,6 +1603,11 @@ pub struct LowShelf<const CHANNELS: usize> {
 	pub slope: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,
+	/// The values the filter coefficients were computed from, so an effect
+	/// that re-applies its settings every sample does not recompute
+	/// trigonometric functions.
+	#[skip]
+	cached: Option<(f32, f32, f32)>,
 }
 
 impl<const CHANNELS: usize> LowShelf<CHANNELS> {
@@ -1561,6 +1618,7 @@ impl<const CHANNELS: usize> LowShelf<CHANNELS> {
 			gain,
 			slope,
 			filter: Biquad::low_shelf(sample_rate, cutoff, gain, slope),
+			cached: None,
 		}
 	}
 }
@@ -1581,7 +1639,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for LowShelf<CHANNELS> {
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
-		self.filter.set_to_low_shelf(self.cutoff, self.gain, self.slope);
+		if self.cached != Some((self.cutoff, self.gain, self.slope)) {
+			self.filter.set_to_low_shelf(self.cutoff, self.gain, self.slope);
+			self.cached = Some((self.cutoff, self.gain, self.slope));
+		}
 		self.filter.process(samples, other, process_context);
 	}
 
@@ -1657,6 +1718,11 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for CombsFilter<CHANNELS> {
 	) {
 		for (i, sample) in samples.iter_mut().enumerate() {
 			*sample += self.feedback * self.history[i][0];
+			// A feedback loop walks through the subnormal range on the way to
+			// silence, where arithmetic is an order of magnitude slower.
+			if sample.abs() <= DENORMAL_THRESHOLD {
+				*sample = 0.0;
+			}
 			self.history[i].push(*sample);
 		}
 	}
@@ -1738,6 +1804,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for AllpassFilter<CHANNELS> {
 			let unprocessed = self.unprocessed_history[i][0];
 			let sample_backup = *sample;
 			*sample = - *sample * self.feedback + unprocessed + self.feedback * processed;
+			// See the combs filter: keep the loop out of the subnormal range.
+			if sample.abs() <= DENORMAL_THRESHOLD {
+				*sample = 0.0;
+			}
 			self.processed_history[i].push(*sample);
 			self.unprocessed_history[i].push(sample_backup);
 		}

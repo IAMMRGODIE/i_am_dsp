@@ -4,11 +4,22 @@ use i_am_dsp_derive::Parameters;
 
 use crate::{generators::wavetable::WaveTable, tools::{interpolate::cubic_interpolate, ring_buffer::RingBuffer}, Effect, ProcessContext};
 
+/// How many samples the cubic interpolation of the delay reads.
+const INTERPOLATION_TAPS: usize = 4;
+
 /// A pure delay that delays the signal by a fixed amount of time.
 #[derive(Parameters)]
 pub struct PureDelay<const CHANNELS: usize = 2> {
+	/// The delay history.
+	///
+	/// A plain ring with an explicit position: the fractional read below touches
+	/// it five times per sample, and the modulo a ring buffer needs per access is
+	/// a measurable part of that.
 	#[skip]
-	history: [RingBuffer<f32>; CHANNELS],
+	history: [Vec<f32>; CHANNELS],
+	/// The slot that was written last, which holds the newest sample.
+	#[skip]
+	position: usize,
 	/// The delay time,  saves in milliseconds
 	#[range(min = 0.0, max = 4000.0)]
 	pub delay_time: f32,
@@ -31,10 +42,10 @@ impl<const CHANNELS: usize> PureDelay<CHANNELS> {
 		sample_rate: usize
 	) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
-		let history = core::array::from_fn(|_| RingBuffer::new(maxium_delay_length));
 
 		Self {
-			history,
+			history: core::array::from_fn(|_| vec![0.0; maxium_delay_length]),
+			position: 0,
 			delay_time,
 			sample_rate,
 		}
@@ -43,25 +54,41 @@ impl<const CHANNELS: usize> PureDelay<CHANNELS> {
 	/// Clear delay history.
 	pub fn clear_history(&mut self) {
 		for buffer in self.history.iter_mut() {
-			buffer.clear();
+			buffer.fill(0.0);
 		}
+		self.position = 0;
 	}
 
 	/// Resize delay history.
 	pub fn resize_history(&mut self, new_capacity: usize) {
 		for buffer in self.history.iter_mut() {
-			buffer.resize(new_capacity);
+			buffer.clear();
+			buffer.resize(new_capacity, 0.0);
 		}
+		self.position = 0;
 	}
 
 	/// Returns the maximum delay time that can be set without overflowing the buffer.
 	pub fn maxium_delay_time(&self) -> f32 {
-		self.history[0].capacity() as f32 / self.sample_rate as f32 * 1000.0
+		self.history[0].len().saturating_sub(INTERPOLATION_TAPS - 1) as f32 / self.sample_rate as f32 * 1000.0
 	}
 
 	/// Returns the history length.
 	pub fn history_len(&self) -> usize {
-		self.history[0].capacity()
+		self.history[0].len()
+	}
+
+	/// The sample written 'delay' samples before the newest one.
+	///
+	/// 'delay' must be smaller than the history length.
+	#[inline]
+	fn tap(&self, channel: usize, delay: usize) -> f32 {
+		let buffer = &self.history[channel];
+		if delay <= self.position {
+			buffer[self.position - delay]
+		} else {
+			buffer[self.position + buffer.len() - delay]
+		}
 	}
 }
 
@@ -72,24 +99,41 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
 	}
 
 	fn delay(&self) -> usize {
-		0
+		// The wet signal is the input delayed by the delay time, so that is what
+		// the dry signal has to be aligned against.
+		(self.delay_time / 1000.0 * self.sample_rate as f32).round().max(0.0) as usize
 	}
 	
 	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
-		let delay_samples = self.delay_time / 1000.0 * self.sample_rate as f32;
-		let t = delay_samples.fract();
-		let delay_samples = delay_samples.floor() as isize;
-		let history_len = self.history[0].capacity() as isize;
+		let capacity = self.history[0].len();
+		// The interpolation reads the sample before the integer part of the delay
+		// and the two after it, so the last slots cannot be addressed.
+		if capacity < INTERPOLATION_TAPS {
+			return;
+		}
+		let delay = (self.delay_time / 1000.0 * self.sample_rate as f32)
+			.clamp(0.0, (capacity - INTERPOLATION_TAPS) as f32);
+		let whole = delay.floor() as usize;
+		let fraction = delay - whole as f32;
+
+		// Advance first, so that the interpolation can reach the current sample
+		// when the delay rounds down to zero.
+		self.position += 1;
+		if self.position == capacity {
+			self.position = 0;
+		}
 
 		for (i, sample) in samples.iter_mut().enumerate() {
-			let interpolate_parameters = [
-				self.history[i][history_len - 2 - delay_samples],
-				self.history[i][history_len - 1 - delay_samples],
-				self.history[i][history_len - delay_samples],
-				self.history[i][history_len + 1 - delay_samples],
+			self.history[i][self.position] = *sample;
+			// The taps straddle the integer part of the delay, so interpolating
+			// between the middle two of them lands on the requested delay.
+			let taps = [
+				self.tap(i, whole.saturating_sub(1)),
+				self.tap(i, whole),
+				self.tap(i, whole + 1),
+				self.tap(i, whole + 2),
 			];
-			self.history[i].push(*sample);
-			*sample = cubic_interpolate(t, interpolate_parameters);
+			*sample = cubic_interpolate(fraction, taps);
 		}
 
 		if ctx.should_stop() {
@@ -604,5 +648,70 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for C
 		ui.add(egui::Slider::new(&mut self.lfo_amplitude, 5.0..=20.0).text("LFO Amplitude(ms)"));
 		ui.add(egui::Slider::new(&mut self.delay_lines, 1..=50).text("Delay Lines"));
 		gain_ui(ui, &mut self.wet_gain, Some("Wet Gain".to_string()), false);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Renders the impulse response of the delay.
+	fn impulse_response(delay: &mut PureDelay<1>, samples: usize) -> Vec<f32> {
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+		let mut output = Vec::with_capacity(samples);
+		for i in 0..samples {
+			let mut frame = [if i == 0 { 1.0 } else { 0.0 }];
+			delay.process(&mut frame, &[], &mut ctx);
+			output.push(frame[0]);
+		}
+		output
+	}
+
+	/// The energy of the impulse has to end up where the delay time asks for,
+	/// including between two samples.
+	#[test]
+	fn impulse_lands_at_the_delay_time() {
+		for delay_time in [0.0f32, 5.0, 10.0, 10.1, 100.0, 380.0] {
+			let mut delay = PureDelay::<1>::new(48_000, delay_time, 48_000);
+			let response = impulse_response(&mut delay, 24_000);
+
+			let total: f32 = response.iter().map(|x| x.abs()).sum();
+			let centroid: f32 = response
+				.iter()
+				.enumerate()
+				.map(|(i, x)| i as f32 * x.abs())
+				.sum::<f32>() / total;
+			let expected = delay_time / 1000.0 * 48_000.0;
+
+			assert!((total - 1.0).abs() < 0.2, "delay {delay_time} ms lost energy: {total}");
+			assert!(
+				(centroid - expected).abs() < 1.5,
+				"delay {delay_time} ms landed at {centroid}, expected {expected}"
+			);
+		}
+	}
+
+	/// The reported latency has to be the delay the effect actually applies.
+	#[test]
+	fn latency_matches_the_delay() {
+		let mut delay = PureDelay::<1>::new(48_000, 10.0, 48_000);
+		assert_eq!(delay.delay(), 480);
+		delay.delay_time = 10.5;
+		assert_eq!(delay.delay(), 504);
+	}
+
+	/// Resizing and clearing must not panic, and a cleared line is silent.
+	#[test]
+	fn clear_and_resize() {
+		let mut delay = PureDelay::<1>::new(48_000, 10.0, 48_000);
+		let _ = impulse_response(&mut delay, 1_000);
+		delay.clear_history();
+		let response = impulse_response(&mut delay, 10);
+		assert!(response[1..].iter().all(|x| *x == 0.0));
+		delay.resize_history(128);
+		assert_eq!(delay.history_len(), 128);
+		delay.resize_history(0);
+		let response = impulse_response(&mut delay, 10);
+		assert!(response.iter().all(|x| x.is_finite()));
 	}
 }

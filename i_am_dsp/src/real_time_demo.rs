@@ -1216,6 +1216,9 @@ impl DspDemo {
 				let stream = device.build_output_stream(
 					config,
 					move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+						// Reverb and convolution tails decay through the subnormal range,
+						// where x86 arithmetic is an order of magnitude slower.
+						crate::enable_flush_to_zero();
 						let lock_result = shared_data_stream.lock();
 						let mut shared_data = match lock_result {
 							Ok(data) => data,

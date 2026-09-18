@@ -489,6 +489,12 @@ const FFT_CONVOLVER_HISTORY_LEN: usize = 64;
 /// rest of the impulse response is covered by partitions of this size.
 const MAX_PARTITION_HOP: usize = 16384;
 
+/// Input values below this are flushed to zero.
+///
+/// The transforms run an order of magnitude slower on subnormals, and a
+/// signal that has decayed to -500 dB is inaudible anyway.
+const DENORMAL_THRESHOLD: f32 = 1e-25;
+
 
 /// Convolve one sample against the direct head coefficients.
 ///
@@ -826,6 +832,15 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE>
 	}
 
 	fn frame(&mut self, input: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		// Subnormals are flushed to zero up front, so that a signal that has
+		// decayed into the subnormal range cannot make the transforms an order of
+		// magnitude slower. Callers that can set flush to zero for their audio
+		// thread (see 'enable_flush_to_zero') do not have to pay for this.
+		let input: [f32; CHANNELS] = core::array::from_fn(|channel| {
+			let value = input[channel];
+			if value.abs() > DENORMAL_THRESHOLD { value } else { 0.0 }
+		});
+
 		let mut output = [0.0; CHANNELS];
 		let pos = self.pos;
 
