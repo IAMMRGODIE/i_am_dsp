@@ -103,8 +103,9 @@ lazy_static::lazy_static! {
 			(
 				"Additive(Saw Bend)".to_string(),
 				Box::new(|sample_rate| {
+					// Enough partials for a saw to reach the top of the audible range in the bass
 					let gen_freq = BendedSawGen::default();
-					let add: AdditiveOsc<BendedSawGen> = AdditiveOsc::new(gen_freq, 64);
+					let add: AdditiveOsc<BendedSawGen, 256> = AdditiveOsc::new(gen_freq, 256);
 					Box::new(Adsr::new(add, EqualTemperament, sample_rate)) as Box<dyn Generator>
 				})
 			),

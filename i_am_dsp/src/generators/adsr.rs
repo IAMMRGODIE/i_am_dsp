@@ -521,6 +521,7 @@ impl<
 					let t = frequency * (time - playing_note.last_time) + playing_note.last_phase[i];
 					playing_note.last_phase[i] = t;
 					
+					self.oscillator.set_pitch(frequency, self.sample_rate);
 					let samples = self.oscillator.play_at(
 						1.0, 
 						t,

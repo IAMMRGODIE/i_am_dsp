@@ -38,6 +38,15 @@ pub trait Oscillator<const CHANNELS: usize>: Parameters {
 	/// time in milliseconds
 	/// phase in [0.0, 1.0]
 	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS];
+
+	/// Tells the oscillator the pitch of the note it is about to play, and the sample rate.
+	///
+	/// A driver that knows both calls this before playing a note, so that an oscillator built from
+	/// a fixed set of partials can drop the ones that would alias. The default implementation
+	/// ignores it, which leaves the oscillator unbandlimited.
+	fn set_pitch(&mut self, frequency: f32, sample_rate: usize) {
+		let _ = (frequency, sample_rate);
+	}
 	
 	#[cfg(feature = "real_time_demo")]
 	/// Draws the wave table for the oscillator in the demo UI.

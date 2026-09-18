@@ -46,7 +46,7 @@ clap_wrapper::export_auv2!();
 
 来导出 Au 的 Symbol 了，之后你还是要参考 Au 的文档去打包，不过目前我也没试过（
 
-不过需要注意一下开源协议问题，因为我在这里并没有分发一份 `clap_wrapper`, 所以我无法固定 `clap_wrapper` 的协议
+哦对了现在有一个打包工具了在 [i_am_bundler](./i_am_bundler/README.md) 那边，还做了安装，应该会方便些
 
 ## 开源协议
 
