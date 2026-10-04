@@ -681,6 +681,14 @@ pub struct ClapContext {
 	/// single call to [`AudioProcessor::process`], so the context owns them
 	/// directly instead of sharing them behind a lock.
 	events: Vec<i_am_dsp::NoteEvent>,
+	/// The sample the events in [`Self::events`] are timestamped at.
+	///
+	/// CLAP delivers events in batches that share a timestamp, and a generator is only
+	/// supposed to see the events of the sample it is currently rendering. Remembering
+	/// that timestamp is what lets [`ProcessContext::events`] hide a batch again on the
+	/// samples that follow, instead of handing the same note to the generator over and
+	/// over for the rest of the block.
+	events_sample: usize,
 	info: Option<ProcessInfos>,
 	current_sample: usize,
 	event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
@@ -696,11 +704,15 @@ impl ProcessContext for ClapContext {
 	}
 
 	fn events(&self) -> &[i_am_dsp::NoteEvent] {
-		&self.events
+		if self.current_sample == self.events_sample {
+			&self.events
+		}else {
+			&[]
+		}
 	}
 
 	fn next_event(&mut self) -> Option<i_am_dsp::NoteEvent> {
-		if self.current_event >= self.events.len() {
+		if self.current_sample != self.events_sample || self.current_event >= self.events.len() {
 			return None;
 		}
 
@@ -769,6 +781,7 @@ impl ClapContext {
 			event_sender,
 			// process, 
 			events: Vec::new(),
+			events_sample: 0,
 			current_sample: 0,
 			info 
 		}
@@ -956,6 +969,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 					}
 				}
 				ctx.current_event = 0;
+				ctx.events_sample = batch.first_sample();
 				next_event_sample = batch.next_batch_first_sample().unwrap_or(buffer_size);
 			}
 
@@ -1538,5 +1552,87 @@ macro_rules! __export_wrapped_entry_points {
 	($plugin_ty: ty) => {
 		i_am_plugin::clack_export_entry!(i_am_plugin::SinglePluginEntry<i_am_plugin::ClapPlugin<$plugin_ty>>);
 		$crate::__export_wrapped_entry_points!();
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::ClapContext;
+	use i_am_dsp::{NoteEvent, ProcessContext};
+
+	impl ClapContext {
+		/// Builds a context with no transport information and an open output channel.
+		fn for_test() -> Self {
+			let (event_sender, _receiver) = crossbeam_channel::unbounded();
+			Self {
+				current_event: 0,
+				events: Vec::new(),
+				events_sample: 0,
+				info: None,
+				current_sample: 0,
+				event_sender,
+			}
+		}
+	}
+
+	fn note_on(note: usize) -> NoteEvent {
+		NoteEvent::NoteOn {
+			channel: 0,
+			note,
+			velocity: 1.0,
+		}
+	}
+
+	/// A batch is timestamped at one sample, and a generator may only see it there.
+	///
+	/// Regression test for the events leaking forward to every remaining sample of the
+	/// block, which made [`Adsr`](i_am_dsp::prelude::Adsr) pile up one voice per sample
+	/// for a single note-on.
+	#[test]
+	fn a_batch_is_only_visible_at_its_own_sample() {
+		let mut context = ClapContext::for_test();
+		context.events_sample = 4;
+		context.events = vec![note_on(60)];
+
+		let mut visible = Vec::new();
+		for sample in 0..512usize {
+			context.current_sample = sample;
+			if !context.events().is_empty() {
+				visible.push(sample);
+			}
+		}
+
+		assert_eq!(visible, vec![4]);
+	}
+
+	/// The consuming accessor has to close on the same sample boundary as
+	/// [`ProcessContext::events`].
+	#[test]
+	fn next_event_stops_at_the_sample_boundary() {
+		let mut context = ClapContext::for_test();
+		context.events_sample = 7;
+		context.events = vec![note_on(60), note_on(64)];
+
+		context.current_sample = 7;
+		assert_eq!(context.next_event(), Some(note_on(60)));
+		assert_eq!(context.next_event(), Some(note_on(64)));
+		assert_eq!(context.next_event(), None);
+
+		context.current_sample = 8;
+		assert_eq!(context.next_event(), None);
+	}
+
+	/// A generator that clears the events itself still sees an empty context afterwards.
+	#[test]
+	fn clear_events_hides_the_batch_at_once() {
+		let mut context = ClapContext::for_test();
+		context.events_sample = 3;
+		context.current_sample = 3;
+		context.events = vec![note_on(60)];
+
+		context.clear_events();
+
+		assert!(context.events().is_empty());
+		assert_eq!(context.next_event(), None);
 	}
 }
