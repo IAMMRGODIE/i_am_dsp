@@ -14,6 +14,21 @@ pub trait FrequencyMapper: Parameters {
 	/// Maps a frequency and amplitude to a new frequency and amplitude.
 	fn map_frequency(&mut self, frequency: f32, amplitude: f32) -> (f32, f32);
 
+	/// Returns the phase a mapped bin is synthesized with.
+	///
+	/// `analysis_phase` is the phase the bin was measured with, and
+	/// `propagated_phase` is `analysis_phase` advanced by the phase a bin at
+	/// `frequency` gains over one frame hop. The default returns the propagated
+	/// phase, which is what a bin that is moved to another frequency needs: it
+	/// keeps the synthesis continuous across frames. A mapper that only changes
+	/// magnitudes leaves every bin where it is, and should return the analysis
+	/// phase instead, so that the overlapping frames add back up instead of
+	/// cancelling each other.
+	fn synthesis_phase(&mut self, frequency: f32, analysis_phase: f32, propagated_phase: f32) -> f32 {
+		let _ = (frequency, analysis_phase);
+		propagated_phase
+	}
+
 	#[cfg(feature = "real_time_demo")]
 	/// UI for the frequency mapper.
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String);
@@ -26,6 +41,18 @@ fn window(window_size: usize, index: usize, offset: usize, window_factor: f32) -
 
 fn bin_frequencie(sample_rate: usize, window_size: usize, k: usize) -> f32 {
 	k as f32 * sample_rate as f32 / window_size as f32
+}
+
+/// The gain the overlap add gives a signal whose bins the vocoder leaves alone.
+///
+/// Every frame is windowed on the way in and windowed again on the way out with
+/// the same window, so with an overlap ratio of four the frames add up to
+/// `4 * (w^2 + (1 - w)^2 / 2)` times the input, where `w` is the window factor:
+/// the flattest window adds up to four times the signal and the widest cosine
+/// window to half of that. Dividing it out of [`PhaseVocoder::gain`] makes a
+/// mapper that only changes magnitudes a pass through.
+pub fn overlap_add_gain(window_factor: f32) -> f32 {
+	4.0 * (window_factor * window_factor + (1.0 - window_factor).powi(2) / 2.0)
 }
 
 /// The Phase Vocoder effect.
@@ -125,6 +152,14 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 		}
 	}
 
+	/// Returns the window size in samples.
+	///
+	/// The overlapping frames delay the signal by one window, which is what an
+	/// effect built on the vocoder reports from its own `delay`.
+	pub fn window_size(&self) -> usize {
+		self.window_size
+	}
+
 	/// Renews the window size of the effect.
 	pub fn renew_window_size(&mut self, window_size: usize) -> Option<usize> {
 		let window_size = window_size.next_power_of_two();
@@ -182,11 +217,13 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 					continue;
 				}
 	
-				let new_phase = 
+				let propagated_phase = 
 					self.prev_analysis_phase[channel][k] + 
 					2.0 * PI * bin_center_freq * self.frame_hop as f32 / self.sample_rate as f32;
 	
 				self.prev_analysis_phase[channel][k] = value.arg();
+	
+				let new_phase = self.mapper.synthesis_phase(bin_center_freq, value.arg(), propagated_phase);
 	
 				let new_idx = mapped_freq / self.sample_rate as f32 * self.window_size as f32;
 				let ratio = new_idx.fract();
@@ -335,5 +372,140 @@ impl FrequencyMapper for FreqShift {
 		ui.add(Slider::new(&mut self.freq, -2000.0..=2000.0)
 			.text("Frequency Shift")
 		);
+	}
+}
+
+/// A frequency mapper that shifts every bin around an anchor frequency.
+///
+/// A bin at `f` is moved to `f * shift + anchor * (1 - shift)`: the anchor
+/// keeps its frequency while everything else is transposed around it, so a
+/// note sitting on the anchor stays in tune while the rest of the sound drifts
+/// away from it. This is the mapping behind the `i_am_unstablizer` plug-in.
+#[derive(Parameters)]
+pub struct NoteAnchoredShift {
+	/// The shift amount, as a frequency ratio.
+	#[range(min = 0.25, max = 4.0)]
+	#[logarithmic]
+	pub shift: f32,
+	/// The frequency that keeps its pitch, in Hz.
+	#[range(min = 20.0, max = 20000.0)]
+	#[logarithmic]
+	pub anchor: f32,
+}
+
+impl Default for NoteAnchoredShift {
+	fn default() -> Self {
+		Self {
+			shift: 1.0,
+			anchor: 440.0,
+		}
+	}
+}
+
+impl FrequencyMapper for NoteAnchoredShift {
+	fn map_frequency(&mut self, frequency: f32, amplitude: f32) -> (f32, f32) {
+		let new_freq = frequency * self.shift + self.anchor * (1.0 - self.shift);
+		(new_freq, amplitude)
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
+		use egui::*;
+
+		ui.add(Slider::new(&mut self.shift, 0.25..=4.0)
+			.text("Shift")
+			.logarithmic(true)
+		);
+		ui.add(Slider::new(&mut self.anchor, 20.0..=20000.0)
+			.text("Anchor (Hz)")
+			.logarithmic(true)
+		);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::Effect;
+
+	/// A mapper that leaves the spectrum alone, so the output should be the input.
+	#[derive(i_am_dsp_derive::Parameters)]
+	struct Identity {
+		#[range(min = 0.0, max = 1.0)]
+		keep_phase: f32,
+	}
+
+	impl FrequencyMapper for Identity {
+		fn map_frequency(&mut self, frequency: f32, amplitude: f32) -> (f32, f32) {
+			(frequency, amplitude)
+		}
+
+		fn synthesis_phase(&mut self, _: f32, analysis_phase: f32, propagated_phase: f32) -> f32 {
+			if self.keep_phase > 0.5 { analysis_phase } else { propagated_phase }
+		}
+
+		#[cfg(feature = "real_time_demo")]
+		fn demo_ui(&mut self, _: &mut egui::Ui, _: String) {}
+	}
+
+	fn root_mean_square(samples: &[f32]) -> f32 {
+		(samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32).sqrt()
+	}
+
+	fn pass_through_gain(keep_phase: bool, window_factor: f32) -> f32 {
+		let sample_rate = 48000;
+		let window_size = 2048;
+		let mut vocoder: PhaseVocoder<Identity, 1> = PhaseVocoder::new(
+			Identity { keep_phase: if keep_phase { 1.0 } else { 0.0 } },
+			window_size,
+			sample_rate,
+		);
+		vocoder.window_factor = window_factor;
+
+		let total = window_size * 8;
+		let mut input = vec![0.0; total];
+		let mut output = vec![0.0; total];
+		let mut context: Box<dyn crate::ProcessContext> = Box::new(());
+
+		for i in 0..total {
+			let sample = (2.0 * PI * 1000.0 * i as f32 / sample_rate as f32).sin();
+			input[i] = sample;
+			let mut frame = [sample];
+			vocoder.process(&mut frame, &[], &mut context);
+			output[i] = frame[0];
+		}
+
+		// The first frames are still filling the buffers.
+		let skip = window_size * 4;
+		root_mean_square(&output[skip..]) / root_mean_square(&input[skip..])
+	}
+
+	/// A mapper that only changes magnitudes has to keep the phase it measured,
+	/// and then the frames add back up to exactly the overlap add gain.
+	#[test]
+	fn a_kept_phase_adds_back_up_to_the_overlap_gain() {
+		for window_factor in [0.0, 0.25, 0.54, 0.75, 1.0] {
+			let gain = pass_through_gain(true, window_factor);
+			let expected = overlap_add_gain(window_factor);
+			assert!(
+				(gain - expected).abs() < expected * 0.01,
+				"window factor {window_factor}: measured {gain}, expected {expected}",
+			);
+		}
+	}
+
+	/// The propagated phase is what a bin that is moved to another frequency
+	/// needs, and it is only correct on the bin centers, so a mapper that leaves
+	/// the bins where they are must not get a clean pass through from it.
+	#[test]
+	fn the_propagated_phase_does_not_reconstruct_a_pass_through() {
+		for window_factor in [0.0, 0.25, 0.54, 0.75, 1.0] {
+			let gain = pass_through_gain(false, window_factor);
+			const EXPECTED: f32 = 4.0;
+			assert!(
+				(gain - EXPECTED).abs() > EXPECTED * 0.05,
+				"window factor {window_factor}: the propagated phase reconstructed the signal at {gain}",
+			);
+		}
 	}
 }

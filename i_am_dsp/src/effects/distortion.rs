@@ -212,12 +212,23 @@ impl Saturator {
 	}
 }
 
+/// The saturating curve used by [`Saturator`]:
+/// `f(x) = x / (1 + (|x| / a)^p) * (1 + 1 / a^p)`.
+///
+/// It is exposed on its own so that an effect whose curve is a special case of
+/// it (see [`Crusher`](crate::effects::crusher::Crusher), which is this curve
+/// with `p = 2` and `a` driven by its amount) shares the implementation instead
+/// of copying the formula.
+pub fn saturate(sample: f32, a: f32, p: f32) -> f32 {
+	let factor = 1.0 + 1.0 / a.powf(p);
+	let norm = (sample.abs() / a).powf(p);
+	(sample / (1.0 + norm)) * factor
+}
+
 impl<const CHANNELS: usize> Effect<CHANNELS> for Saturator {
 	fn process(&mut self, input: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
-		let factor = 1.0 + 1.0 / self.a.powf(self.p);
 		for val in input.iter_mut() {
-			let norm = (val.abs() / self.a).powf(self.p);
-			*val = (*val / (1.0 + norm)) * self.gain * factor;
+			*val = saturate(*val, self.a, self.p) * self.gain;
 		}
 	}
 	

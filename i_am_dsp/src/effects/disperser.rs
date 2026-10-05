@@ -49,12 +49,26 @@ impl<const CHANNELS: usize> Disperser<CHANNELS> {
 	}
 
 	/// Set the filter parameters for the disperser.
+	///
+	/// Every section shares the same coefficients, so the prototype is designed
+	/// once and then copied. An effect that sweeps the cutoff every sample (see
+	/// [`Crusher`](crate::effects::crusher::Crusher)) would otherwise run the
+	/// filter design once per section.
 	pub fn set_filter_parameters(&mut self, cutoff: f32, bandwidth: f32) {
 		self.cutoff = cutoff;
 		self.bandwidth = bandwidth;
+
+		if self.biquads.is_empty() {
+			return;
+		}
+
+		let mut prototype: Biquad<CHANNELS> = Biquad::new(self.sample_rate);
+		prototype.set_to_bandpass(cutoff, bandwidth);
+		prototype.transform_to_allpass();
+
 		for biquad in &mut self.biquads {
-			biquad.set_to_bandpass(cutoff, bandwidth);
-			biquad.transform_to_allpass();
+			biquad.b = prototype.b;
+			biquad.a = prototype.a;
 		}
 	}
 

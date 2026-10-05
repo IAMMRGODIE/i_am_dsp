@@ -333,6 +333,14 @@ lazy_static::lazy_static! {
 				"Pitch Shifter(Phase Vocoder)".to_string(),
 				Box::new(|sample_rate| Box::new(PhaseVocoder::new(PitchShift::default(), 1024, sample_rate)) as Box<dyn Effect>)
 			),
+			(
+				"Particle Wider".to_string(),
+				Box::new(|sample_rate| Box::new(ParticleWider::new(sample_rate)) as Box<dyn Effect>)
+			),
+			(
+				"Unstablizer".to_string(),
+				Box::new(|sample_rate| Box::new(Unstablizer::new(sample_rate)) as Box<dyn Effect>)
+			),
 		];
 
 		other_effects.sort_by(|a, b| a.0.cmp(&b.0));
@@ -411,6 +419,10 @@ lazy_static::lazy_static! {
 			(
 				"Downsampler".to_string(),
 				Box::new(|sample_rate| Box::new(Downsampler::new(sample_rate)) as Box<dyn Effect>)
+			),
+			(
+				"Crusher".to_string(),
+				Box::new(|sample_rate| Box::new(Crusher::new(sample_rate)) as Box<dyn Effect>)
 			)
 		];
 
