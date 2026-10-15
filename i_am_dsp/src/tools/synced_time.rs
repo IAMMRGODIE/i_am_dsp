@@ -31,6 +31,36 @@ use crate::ProcessInfos;
 /// # let infos = &ProcessInfos::default();
 /// let samples = delay.samples(infos, delay_time, sample_rate);
 /// ```
+///
+/// # When the range is wrong for an effect
+///
+/// `beats` carries its range with it, so every effect that embeds it shares that range. For a
+/// musical length that is not much of a limit — a thirty-second note to thirty-two beats
+/// covers anything anyone asks a delay, an envelope or an LFO for — but an effect that does
+/// want its own limits does not have to embed it: the conversion is a method on public fields,
+/// so the parameters can be declared flat and a `SyncedTime` built from them.
+///
+/// ```
+/// # use i_am_dsp::prelude::{Parameters, SyncedTime};
+/// # use i_am_dsp_derive::Parameters;
+/// #[derive(Parameters)]
+/// struct Delay {
+///     sync: bool,
+///     // The effect's own range, not the shared one.
+///     #[range(min = 0.03125, max = 4.0)]
+///     #[logarithmic]
+///     beats: f32,
+///     #[range(min = 0.0, max = 4000.0)]
+///     delay_time: f32,
+/// }
+///
+/// # let delay = Delay { sync: true, beats: 0.5, delay_time: 999.0 };
+/// # let mut infos = i_am_dsp::ProcessInfos::default();
+/// # infos.tempo = Some(120.0);
+/// let time = SyncedTime { sync: delay.sync, beats: delay.beats };
+/// // 12_000 samples: an eighth note at 120 bpm, not the 999 ms free value.
+/// assert_eq!(time.samples(&infos, delay.delay_time, 48_000), 12_000);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, i_am_dsp_derive::Parameters)]
 pub struct SyncedTime {
 	/// Whether to follow the host's tempo instead of the effect's own free value.
@@ -215,7 +245,7 @@ impl SyncedPhase {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::prelude::{Parameters, SetValue};
+	use crate::prelude::{Parameters, SetValue, Value};
 	use i_am_dsp_derive::Parameters;
 
 	/// A process with the pieces a synced effect reads.
@@ -351,6 +381,41 @@ mod tests {
 		delay: SyncedTime,
 		#[range(min = 0.0, max = 4000.0)]
 		delay_time: f32,
+	}
+
+	/// The conversion is a method on public fields, so an effect that wants its own ranges can
+	/// declare the parameters itself and still reuse it.
+	#[derive(Parameters, Default)]
+	struct FlatDelay {
+		sync: bool,
+		#[range(min = 0.03125, max = 4.0)]
+		#[logarithmic]
+		beats: f32,
+		#[range(min = 0.0, max = 4000.0)]
+		delay_time: f32,
+	}
+
+	#[test]
+	fn an_effect_can_keep_its_own_ranges_and_identifiers() {
+		let mut delay = FlatDelay::default();
+		assert!(delay.set_parameter("sync", SetValue::Bool(true)));
+		assert!(delay.set_parameter("beats", SetValue::Float(0.5)));
+
+		let parameters = delay.get_parameters();
+		let identifiers = parameters
+			.iter()
+			.map(|parameter| parameter.identifier.as_str())
+			.collect::<Vec<_>>();
+		assert_eq!(identifiers, ["sync", "beats", "delay_time"]);
+
+		// Four beats, not the thirty-two the shared struct allows.
+		match &parameters[1].value {
+			Value::Float { range, .. } => assert_eq!((*range.start(), *range.end()), (0.03125, 4.0)),
+			other => panic!("expected a float parameter, got {other:?}"),
+		}
+
+		let time = SyncedTime { sync: delay.sync, beats: delay.beats };
+		assert_eq!(time.samples(&infos(Some(120.0), None, true), delay.delay_time, 48_000), 12_000);
 	}
 
 	#[test]
