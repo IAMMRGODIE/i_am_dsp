@@ -6,7 +6,7 @@ use i_am_dsp_derive::Parameters;
 
 #[cfg(feature = "real_time_demo")]
 use crate::tools::ring_buffer::RingBuffer;
-use crate::{Generator, NoteEvent, prelude::Oscillator};
+use crate::{Generator, NoteEvent, ProcessInfos, prelude::{Oscillator, SyncedTime}};
 
 pub(crate) struct Note {
 	// pub channel: u8,
@@ -141,6 +141,37 @@ pub const PENTATONIC: ScaleTuning<5> = ScaleTuning::new([1.0, 9.0 / 8.0, 5.0 / 4
 
 /// A minor pentatonic scale preset built on top of ScaleTuning.
 pub const PENTATONIC_MINOR: ScaleTuning<5> = ScaleTuning::new([1.0, 6.0 / 5.0, 4.0 / 3.0, 3.0 / 2.0, 9.0 / 5.0]);
+/// The stage lengths an envelope runs at, in milliseconds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct EnvelopeTimes {
+	delay: f32,
+	attack: f32,
+	hold: f32,
+	decay: f32,
+	release: f32,
+}
+
+impl EnvelopeTimes {
+	/// The lengths a fresh envelope starts with, matching the free parameters.
+	const DEFAULT: Self = Self {
+		delay: 0.0,
+		attack: 10.0,
+		hold: 100.0,
+		decay: 100.0,
+		release: 100.0,
+	};
+
+	/// How long the note sounds before it is let go.
+	fn held(&self) -> f32 {
+		self.delay + self.attack + self.hold + self.decay
+	}
+
+	/// How long the note sounds in total, release included.
+	fn total(&self) -> f32 {
+		self.held() + self.release
+	}
+}
+
 /// A struct to hold the state of a playing note
 pub struct PlayingNote<const CHANNELS: usize> {
 	pub(crate) note: Note,
@@ -217,18 +248,31 @@ pub struct Adsr<
 	/// The delay time, saves in milliseconds
 	#[unit(milliseconds)]
 	pub delay_time: f32,
+	/// The same stage length in musical time: a sixteenth note of delay stays a sixteenth
+	/// note whatever the host is playing at. See [`Self::times`] for how it is read.
+	#[sub_param]
+	pub delay: SyncedTime,
 	/// The attack time, saves in milliseconds
 	#[unit(milliseconds)]
 	pub attack_time: f32,
+	/// The same stage length in musical time.
+	#[sub_param]
+	pub attack: SyncedTime,
 	/// The attack bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
 	pub attack_bend: f32,
 	/// The hold time, saves in milliseconds
 	#[unit(milliseconds)]
 	pub hold_time: f32,
+	/// The same stage length in musical time.
+	#[sub_param]
+	pub hold: SyncedTime,
 	/// The decay time, saves in milliseconds
 	#[unit(milliseconds)]
 	pub decay_time: f32,
+	/// The same stage length in musical time.
+	#[sub_param]
+	pub decay: SyncedTime,
 	/// The decay bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
 	pub decay_bend: f32,
@@ -237,6 +281,9 @@ pub struct Adsr<
 	/// The release time, saves in milliseconds
 	#[unit(milliseconds)]
 	pub release_time: f32,
+	/// The same stage length in musical time.
+	#[sub_param]
+	pub release: SyncedTime,
 	/// The release bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
 	pub release_bend: f32,
@@ -265,6 +312,12 @@ pub struct Adsr<
 	#[logarithmic]
 	/// The pitch factor of the oscillator, used for pitch shifting.
 	pub pitch_factor: f32,
+	/// Where the voice sits in the stereo field: -1.0 hard left, 0.0 centre, 1.0 hard right.
+	///
+	/// [`Self::random_pan`] spreads the unisons around this position, so the two do not
+	/// fight: the position moves the whole voice, the spread widens it.
+	#[range(min = -1.0, max = 1.0)]
+	pub pan: f32,
 	/// The random pan range of each unison, 0.0 for no random pan
 	#[range(min = 0.0, max = 1.0)]
 	pub random_pan: f32,
@@ -274,6 +327,13 @@ pub struct Adsr<
 	#[range(min = 0.0, max = 1.0)]
 	pub phase_start: f32,
 
+	/// The stage lengths in milliseconds this block runs at: the free values, or what the
+	/// tempo makes of them for the stages that are syncing.
+	///
+	/// The tempo lives in the process context, which the per sample envelope does not see, so
+	/// it is read once a block and kept here.
+	#[skip]
+	times: EnvelopeTimes,
 	/// The effect attach to a single note, if any.
 	/// 
 	/// Takes a mutable reference to the buffer, the playing note, and the sample rate.
@@ -312,13 +372,18 @@ impl<
 			note_playing: HashMap::new(),
 			sample_rate,
 			delay_time: 0.0,
+			delay: SyncedTime::default(),
 			attack_time: 10.0,
+			attack: SyncedTime::default(),
 			attack_bend: 0.0,
 			hold_time: 100.0,
+			hold: SyncedTime::default(),
 			decay_time: 100.0,
+			decay: SyncedTime::default(),
 			decay_bend: 0.0,
 			sustain_level: 1.0,
 			release_time: 100.0,
+			release: SyncedTime::default(),
 			release_bend: 0.0,
 			gain: 0.8,
 			unisons: 1,
@@ -327,9 +392,11 @@ impl<
 			unison_blend: 0.0,
 			random_phase: 1.0,
 			pitch_factor: 1.0,
+			pan: 0.0,
 			random_pan: 1.0,
 			random_phase_by_channel: false,
 			phase_start: 0.0,
+			times: EnvelopeTimes::DEFAULT,
 			note_effect: None,
 
 			#[cfg(feature = "real_time_demo")]
@@ -342,27 +409,51 @@ impl<
 		self.sample_time(time)
 	}
 
+	/// Reads the stage lengths for this block, in milliseconds.
+	///
+	/// A synced stage takes its length from the tempo instead of its own milliseconds. The
+	/// tempo changes with the host, so this runs once a block rather than once a sample.
+	fn update_times(&mut self, infos: &ProcessInfos) {
+		let to_ms = |synced: &SyncedTime, free_ms: f32| synced.seconds(infos, free_ms) * 1000.0;
+
+		self.times = EnvelopeTimes {
+			delay: to_ms(&self.delay, self.delay_time),
+			attack: to_ms(&self.attack, self.attack_time),
+			hold: to_ms(&self.hold, self.hold_time),
+			decay: to_ms(&self.decay, self.decay_time),
+			release: to_ms(&self.release, self.release_time),
+		};
+	}
+
+	/// Where a unison sits in the stereo field, 0.0 for hard left and 1.0 for hard right.
+	///
+	/// `unison_pan` is that unison's random position, which [`Self::random_pan`] scales and
+	/// [`Self::pan`] moves.
+	fn pan_position(&self, unison_pan: f32) -> f32 {
+		(unison_pan / 2.0 * self.random_pan + 0.5 + self.pan / 2.0).clamp(0.0, 1.0)
+	}
+
 	/// Sample the ADSR envelope at given time in milliseconds
 	pub fn sample_time(&self, mut time: f32) -> f32 {
-		if time < self.delay_time {
+		if time < self.times.delay {
 			return 0.0;
 		}
-		time -= self.delay_time;
+		time -= self.times.delay;
 
-		if time < self.attack_time {
-			let t = time / self.attack_time;
+		if time < self.times.attack {
+			let t = time / self.times.attack;
 			// let a = bend(self.attack_time, self.attack_bend);
 			return bend(t, self.attack_bend);
 		}
-		time -= self.attack_time;
+		time -= self.times.attack;
 
-		if time < self.hold_time {
+		if time < self.times.hold {
 			return 1.0;
 		}
-		time -= self.hold_time;
+		time -= self.times.hold;
 
-		if time < self.decay_time {
-			let t = time / self.decay_time;
+		if time < self.times.decay {
+			let t = time / self.times.decay;
 			let a = bend(t, self.decay_bend);
 			let v = 1.0 + (self.sustain_level - 1.0) * a;
 			return v;
@@ -385,10 +476,10 @@ impl<
 	}
 
 	fn sample_release_time(&self, time: f32) -> Option<f32> {
-		if time >= self.release_time {
+		if time >= self.times.release {
 			return None;
 		}
-		let t = time / self.release_time;
+		let t = time / self.times.release;
 		let a = bend(t, self.release_bend);
 		Some(1.0 - a)
 	}
@@ -482,6 +573,7 @@ impl<
 		let mut output = [0.0; CHANNELS];
 
 		self.sample_rate = process_context.infos().sample_rate;
+		self.update_times(process_context.infos());
 		let sample_rate = self.sample_rate as f32;
 		let mut note_playing = std::mem::take(&mut self.note_playing);
 		note_playing.retain(|note, playing_notes| {
@@ -543,7 +635,7 @@ impl<
 							1.0
 						}else {
 							let angle_uniformed = j as f32 / (CHANNELS - 1) as f32;
-							let pan_factor = playing_note.pan_factors[i] / 2.0 * self.random_pan + 0.5;
+							let pan_factor = self.pan_position(playing_note.pan_factors[i]);
 							let delta = (angle_uniformed - pan_factor).abs();
 							2.0 - delta * 2.0
 						};
@@ -584,7 +676,7 @@ impl<
 		use egui::*;
 		use egui::emath::RectTransform;
 		use crate::tools::ui_tools::draw_envelope;
-		use crate::tools::ui_tools::gain_ui;
+		use crate::tools::ui_tools::{gain_ui, synced_time_ui};
 
 		CollapsingHeader::new("Oscillator Settings")
 			.id_salt(format!("{}_oscillator_settings", id_prefix))
@@ -597,8 +689,8 @@ impl<
 			Frame::canvas(ui.style()).show(ui, |ui| {
 				const POINTS: usize = 128;
 				let (_, rect) = ui.allocate_space(Vec2::splat(100.0));
-				let total_time = self.delay_time + self.attack_time + self.hold_time + self.decay_time + self.release_time;
-				let none_release_time = self.delay_time + self.attack_time + self.hold_time + self.decay_time;
+				let total_time = self.times.total();
+				let none_release_time = self.times.held();
 				let to_screen = RectTransform::from_to(
 					Rect::from_x_y_ranges(0.0..=1.0, -1.0..=0.0), 
 					rect
@@ -660,19 +752,19 @@ impl<
 
 		Grid::new(format!("{}_adsr_grid", id_prefix)).num_columns(6).show(ui, |ui| {
 			ui.label("Delay time");
-			ui.add(Slider::new(&mut self.delay_time, 0.0..=1000.0).suffix("ms"));
+			synced_time_ui(ui, "adsr_delay", &mut self.delay, &mut self.delay_time, 0.0..=1000.0, "Delay (ms)");
 			ui.label("Attack time");
-			ui.add(Slider::new(&mut self.attack_time, 0.0..=1000.0).suffix("ms"));
+			synced_time_ui(ui, "adsr_attack", &mut self.attack, &mut self.attack_time, 0.0..=1000.0, "Attack (ms)");
 			ui.label("Hold Time");
-			ui.add(Slider::new(&mut self.hold_time, 0.0..=1000.0).suffix("ms"));
+			synced_time_ui(ui, "adsr_hold", &mut self.hold, &mut self.hold_time, 0.0..=1000.0, "Hold (ms)");
 			ui.end_row();
 			
 			ui.label("Decay Time");
-			ui.add(Slider::new(&mut self.decay_time, 0.0..=1000.0).suffix("ms"));
+			synced_time_ui(ui, "adsr_decay", &mut self.decay, &mut self.decay_time, 0.0..=1000.0, "Decay (ms)");
 			ui.label("Sustain Level");
 			gain_ui(ui, &mut self.sustain_level, Some("".to_string()), true);
 			ui.label("Release Time");
-			ui.add(Slider::new(&mut self.release_time, 0.0..=1000.0).suffix("ms"));
+			synced_time_ui(ui, "adsr_release", &mut self.release, &mut self.release_time, 0.0..=1000.0, "Release (ms)");
 			ui.end_row();
 
 			ui.label("Attack bend");
@@ -699,6 +791,8 @@ impl<
 			ui.add(Slider::new(&mut self.phase_start, 0.0..=1.0));
 			ui.end_row();
 
+			ui.label("Pan");
+			ui.add(Slider::new(&mut self.pan, -1.0..=1.0));
 			ui.label("Random Pan");
 			ui.add(Slider::new(&mut self.random_pan, 0.0..=1.0));
 			ui.label("Pitch Factor");
@@ -719,5 +813,119 @@ pub(crate) fn bend(t: f32, bend: f32) -> f32 {
 		t
 	}else {
 		((t * bend).exp() - 1.0) / (bend.exp() - 1.0)
+	}
+}
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::generators::wavetable::{SineWave, TableOsc};
+
+	type TestAdsr = Adsr<TableOsc<SineWave>, EqualTemperament, 2>;
+
+	fn adsr() -> TestAdsr {
+		Adsr::new(TableOsc(SineWave), EqualTemperament, 48_000)
+	}
+
+	fn infos_with_tempo(tempo: f32) -> ProcessInfos {
+		ProcessInfos {
+			sample_rate: 48_000,
+			trustable: true,
+			playing: true,
+			tempo: Some(tempo),
+			..ProcessInfos::default()
+		}
+	}
+
+	/// Without syncing, the stages keep the milliseconds they were given.
+	#[test]
+	fn an_unsynced_envelope_keeps_its_milliseconds() {
+		let mut adsr = adsr();
+		adsr.attack_time = 20.0;
+		adsr.release_time = 300.0;
+		adsr.update_times(&infos_with_tempo(120.0));
+
+		assert_eq!(adsr.times.attack, 20.0);
+		assert_eq!(adsr.times.release, 300.0);
+		// Even at a tempo that would make a synced stage something else entirely.
+		adsr.update_times(&infos_with_tempo(240.0));
+		assert_eq!(adsr.times.attack, 20.0);
+	}
+
+	/// A synced stage takes its length from the tempo, and the envelope is sampled against
+	/// that length rather than the free one.
+	#[test]
+	fn a_synced_stage_follows_the_tempo() {
+		let mut adsr = adsr();
+		adsr.attack_time = 10.0;
+		adsr.attack = SyncedTime::synced(1.0);
+		adsr.update_times(&infos_with_tempo(120.0));
+
+		// A beat at 120 bpm is half a second.
+		assert!((adsr.times.attack - 500.0).abs() < 1e-3);
+
+		// 250 ms in is half way through the attack, not past it.
+		assert!((adsr.sample_time(250.0) - 0.5).abs() < 1e-3);
+		// The free value is over ten times shorter, so an unsynced envelope would be well
+		// past its attack by now and sitting at the sustain level.
+		adsr.attack = SyncedTime::default();
+		adsr.update_times(&infos_with_tempo(120.0));
+		assert_eq!(adsr.sample_time(250.0), adsr.sustain_level);
+
+		// Half the tempo, twice the length.
+		adsr.attack = SyncedTime::synced(1.0);
+		adsr.update_times(&infos_with_tempo(60.0));
+		assert!((adsr.times.attack - 1000.0).abs() < 1e-3);
+		assert!((adsr.sample_time(250.0) - 0.25).abs() < 1e-3);
+	}
+
+	/// The envelope is read from the lengths, so a synced release ends the note where the
+	/// tempo says rather than where the milliseconds did.
+	#[test]
+	fn a_synced_release_ends_the_note_on_the_beat() {
+		let mut adsr = adsr();
+		adsr.release_time = 100.0;
+		adsr.release = SyncedTime::synced(0.5);
+		adsr.update_times(&infos_with_tempo(120.0));
+
+		// Half a beat at 120 bpm is 250 ms.
+		assert!((adsr.times.release - 250.0).abs() < 1e-3);
+		assert!(adsr.sample_release_time(249.0).is_some());
+		assert!(adsr.sample_release_time(251.0).is_none());
+	}
+
+	/// The envelope can be built from a stopped transport too: the times are lengths, so the
+	/// tempo still says how long a stage is even when the position is not moving.
+	#[test]
+	fn a_synced_stage_works_with_the_transport_stopped() {
+		let mut adsr = adsr();
+		adsr.attack = SyncedTime::synced(1.0);
+
+		let infos = ProcessInfos { playing: false, ..infos_with_tempo(120.0) };
+		adsr.update_times(&infos);
+		assert!((adsr.times.attack - 500.0).abs() < 1e-3);
+	}
+
+	/// The pan moves the voice, and the random spread widens it around wherever it is.
+	#[test]
+	fn pan_places_the_voice_and_random_pan_spreads_around_it() {
+		let mut adsr = adsr();
+		adsr.random_pan = 0.0;
+
+		assert_eq!(adsr.pan_position(0.0), 0.5);
+		adsr.pan = -1.0;
+		assert_eq!(adsr.pan_position(0.0), 0.0, "hard left");
+		adsr.pan = 1.0;
+		assert_eq!(adsr.pan_position(0.0), 1.0, "hard right");
+
+		// A spread of one reaches both edges from the centre...
+		adsr.pan = 0.0;
+		adsr.random_pan = 1.0;
+		assert_eq!(adsr.pan_position(-1.0), 0.0);
+		assert_eq!(adsr.pan_position(1.0), 1.0);
+
+		// ...and from a side it stays inside the field instead of wrapping.
+		adsr.pan = 1.0;
+		assert_eq!(adsr.pan_position(1.0), 1.0);
+		assert_eq!(adsr.pan_position(-1.0), 0.5);
 	}
 }

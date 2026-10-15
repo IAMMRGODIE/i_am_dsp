@@ -8,7 +8,7 @@ use crate::{
 		Convolver, 
 		HilbertTransform
 	}, 
-	prelude::Parameters, 
+	prelude::{Parameters, SyncedTime}, 
 	tools::ring_buffer::RingBuffer, 
 	Effect, 
 	ProcessContext
@@ -22,6 +22,13 @@ pub trait Enveloper<const CHANNELS: usize = 2>: Parameters {
 	fn input_value(&mut self, input: &mut [f32; CHANNELS]);
 	/// Get the current envelope value
 	fn get_current_envelope(&self) -> [f32; CHANNELS];
+	/// Told the process settings before a block is processed.
+	///
+	/// A tempo an envelope is syncing to only lives here, so an envelope that follows the
+	/// tempo reads it once a block rather than once a sample. The default does nothing.
+	fn set_infos(&mut self, infos: &crate::ProcessInfos) {
+		let _ = infos;
+	}
 	
 	#[cfg(feature = "real_time_demo")]
 	/// The name of the envelope, used to identify the envelope in the demo UI
@@ -38,7 +45,8 @@ pub trait Enveloper<const CHANNELS: usize = 2>: Parameters {
 }
 
 impl<const CHANNELS: usize, T: Enveloper<CHANNELS> + Sync + Send> Effect<CHANNELS> for T {
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+		self.set_infos(ctx.infos());
 		self.input_value(samples);
 	}
 
@@ -288,10 +296,22 @@ pub struct PeakDetector<const CHANNELS: usize = 2> {
 	#[range(min = 0.0, max = 1000.0)]
 	#[unit(milliseconds)]
 	pub attack_time: f32,
+	/// The attack time in musical time: a sixteenth note stays a sixteenth note whatever the
+	/// host is playing at.
+	#[sub_param]
+	pub attack: SyncedTime,
 	/// The release time of the envelope in milliseconds.
 	#[range(min = 0.0, max = 1000.0)]
 	#[unit(milliseconds)]
 	pub release_time: f32,
+	/// The same stage length in musical time.
+	#[sub_param]
+	pub release: SyncedTime,
+	/// The lengths this block runs at, read from the tempo by [`Enveloper::set_infos`].
+	#[skip]
+	attack_ms: f32,
+	#[skip]
+	release_ms: f32,
 	#[skip]
 	/// The sample rate of the signal.
 	pub sample_rate: usize,
@@ -317,7 +337,11 @@ impl<const CHANNELS: usize> PeakDetector<CHANNELS> {
 		let last_history = [0.0; CHANNELS];
 		Self {
 			attack_time,
+			attack: SyncedTime { sync: false, beats: 1.0 },
 			release_time,
+			release: SyncedTime { sync: false, beats: 1.0 },
+			attack_ms: attack_time,
+			release_ms: release_time,
 			sample_rate,
 			envlope_history,
 			last_history,
@@ -341,10 +365,15 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for PeakDetector<CHANNELS> {
 		out
 	}
 
+	fn set_infos(&mut self, infos: &crate::ProcessInfos) {
+		self.attack_ms = self.attack.seconds(infos, self.attack_time) * 1000.0;
+		self.release_ms = self.release.seconds(infos, self.release_time) * 1000.0;
+	}
+
 	fn input_value(&mut self, input: &mut [f32; CHANNELS]) {
 		let sample_rate = self.sample_rate as f32;
-		let attack_factor = 1.0 - (-1.0 / (self.attack_time * sample_rate / 1000.0)).exp();
-		let release_factor = 1.0 - (-1.0 / (self.release_time * sample_rate / 1000.0)).exp();
+		let attack_factor = 1.0 - (-1.0 / (self.attack_ms * sample_rate / 1000.0)).exp();
+		let release_factor = 1.0 - (-1.0 / (self.release_ms * sample_rate / 1000.0)).exp();
 
 		let attack_factor = attack_factor.min(1.0);
 		let release_factor = release_factor.min(1.0);
@@ -367,16 +396,10 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for PeakDetector<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
-		use crate::tools::ui_tools::gain_ui;
+		use crate::tools::ui_tools::{gain_ui, synced_time_ui};
 
-		ui.add(egui::Slider::new(&mut self.attack_time, 0.0..=1000.0)
-			.text("Attack Time (ms)")
-			.max_decimals(4)
-		);
-		ui.add(egui::Slider::new(&mut self.release_time, 0.0..=1000.0)
-			.text("Release Time (ms)")
-			.max_decimals(4)
-		);
+		synced_time_ui(ui, "peak_attack", &mut self.attack, &mut self.attack_time, 0.0..=1000.0, "Attack Time (ms)");
+		synced_time_ui(ui, "peak_release", &mut self.release, &mut self.release_time, 0.0..=1000.0, "Release Time (ms)");
 		gain_ui(ui, &mut self.gain_factor, None, false);
 	}
 }
@@ -544,5 +567,70 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for FIRHilbertEnvelope<CHANNELS>
 			}
 			self.set_ir_len(ir_len);
 		}
+	}
+}
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::ProcessInfos;
+
+	fn infos_with_tempo(tempo: f32) -> ProcessInfos {
+		ProcessInfos {
+			sample_rate: 48_000,
+			trustable: true,
+			playing: true,
+			tempo: Some(tempo),
+			..ProcessInfos::default()
+		}
+	}
+
+	/// A synced follower takes its stages from the tempo, and an unsynced one keeps the
+	/// milliseconds it was built with.
+	#[test]
+	fn a_synced_follower_follows_the_tempo() {
+		let mut detector = PeakDetector::<2>::new(48_000, 10.0, 20.0);
+		detector.attack = SyncedTime::synced(1.0);
+		detector.release = SyncedTime::synced(0.5);
+
+		// A beat and half a beat at 120 bpm.
+		detector.set_infos(&infos_with_tempo(120.0));
+		assert!((detector.attack_ms - 500.0).abs() < 1e-3, "attack {}", detector.attack_ms);
+		assert!((detector.release_ms - 250.0).abs() < 1e-3, "release {}", detector.release_ms);
+
+		detector.attack = SyncedTime::default();
+		detector.release = SyncedTime::default();
+		detector.set_infos(&infos_with_tempo(120.0));
+		assert_eq!(detector.attack_ms, 10.0);
+		assert_eq!(detector.release_ms, 20.0);
+	}
+
+	/// A synced follower is still a follower: it tracks the signal it is given, and its
+	/// release is the length the tempo asked for.
+	#[test]
+	fn a_synced_follower_still_tracks_the_signal() {
+		// An instant attack, and a release synced to a sixteenth note.
+		let mut detector = PeakDetector::<1>::new(48_000, 0.0, 10.0);
+		detector.release = SyncedTime::synced(0.25);
+		detector.set_infos(&infos_with_tempo(120.0));
+
+		// A sixteenth note at 120 bpm is 125 ms, which is 6_000 samples.
+		assert!((detector.release_ms - 125.0).abs() < 1e-3, "{}", detector.release_ms);
+
+		// A rise is followed at once.
+		let mut input = [1.0];
+		detector.input_value(&mut input);
+		let peak = detector.get_current_envelope()[0];
+		assert!((peak - 1.0).abs() < 1e-3, "peak {peak}");
+
+		// The detector releases when the signal stops rising, so a silence of one time
+		// constant leaves a 1/e of it — and the time constant is the synced one, not the
+		// 10 ms the free value would have given.
+		input = [0.0];
+		for _ in 0..6_000 {
+			detector.input_value(&mut input);
+		}
+
+		let level = detector.get_current_envelope()[0];
+		assert!((level - (-1.0_f32).exp()).abs() < 0.02, "level {level}");
 	}
 }
