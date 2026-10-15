@@ -1,8 +1,8 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, ops::RangeInclusive};
 
 use egui::*;
 
-use crate::{effects::filter::MIN_FREQUENCY, tools::ring_buffer::RingBuffer};
+use crate::{effects::filter::MIN_FREQUENCY, tools::{ring_buffer::RingBuffer, synced_time::SyncedTime}};
 
 pub(crate) fn draw_complex_response(
 	ui: &mut egui::Ui,
@@ -330,4 +330,29 @@ pub fn lerp_to_gamma(this: Color32, other: Color32, t: f32) -> Color32 {
 		fast_round(lerp((this[2] as f32)..=(other[2] as f32), t)),
 		fast_round(lerp((this[3] as f32)..=(other[3] as f32), t)),
 	)
+}
+/// Draws a [`SyncedTime`] next to the free value it falls back to.
+///
+/// Only one of the two is shown at a time, so the panel does not offer a millisecond slider
+/// for a value that is being ignored.
+pub(crate) fn synced_time_ui(
+	ui: &mut Ui,
+	id: &str,
+	time: &mut SyncedTime,
+	free_ms: &mut f32,
+	free_range: RangeInclusive<f32>,
+) {
+	ui.push_id(id, |ui| {
+		ui.checkbox(&mut time.sync, "BPM Sync");
+
+		if time.sync {
+			ui.add(
+				Slider::new(&mut time.beats, 0.03125..=32.0)
+					.logarithmic(true)
+					.text("Time (beats)"),
+			);
+		} else {
+			ui.add(Slider::new(free_ms, free_range).text("Time (ms)"));
+		}
+	});
 }

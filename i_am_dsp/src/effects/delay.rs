@@ -2,10 +2,23 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{generators::wavetable::WaveTable, tools::{interpolate::cubic_interpolate, ring_buffer::RingBuffer}, Effect, ProcessContext};
+use crate::{ProcessInfos, generators::wavetable::WaveTable, prelude::SyncedTime, tools::{interpolate::cubic_interpolate, ring_buffer::RingBuffer}, Effect, ProcessContext};
 
 /// How many samples the cubic interpolation of the delay reads.
 const INTERPOLATION_TAPS: usize = 4;
+
+/// How long a delay time takes to glide to a new value, in seconds.
+///
+/// Moving a delay time has to move the read head with it, and a read head that jumps is a
+/// click. Gliding turns a knob move, or a tempo change under a synced time, into a short
+/// tape-like slide instead; the time constant is small enough that a musical change still
+/// lands promptly.
+const DELAY_GLIDE_SECONDS: f32 = 0.02;
+
+/// The one-pole glide coefficient for [`DELAY_GLIDE_SECONDS`] at a sample rate.
+fn glide_coefficient(sample_rate: usize) -> f32 {
+	1.0 - (-1.0 / (DELAY_GLIDE_SECONDS * sample_rate.max(1) as f32)).exp()
+}
 
 /// A pure delay that delays the signal by a fixed amount of time.
 #[derive(Parameters)]
@@ -20,12 +33,23 @@ pub struct PureDelay<const CHANNELS: usize = 2> {
 	/// The slot that was written last, which holds the newest sample.
 	#[skip]
 	position: usize,
-	/// The delay time,  saves in milliseconds
+	/// The delay time, saves in milliseconds
+	///
+	/// Used when [`Self::tempo`] is not syncing.
 	#[range(min = 0.0, max = 4000.0)]
 	pub delay_time: f32,
+	/// The same delay time in musical units, for when the host has a tempo.
+	#[sub_param]
+	pub tempo: SyncedTime,
 	/// The sample rate of the audio signal, saves in Hz
 	#[skip]
 	pub sample_rate: usize,
+	/// The delay being read right now, in fractional samples.
+	#[skip]
+	smoothed_delay: f32,
+	/// The delay the parameters ask for, in samples: where the glide is heading.
+	#[skip]
+	target_delay: f32,
 }
 
 impl<const CHANNELS: usize> PureDelay<CHANNELS> {
@@ -43,11 +67,18 @@ impl<const CHANNELS: usize> PureDelay<CHANNELS> {
 	) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
 
+		// The glide starts where the parameter is, so a fresh delay has no transient to
+		// settle through before it sounds like itself.
+		let delay = delay_time / 1000.0 * sample_rate as f32;
+
 		Self {
 			history: core::array::from_fn(|_| vec![0.0; maxium_delay_length]),
 			position: 0,
 			delay_time,
+			tempo: SyncedTime::default(),
 			sample_rate,
+			smoothed_delay: delay,
+			target_delay: delay,
 		}
 	}
 
@@ -78,6 +109,14 @@ impl<const CHANNELS: usize> PureDelay<CHANNELS> {
 		self.history[0].len()
 	}
 
+	/// The delay the parameters ask for, in fractional samples.
+	///
+	/// The value is fractional because the read below interpolates, and it comes from
+	/// [`SyncedTime`] because a synced time needs the tempo the process context carries.
+	fn target_delay_samples(&self, infos: &ProcessInfos) -> f32 {
+		self.tempo.seconds(infos, self.delay_time) * self.sample_rate as f32
+	}
+
 	/// The sample written 'delay' samples before the newest one.
 	///
 	/// 'delay' must be smaller than the history length.
@@ -99,9 +138,18 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
 	}
 
 	fn delay(&self) -> usize {
-		// The wet signal is the input delayed by the delay time, so that is what
-		// the dry signal has to be aligned against.
-		(self.delay_time / 1000.0 * self.sample_rate as f32).round().max(0.0) as usize
+		// The wet signal is delayed by the delay time, so that is what the dry signal has to
+		// be aligned against, and it is the target rather than the glide (delay compensation
+		// wants where the delay is going, not where it is mid-slide).
+		//
+		// A free time can be answered straight from the parameter. A synced one cannot:
+		// the tempo lives in the process context, so the last processed sample is the only
+		// thing that knows it.
+		if self.tempo.sync {
+			self.target_delay.round().max(0.0) as usize
+		}else {
+			(self.delay_time / 1000.0 * self.sample_rate as f32).round().max(0.0) as usize
+		}
 	}
 	
 	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
@@ -111,8 +159,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
 		if capacity < INTERPOLATION_TAPS {
 			return;
 		}
-		let delay = (self.delay_time / 1000.0 * self.sample_rate as f32)
-			.clamp(0.0, (capacity - INTERPOLATION_TAPS) as f32);
+		let max_delay = (capacity - INTERPOLATION_TAPS) as f32;
+		let target = self.target_delay_samples(ctx.infos()).clamp(0.0, max_delay);
+		self.target_delay = target;
+		self.smoothed_delay = (self.smoothed_delay
+			+ (target - self.smoothed_delay) * glide_coefficient(self.sample_rate))
+			.clamp(0.0, max_delay);
+
+		let delay = self.smoothed_delay;
 		let whole = delay.floor() as usize;
 		let fraction = delay - whole as f32;
 
@@ -145,7 +199,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		let delay_range = 1.0..=self.maxium_delay_time();
 
-		ui.add(egui::Slider::new(&mut self.delay_time, delay_range).text("Delay Time (ms)"));
+		crate::tools::ui_tools::synced_time_ui(ui, "pure_delay", &mut self.tempo, &mut self.delay_time, delay_range);
 	}
 }
 
@@ -159,9 +213,14 @@ pub struct Delay<
 	history: [RingBuffer<f32>; CHANNELS],
 	#[sub_param]
 	delayed_effect: DelayedEffect,
-	/// the delay time, saves in milliseconds
+	/// The delay time, saves in milliseconds.
+	///
+	/// Used when [`Self::tempo`] is not syncing.
 	#[range(min = 0.0, max = 1000.0)]
 	pub delay_time: f32,
+	/// The same delay time in musical units, for when the host has a tempo.
+	#[sub_param]
+	pub tempo: SyncedTime,
 	#[skip]
 	/// The sample rate of the audio signal, saves in Hz
 	pub sample_rate: usize,
@@ -173,46 +232,19 @@ pub struct Delay<
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
 	pub wet_gain: f32,
-	#[persist(serialize = "format_pure_delay", deserialize = "parse_pure_delay")]
-	pingpong: Option<[PureDelay<1>; CHANNELS]>,
+	/// Whether the repeats alternate between the channels.
+	///
+	/// Each side feeds the other, so an echo leaves on one side, comes back on the other,
+	/// and so on. Off, each side repeats into itself.
+	pub pingpong: bool,
+	/// The delay being read right now, in fractional samples.
+	#[skip]
+	smoothed_delay: f32,
+	/// The delay the parameters ask for, in samples: where the glide is heading.
+	#[skip]
+	target_delay: f32,
 }
 
-fn format_pure_delay<const CHANNELS: usize>(delay: &Option<[PureDelay<1>; CHANNELS]>) -> Vec<u8> {
-	if let Some(delay) = delay {
-		let mut output = Vec::new();
-		for delay in delay.iter() {
-			output.extend(delay.delay_time.to_le_bytes());
-			output.extend((delay.sample_rate as u32).to_le_bytes());
-			output.extend((delay.history_len() as u32).to_le_bytes());
-		}
-		output
-	}else {
-		vec![]
-	}
-}
-
-fn parse_pure_delay<const CHANNELS: usize>(mut data: Vec<u8>) -> Option<[PureDelay<1>; CHANNELS]> {
-	if data.is_empty() {
-		None
-	}else {
-		Some(std::array::from_fn(|_| {
-			let mut delay_time = data.split_off(4);
-			std::mem::swap(&mut delay_time, &mut data);
-			let mut sample_rate = data.split_off(4);
-			std::mem::swap(&mut sample_rate, &mut data);
-			let mut history_len = data.split_off(4);
-			std::mem::swap(&mut history_len, &mut data);
-
-			let delay_time = [delay_time[0], delay_time[1], delay_time[2], delay_time[3]];
-			let sample_rate = [sample_rate[0], sample_rate[1], sample_rate[2], sample_rate[3]];
-			let history_len = [history_len[0], history_len[1], history_len[2], history_len[3]];
-			let delay_time = f32::from_le_bytes(delay_time);
-			let sample_rate = u32::from_le_bytes(sample_rate) as usize;
-			let history_len = u32::from_le_bytes(history_len) as usize;
-			PureDelay::new(history_len, delay_time, sample_rate)
-		}))
-	}
-}
 
 impl<
 	DelayedEffect: Effect<CHANNELS>, 
@@ -234,14 +266,21 @@ impl<
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
 		let history = core::array::from_fn(|_| RingBuffer::new(maxium_delay_length));
 
+		// The glide starts where the parameter is, so a fresh delay has no transient to
+		// settle through before it sounds like itself.
+		let delay = delay_time / 1000.0 * sample_rate as f32;
+
 		Self {
 			history,
 			delayed_effect,
 			delay_time,
+			tempo: SyncedTime::default(),
 			sample_rate,
 			wet_gain: 1.0,
 			decay_factor: 0.8,
-			pingpong: None,
+			pingpong: false,
+			smoothed_delay: delay,
+			target_delay: delay,
 		}
 	}
 
@@ -264,11 +303,9 @@ impl<
 			buffer.clear();
 		}
 
-		if let Some(pingpong) = self.pingpong.as_mut() {
-			for delay in pingpong.iter_mut() {
-				delay.clear_history();
-			}
-		}
+		// A cleared line leaves the glide where it is: the delay time is a parameter, not
+		// part of the history being wiped.
+		self.smoothed_delay = self.target_delay;
 	}
 
 	/// Resize delay history.
@@ -277,34 +314,20 @@ impl<
 			buffer.resize(new_capacity);
 		}
 
-		if let Some(pingpong) = self.pingpong.as_mut() {
-			for delay in pingpong.iter_mut() {
-				delay.resize_history(new_capacity);
-			}
-		}
+		// The new capacity may be shorter than the delay that was being read.
+		let max_delay = new_capacity.saturating_sub(INTERPOLATION_TAPS) as f32;
+		self.smoothed_delay = self.smoothed_delay.min(max_delay);
+		self.target_delay = self.target_delay.min(max_delay);
 	}
 
 	/// Toggles the ping-pong mode.
 	pub fn toggle_pingpong(&mut self) {
-		if self.pingpong.is_none() {
-			let history_len = self.history[0].capacity();
-			// let max_time = self.max_delay_time(0.01);
-			// self.delay_time = self.delay_time.clamp(0.0, max_time / CHANNELS as f32);
-			self.pingpong = Some(core::array::from_fn(|i| {
-				PureDelay::new(
-					history_len, 
-					i as f32 * self.delay_time,
-					self.sample_rate
-				)
-			}));
-		}else {
-			self.pingpong = None;
-		}
+		self.pingpong = !self.pingpong;
 	}
 
 	/// Returns true if the effect is in ping-pong mode.
 	pub fn pingpong(&self) -> bool {
-		self.pingpong.is_some()
+		self.pingpong
 	}
 }
 
@@ -318,41 +341,59 @@ impl<
 	}
 
 	fn delay(&self) -> usize {
+		// The dry signal passes through undelayed, so nothing has to be compensated for;
+		// the repeats are the effect, not latency.
 		0
 	}
 	
 	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
-		let delay_samples = self.delay_time / 1000.0 * self.sample_rate as f32;
+		let history_len = self.history[0].capacity();
+		// The interpolation reads one sample either side of the delay, so the last few slots
+		// cannot be addressed.
+		let max_delay = history_len.saturating_sub(INTERPOLATION_TAPS) as f32;
+
+		let target = (self.tempo.seconds(ctx.infos(), self.delay_time)
+			* self.sample_rate as f32)
+			.clamp(0.0, max_delay);
+		self.target_delay = target;
+		self.smoothed_delay = (self.smoothed_delay
+			+ (target - self.smoothed_delay) * glide_coefficient(self.sample_rate))
+			.clamp(0.0, max_delay);
+
+		let delay_samples = self.smoothed_delay;
 		let t = delay_samples.fract();
-		let delay_samples_ori = delay_samples.floor() as isize;
-		let history_len = self.history[0].capacity() as isize;
+		let whole = delay_samples.floor() as isize;
+		let history_len = history_len as isize;
 
-		let delay_samples = if self.pingpong() {
-			delay_samples_ori * CHANNELS as isize
-		}else {
-			delay_samples_ori
-		};
+		// Read every tap before anything is written, because ping-pong feeds each side from
+		// the other's output.
+		// `history[capacity - k]` is the sample written `k` samples ago, and the cubic reads
+		// from the second tap to the third: the window has to run from `whole - 1` ago to
+		// `whole + 2` ago for the interpolation to land on `whole + t`. Reversed, the read sat
+		// one sample late, and every trip around the feedback loop added another.
+		let mut delayed = [0.0; CHANNELS];
+		for (i, history) in self.history.iter().enumerate() {
+			let interpolate_parameters = [
+				history[history_len + 1 - whole],
+				history[history_len - whole],
+				history[history_len - 1 - whole],
+				history[history_len - 2 - whole],
+			];
+			delayed[i] = cubic_interpolate(t, interpolate_parameters);
+		}
 
-		let delay_samples = delay_samples.clamp(0, history_len - 1);
 		let mut delayed_sample_output = [0.0; CHANNELS];
 		for (i, history) in self.history.iter_mut().enumerate() {
-			let interpolate_parameters = [
-				history[history_len - 2 - delay_samples],
-				history[history_len - 1 - delay_samples],
-				history[history_len - delay_samples],
-				history[history_len + 1 - delay_samples],
-			];
-			// self.history[i].push(*sample);
-			let mut delayed_sample = [cubic_interpolate(t, interpolate_parameters)];
-			let sample = delayed_sample[0] * self.wet_gain * self.decay_factor + samples[i];
-			history.push(sample);
-
-			delayed_sample_output[i] = if let Some(pingpong) = &mut self.pingpong {
-				pingpong[i].process(&mut delayed_sample, &[], ctx);
-				delayed_sample[0]
+			// Ping-pong crosses the feedback: each side repeats what the *other* side just
+			// produced, so the repeats alternate instead of each side echoing into itself.
+			let feedback = if self.pingpong {
+				delayed[(i + 1) % CHANNELS]
 			}else {
-				delayed_sample[0]
-			} * self.decay_factor;
+				delayed[i]
+			};
+
+			history.push(feedback * self.wet_gain * self.decay_factor + samples[i]);
+			delayed_sample_output[i] = delayed[i] * self.decay_factor;
 		}
 
 		self.delayed_effect.process(&mut delayed_sample_output, &[], ctx);
@@ -370,20 +411,13 @@ impl<
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
     	use crate::tools::ui_tools::gain_ui;
 
-		let max_time = 1000.0;
+		// Ping-pong no longer shortens the usable delay: each side runs the whole time and
+		// feeds the other, instead of the read offset being stretched across the channels.
+		let delay_range = 1.0..=1000.0_f32.min(self.history[0].capacity() as f32
+			/ self.sample_rate as f32 * 1000.0);
 
-		let max_time = if self.pingpong() {
-			max_time / CHANNELS as f32
-		}else {
-			max_time
-		};
-
-		let delay_range = 1.0..=max_time;
-
-		if ui.selectable_label(self.pingpong(), "Ping-Pong").clicked() {
-			self.toggle_pingpong();
-		}
-		ui.add(egui::Slider::new(&mut self.delay_time, delay_range).text("Delay Time (ms)"));
+		ui.checkbox(&mut self.pingpong, "Ping-Pong");
+		crate::tools::ui_tools::synced_time_ui(ui, &id_prefix, &mut self.tempo, &mut self.delay_time, delay_range);
 		ui.add(egui::Slider::new(&mut self.decay_factor, 0.01..=0.8).text("Decay Factor"));
 		gain_ui(ui, &mut self.wet_gain, Some("Wet Gain".to_string()), false);
 
@@ -713,5 +747,135 @@ mod tests {
 		delay.resize_history(0);
 		let response = impulse_response(&mut delay, 10);
 		assert!(response.iter().all(|x| x.is_finite()));
+	}
+	/// A process context that reports fixed infos, for the synced cases.
+	struct FixedInfos(ProcessInfos);
+
+	impl ProcessContext for FixedInfos {
+		fn infos(&self) -> &ProcessInfos {
+			&self.0
+		}
+
+		fn next_event(&mut self) -> Option<crate::NoteEvent> {
+			None
+		}
+
+		fn send_event(&mut self, _: crate::NoteEvent) {}
+
+		fn clear_events(&mut self) {}
+
+		fn events(&self) -> &[crate::NoteEvent] {
+			&[]
+		}
+	}
+
+	fn infos_with_tempo(tempo: f32) -> ProcessInfos {
+		ProcessInfos {
+			sample_rate: 48_000,
+			trustable: true,
+			playing: true,
+			tempo: Some(tempo),
+			..ProcessInfos::default()
+		}
+	}
+
+	/// The samples the echoes of an impulse land on, per channel.
+	fn echo_samples(delay: &mut Delay<(), 2>, samples: usize) -> [Vec<usize>; 2] {
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+		let mut echoes = [Vec::new(), Vec::new()];
+
+		for i in 0..samples {
+			let mut frame = [if i == 0 { 1.0 } else { 0.0 }, 0.0];
+			delay.process(&mut frame, &[], &mut ctx);
+
+			// The dry input passes through the effect, so the first samples carry the
+			// impulse itself; only what comes later is an echo.
+			if i < 100 {
+				continue;
+			}
+			for (channel, echo) in echoes.iter_mut().enumerate() {
+				if frame[channel].abs() > 1e-4 {
+					echo.push(i);
+				}
+			}
+		}
+
+		echoes
+	}
+
+	/// 100 ms at 48 kHz is 4_800 samples, and that is where the first repeat belongs — the
+	/// ping-pong read used to stretch it across the channels and land at twice the time.
+	#[test]
+	fn ping_pong_alternates_at_the_delay_time() {
+		let mut delay = Delay::<(), 2>::new((), 1 << 16, 100.0, 48_000);
+		delay.decay_factor = 0.5;
+		delay.pingpong = true;
+
+		let echoes = echo_samples(&mut delay, 48_000 / 2);
+
+		assert_eq!(echoes[0].first(), Some(&4_800), "left repeats: {:?}", echoes[0]);
+		assert_eq!(echoes[1].first(), Some(&9_600), "right repeats: {:?}", echoes[1]);
+		assert_eq!(echoes[0].get(1), Some(&14_400), "left repeats: {:?}", echoes[0]);
+	}
+
+	/// Without ping-pong both sides repeat into themselves, at the same distance.
+	#[test]
+	fn a_plain_delay_repeats_on_the_same_side() {
+		let mut delay = Delay::<(), 2>::new((), 1 << 16, 100.0, 48_000);
+		delay.decay_factor = 0.5;
+
+		let echoes = echo_samples(&mut delay, 48_000 / 2);
+
+		assert_eq!(echoes[0].first(), Some(&4_800));
+		assert_eq!(echoes[0].get(1), Some(&9_600));
+		assert!(echoes[1].is_empty(), "the other side is silent: {:?}", echoes[1]);
+	}
+
+	/// Moving a delay time has to move the read head, and a read head that teleports is a
+	/// click; the glide is what turns it into a slide.
+	#[test]
+	fn a_moved_delay_time_glides_instead_of_jumping() {
+		let mut delay = PureDelay::<1>::new(1 << 16, 10.0, 48_000);
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+		let mut frame = [0.0];
+
+		// 10 ms is 480 samples, and a fresh delay starts there rather than gliding to it.
+		delay.process(&mut frame, &[], &mut ctx);
+		assert!((delay.smoothed_delay - 480.0).abs() < 1e-3);
+
+		// Asked for 100 ms, the read head has to travel: one sample of a 20 ms glide moves it
+		// by about 1/960 of the way, not 4_320 samples.
+		delay.delay_time = 100.0;
+		delay.process(&mut frame, &[], &mut ctx);
+		assert!(
+			delay.smoothed_delay > 480.0 && delay.smoothed_delay < 490.0,
+			"the read head jumped to {}",
+			delay.smoothed_delay
+		);
+
+		// It does get there.
+		for _ in 0..48_000 / 5 {
+			delay.process(&mut frame, &[], &mut ctx);
+		}
+		assert!((delay.smoothed_delay - 4_800.0).abs() < 1.0, "settled at {}", delay.smoothed_delay);
+	}
+
+	/// A synced delay takes its time from the tempo, and reports it to whoever asks for the
+	/// latency even though only the process context knows the tempo.
+	#[test]
+	fn a_synced_delay_follows_the_tempo() {
+		let mut delay = PureDelay::<1>::new(1 << 16, 10.0, 48_000);
+		delay.tempo = SyncedTime::synced(0.5);
+
+		let mut ctx: Box<dyn ProcessContext> = Box::new(FixedInfos(infos_with_tempo(120.0)));
+		let mut frame = [0.0];
+		for _ in 0..48_000 / 5 {
+			delay.process(&mut frame, &[], &mut ctx);
+		}
+
+		// An eighth note at 120 bpm is 250 ms, which is 12_000 samples — not the 480 the free
+		// value asks for.
+		assert!((delay.smoothed_delay - 12_000.0).abs() < 1.0, "read {}", delay.smoothed_delay);
+		assert_eq!(delay.delay(), 12_000);
 	}
 }
