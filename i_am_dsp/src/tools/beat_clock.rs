@@ -42,6 +42,11 @@ pub struct BeatClock {
 	running: bool,
 	anchor: Option<Anchor>,
 	position: f64,
+	/// The last sample [`Self::advance_to`] was asked about.
+	///
+	/// Starting the transport again measures from here, so the samples that went by while
+	/// it was stopped are not counted as music.
+	last_sample: u64,
 }
 
 impl BeatClock {
@@ -52,6 +57,7 @@ impl BeatClock {
 			running: false,
 			anchor: None,
 			position: 0.0,
+			last_sample: 0,
 		}
 	}
 
@@ -78,7 +84,20 @@ impl BeatClock {
 	/// A stopped transport holds the position where it is rather than gliding forward: the
 	/// host may keep reporting a position while the user is stopped, and a sync'd effect
 	/// should sit on that position, not run away from it.
+	///
+	/// No music passes while stopped, so starting again continues from where the position was
+	/// left: without that, a two minute pause would be counted as two minutes of beats and the
+	/// position would leap forward the moment the host hits play.
 	pub fn set_running(&mut self, running: bool) {
+		if running && !self.running && let Some(anchor) = self.anchor {
+			self.anchor = Some(Anchor {
+				sample: self.last_sample,
+				beats: self.position,
+				tempo: anchor.tempo,
+				tempo_inc: anchor.tempo_inc,
+			});
+		}
+
 		self.running = running;
 	}
 
@@ -101,6 +120,8 @@ impl BeatClock {
 	/// has nothing to sync to. While the transport is stopped the last position is returned
 	/// unchanged.
 	pub fn advance_to(&mut self, sample: u64) -> Option<f64> {
+		self.last_sample = sample;
+
 		let anchor = self.anchor?;
 
 		if self.running {
@@ -155,9 +176,10 @@ mod tests {
 		assert_eq!(clock.advance_to(48_000), Some(8.0));
 		assert_eq!(clock.advance_to(96_000), Some(8.0));
 
-		// Rolling again picks the timeline back up where it was left.
+		// Starting again continues from where the position was left: the samples that went by
+		// while stopped were not music, so one beat after the last frozen sample.
 		clock.set_running(true);
-		assert_eq!(clock.advance_to(120_000), Some(13.0));
+		assert_eq!(clock.advance_to(120_000), Some(9.0));
 	}
 
 	#[test]
