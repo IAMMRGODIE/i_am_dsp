@@ -48,6 +48,10 @@ clap_wrapper::export_auv2!();
 
 哦对了现在有一个打包工具了在 [i_am_bundler](./i_am_bundler/README.md) 那边，还做了安装，应该会方便些
 
+## 贡献
+
+开 PR 就行，顺便我们用的是 `cargo clippy`，所以交上来的时候记得清掉 clippy warning.
+
 ## 开源协议
 
 MPL 2.0
