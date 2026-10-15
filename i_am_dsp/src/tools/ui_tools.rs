@@ -341,6 +341,7 @@ pub(crate) fn synced_time_ui(
 	time: &mut SyncedTime,
 	free_ms: &mut f32,
 	free_range: RangeInclusive<f32>,
+	free_label: &str,
 ) {
 	ui.push_id(id, |ui| {
 		ui.checkbox(&mut time.sync, "BPM Sync");
@@ -352,7 +353,7 @@ pub(crate) fn synced_time_ui(
 					.text("Time (beats)"),
 			);
 		} else {
-			ui.add(Slider::new(free_ms, free_range).text("Time (ms)"));
+			ui.add(Slider::new(free_ms, free_range).text(free_label));
 		}
 	});
 }

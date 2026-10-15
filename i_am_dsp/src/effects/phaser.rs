@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{prelude::{WaveTable, MIN_FREQUENCY}, Effect, ProcessContext};
+use crate::{prelude::{SyncedPhase, SyncedTime, WaveTable, MIN_FREQUENCY}, Effect, ProcessContext};
 
 /// A phaser effect with variable feedback gain and LFO frequency.
 #[derive(Parameters)]
@@ -18,10 +18,17 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// the LFO waveform
 	#[sub_param]
 	pub lfo: Lfo,
-	/// LFO frequency in Hz
+	/// LFO frequency in Hz, used when [`Self::tempo`] is not syncing.
 	#[range(min = 0.01, max = 20.0)]
 	#[unit(hertz)]
 	pub lfo_freq: f32,
+	/// The same rate in musical time.
+	///
+	/// Syncing also takes the sweep's phase from the song position while the transport runs,
+	/// so it lines up with the grid, and keeps it sweeping at the synced rate while the
+	/// transport is stopped.
+	#[sub_param]
+	pub tempo: SyncedTime,
 	#[range(min = 10.0, max = 10000.0)]
 	#[logarithmic]
 	/// Minimum frequency in Hz
@@ -35,7 +42,7 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[skip]
 	sample_rate: usize,
 	#[skip]
-	phase: f32,
+	phase: SyncedPhase,
 	/// The feedback gain, saves in linear scale
 	#[range(min = 0.01, max = 1.0)]
 	#[logarithmic]
@@ -57,10 +64,11 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Phaser<Lfo, CHANNELS> {
 			feedback_history: [0.0; CHANNELS],
 			lfo,
 			lfo_freq: 0.5,
+			tempo: SyncedTime::default(),
 			min_freq: MIN_FREQUENCY,
 			max_freq: sample_rate as f32 / 2.0 - MIN_FREQUENCY,
 			sample_rate,
-			phase: 0.0,
+			phase: SyncedPhase::new(),
 			feedback_gain: 0.0,
 			phase_delta: 0.0,
 			// wet_gain: 1.0,
@@ -89,8 +97,10 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 		"Phaser"
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
-		let step = self.lfo_freq / self.sample_rate as f32;
+	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+		let base_phase = self
+			.phase
+			.advance_rate(&self.tempo, ctx.infos(), self.lfo_freq, self.sample_rate) as f32;
 		samples.iter_mut().zip(self.feedback_history.iter_mut()).for_each(|(sample, feedback)| {
 			*sample += *feedback * self.feedback_gain;
 		});
@@ -106,7 +116,7 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 			.enumerate() 
 		{
 			for (channel, output) in output.iter_mut().enumerate() {
-				let phase = (self.phase + (i + channel) as f32 * self.phase_delta) % 1.0;
+				let phase = (base_phase + (i + channel) as f32 * self.phase_delta) % 1.0;
 				let lfo = ((self.lfo.sample(phase, 0) + 1.0) / 2.0).clamp(0.0, 1.0);
 				let freq = (max_depth - min_depth) * lfo + min_depth;
 				let a_val = (PI * freq).tan();
@@ -125,7 +135,6 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 			*sample = output[i].clamp(-1.0, 1.0);
 		});
 
-		self.phase += step;
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -140,7 +149,7 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 
 		let max_freq = self.sample_rate as f32 / 2.0 - MIN_FREQUENCY;
 
-		ui.add(egui::Slider::new(&mut self.lfo_freq, 0.01..=20.0).text("LFO Frequency"));
+		crate::tools::ui_tools::synced_time_ui(ui, "phaser", &mut self.tempo, &mut self.lfo_freq, 0.01..=20.0, "LFO Frequency (Hz)");
 		ui.add(egui::Slider::new(&mut self.min_freq, MIN_FREQUENCY..=max_freq).text("Min Frequency").logarithmic(true));
 		ui.add(egui::Slider::new(&mut self.max_freq, MIN_FREQUENCY..=max_freq).text("Max Frequency").logarithmic(true));
 		ui.add(egui::Slider::new(&mut self.phase_delta, 0.0..=1.0).text("Phase Delta"));

@@ -233,6 +233,22 @@ impl SyncedPhase {
 		phase
 	}
 
+	/// The phase for a rate measured in hertz, which is how an LFO is usually described.
+	///
+	/// [`Self::advance`] takes the free value as a period in milliseconds, because that is
+	/// what a delay wants; an LFO's free value is a frequency, so this is the same thing with
+	/// the period worked out.
+	pub fn advance_rate(
+		&mut self,
+		time: &SyncedTime,
+		infos: &ProcessInfos,
+		free_hz: f32,
+		sample_rate: usize,
+	) -> f64 {
+		let free_period_ms = if free_hz > 0.0 { 1000.0 / free_hz } else { 0.0 };
+		self.advance(time, infos, free_period_ms, sample_rate)
+	}
+
 	/// Where the host says this cycle is, while the transport is actually moving.
 	///
 	/// The `playing` check is the point: a stopped host still reports the position it stopped

@@ -2,7 +2,7 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{ProcessInfos, generators::wavetable::WaveTable, prelude::SyncedTime, tools::{interpolate::cubic_interpolate, ring_buffer::RingBuffer}, Effect, ProcessContext};
+use crate::{ProcessInfos, generators::wavetable::WaveTable, prelude::{SyncedPhase, SyncedTime}, tools::{interpolate::cubic_interpolate, ring_buffer::RingBuffer}, Effect, ProcessContext};
 
 /// How many samples the cubic interpolation of the delay reads.
 const INTERPOLATION_TAPS: usize = 4;
@@ -201,7 +201,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		let delay_range = 1.0..=self.maxium_delay_time();
 
-		crate::tools::ui_tools::synced_time_ui(ui, "pure_delay", &mut self.tempo, &mut self.delay_time, delay_range);
+		crate::tools::ui_tools::synced_time_ui(ui, "pure_delay", &mut self.tempo, &mut self.delay_time, delay_range, "Delay Time (ms)");
 	}
 }
 
@@ -445,7 +445,7 @@ impl<
 			/ self.sample_rate as f32 * 1000.0);
 
 		ui.checkbox(&mut self.pingpong, "Ping-Pong");
-		crate::tools::ui_tools::synced_time_ui(ui, &id_prefix, &mut self.tempo, &mut self.delay_time, delay_range);
+		crate::tools::ui_tools::synced_time_ui(ui, &id_prefix, &mut self.tempo, &mut self.delay_time, delay_range, "Delay Time (ms)");
 		ui.add(egui::Slider::new(&mut self.decay_factor, 0.01..=0.8).text("Decay Factor"));
 		gain_ui(ui, &mut self.wet_gain, Some("Wet Gain".to_string()), false);
 
@@ -471,16 +471,23 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// The LFO waveform
 	#[sub_param]
 	pub lfo: Lfo,
-	/// The frequency of the LFO, saves in Hz
+	/// The frequency of the LFO, saves in Hz, used when [`Self::tempo`] is not syncing.
 	#[range(min = 0.01, max = 20.0)]
 	#[unit(hertz)]
 	pub lfo_frequency: f32,
+	/// The same rate in musical time.
+	///
+	/// With it syncing, the sweep takes its phase from the song position while the transport
+	/// runs, so it lines up with the grid, and keeps sweeping at the synced rate while the
+	/// transport is stopped.
+	#[sub_param]
+	pub tempo: SyncedTime,
 	/// The amplitude of the LFO, saves in milliseconds
 	#[range(min = 0.01, max = 10.0)]
 	#[unit(milliseconds)]
 	pub lfo_amplitude: f32,
 	#[skip]
-	phase: f32,
+	phase: SyncedPhase,
 	/// The wet gain of the effect, saves in linear scale
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
@@ -513,8 +520,9 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Flanger<Lfo, CHANNELS> {
 			center_delay_time: 10.0,
 			lfo,
 			lfo_frequency: 1.0,
+			tempo: SyncedTime::default(),
 			lfo_amplitude: 5.0,
-			phase: 0.0,
+			phase: SyncedPhase::new(),
 			wet_gain: 1.0,
 			feed_back_gain: 0.1,
 		}
@@ -556,8 +564,10 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for F
 	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
 		let delay_time = self.center_delay_time / 1000.0 * self.sample_rate as f32;
 		let lfo_amp = self.lfo_amplitude / 1000.0 * self.sample_rate as f32;
-		let step = self.lfo_frequency / self.sample_rate as f32;
-		let lfo_sample = self.lfo.sample(self.phase, 0) * lfo_amp;
+		let phase = self
+			.phase
+			.advance_rate(&self.tempo, ctx.infos(), self.lfo_frequency, self.sample_rate) as f32;
+		let lfo_sample = self.lfo.sample(phase, 0) * lfo_amp;
 
 		let sample_pos = lfo_sample + delay_time;
 		let uniformed_pos = sample_pos / self.history[0].capacity() as f32;
@@ -568,8 +578,6 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for F
 			self.history[i].push(*sample);
 			*sample += (sampled + feed_back) * self.wet_gain;
 		}
-		self.phase += step;
-		self.phase %= 1.0;
 
 		if ctx.should_stop() {
 			self.clear_history();	
@@ -582,7 +590,7 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for F
 
 		ui.add(egui::Slider::new(&mut self.center_delay_time, 0.01..=10.0).text("Center Delay Time (ms)"));
 		// ui.add(egui::Slider::new(&mut self.decay_factor, 0.01..=0.8).text("Decay Factor"));
-		ui.add(egui::Slider::new(&mut self.lfo_frequency, 0.01..=20.0).text("LFO Frequency (Hz)"));
+		crate::tools::ui_tools::synced_time_ui(ui, "flanger", &mut self.tempo, &mut self.lfo_frequency, 0.01..=20.0, "LFO Frequency (Hz)");
 		ui.add(egui::Slider::new(&mut self.lfo_amplitude, 0.01..=10.0).text("LFO Amplitude(ms)"));
 		gain_ui(ui, &mut self.feed_back_gain, Some("Feed Back Gain".to_string()), true);
 		gain_ui(ui, &mut self.wet_gain, Some("Wet Gain".to_string()), false);
@@ -604,10 +612,14 @@ pub struct Chorus<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// The LFO waveform
 	#[sub_param]
 	pub lfo: Lfo,
-	/// The frequency of the LFO, saves in Hz
+	/// The frequency of the LFO, saves in Hz, used when [`Self::tempo`] is not syncing.
 	#[range(min = 0.01, max = 2.0)]
 	#[unit(hertz)]
 	pub lfo_frequency: f32,
+	/// The same rate in musical time; see [`Flanger::tempo`] for what syncing does to a
+	/// sweep.
+	#[sub_param]
+	pub tempo: SyncedTime,
 	/// The amplitude of the LFO, saves in milliseconds
 	#[range(min = 5.0, max = 20.0)]
 	#[unit(milliseconds)]
@@ -619,7 +631,7 @@ pub struct Chorus<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[range(min = 1, max = 50)]
 	delay_lines: usize,
 	#[skip]
-	phase: f32,
+	phase: SyncedPhase,
 }
 
 impl<Lfo: WaveTable, const CHANNELS: usize> Chorus<Lfo, CHANNELS> {
@@ -642,9 +654,10 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Chorus<Lfo, CHANNELS> {
 			center_delay_time: 10.0,
 			lfo,
 			lfo_frequency: 1.0,
+			tempo: SyncedTime::default(),
 			lfo_amplitude: 10.0,
 			wet_gain: 1.0,
-			phase: 0.0,
+			phase: SyncedPhase::new(),
 			delay_lines,
 		}
 	}
@@ -677,14 +690,16 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for C
 	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
 		let delay_time = self.center_delay_time / 1000.0 * self.sample_rate as f32;
 		let lfo_amp = self.lfo_amplitude / 1000.0 * self.sample_rate as f32;
-		let step = self.lfo_frequency / self.sample_rate as f32;
+		let phase = self
+			.phase
+			.advance_rate(&self.tempo, ctx.infos(), self.lfo_frequency, self.sample_rate) as f32;
 
 		let mut output = [0.0; CHANNELS];
 
 		for i in 0..self.delay_lines {
 			for (j, output) in output.iter_mut().enumerate() {
 				let phase_delta = (i as f32 / (self.delay_lines + j) as f32).fract();
-				let lfo_sample = self.lfo.sample((self.phase + phase_delta).fract(), 0) * lfo_amp;
+				let lfo_sample = self.lfo.sample((phase + phase_delta).fract(), 0) * lfo_amp;
 				let sample_pos = lfo_sample + delay_time;
 				let uniformed_pos = sample_pos / self.history[0].capacity() as f32;
 
@@ -699,8 +714,6 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for C
 			*sample /= self.delay_lines as f32;
 		});
 
-		self.phase += step;
-		self.phase %= 1.0;
 
 		if ctx.should_stop() {
 			self.clear_history();	
@@ -712,7 +725,7 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for C
     	use crate::tools::ui_tools::gain_ui;
 
 		ui.add(egui::Slider::new(&mut self.center_delay_time, 5.0..=20.0).text("Center Delay Time (ms)"));
-		ui.add(egui::Slider::new(&mut self.lfo_frequency, 0.01..=2.0).text("LFO Frequency (Hz)"));
+		crate::tools::ui_tools::synced_time_ui(ui, "chorus", &mut self.tempo, &mut self.lfo_frequency, 0.01..=2.0, "LFO Frequency (Hz)");
 		ui.add(egui::Slider::new(&mut self.lfo_amplitude, 5.0..=20.0).text("LFO Amplitude(ms)"));
 		ui.add(egui::Slider::new(&mut self.delay_lines, 1..=50).text("Delay Lines"));
 		gain_ui(ui, &mut self.wet_gain, Some("Wet Gain".to_string()), false);
@@ -811,6 +824,79 @@ mod tests {
 			tempo: Some(tempo),
 			..ProcessInfos::default()
 		}
+	}
+
+	/// A process context with a position as well as a tempo.
+	fn infos_with_position(tempo: f32, beats: f64, playing: bool) -> ProcessInfos {
+		let mut infos = infos_with_tempo(tempo);
+		infos.position_beats = Some(beats);
+		infos.playing = playing;
+		infos
+	}
+
+	/// The phase a flanger's LFO has reached after a while, which is what its rate decides.
+	fn flanger_phase(rate: (bool, f32), infos: ProcessInfos, samples: usize) -> f64 {
+		use crate::generators::wavetable::SineWave;
+
+		let (sync, beats) = rate;
+		let mut flanger = Flanger::new(1 << 12, 48_000, SineWave);
+		flanger.lfo_frequency = beats;
+		flanger.tempo = SyncedTime { sync, beats };
+
+		let mut ctx: Box<dyn ProcessContext> = Box::new(FixedInfos(infos));
+		let mut frame = [0.0; 2];
+		for _ in 0..samples {
+			flanger.process(&mut frame, &[], &mut ctx);
+		}
+
+		flanger.phase.phase()
+	}
+
+	/// A synced LFO takes its rate from the tempo: a cycle per beat at 120 bpm is two a
+	/// second, which is twice what the free value asks for.
+	#[test]
+	fn a_synced_lfo_follows_the_tempo() {
+		// A quarter of a second is 12_000 samples, and a 1 Hz LFO covers a quarter of a
+		// cycle in it.
+		let free = flanger_phase((false, 1.0), infos_with_tempo(120.0), 12_000);
+		assert!((free - 0.25).abs() < 1e-6, "free phase {free}");
+
+		// Synced to a beat, the same LFO runs at 2 Hz and covers half a cycle.
+		let synced = flanger_phase((true, 1.0), infos_with_tempo(120.0), 12_000);
+		assert!((synced - 0.5).abs() < 1e-6, "synced phase {synced}");
+
+		// Half the tempo, half the rate.
+		let slow = flanger_phase((true, 1.0), infos_with_tempo(60.0), 12_000);
+		assert!((slow - 0.25).abs() < 1e-6, "slow phase {slow}");
+	}
+
+	/// While the transport runs, a synced LFO takes its phase from the song position, so a
+	/// seek moves the sweep with the music instead of leaving it wherever it happened to be.
+	#[test]
+	fn a_synced_lfo_locks_to_the_grid() {
+		// Beat 4.5 with a cycle per beat is half way through a cycle, whatever came before.
+		let phase = flanger_phase((true, 1.0), infos_with_position(120.0, 4.5, true), 1);
+		assert!((phase - 0.5).abs() < 1e-6, "phase {phase}");
+
+		let phase = flanger_phase((true, 1.0), infos_with_position(120.0, 2.75, true), 1);
+		assert!((phase - 0.75).abs() < 1e-6, "phase {phase}");
+	}
+
+	/// A stopped transport leaves the position where it was, and a synced LFO that followed it
+	/// would freeze. It keeps sweeping at the synced rate instead, which is what makes it
+	/// usable while the DAW is stopped.
+	#[test]
+	fn a_synced_lfo_keeps_sweeping_while_the_transport_is_stopped() {
+		let stopped = infos_with_position(120.0, 4.5, false);
+
+		// One beat per cycle at 120 bpm is 24_000 samples, so half of it is 12_000.
+		let phase = flanger_phase((true, 1.0), stopped, 12_000);
+		assert!((phase - 0.5).abs() < 1e-6, "phase {phase}");
+
+		// ...and it is not the frozen grid phase: beat 4.5 would be half a cycle, and the
+		// sweep is still at the start of its own.
+		let first = flanger_phase((true, 1.0), infos_with_position(120.0, 4.5, false), 1);
+		assert!(first < 0.01, "first phase {first}");
 	}
 
 	/// The samples the echoes of an impulse land on, per channel.
