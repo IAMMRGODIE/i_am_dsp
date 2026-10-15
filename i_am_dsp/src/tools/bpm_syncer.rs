@@ -5,6 +5,9 @@
 //! anchored to — a standalone build, or a plugin that deliberately keeps moving while the
 //! transport is stopped — because a free-running accumulator cannot know about a seek, a
 //! loop or a tempo change until someone tells it.
+//!
+//! The type itself is deprecated; its own implementation is allowed to keep using it.
+#![allow(deprecated)]
 
 use crate::parameters::Parameters;
 
@@ -14,6 +17,34 @@ use crate::parameters::Parameters;
 /// for good once the position reaches a power of two it can no longer add a single sample's
 /// worth of a beat to: at 120 bpm and 48 kHz that is beat 1024, about eight minutes in, and
 /// every per-sample caller froze there.
+///
+/// # Deprecated
+///
+/// Prefer [`crate::tools::beat_clock::BeatClock`], which does everything this does and more:
+/// it computes from an absolute sample count instead of accumulating (so the same rounding
+/// cannot bite), it takes a tempo *ramp* rather than a single rate, it can be anchored to
+/// what a host reports and re-anchored when the host speaks again, and it knows the
+/// difference between a stopped transport and a running one. [`BeatClock::advance_local`] is
+/// the direct replacement for a free-running grid:
+///
+/// ```
+/// # use i_am_dsp::prelude::BeatClock;
+/// # use i_am_dsp::tools::bpm_syncer::BpmSyncer;
+/// # #[allow(deprecated)] {
+/// // BpmSyncer::new(48_000) + next_k(bpm, 1) per sample
+/// let mut syncer = BpmSyncer::new(48_000);
+/// syncer.next_k(120.0, 1);
+/// let old = syncer.read();
+///
+/// // becomes one call with the absolute sample count the grid has reached (the first
+/// // call only sets the origin)
+/// let mut clock = BeatClock::new(48_000);
+/// clock.advance_local(0, 120.0);
+/// let new = clock.advance_local(1, 120.0);
+/// assert_eq!(old, new as f32);
+/// # }
+/// ```
+#[deprecated(note = "use `BeatClock`, which is anchorable, ramp-aware and free of the accumulation rounding")]
 pub struct BpmSyncer {
 	current_signature: f64,
 	sample_rate: usize

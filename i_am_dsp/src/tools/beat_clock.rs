@@ -142,6 +142,36 @@ impl BeatClock {
 	pub fn position(&self) -> Option<f64> {
 		self.anchor.is_some().then_some(self.position)
 	}
+
+	/// Advances a timeline that has no host behind it, and returns the position at `sample`.
+	///
+	/// This is the free-running counterpart to [`Self::anchor`]: with nobody to re-anchor
+	/// from, the clock is its own authority. It keeps its position and only re-anchors when
+	/// the rate it is driven with changes, at the sample the change is noticed — which is
+	/// what makes a local grid one call per sample instead of a hand-rolled accumulator.
+	///
+	/// The first call sets the origin: with no history to measure from, the position is zero
+	/// at that sample and counts from there. Everything after it is plain interpolation from
+	/// the absolute sample count.
+	///
+	/// A local timeline is always running, so this leaves the clock running: stopping it is
+	/// [`Self::clear`], which forgets the timeline entirely. Drive a host-owned timeline with
+	/// [`Self::anchor`] and [`Self::advance_to`] instead.
+	pub fn advance_local(&mut self, sample: u64, tempo: f64) -> f64 {
+		match self.anchor {
+			Some(anchor) if anchor.tempo == tempo && anchor.tempo_inc == 0.0 => {},
+			_ => {
+				// Catch up to `sample` at the rate that has held so far, then change the rate
+				// there. Re-anchoring at the last sample anyone asked about would move the
+				// change backwards in time.
+				let position = self.advance_to(sample).unwrap_or(0.0);
+				self.anchor(sample, position, tempo, 0.0);
+			},
+		}
+
+		self.running = true;
+		self.advance_to(sample).unwrap_or(0.0)
+	}
 }
 
 #[cfg(test)]
@@ -215,6 +245,24 @@ mod tests {
 		clock.clear();
 		assert_eq!(clock.advance_to(24_000), None);
 		assert_eq!(clock.position(), None);
+	}
+
+	/// A local clock starts at zero, runs at the rate it is driven with, and keeps its
+	/// position across a change of rate instead of restarting.
+	#[test]
+	fn a_local_clock_runs_on_its_own_tempo() {
+		let mut clock = BeatClock::new(48_000);
+
+		// 120 bpm from sample 0: a beat is 24_000 samples.
+		assert_eq!(clock.advance_local(0, 120.0), 0.0);
+		assert_eq!(clock.advance_local(24_000, 120.0), 1.0);
+
+		// 240 bpm from here: a beat is 12_000 samples, and the position does not jump.
+		assert_eq!(clock.advance_local(24_000, 240.0), 1.0);
+		assert_eq!(clock.advance_local(36_000, 240.0), 2.0);
+
+		// It runs even though nothing ever said the transport started.
+		assert!(clock.running());
 	}
 
 	#[test]
