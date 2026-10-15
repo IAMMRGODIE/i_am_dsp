@@ -75,8 +75,9 @@
 //! Without the `vst3` feature you can still build with `cargo build --release`, rename the
 //! suffix to `.clap` and load the plugin in a CLAP host.
 
-use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::from_raw_parts};
+use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::from_raw_parts, sync::{Arc, atomic::{AtomicU32, Ordering}}};
 
+use clap_sys::ext::latency::{CLAP_EXT_LATENCY, clap_host_latency};
 use clack_extensions::{
 	audio_ports::{AudioPortFlags, AudioPortInfo, AudioPortType, PluginAudioPorts, PluginAudioPortsImpl}, 
 	clap_wrapper::{
@@ -90,6 +91,7 @@ use clack_extensions::{
 	state::{PluginState, PluginStateImpl}
 };
 use clack_plugin::{
+	host::HostMainThreadHandle,
 	entry::DefaultPluginFactory, events::{Match, Pckn, event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamModEvent, ParamValueEvent, TransportEvent, TransportFlags}, spaces::CoreEventSpace
 	}, plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, prelude::{OutputEvents, SampleType}, process::{Audio, Events, Process, ProcessStatus}
 };
@@ -317,6 +319,17 @@ pub trait Plugin: Processor {
 	/// The function to be called when host requests to stop processing.
 	fn on_stop_processing(&mut self) {}
 
+	/// Whether the host should be told when the plugin's latency changes.
+	///
+	/// It does when a synced delay takes its length from the tempo: a host that implements
+	/// plugin delay compensation is told, and compensates again. A host that only reads latency
+	/// when the plugin is activated cannot, however, and a plugin may prefer to leave it with
+	/// the number it saw then rather than to ask for something it will not do. Overriding this
+	/// to `false` keeps the report to that first number.
+	fn reports_latency_changes(&self) -> bool {
+		true
+	}
+
 	/// Optional embedded font bytes (e.g. `include_bytes!(...)`). When set,
 	/// the GUI loads it as it opens so `Family::Name(...)` text renders with it.
 	const EMBEDDED_FONT: Option<&'static [u8]> = None;
@@ -411,6 +424,13 @@ pub struct PluginMain<P: Plugin> {
 
 	param_map: ParamMap,
 	processor: Pin<Box<P>>,
+	/// The host, kept so the plugin can tell it when the latency moves.
+	///
+	/// The handle is valid for as long as the plugin lives: `new_main_thread` receives it from
+	/// the host and the host owns the plugin, so its lifetime outlasts this struct.
+	host: Option<HostMainThreadHandle<'static>>,
+	/// What the audio thread is running at, and what the host was last told.
+	latency: LatencyWatch,
 	parent: Option<RawWindowHandle>,
 	handle: Option<WindowHandle<P::Message>>,
 	message_receivers: Vec<Receiver<P::Message>>,
@@ -628,6 +648,65 @@ where
 /// 
 /// # Threading
 /// 
+/// Watches the plugin's latency, which the audio thread knows and only the main thread may
+/// report.
+///
+/// A synced delay takes its length from the tempo, so its latency moves with the transport.
+/// CLAP wants the host told when it does, and the host may only be called from the main
+/// thread, so the audio thread publishes what it is running at and the main thread asks
+/// whether there is news.
+#[derive(Debug)]
+struct LatencyWatch {
+	shared: Arc<AtomicU32>,
+	/// What the main thread last told the host, so it is only told when it changes.
+	reported: u32,
+}
+
+/// The audio thread's half of a [`LatencyWatch`].
+#[derive(Debug, Clone)]
+struct LatencyPublisher {
+	shared: Arc<AtomicU32>,
+}
+
+impl LatencyWatch {
+	fn new(latency: u32) -> Self {
+		Self {
+			shared: Arc::new(AtomicU32::new(latency)),
+			reported: latency,
+		}
+	}
+
+	fn publisher(&self) -> LatencyPublisher {
+		LatencyPublisher {
+			shared: self.shared.clone(),
+		}
+	}
+
+	/// The latency the plugin is running at, as last published.
+	fn current(&self) -> u32 {
+		self.shared.load(Ordering::Relaxed)
+	}
+
+	/// The new latency, if the audio thread has moved since the host was last told.
+	fn take_change(&mut self) -> Option<u32> {
+		let current = self.current();
+
+		if current == self.reported {
+			None
+		}else {
+			self.reported = current;
+			Some(current)
+		}
+	}
+}
+
+impl LatencyPublisher {
+	/// Called by the audio thread with the latency it just ran at.
+	fn publish(&self, latency: u32) {
+		self.shared.store(latency, Ordering::Relaxed);
+	}
+}
+
 /// The processor itself is owned by [`PluginMain`] on the main thread; this struct only
 /// keeps its address, stored as an `usize` because [`AudioProcessor`] has to be `Send`
 /// while raw pointers are not.
@@ -657,11 +736,56 @@ pub struct AudioProcessor<'a, P: Plugin> {
 	event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
 	event_receiver: Receiver<(usize, i_am_dsp::NoteEvent)>,
 	param_map: ParamMap,
+	/// Where the audio thread publishes the latency it is running at, for the main thread to
+	/// hand to the host.
+	latency: LatencyPublisher,
 	_phantom: std::marker::PhantomData<P>,
+}
+
+impl<P: Plugin> PluginMain<P> {
+	/// Tells the host that the latency has to be queried again.
+	///
+	/// CLAP hands this to a plugin as a host extension, and the bindings in use only wrap the
+	/// host side of it, so the call goes through the raw struct.
+	fn notify_latency_changed(&self) {
+		let Some(host) = &self.host else {
+			return;
+		};
+
+		if !self.processor.reports_latency_changes() {
+			return;
+		}
+
+		// SAFETY: `host` is the handle the host handed us in `new_main_thread` and is still
+		// alive; the extension it returns is owned by the host and lives as long as it does.
+		unsafe {
+			let raw = host.as_raw();
+			let Some(get_extension) = raw.get_extension else {
+				return;
+			};
+			let extension = get_extension(raw as *const _, CLAP_EXT_LATENCY.as_ptr());
+
+			if extension.is_null() {
+				return;
+			}
+
+			let latency = &*(extension as *const clap_host_latency);
+
+			if let Some(changed) = latency.changed {
+				changed(raw as *const _);
+			}
+		}
+	}
 }
 
 impl<P: Plugin> PluginMainThread<'_, ()> for PluginMain<P> {
 	fn on_main_thread(&mut self) {
+		// The audio thread is the only one that knows what the tempo has done to the latency;
+		// this is where that news reaches the host.
+		if self.latency.take_change().is_some() {
+			self.notify_latency_changed();
+		}
+
 		self.message_receivers.retain_mut(|inner| {
 			loop {
 				match inner.try_recv() {
@@ -862,6 +986,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			event_sender,
 			event_receiver,
 			param_map: main_thread.processor.param_map(),
+			latency: main_thread.latency.publisher(),
 			_phantom: std::marker::PhantomData,
 		})
 	}
@@ -1117,6 +1242,11 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		if let Some(context) = context {
 			self.clock = context.clock;
 		}
+
+		// A synced delay takes its length from the tempo, so the latency the host has to
+		// compensate may have moved during this block. Publishing it is cheap; the main thread
+		// decides whether the host has to hear about it.
+		self.latency.publish(processor.delay() as u32);
 
 		for (offset, event) in self.event_receiver.try_iter() {
 			note_event_to_clap(events.output, offset, event)?;
@@ -1478,12 +1608,19 @@ where
 	}
 
 	fn new_main_thread<'a>(
-		_: clack_plugin::prelude::HostMainThreadHandle<'a>,
+		host: clack_plugin::prelude::HostMainThreadHandle<'a>,
 		_: &'a Self::Shared<'a>,
 	) -> Result<Self::MainThread<'a>, PluginError> {
 		let options = P::window_options();
 		let processor = P::new();
 		let param_map = processor.param_map();
+		// The plugin starts at the latency it reports before it has processed anything, which
+		// is what a host compensates for when it activates the plugin.
+		let latency = LatencyWatch::new(processor.delay() as u32);
+
+		// SAFETY: the host owns the plugin, so the handle it hands us here outlives this
+		// struct; the lifetime is erased only because `PluginMain` is not parameterized by it.
+		let host = unsafe { host.with_arbitrary_lifetime() };
 
 		Ok(PluginMain {
 			window_size: options.window_size,
@@ -1492,16 +1629,18 @@ where
 			resize_hints: options.resize_hints,
 			param_map,
 			processor: Box::pin(processor), 
+			host: Some(host),
+			latency,
 			parent: None,
 			handle: None,
 			message_receivers: vec![],
 		})
 	}
 }
-
 impl<P: Plugin> PluginLatencyImpl for PluginMain<P> {
 	fn get(&mut self) -> u32 {
-		self.processor.delay() as u32
+		// What the audio thread last ran at, which is the latency the host has to compensate.
+		self.latency.current()
 	}
 }
 
@@ -1647,7 +1786,7 @@ macro_rules! __export_wrapped_entry_points {
 
 #[cfg(test)]
 mod tests {
-	use super::{BeatClock, ClapContext};
+	use super::{BeatClock, ClapContext, LatencyWatch};
 	use clack_plugin::events::event_types::{TransportEvent, TransportFlags};
 	use clack_plugin::events::{EventFlags, EventHeader};
 	use clack_plugin::utils::{BeatTime, SecondsTime};
@@ -1855,5 +1994,28 @@ mod tests {
 
 		assert!(context.events().is_empty());
 		assert_eq!(context.next_event(), None);
+	}
+	/// The audio thread and the main thread share the latency: the audio thread knows it, and
+	/// the main thread is the one that may tell the host.
+	#[test]
+	fn a_latency_change_is_reported_once() {
+		let mut watch = LatencyWatch::new(480);
+		let publisher = watch.publisher();
+
+		assert_eq!(watch.current(), 480, "the latency before anything is processed");
+		assert_eq!(watch.take_change(), None, "the host has just been told");
+
+		publisher.publish(960);
+		assert_eq!(watch.current(), 960);
+		assert_eq!(watch.take_change(), Some(960));
+		// Told once: the host re-queries when it is told, so repeating it is noise.
+		assert_eq!(watch.take_change(), None);
+
+		// Publishing the same latency again is not a change either.
+		publisher.publish(960);
+		assert_eq!(watch.take_change(), None);
+
+		publisher.publish(240);
+		assert_eq!(watch.take_change(), Some(240));
 	}
 }
