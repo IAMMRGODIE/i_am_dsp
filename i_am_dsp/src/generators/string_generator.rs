@@ -26,10 +26,12 @@ pub struct SimplePluck<
 	#[range(min = 1.0, max = 5000.0)]
 	/// The length of the coefficient in milliseconds
 	#[logarithmic]
+	#[unit(milliseconds)]
 	pub coef_len: f32,
 	/// The length of the sample in milliseconds
 	#[logarithmic]
 	#[range(min = 1.0, max = 5000.0)]
+	#[unit(milliseconds)]
 	pub sample_len: f32,
 	/// The minimum value of the coefficient
 	#[range(min = -1.0, max = 1.0)]

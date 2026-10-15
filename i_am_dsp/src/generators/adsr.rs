@@ -215,15 +215,19 @@ pub struct Adsr<
 	#[skip]
 	pub sample_rate: usize,
 	/// The delay time, saves in milliseconds
+	#[unit(milliseconds)]
 	pub delay_time: f32,
 	/// The attack time, saves in milliseconds
+	#[unit(milliseconds)]
 	pub attack_time: f32,
 	/// The attack bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
 	pub attack_bend: f32,
 	/// The hold time, saves in milliseconds
+	#[unit(milliseconds)]
 	pub hold_time: f32,
 	/// The decay time, saves in milliseconds
+	#[unit(milliseconds)]
 	pub decay_time: f32,
 	/// The decay bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
@@ -231,6 +235,7 @@ pub struct Adsr<
 	/// The sustain level, saves in linear scale
 	pub sustain_level: f32,
 	/// The release time, saves in milliseconds
+	#[unit(milliseconds)]
 	pub release_time: f32,
 	/// The release bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]

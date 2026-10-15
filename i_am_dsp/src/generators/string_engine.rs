@@ -70,6 +70,7 @@ pub struct StringInstrument {
     pub core: i32,
     /// The output gain.
     #[range(min = 0.0, max = 2.0)]
+    #[default(1.0)]
     pub gain: f32,
     /// Scales the frequency independent decay. Larger damps faster.
     #[range(min = 0.1, max = 4.0)]
@@ -120,6 +121,7 @@ pub struct StringInstrument {
     pub transpose: f32,
     /// How fast the left hand shakes the string, in hertz.
     #[range(min = 0.0, max = 12.0)]
+    #[unit(hertz)]
     pub vibrato_rate: f32,
     /// How far either side of the note the hand bends it, in cents.
     #[range(min = 0.0, max = 120.0)]

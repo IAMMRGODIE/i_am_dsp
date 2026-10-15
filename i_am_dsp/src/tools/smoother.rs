@@ -8,8 +8,10 @@ use i_am_dsp_derive::Parameters;
 #[default_int_range(min = 0, max = 2147483647)]
 pub struct DoubleTimeConstant<const CHANNELS: usize = 2> {
 	/// Attack time in milliseconds.
+	#[unit(milliseconds)]
 	pub attack_time: f32,
 	/// Release time in milliseconds.
+	#[unit(milliseconds)]
 	pub release_time: f32,
 	#[skip]
 	sample_rate: usize,

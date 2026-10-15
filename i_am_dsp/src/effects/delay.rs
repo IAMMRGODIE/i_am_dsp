@@ -463,6 +463,7 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	// pub decay_factor: f32,
 	/// the center saves in milliseconds
 	#[range(min = 0.0, max = 4000.0)]
+	#[unit(milliseconds)]
 	pub center_delay_time: f32,
 	/// The sample rate of the audio signal, saves in Hz
 	#[skip]
@@ -472,9 +473,11 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	pub lfo: Lfo,
 	/// The frequency of the LFO, saves in Hz
 	#[range(min = 0.01, max = 20.0)]
+	#[unit(hertz)]
 	pub lfo_frequency: f32,
 	/// The amplitude of the LFO, saves in milliseconds
 	#[range(min = 0.01, max = 10.0)]
+	#[unit(milliseconds)]
 	pub lfo_amplitude: f32,
 	#[skip]
 	phase: f32,
@@ -596,15 +599,18 @@ pub struct Chorus<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	pub sample_rate: usize,
 	/// The center delay time, saves in milliseconds
 	#[range(min = 5.0, max = 20.0)]
+	#[unit(milliseconds)]
 	pub center_delay_time: f32,
 	/// The LFO waveform
 	#[sub_param]
 	pub lfo: Lfo,
 	/// The frequency of the LFO, saves in Hz
 	#[range(min = 0.01, max = 2.0)]
+	#[unit(hertz)]
 	pub lfo_frequency: f32,
 	/// The amplitude of the LFO, saves in milliseconds
 	#[range(min = 5.0, max = 20.0)]
+	#[unit(milliseconds)]
 	pub lfo_amplitude: f32,
 	/// The wet_gain of the effect, saves in linear scale
 	#[range(min = 0.01, max = 4.0)]

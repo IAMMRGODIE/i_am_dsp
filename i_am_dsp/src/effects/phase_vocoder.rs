@@ -355,6 +355,7 @@ impl Default for PitchShift {
 pub struct FreqShift {
 	/// Shift amount in Hz.
 	#[range(min = -2000.0, max = 2000.0)]
+	#[unit(hertz)]
 	pub freq: f32,
 }
 
@@ -390,6 +391,7 @@ pub struct NoteAnchoredShift {
 	/// The frequency that keeps its pitch, in Hz.
 	#[range(min = 20.0, max = 20000.0)]
 	#[logarithmic]
+	#[unit(hertz)]
 	pub anchor: f32,
 }
 

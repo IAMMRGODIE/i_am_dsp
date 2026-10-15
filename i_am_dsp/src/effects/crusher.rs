@@ -45,6 +45,7 @@ pub struct Crusher<const CHANNELS: usize = 2> {
 	/// The rate of the LFO that sweeps the disperser cutoff, in Hz.
 	#[range(min = 1.0, max = 2000.0)]
 	#[logarithmic]
+	#[unit(hertz)]
 	pub frequency: f32,
 	/// How much the output is amplitude modulated, from 0 to 1.
 	#[range(min = 0.0, max = 1.0)]
@@ -52,6 +53,7 @@ pub struct Crusher<const CHANNELS: usize = 2> {
 	/// The rate of the amplitude modulation, in Hz.
 	#[range(min = 1.0, max = 2000.0)]
 	#[logarithmic]
+	#[unit(hertz)]
 	pub am_frequency: f32,
 	/// The gain applied before the effect.
 	#[sub_param]

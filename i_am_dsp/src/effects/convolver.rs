@@ -1007,10 +1007,12 @@ pub struct FftConvolver<
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
 	/// The wet gain of the convolver, saves in linear scale.
+	#[default(0.0125)]
 	pub wet_gain: f32,
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
 	/// The dry gain of the convolver, saves in linear scale.
+	#[default(1.0)]
 	pub dry_gain: f32,
 
 	#[cfg(feature = "real_time_demo")]

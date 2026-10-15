@@ -58,6 +58,7 @@ pub struct Sampler<const CHANNELS: usize = 2> {
 	/// 
 	/// This param will only be used if current sampler is used as [`crate::prelude::Oscillator`].
 	#[range(min = 0.0, max = 1000.0)]
+	#[unit(milliseconds)]
 	pub phase_range: f32,
 	/// Whether to play the sample only once.
 	/// 

@@ -342,10 +342,14 @@ pub struct Reverb<
 	/// The input gain of the reverb, saves in linear scale.
 	#[range(min = 0.01, max = 1.0)]
 	#[logarithmic]
+	#[default(1.0)]
 	pub reverbed_gain: f32,
 	/// How much the input diffusion smears the input, between 0 and 1.
+	#[default(1.0)]
 	pub diffusion: f32,
 	/// The decay time of the reverb, saves in milliseconds.
+	#[unit(milliseconds)]
+	#[default(1000.0)]
 	pub decay_time: f32,
 	/// The cutoff of the damping in the feedback path, in Hz.
 	///
@@ -353,6 +357,8 @@ pub struct Reverb<
 	/// absorption of a room.
 	#[range(min = 200.0, max = 20000.0)]
 	#[logarithmic]
+	#[unit(hertz)]
+	#[default(12000.0)]
 	pub damping_cutoff: f32,
 	/// How much of the feedback the channels share, between 0 and 1.
 	///
@@ -362,6 +368,7 @@ pub struct Reverb<
 	/// blend so that the sum and the difference of the channels keep decaying
 	/// at the same rate.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.5)]
 	pub spread: f32,
 	/// The center delay of the reverb, saves in milliseconds.
 	center_delay: f32,

@@ -286,9 +286,11 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for RectifyEnvelope<CHANNELS> {
 pub struct PeakDetector<const CHANNELS: usize = 2> {
 	/// The attack time of the envelope in milliseconds.
 	#[range(min = 0.0, max = 1000.0)]
+	#[unit(milliseconds)]
 	pub attack_time: f32,
 	/// The release time of the envelope in milliseconds.
 	#[range(min = 0.0, max = 1000.0)]
+	#[unit(milliseconds)]
 	pub release_time: f32,
 	#[skip]
 	/// The sample rate of the signal.

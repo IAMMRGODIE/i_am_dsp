@@ -39,10 +39,12 @@ pub struct ParticleRandomizer {
 	/// The lowest frequency whose magnitude is randomized, in Hz.
 	#[range(min = 1.0, max = 30000.0)]
 	#[logarithmic]
+	#[unit(hertz)]
 	pub low_frequency: f32,
 	/// The highest frequency whose magnitude is randomized, in Hz.
 	#[range(min = 1.0, max = 30000.0)]
 	#[logarithmic]
+	#[unit(hertz)]
 	pub high_frequency: f32,
 	/// Whether a magnitude may be inverted as well, which flips the phase of the bin.
 	pub allow_negative: bool,

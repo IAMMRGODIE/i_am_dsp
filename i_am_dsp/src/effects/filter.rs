@@ -1138,6 +1138,7 @@ pub struct Lowpass<const CHANNELS: usize> {
 	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the lowpass filter
+	#[unit(hertz)]
 	pub cutoff: f32,
 	#[range(min = 0.01, max = 10.0)]
 	/// The Q value of the lowpass filter
@@ -1213,6 +1214,7 @@ pub struct Highpass<const CHANNELS: usize> {
 	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the highpass filter
+	#[unit(hertz)]
 	pub cutoff: f32,
 	#[range(min = 0.01, max = 10.0)]
 	/// The Q value of the highpass filter
@@ -1288,10 +1290,12 @@ pub struct Bandpass<const CHANNELS: usize> {
 	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the bandpass filter
+	#[unit(hertz)]
 	pub cutoff: f32,
 	#[range(min = 10.0, max = 10000.0)]
 	#[logarithmic]
 	/// The bandwidth value of the bandpass filter
+	#[unit(hertz)]
 	pub bandwidth: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,
@@ -1364,10 +1368,12 @@ pub struct Bandstop<const CHANNELS: usize> {
 	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the bandstop filter
+	#[unit(hertz)]
 	pub cutoff: f32,
 	#[range(min = 10.0, max = 10000.0)]
 	#[logarithmic]
 	/// The bandwidth value of the bandstop filter
+	#[unit(hertz)]
 	pub bandwidth: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,
@@ -1431,6 +1437,7 @@ pub struct Peak<const CHANNELS: usize> {
 	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the peaking filter
+	#[unit(hertz)]
 	pub cutoff: f32,
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
@@ -1439,6 +1446,7 @@ pub struct Peak<const CHANNELS: usize> {
 	#[range(min = 10.0, max = 10000.0)]
 	#[logarithmic]
 	/// The bandwidth of the peaking filter
+	#[unit(hertz)]
 	pub bandwidth: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,
@@ -1513,6 +1521,7 @@ pub struct HighShelf<const CHANNELS: usize> {
 	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the high shelf filter
+	#[unit(hertz)]
 	pub cutoff: f32,
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
@@ -1593,6 +1602,7 @@ pub struct LowShelf<const CHANNELS: usize> {
 	#[range(min = 10.0, max = 21000.0)]
 	#[logarithmic]
 	/// The cutoff of the low shelf filter
+	#[unit(hertz)]
 	pub cutoff: f32,
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]

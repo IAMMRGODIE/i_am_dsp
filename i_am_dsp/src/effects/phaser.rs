@@ -20,14 +20,17 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	pub lfo: Lfo,
 	/// LFO frequency in Hz
 	#[range(min = 0.01, max = 20.0)]
+	#[unit(hertz)]
 	pub lfo_freq: f32,
 	#[range(min = 10.0, max = 10000.0)]
 	#[logarithmic]
 	/// Minimum frequency in Hz
+	#[unit(hertz)]
 	pub min_freq: f32,
 	#[range(min = 10.0, max = 10000.0)]
 	#[logarithmic]
 	/// Maximum frequency in Hz
+	#[unit(hertz)]
 	pub max_freq: f32,
 	#[skip]
 	sample_rate: usize,

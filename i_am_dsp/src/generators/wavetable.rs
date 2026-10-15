@@ -946,6 +946,7 @@ pub struct EditableLfo {
 	#[range(min = 0.01, max = 100.0)]
 	#[logarithmic]
 	/// The frequency of the LFO.
+	#[unit(hertz)]
 	pub lfo_frequency: f32,
 
 	/// If true, the LFO will clamp the time to the range [0, 1] rather than wrapping around.
