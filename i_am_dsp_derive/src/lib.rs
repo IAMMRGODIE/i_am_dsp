@@ -6,7 +6,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Field, Fields, Ident, Lit, Member, Result, Type};
+use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Field, Fields, Ident, Lit, LitInt, Member, Result, Type};
 
 #[proc_macro_derive(Parameters, attributes(
 	range,
@@ -105,7 +105,7 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 /// ## Attributes
 ///
 /// - `range`: A range attribute that specifies the minimum and maximum values of the parameter.
-/// - `id`: An id attribute that specifies the name of the parameter. Can also be used on the struct itself as `#[id(prefix = "...")]` to prefix every parameter identifier.
+/// - `id`: An id attribute that specifies the name of the parameter. Can also be used on the struct itself as `#[id(prefix = "...")]` to prefix every parameter identifier. A field-level `#[id(stable = 4021)]` additionally pins the id the host knows the parameter by, so it survives the field being renamed.
 /// - `persist`: A persist attribute that specifies how to serialize and deserialize the parameter.
 /// - `serde`: Use serde to serialize and deserialize the parameter.
 /// - `skip`: A skip attribute that specifies that the field should be skipped when deriving the `Parameters` trait.
@@ -168,8 +168,8 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				}
 			},
 			"id" => {
-				let (prefix, name) = parse_id_attribute(attr)?;
-				if name.is_some() {
+				let (prefix, name, stable) = parse_id_attribute(attr)?;
+				if name.is_some() || stable.is_some() {
 					return Err(Error::new_spanned(attr, "Struct-level `id` attribute only supports `prefix`"));
 				}
 				if let Some(prefix) = prefix {
@@ -274,6 +274,11 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 	let mut parameter_imply = vec![];
 	let mut setter_imply = vec![];
 	let mut paramters_map_create = vec![];
+	let mut override_imply = vec![];
+	// Stable ids pinned inside one struct have to differ, or two parameters would share the id
+	// a host keys its automation on. Ids pinned in *other* structs cannot be seen here;
+	// `ParamMap` catches those at run time.
+	let mut pinned_ids: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
 	let field_count = field_configs.len();
 	let mut param_index: usize = 0;
 	for (config, member, field_name, field_type) in field_configs {
@@ -299,6 +304,27 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 			config.id_name
 		};
 		let logarithmic = config.logarithmic;
+
+		if let Some(stable_id) = config.id_stable {
+			if let Some(previous) = pinned_ids.insert(stable_id, id_string.clone()) {
+				return Err(Error::new_spanned(
+					&member,
+					format!("Stable id {stable_id} is already pinned by `{previous}`"),
+				));
+			}
+
+			override_imply.push(quote! {
+				overrides.push((#id_string.to_string(), #stable_id));
+			});
+		} else if is_sub_param {
+			// A nested struct pins its own ids; its identifiers are prefixed with the field name,
+			// so the pins have to be prefixed the same way to keep matching.
+			override_imply.push(quote! {
+				for (identifier, id) in i_am_dsp::prelude::Parameters::stable_id_overrides(&self.#member) {
+					overrides.push((format!("{}.{}", #field_name, identifier), id));
+				}
+			});
+		}
 
 		paramters_map_create.push(quote! {
 			#id_string => #param_index,
@@ -451,6 +477,14 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				parameters
 			}
 
+			fn stable_id_overrides(&self) -> Vec<(String, u32)> {
+				let _ = self;
+				#[allow(unused_mut)]
+				let mut overrides = Vec::new();
+				#(#override_imply)*
+				overrides
+			}
+
 			fn set_parameter(&mut self, identifier: &str, mut value: i_am_dsp::prelude::SetValue) -> bool {
 				let identifier_head = identifier.split('.').next().unwrap_or("");
 
@@ -511,6 +545,7 @@ enum ParamRange {
 struct FieldConfig {
 	range: Option<ParamRange>,
 	id_name: String,
+	id_stable: Option<u32>,
 	persist_serialize: Option<String>,
 	persist_deserialize: Option<String>,
 	skip: bool,
@@ -543,7 +578,8 @@ fn handle_attribute(
 				config.range = Some(parse_range_attribute(attr)?);
 			},
 			"id" => {
-				let (prefix, name) = parse_id_attribute(attr)?;
+				let (prefix, name, stable) = parse_id_attribute(attr)?;
+				config.id_stable = stable;
 				let prefix = prefix.unwrap_or_default();
 
 				let name = if let Some(name) = name {
@@ -583,6 +619,7 @@ fn handle_attribute(
 		let should_be_none = config.range.is_none() &&
 			config.persist_deserialize.is_none() &&
 			config.id_name.is_empty() &&
+			config.id_stable.is_none() &&
 			!config.is_sub_param &&
 			!config.is_serde;
 
@@ -618,6 +655,7 @@ fn handle_attribute(
 			config.persist_serialize.is_none() &&
 			config.persist_deserialize.is_none() &&
 			config.id_name.is_empty() &&
+			config.id_stable.is_none() &&
 			!config.skip &&
 			!config.is_serde;
 
@@ -715,11 +753,21 @@ fn parse_range_attribute(attr: &Attribute) -> Result<ParamRange> {
 	Ok(range)
 }
 
-fn parse_id_attribute(attr: &Attribute) -> Result<(Option<String>, Option<String>)> {
+fn parse_id_attribute(attr: &Attribute) -> Result<(Option<String>, Option<String>, Option<u32>)> {
 	let mut prefix = None;
 	let mut name = None;
+	let mut stable = None;
 	attr.parse_nested_meta(|meta| {
-		if meta.path.is_ident("prefix") {
+		if meta.path.is_ident("stable") {
+			let val: LitInt = meta.value()?.parse()?;
+			let value: u32 = val.base10_parse()?;
+			// A VST3 wrapper strips the top bit of the id before handing it to the host, so an id
+			// above 31 bits would address a different parameter there.
+			if value > 0x7FFF_FFFF {
+				return Err(Error::new_spanned(attr, "Stable id must fit in 31 bits (a VST3 host reserves the top bit)"));
+			}
+			stable = Some(value);
+		} else if meta.path.is_ident("prefix") {
 			let val: Lit = meta.value()?.parse()?;
 			match val {
 				Lit::Str(inner) => prefix = Some(inner.value()),
@@ -741,7 +789,7 @@ fn parse_id_attribute(attr: &Attribute) -> Result<(Option<String>, Option<String
 		}
 		Ok(())
 	})?;
-	Ok((prefix, name))
+	Ok((prefix, name, stable))
 }
 
 fn parse_persist_attribute(attr: &Attribute) -> Result<(String, String)> {

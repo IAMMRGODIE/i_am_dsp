@@ -4,7 +4,7 @@
 //! `#[skip]`, struct-level `#[id(prefix = "...")]`, `#[serde]` / `#[persist]`
 //! fields and index-based setting.
 
-use i_am_dsp::prelude::{Parameter, Parameters, SetValue, Value, to_binary};
+use i_am_dsp::prelude::{Parameter, Parameters, Paramed, SetValue, Value, to_binary};
 use i_am_dsp_derive::Parameters; // derive macro (distinct from the trait of the same name)
 
 fn ids(params: &[Parameter]) -> Vec<&str> {
@@ -332,4 +332,117 @@ fn wide_int_range() {
 	}
 	assert!(p.set_parameter("count", SetValue::Int(123456)));
 	assert_eq!(p.count, 123456);
+}
+
+// ---------- stable parameter ids ----------
+
+#[derive(Parameters)]
+struct IdsBefore {
+	#[range(min = 0.0, max = 1.0)] alpha: f32,
+	#[range(min = 0.0, max = 1.0)] beta: f32,
+	#[range(min = 0.0, max = 1.0)] gamma: f32,
+}
+
+#[derive(Parameters)]
+struct IdsAfter {
+	#[range(min = 0.0, max = 1.0)] alpha: f32,
+	#[range(min = 0.0, max = 1.0)] inserted: f32,
+	#[range(min = 0.0, max = 1.0)] beta: f32,
+	#[range(min = 0.0, max = 1.0)] gamma: f32,
+}
+
+/// A host keys automation and modulation on the id it is given, and CLAP forbids changing
+/// the id of an existing parameter, so inserting a parameter must not move the others.
+#[test]
+fn stable_ids_survive_inserting_a_parameter() {
+	let before = Paramed::new(IdsBefore { alpha: 0.0, beta: 0.0, gamma: 0.0 }).param_map();
+	let after = Paramed::new(IdsAfter { alpha: 0.0, inserted: 0.0, beta: 0.0, gamma: 0.0 }).param_map();
+
+	let id_of = |param_map: &i_am_dsp::prelude::ParamMap, identifier: &str| {
+		let index = param_map.query_param_index(identifier).expect("parameter should exist");
+		param_map.query_stable_id(index).expect("parameter should have a stable id")
+	};
+
+	// The insertion does move the position...
+	assert_eq!(before.query_param_index("beta"), Some(1));
+	assert_eq!(after.query_param_index("beta"), Some(2));
+
+	// ...but not the id the earlier parameters hand out.
+	for identifier in ["alpha", "beta", "gamma"] {
+		assert_eq!(
+			id_of(&before, identifier),
+			id_of(&after, identifier),
+			"`{identifier}` changed id when a parameter was inserted before it"
+		);
+	}
+
+	// The parameter that was inserted is the only one whose id is new.
+	let inserted = id_of(&after, "inserted");
+	for identifier in ["alpha", "beta", "gamma"] {
+		assert_ne!(inserted, id_of(&before, identifier));
+	}
+}
+
+// ---------- pinned (explicit) stable ids ----------
+
+#[derive(Parameters)]
+struct Pinned {
+	#[range(min = 0.0, max = 1.0)]
+	#[id(stable = 4021)]
+	value: f32,
+	#[range(min = 0.0, max = 1.0)] other: f32,
+}
+
+/// The same parameter after its field was renamed: the identifier moved, the pin did not.
+#[derive(Parameters)]
+struct PinnedRenamed {
+	#[range(min = 0.0, max = 1.0)]
+	#[id(stable = 4021)]
+	renamed: f32,
+	#[range(min = 0.0, max = 1.0)] other: f32,
+}
+
+#[derive(Parameters)]
+struct PinnedOuter {
+	#[sub_param] inner: Pinned,
+	#[range(min = 0.0, max = 1.0)] top: f32,
+}
+
+#[test]
+fn pinned_ids_are_handed_to_the_host() {
+	let param_map = Paramed::new(Pinned { value: 0.0, other: 0.0 }).param_map();
+
+	assert_eq!(param_map.query_stable_id(0), Some(4021));
+	assert_eq!(param_map.query_param_index_by_stable_id(4021), Some(0));
+	// A parameter that pins nothing still follows the identifier scheme.
+	assert_eq!(
+		param_map.query_stable_id(1),
+		Some(i_am_dsp::prelude::stable_parameter_id("other"))
+	);
+}
+
+/// The point of pinning: the id is what the host stores, so the name is free to change.
+#[test]
+fn a_pinned_id_survives_a_rename() {
+	let before = Paramed::new(Pinned { value: 0.0, other: 0.0 }).param_map();
+	let after = Paramed::new(PinnedRenamed { renamed: 0.0, other: 0.0 }).param_map();
+
+	assert_ne!(
+		i_am_dsp::prelude::stable_parameter_id("value"),
+		i_am_dsp::prelude::stable_parameter_id("renamed"),
+		"the rename has to actually move the derived id for this test to mean anything"
+	);
+	assert_eq!(before.query_stable_id(0), after.query_stable_id(0));
+	assert_eq!(after.query_stable_id(0), Some(4021));
+}
+
+#[test]
+fn pinned_ids_nest_with_their_prefix() {
+	let param_map = Paramed::new(PinnedOuter {
+		inner: Pinned { value: 0.0, other: 0.0 },
+		top: 0.0,
+	}).param_map();
+
+	let index = param_map.query_param_index("inner.value").expect("the nested parameter exists");
+	assert_eq!(param_map.query_stable_id(index), Some(4021));
 }

@@ -460,6 +460,24 @@ pub trait Parameters {
 
 		self.set_parameter(&param.identifier, value)
 	}
+
+	/// The identifiers whose host-facing id is pinned, as `(identifier, id)` pairs.
+	///
+	/// A host keys the automation and modulation it stores on a parameter's id, and CLAP
+	/// requires an id to never move between releases. [`ParamMap`] derives ids from the
+	/// identifiers by default, which covers most cases; this is the escape hatch for the ones
+	/// it does not:
+	///
+	/// - a plugin that already shipped ids before they were derived from identifiers pins them
+	///   here, or reproduces them wholesale with [`StableIdScheme::Position`];
+	/// - a parameter whose id must survive its field being renamed pins the id so the name can
+	///   change freely.
+	///
+	/// The derive generates this from `#[id(stable = N)]`; a hand-written implementation
+	/// returns [`Vec::new`] (the default) and lets the scheme decide.
+	fn stable_id_overrides(&self) -> Vec<(String, u32)> {
+		Vec::new()
+	}
 }
 
 impl Parameters for Complex<f32> {
@@ -546,6 +564,18 @@ impl Parameters for Vec<Box<dyn Parameters>> {
 			return false;
 		}
 		self[index].set_parameter(&rest_identifier, value)
+	}
+
+	fn stable_id_overrides(&self) -> Vec<(String, u32)> {
+		// The identifiers of the elements are prefixed with their position, so pinned ids
+		// have to be prefixed the same way to keep matching them.
+		let mut result = Vec::new();
+		for (i, p) in self.iter().enumerate() {
+			for (identifier, id) in p.stable_id_overrides() {
+				result.push((format!("{i}.{identifier}"), id));
+			}
+		}
+		result
 	}
 }
 
@@ -737,6 +767,8 @@ pub struct Paramed<T: Parameters> {
 	/// The struct that we want to parameterize.
 	pub value: T,
 	params: ParamMap,
+	/// How the host-facing ids of the parameters are assigned.
+	scheme: StableIdScheme,
 	// sync_set_cached: HashSet<usize>,
 }
 
@@ -747,6 +779,10 @@ impl<T: Parameters> Parameters for Paramed<T> {
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
 		self.value.set_parameter(identifier, value)
+	}
+
+	fn stable_id_overrides(&self) -> Vec<(String, u32)> {
+		self.value.stable_id_overrides()
 	}
 }
 
@@ -795,30 +831,39 @@ impl<const CHANNELS: usize, T: Effect<CHANNELS>> Effect<CHANNELS> for Paramed<T>
 
 impl<T: Parameters> Paramed<T> {
 	/// Create a new parameterized object.
+	///
+	/// Host-facing ids are derived from the parameter identifiers; see
+	/// [`Self::new_with_scheme`] to reproduce the ids an older build handed out.
 	pub fn new(to_parameterize: T) -> Self {
+		Self::new_with_scheme(to_parameterize, StableIdScheme::default())
+	}
+
+	/// Create a new parameterized object with an explicit [`StableIdScheme`].
+	///
+	/// A plugin that shipped index-based ids before ids were derived from identifiers picks
+	/// [`StableIdScheme::Position`] here, so the projects its users already saved keep
+	/// addressing the same parameters.
+	pub fn new_with_scheme(to_parameterize: T, scheme: StableIdScheme) -> Self {
 		let mut empty_self = Self {
 			value: to_parameterize,
-			params: ParamMap {
-				values: Arc::new(Vec::new()),
-				id: Arc::new(BiMap::new()),
-				// update_queue: Arc::new(SegQueue::new()),
-			},
-			// sync_set_cached: HashSet::new(),
+			params: ParamMap::new(),
+			scheme,
 		};
 		empty_self.update_map();
 		empty_self
+	}
+
+	/// The scheme used to assign host-facing ids.
+	pub fn stable_id_scheme(&self) -> StableIdScheme {
+		self.scheme
 	}
 
 	/// Create a new parameterized object with additional parameters.
 	pub fn new_with_additional(to_parameterize: T, additional_params: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) -> Self {
 		let mut empty_self = Self {
 			value: to_parameterize,
-			params: ParamMap {
-				values: Arc::new(Vec::new()),
-				id: Arc::new(BiMap::new()),
-				// update_queue: Arc::new(SegQueue::new()),
-			},
-			// sync_set_cached: HashSet::new(),
+			params: ParamMap::new(),
+			scheme: StableIdScheme::default(),
 		};
 		empty_self.update_map_with_additional(additional_params);
 		empty_self
@@ -846,20 +891,12 @@ impl<T: Parameters> Paramed<T> {
 	/// 
 	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`Self::param_map`].
 	pub fn update_map(&mut self) {
-		let params = self.value.get_parameters();
-		let mut new_map = BiMap::with_capacity(params.len());
-		let mut new_values = Vec::with_capacity(params.len());
+		let entries = self.value.get_parameters().into_iter().map(|param| {
+			(param.identifier, Arc::new(param.value.to_atomic_value()))
+		});
 
-		for (i, param) in params.into_iter().enumerate() {
-			new_map.insert(param.identifier, i);
-			new_values.push(Arc::new(param.value.to_atomic_value()));
-		}
-
-		self.params = ParamMap {
-			values: Arc::new(new_values),
-			id: Arc::new(new_map),
-			// update_queue: Arc::new(SegQueue::new()),
-		}
+		let overrides = self.value.stable_id_overrides();
+		self.params = ParamMap::build(entries, self.scheme, &overrides);
 	}
 
 	/// Update the parameter map and add additional parameters.
@@ -868,27 +905,113 @@ impl<T: Parameters> Paramed<T> {
 	/// 
 	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`Self::param_map`].
 	pub fn update_map_with_additional(&mut self, additional_params: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) {
-		let params = self.value.get_parameters();
-		let start = params.len();
-		let mut new_map = BiMap::with_capacity(params.len());
-		let mut new_values = Vec::with_capacity(params.len());
+		let mut entries = self.value.get_parameters().into_iter().map(|param| {
+			(param.identifier, Arc::new(param.value.to_atomic_value()))
+		}).collect::<Vec<_>>();
 
-		for (i, param) in params.into_iter().enumerate() {
-			new_map.insert(param.identifier, i);
-			new_values.push(Arc::new(param.value.to_atomic_value()));
-		}
+		entries.extend(additional_params);
 
-		for (i, (k, v)) in additional_params.into_iter().enumerate() {
-			new_map.insert(k, start + i);
-			new_values.push(v);
-		}
-
-		self.params = ParamMap {
-			values: Arc::new(new_values),
-			id: Arc::new(new_map),
-			// update_queue: Arc::new(SegQueue::new()),
-		}
+		let overrides = self.value.stable_id_overrides();
+		self.params = ParamMap::build(entries, self.scheme, &overrides);
 	}
+}
+
+/// The offset basis of the 32-bit FNV-1a hash.
+const FNV_OFFSET_BASIS: u32 = 0x811c_9dc5;
+/// The prime of the 32-bit FNV-1a hash.
+const FNV_PRIME: u32 = 0x0100_0193;
+
+/// Avalanches a hash, so that two identifiers differing in one character do not end up
+/// with ids differing in a few bits.
+fn finalize_hash(mut hash: u32) -> u32 {
+	hash ^= hash >> 16;
+	hash = hash.wrapping_mul(0x85eb_ca6b);
+	hash ^= hash >> 13;
+	hash = hash.wrapping_mul(0xc2b2_ae35);
+	hash ^= hash >> 16;
+	hash
+}
+
+/// Hashes a parameter identifier.
+///
+/// `salt` is zero for the canonical id and is only raised to break a collision, which keeps
+/// [`stable_parameter_id`] a pure function of the identifier.
+fn hash_identifier(identifier: &str, salt: u32) -> u32 {
+	let mut hash = FNV_OFFSET_BASIS;
+
+	// The salt goes into the byte stream rather than being folded into the state afterwards.
+	// Two identifiers that collide in the state stay collided under any later XOR, so a
+	// post-hoc salt could never separate them and the search for a free id would never end.
+	for byte in salt.to_le_bytes() {
+		hash ^= byte as u32;
+		hash = hash.wrapping_mul(FNV_PRIME);
+	}
+
+	for byte in identifier.as_bytes() {
+		hash ^= *byte as u32;
+		hash = hash.wrapping_mul(FNV_PRIME);
+	}
+
+	let hash = finalize_hash(hash);
+
+	// Steinberg's SDK reserves the top bit of a VST3 parameter id, and clap-wrapper strips it
+	// (`v.id = info->id & 0x7FFFFFFF`) before handing the id to the host — and hands the stripped
+	// id back. An id with that bit set would therefore address a different parameter in a VST3
+	// host than in a CLAP one, so ids stay inside 31 bits. This also rules out `u32::MAX`, which
+	// hosts reserve for "no id".
+	hash & 0x7FFF_FFFF
+}
+
+/// Returns the stable numeric id of the parameter with the given identifier.
+///
+/// A host keys everything it persists about a parameter (automation lanes, modulation
+/// routings, …) on this number, and CLAP requires a plugin to never change the id of an
+/// existing parameter. Deriving that id from the identifier rather than from the
+/// parameter's position is what lets an effect gain a field without renumbering every
+/// parameter declared after it.
+///
+/// The id is a pure function of `identifier`: the same identifier always maps to the same
+/// id, in any process and on any run. It always fits in 31 bits, so it survives the trip
+/// through a VST3 host (whose parameter ids have their top bit reserved) unchanged, and it
+/// is never [`u32::MAX`].
+///
+/// Identifiers come from [`Parameters::get_parameters`]. A named struct field contributes
+/// its field name (optionally renamed or prefixed with `#[id(...)]`), a tuple struct field
+/// contributes its position, and a nested struct contributes a dotted path — so a
+/// parameter whose identifier is positional still has a positional id.
+///
+/// # Examples
+///
+/// ```
+/// use i_am_dsp::prelude::stable_parameter_id;
+///
+/// assert_eq!(stable_parameter_id("delay_time"), stable_parameter_id("delay_time"));
+/// assert_ne!(stable_parameter_id("delay_time"), stable_parameter_id("decay_factor"));
+/// ```
+pub fn stable_parameter_id(identifier: &str) -> u32 {
+	hash_identifier(identifier, 0)
+}
+
+/// How a [`ParamMap`] assigns the host-facing id of a parameter that pins none.
+///
+/// A pinned id (see [`Parameters::stable_id_overrides`]) always wins; the scheme only
+/// decides the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StableIdScheme {
+	/// Derive the id from the parameter's identifier.
+	///
+	/// Inserting, removing, reordering or renaming a parameter leaves every *other*
+	/// parameter's id alone, which is what a plugin that has not shipped yet wants.
+	#[default]
+	Identifier,
+	/// Use the parameter's position in the flattened parameter list.
+	///
+	/// This reproduces the ids of a plugin that shipped before ids were derived from
+	/// identifiers, so the projects its users already saved keep addressing the same
+	/// parameters. It only holds while parameters are appended at the end: inserting or
+	/// reordering one moves the id of every parameter after it, so pin the ids of anything
+	/// new with [`Parameters::stable_id_overrides`].
+	Position,
 }
 
 #[derive(Debug, Clone)]
@@ -898,6 +1021,8 @@ impl<T: Parameters> Paramed<T> {
 pub struct ParamMap {
 	values: Arc<Vec<Arc<AtomicValue>>>,
 	id: Arc<BiMap<String, usize>>,
+	stable_ids: Arc<Vec<u32>>,
+	by_stable_id: Arc<BiMap<u32, usize>>,
 }
 
 impl Index<usize> for ParamMap {
@@ -924,28 +1049,105 @@ impl Default for ParamMap {
 }
 
 impl ParamMap {
-	/// Create a new empty parameter map.
-	pub fn new() -> Self {
-		Self {
-			values: Arc::new(Vec::new()),
-			id: Arc::new(BiMap::new()),
-		}
-	}
-
-	/// Create a new parameter map with a pre-defined map.
-	pub fn new_with(map: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) -> Self {
-		let mut values = Vec::new();
+	/// Builds a parameter map from identifiers and values.
+	///
+	/// The position in the iterator is the index that [`Self::get_by_index`] and
+	/// [`Self::query_param_index`] address, while the stable id is what a host addresses.
+	///
+	/// `overrides` pins the id of the parameters it names (see
+	/// [`Parameters::stable_id_overrides`]); `scheme` decides the rest.
+	fn build(
+		entries: impl IntoIterator<Item = (String, Arc<AtomicValue>)>,
+		scheme: StableIdScheme,
+		overrides: &[(String, u32)],
+	) -> Self {
+		let entries = entries.into_iter().collect::<Vec<_>>();
+		let mut values = Vec::with_capacity(entries.len());
 		let mut id = BiMap::new();
+		let mut stable_ids = vec![0u32; entries.len()];
+		let mut by_stable_id = BiMap::new();
+		let mut assigned = vec![false; entries.len()];
 
-		for (i, (k, v)) in map.into_iter().enumerate() {
-			id.insert(k, i);
-			values.push(v);
+		for (index, (identifier, value)) in entries.iter().enumerate() {
+			id.insert(identifier.clone(), index);
+			values.push(value.clone());
+		}
+
+		// Pinned ids are handed out first, in declaration order, so the same table always
+		// resolves the same way. A pin that collides with an earlier one is left to the scheme
+		// rather than aliasing two parameters onto one id.
+		for (index, (identifier, _)) in entries.iter().enumerate() {
+			let Some(id) = overrides.iter().find(|(pinned, _)| pinned == identifier).map(|(_, id)| *id) else {
+				continue;
+			};
+
+			if by_stable_id.contains_left(&id) {
+				debug_assert!(false, "two parameters are pinned to the same host id ({id})");
+				continue;
+			}
+
+			by_stable_id.insert(id, index);
+			stable_ids[index] = id;
+			assigned[index] = true;
+		}
+
+		// Everyone else follows the scheme. Under `Identifier` they are served in identifier
+		// order rather than declaration order, so that when two identifiers collide, which of
+		// them keeps the canonical id does not depend on how the fields happen to be laid out:
+		// the assignment is a pure function of the set of identifiers.
+		let mut order = (0..entries.len()).filter(|index| !assigned[*index]).collect::<Vec<_>>();
+		if scheme == StableIdScheme::Identifier {
+			order.sort_by(|left, right| entries[*left].0.cmp(&entries[*right].0));
+		}
+
+		for index in order {
+			let identifier = &entries[index].0;
+			let preferred = match scheme {
+				StableIdScheme::Identifier => hash_identifier(identifier, 0),
+				StableIdScheme::Position => index as u32,
+			};
+
+			// A taken id means either two identifiers hashing alike (~1 in 4 billion) or a
+			// position that a pinned id already claimed. Either way the parameter draws a fresh
+			// id instead of aliasing, and the salt goes into the hash so the draw really varies.
+			let mut stable_id = preferred;
+			let mut salt = 0u32;
+			while by_stable_id.contains_left(&stable_id) {
+				salt = salt.wrapping_add(1);
+				stable_id = hash_identifier(identifier, salt);
+			}
+
+			by_stable_id.insert(stable_id, index);
+			stable_ids[index] = stable_id;
 		}
 
 		Self {
 			values: Arc::new(values),
 			id: Arc::new(id),
+			stable_ids: Arc::new(stable_ids),
+			by_stable_id: Arc::new(by_stable_id),
 		}
+	}
+
+	/// Create a new empty parameter map.
+	pub fn new() -> Self {
+		Self::build(std::iter::empty(), StableIdScheme::default(), &[])
+	}
+
+	/// Create a new parameter map with a pre-defined map.
+	///
+	/// Host-facing ids are derived from the identifiers; use [`ParamMap::new_with_scheme`] to
+	/// reproduce the position-based ids an older build handed out.
+	pub fn new_with(map: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) -> Self {
+		Self::build(map, StableIdScheme::default(), &[])
+	}
+
+	/// Create a new parameter map with a pre-defined map and an explicit [`StableIdScheme`].
+	pub fn new_with_scheme(
+		map: impl IntoIterator<Item = (String, Arc<AtomicValue>)>,
+		scheme: StableIdScheme,
+	) -> Self {
+		Self::build(map, scheme, &[])
 	}
 
 	/// Check if the parameter map is empty.
@@ -999,6 +1201,24 @@ impl ParamMap {
 		// self.update_queue(index);
 
 		Some(value.clone())
+	}
+
+	/// Query the stable id of the parameter at the given index.
+	///
+	/// This is the id a host knows the parameter by, see [`stable_parameter_id`].
+	pub fn query_stable_id(&self, index: usize) -> Option<u32> {
+		self.stable_ids.get(index).copied()
+	}
+
+	/// Query the index of the parameter with the given stable id.
+	pub fn query_param_index_by_stable_id(&self, stable_id: u32) -> Option<usize> {
+		self.by_stable_id.get_by_left(&stable_id).copied()
+	}
+
+	/// Get the parameter value by its stable id.
+	pub fn get_by_stable_id(&self, stable_id: u32) -> Option<Arc<AtomicValue>> {
+		let index = self.query_param_index_by_stable_id(stable_id)?;
+		self.get_by_index(index)
 	}
 
 	/// Iterate over the parameter values.
@@ -1086,5 +1306,145 @@ mod tests {
 		assert_eq!(params._e, Vec::new());
 		params.set_parameter("d.h", SetValue::Serialized(to_binary(&(2.0, 3.0)).unwrap()));
 		assert_eq!(params.d.h, (2.0, 3.0));
+	}
+
+	/// The id is a pure function of the identifier, and never the value hosts reserve.
+	#[test]
+	fn stable_ids_are_a_pure_function_of_the_identifier() {
+		assert_eq!(stable_parameter_id("delay_time"), stable_parameter_id("delay_time"));
+		assert_ne!(stable_parameter_id("delay_time"), stable_parameter_id("decay_factor"));
+
+		// A VST3 host only keeps the low 31 bits of a parameter id, so anything above that
+		// would address a different parameter there; `u32::MAX` is reserved for "no id".
+		for identifier in ["", "a", "b", "d.f", "oscillator.carrier.smooth_factor"] {
+			assert!(stable_parameter_id(identifier) <= 0x7FFF_FFFF);
+		}
+	}
+
+	/// Every parameter gets its own id, and both directions of the mapping agree.
+	#[test]
+	fn parameter_map_hands_out_distinct_stable_ids() {
+		let param_map = Paramed::new(MyParameters::default()).param_map();
+		let ids = (0..param_map.len())
+			.map(|index| param_map.query_stable_id(index).expect("every index has a stable id"))
+			.collect::<Vec<_>>();
+
+		let mut distinct = ids.clone();
+		distinct.sort_unstable();
+		distinct.dedup();
+		assert_eq!(distinct.len(), ids.len(), "two parameters were given the same stable id");
+
+		for (index, id) in ids.iter().enumerate() {
+			assert_eq!(param_map.query_stable_id(index), Some(*id));
+			assert_eq!(param_map.query_param_index_by_stable_id(*id), Some(index));
+			assert!(param_map.get_by_stable_id(*id).is_some());
+		}
+
+		// The derived identifier is what the id is derived from, so the two have to agree.
+		assert_eq!(param_map.query_stable_id(0), Some(stable_parameter_id("a")));
+		assert_eq!(param_map.query_stable_id(2), Some(stable_parameter_id("Foo")));
+		assert_eq!(param_map.query_stable_id(3), Some(stable_parameter_id("d.f")));
+		assert_eq!(param_map.query_stable_id(6), Some(stable_parameter_id("boo")));
+
+		// An id no parameter was given resolves to nothing.
+		assert!(param_map.get_by_stable_id(u32::MAX).is_none());
+	}
+
+	/// A 32-bit id space cannot be collision free, and two parameters sharing an id would
+	/// route a host's automation to the wrong one. This pins a pair that really does collide.
+	#[test]
+	fn a_hash_collision_does_not_alias_two_parameters() {
+		// Found by scanning identifiers; if the hash changes, the premise assertion below
+		// fails and a new pair has to be found.
+		const FIRST: &str = "probe_21567";
+		const SECOND: &str = "probe_54170";
+
+		assert_eq!(
+			stable_parameter_id(FIRST),
+			stable_parameter_id(SECOND),
+			"the pinned pair no longer collides, so this test proves nothing"
+		);
+		assert_ne!(
+			hash_identifier(FIRST, 1),
+			hash_identifier(SECOND, 1),
+			"raising the salt has to separate the pair, or the search for a free id never ends"
+		);
+
+		let entry = |identifier: &str| {
+			(identifier.to_string(), Arc::new(Value::Bool(true).to_atomic_value()))
+		};
+
+		let param_map = ParamMap::new_with([entry(FIRST), entry(SECOND)]);
+		let first = param_map.query_stable_id(0).unwrap();
+		let second = param_map.query_stable_id(1).unwrap();
+
+		assert_ne!(first, second, "colliding identifiers were aliased onto one id");
+		assert_eq!(param_map.query_param_index_by_stable_id(first), Some(0));
+		assert_eq!(param_map.query_param_index_by_stable_id(second), Some(1));
+
+		// Which of the two keeps the canonical id is decided by identifier order, not by the
+		// order the map was built in, so either order has to give the same parameter the same id.
+		let reversed = ParamMap::new_with([entry(SECOND), entry(FIRST)]);
+		assert_eq!(reversed.query_stable_id(1), Some(first));
+		assert_eq!(reversed.query_stable_id(0), Some(second));
+	}
+
+	/// The scheme a plugin that already shipped positional ids has to select: the id is the
+	/// declaration order, exactly as the host that saw the old build knows it.
+	#[test]
+	fn the_position_scheme_reproduces_positional_ids() {
+		let entry = |identifier: &str| {
+			(identifier.to_string(), Arc::new(Value::Bool(true).to_atomic_value()))
+		};
+
+		let positional = ParamMap::new_with_scheme(
+			[entry("zeta"), entry("alpha"), entry("mid")],
+			StableIdScheme::Position,
+		);
+		assert_eq!(positional.query_stable_id(0), Some(0));
+		assert_eq!(positional.query_stable_id(1), Some(1));
+		assert_eq!(positional.query_stable_id(2), Some(2));
+
+		// The default scheme is the opposite: the id follows the identifier, not the position.
+		let hashed = ParamMap::new_with([entry("zeta"), entry("alpha"), entry("mid")]);
+		assert_eq!(hashed.query_stable_id(0), Some(stable_parameter_id("zeta")));
+	}
+
+	/// A pinned id beats the scheme, which is what lets a renamed field keep its identity.
+	#[test]
+	fn a_pinned_id_wins_over_the_scheme() {
+		let entry = |identifier: &str| {
+			(identifier.to_string(), Arc::new(Value::Bool(true).to_atomic_value()))
+		};
+		let overrides = [("something_else".to_string(), 4021u32)];
+
+		let param_map = ParamMap::build(
+			[entry("something_else"), entry("other")],
+			StableIdScheme::Identifier,
+			&overrides,
+		);
+		assert_eq!(param_map.query_stable_id(0), Some(4021));
+		assert_eq!(param_map.query_param_index_by_stable_id(4021), Some(0));
+		assert_eq!(param_map.query_stable_id(1), Some(stable_parameter_id("other")));
+	}
+
+	/// Pinned ids are handed out before the scheme does, so a pin that lands on a position
+	/// takes it and the position moves to a derived id. Nothing may alias.
+	#[test]
+	fn a_pin_that_lands_on_a_position_moves_that_position() {
+		let entry = |identifier: &str| {
+			(identifier.to_string(), Arc::new(Value::Bool(true).to_atomic_value()))
+		};
+		let overrides = [("one".to_string(), 0u32)];
+
+		let param_map = ParamMap::build(
+			[entry("zero"), entry("one")],
+			StableIdScheme::Position,
+			&overrides,
+		);
+
+		assert_eq!(param_map.query_stable_id(1), Some(0), "the pinned id wins");
+		assert_ne!(param_map.query_stable_id(0), Some(0), "the position has to move, not alias");
+		assert_eq!(param_map.query_param_index_by_stable_id(0), Some(1));
 	}
 }

@@ -1134,6 +1134,11 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 		let Some(param) = self.param_map.get_by_index(index) else {
 			return;
 		};
+		// The id is derived from the parameter's identifier rather than from its position, so
+		// that adding a parameter no longer renumbers every parameter declared after it.
+		let Some(stable_id) = self.param_map.query_stable_id(index) else {
+			return;
+		};
 
 		let flags = if param.is_float() {
 			ParamInfoFlags::IS_AUTOMATABLE
@@ -1150,7 +1155,7 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 		};
 
 		info.set(&ParamInfo {
-			id: param_index.into(),
+			id: stable_id.into(),
 			flags,
 			cookie: Default::default(),
 			name: self.param_map.query_param_id(index).unwrap().as_bytes(),
@@ -1162,8 +1167,7 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 	}
 
 	fn get_value(&mut self, param_id: clack_plugin::prelude::ClapId) -> Option<f64> {
-		let index = param_id.get() as usize;
-		let param = self.param_map.get_by_index(index)?;
+		let param = self.param_map.get_by_stable_id(param_id.get())?;
 		let current = param.load(std::sync::atomic::Ordering::SeqCst);
 		match current {
 			SetValue::Bool(val) => if val { Some(1.0) } else { Some(0.0) },
@@ -1182,7 +1186,7 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 	) -> core::fmt::Result {
 		use std::fmt::Write;
 
-		if param_id.get() as usize >= self.param_map.len() {
+		if self.param_map.query_param_index_by_stable_id(param_id.get()).is_none() {
 			Err(std::fmt::Error)
 		}else {
 			write!(writer, "{:.2}", value)
@@ -1191,9 +1195,7 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 	}
 
 	fn text_to_value(&mut self, param_id: clack_plugin::prelude::ClapId, text: &std::ffi::CStr) -> Option<f64> {
-		if param_id.get() >= self.param_map.len() as u32 {
-			return None
-		}
+		let _ = self.param_map.query_param_index_by_stable_id(param_id.get())?;
 		
 		let text = text.to_str().ok()?;
 		let value = text.parse::<f64>().ok()?;
@@ -1214,9 +1216,8 @@ fn handle_param_value_event(
 	param_map: &ParamMap,
 ) {
 	if let Some(param_id) = param.param_id() {
-		let id = param_id.get() as usize;
 		let value = param.value() as f32;
-		if let Some(inner) = param_map.get_by_index(id) {
+		if let Some(inner) = param_map.get_by_stable_id(param_id.get()) {
 			if inner.is_int() {
 				inner.store(value as i32, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
@@ -1236,9 +1237,8 @@ fn handle_param_mod_event(
 	param_map: &ParamMap,
 ) {
 	if let Some(param_id) = param.param_id() {
-		let id = param_id.get() as usize;
 		let value = param.amount() as f32;
-		if let Some(inner) = param_map.get_by_index(id) {
+		if let Some(inner) = param_map.get_by_stable_id(param_id.get()) {
 			if inner.is_int() {
 				let amount = inner.load(std::sync::atomic::Ordering::SeqCst).int().unwrap() + value as i32;
 				inner.store(amount, std::sync::atomic::Ordering::SeqCst);
@@ -1258,6 +1258,10 @@ fn sync_params(
 ) {
 	for (index, val) in param_map.iter().enumerate() {
 		if val.is_chanegd() {
+			let Some(stable_id) = param_map.query_stable_id(index) else {
+				continue;
+			};
+
 			let value = match val.load(std::sync::atomic::Ordering::SeqCst) {
 				SetValue::Bool(v) => if v { 1.0 } else { 0.0 },
 				SetValue::Int(v) => v as f64,
@@ -1267,7 +1271,7 @@ fn sync_params(
 
 			let _ = output_parameter_changes.try_push(ParamValueEvent::new(
 				0,
-				(index as u32).into(),
+				stable_id.into(),
 				Pckn::match_all(),
 				value,
 				Default::default(),
