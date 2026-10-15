@@ -1025,10 +1025,11 @@ impl SharedData {
 					trustable: false,
 					playing: true,
 					tempo: Some(150.0),
-					current_beat_number: None,
-					position_beats: None,
 					time_signature: None,
 					current_time: 0.0,
+					// `position_beats` (and the deprecated `current_beat_number`) stay at their
+					// default: a standalone context has no host timeline to report yet.
+					..ProcessInfos::default()
 				},
 				midi_events: vec![],
 			}),
@@ -1226,10 +1227,11 @@ impl DspDemo {
 					trustable: false,
 					playing: true,
 					tempo: Some(150.0),
-					current_beat_number: None,
-					position_beats: None,
 					time_signature: None,
 					current_time: 0.0,
+					// `position_beats` (and the deprecated `current_beat_number`) stay at their
+					// default: a standalone context has no host timeline to report yet.
+					..ProcessInfos::default()
 				},
 				midi_events: vec![],
 			}),
@@ -1278,10 +1280,9 @@ impl DspDemo {
 								trustable: false,
 								playing: true,
 								tempo: Some(150.0),
-								current_beat_number: None,
-								position_beats: None,
 								time_signature: None,
 								current_time: 0.0,
+								..ProcessInfos::default()
 							},
 							midi_events: vec![],
 						});

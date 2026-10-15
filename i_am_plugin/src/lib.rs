@@ -1694,6 +1694,8 @@ mod tests {
 
 	/// 120 bpm at 48 kHz makes a beat exactly 24_000 samples.
 	#[test]
+	// The deprecated field is read on purpose: it has to stay in step with the precise one.
+	#[allow(deprecated)]
 	fn the_position_advances_with_every_sample() {
 		let mut context = ClapContext::for_test();
 		context.apply_transport(&transport(8.0, 120.0, true), 0);
@@ -1745,6 +1747,7 @@ mod tests {
 	/// A tempo with no beat timeline still says how fast time passes, but there is no
 	/// position to be in phase with.
 	#[test]
+	#[allow(deprecated)]
 	fn a_tempo_without_a_beat_timeline_reports_no_position() {
 		let mut context = ClapContext::for_test();
 		let mut report = transport(0.0, 100.0, true);
@@ -1755,6 +1758,25 @@ mod tests {
 		assert_eq!(context.infos().tempo, Some(100.0));
 		assert_eq!(context.infos().position_beats, None);
 		assert_eq!(context.infos().current_beat_number, None);
+	}
+
+	/// A host that ramps its tempo reports how much it changes per sample; the clock has to
+	/// integrate that, not treat the tempo as a constant across the block.
+	#[test]
+	fn a_tempo_ramp_inside_a_block_is_integrated() {
+		let mut context = ClapContext::for_test();
+		let mut report = transport(0.0, 120.0, true);
+		report.tempo_inc = 1.0; // one bpm per sample, so the ramp is easy to sum by hand.
+		context.apply_transport(&report, 0);
+
+		// At 48 kHz the beats a ramp covers are the sum of the rates it passed through.
+		let expected = (0..1_000)
+			.map(|k| (120.0 + k as f64) / (60.0 * 48_000.0))
+			.sum::<f64>();
+
+		context.set_sample_offset(1_000);
+		let position = context.infos().position_beats.expect("the block has a timeline");
+		assert!((position - expected).abs() < 1e-12, "{position} != {expected}");
 	}
 
 	/// The clock counts absolute samples, so a block does not restart the position at its own

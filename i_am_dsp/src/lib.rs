@@ -394,10 +394,12 @@ pub struct ProcessInfos {
 	///
 	/// A legacy view of [`Self::position_beats`], kept in step with it for the effects that
 	/// were written before the precise field existed. Prefer [`Self::position_beats`]: this
-	/// one rounds, and it is only present when a context fills it.
+	/// one rounds (an `f32` beat count loses the sub-millisecond resolution long before a song
+	/// ends), and it is only present when a context fills it.
 	/// 
 	/// The trunc part is current beat number. 
 	/// the fract part is how long have passed in the current beat(in percentage).
+	#[deprecated(note = "use `position_beats`: it is `f64`, and it is the field the clock keeps sample-accurate")]
 	pub current_beat_number: Option<f32>,
 	/// The time signature of the process.
 	/// 
@@ -415,6 +417,8 @@ impl ProcessInfos {
 
 	/// Sets the musical position, keeping the legacy [`Self::current_beat_number`] view in
 	/// step so the two can never disagree.
+	// The deprecated field is written on purpose: it exists so older readers keep working.
+	#[allow(deprecated)]
 	pub fn set_position_beats(&mut self, position_beats: Option<f64>) {
 		self.position_beats = position_beats;
 		self.current_beat_number = position_beats.map(|beats| beats as f32);
