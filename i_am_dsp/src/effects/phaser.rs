@@ -28,6 +28,7 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// so it lines up with the grid, and keeps it sweeping at the synced rate while the
 	/// transport is stopped.
 	#[sub_param]
+	#[id(display = "Tempo")]
 	pub tempo: SyncedTime,
 	#[range(min = 10.0, max = 10000.0)]
 	#[logarithmic]

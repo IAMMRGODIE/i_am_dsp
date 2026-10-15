@@ -65,13 +65,20 @@ use crate::ProcessInfos;
 pub struct SyncedTime {
 	/// Whether to follow the host's tempo instead of the effect's own free value.
 	#[default(false)]
+	#[id(display = "Sync")]
 	pub sync: bool,
-	/// The length in quarter-note beats: `0.5` is an eighth note, `1.0` a quarter, `4.0` a
-	/// bar in four-four. Dotted values are multiplied by `1.5` and triplets by `2/3`.
+	/// The length of one cycle, in quarter-note beats: `0.5` is an eighth note, `1.0` a
+	/// quarter, `4.0` a bar in four-four. Dotted values are multiplied by `1.5` and triplets
+	/// by `2/3`.
+	///
+	/// It is a *period*, and stays one whichever conversion reads it: as a duration it is how
+	/// long something lasts, and as a rate it is how long one cycle of an LFO takes. Its
+	/// reciprocal is the frequency, which is what [`Self::rate_hz`] works out.
 	#[range(min = 0.03125, max = 32.0)]
 	#[logarithmic]
 	#[default(1.0)]
 	#[unit(beats)]
+	#[id(display = "Beats")]
 	pub beats: f32,
 }
 
@@ -116,6 +123,8 @@ impl SyncedTime {
 	/// this stale — it makes it exact.
 	///
 	/// `free_ms` is the effect's own value, used when syncing is off or there is no tempo.
+	///
+	/// `beats` is the length of one cycle, so this reads it as a duration.
 	pub fn seconds(&self, infos: &ProcessInfos, free_ms: f32) -> f32 {
 		match self.musical(infos) {
 			Some((beats, tempo)) => (beats * 60.0 / tempo) as f32,
@@ -132,6 +141,9 @@ impl SyncedTime {
 	/// than a length — an LFO, a tremolo, a modulation depth.
 	///
 	/// `free_hz` is the effect's own value, used on the same terms as `free_ms` above.
+	///
+	/// `beats` is the length of one cycle, so this reads the same number as a period and takes
+	/// its reciprocal. A synced time of one beat is one cycle per beat: 2 Hz at 120 bpm.
 	pub fn rate_hz(&self, infos: &ProcessInfos, free_hz: f32) -> f32 {
 		match self.musical(infos) {
 			Some((beats, tempo)) => (tempo / (60.0 * beats)) as f32,

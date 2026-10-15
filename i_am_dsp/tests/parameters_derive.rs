@@ -5,7 +5,7 @@
 //! fields and index-based setting.
 
 use i_am_dsp::prelude::{
-	Parameter, ParameterMeta, Parameters, Paramed, SetValue, Unit, Value, from_binary, to_binary,
+	Parameter, ParameterMeta, Parameters, Paramed, SetValue, SyncedTime, Unit, Value, from_binary, to_binary,
 };
 use i_am_dsp_derive::Parameters; // derive macro (distinct from the trait of the same name)
 
@@ -496,4 +496,57 @@ fn metadata_is_not_part_of_the_saved_state() {
 	assert_eq!(loaded[0].identifier, "beats");
 	// ...but the values are, which is the point of saving state at all.
 	assert_eq!(loaded[0].value, parameters[0].value);
+}
+// ---------- display names ----------
+
+#[derive(Parameters)]
+struct PlainInner {
+	x: f32,
+}
+
+#[derive(Parameters)]
+struct PlainOuter {
+	#[sub_param]
+	inner: PlainInner,
+}
+
+#[derive(Parameters)]
+struct NamedWithDisplay {
+	/// The real thing, so the composition is exercised through it rather than a stand-in.
+	#[sub_param]
+	#[id(display = "Tempo")]
+	tempo: SyncedTime,
+	#[id(display = "BPM Sync")]
+	#[range(min = 0.0, max = 1.0)]
+	own: f32,
+}
+
+/// A display name is what a host shows; the identifier is what it addresses, and the two
+/// are independent.
+#[test]
+fn a_display_name_reaches_the_host_without_touching_the_identifier() {
+	let parameters = NamedWithDisplay { tempo: SyncedTime::default(), own: 0.5 }.get_parameters();
+
+	// The identifiers are exactly what they would be without any display name.
+	assert_eq!(ids(&parameters), vec!["tempo.sync", "tempo.beats", "own"]);
+
+	// A nested parameter is named by the level that contains it.
+	assert_eq!(parameters[0].meta.display_name.as_deref(), Some("Tempo Sync"));
+	assert_eq!(parameters[1].meta.display_name.as_deref(), Some("Tempo Beats"));
+	assert_eq!(parameters[2].meta.display_name.as_deref(), Some("BPM Sync"));
+
+	// A display name on its own leaves everything else alone, including the default
+	// identifier a field would otherwise get.
+	assert_eq!(parameters[2].identifier, "own");
+	assert_eq!(parameters[2].meta.unit, Unit::None);
+	assert_eq!(parameters[2].meta.default, None);
+}
+
+/// A level that declares no name contributes its field name, so a host still gets words
+/// rather than nothing.
+#[test]
+fn a_nested_parameter_without_names_is_labelled_by_its_fields() {
+	let parameters = PlainOuter { inner: PlainInner { x: 0.0 } }.get_parameters();
+	assert_eq!(ids(&parameters), vec!["inner.x"]);
+	assert_eq!(parameters[0].meta.display_name.as_deref(), Some("inner x"));
 }

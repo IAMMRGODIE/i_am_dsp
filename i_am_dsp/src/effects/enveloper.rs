@@ -299,6 +299,7 @@ pub struct PeakDetector<const CHANNELS: usize = 2> {
 	/// The attack time in musical time: a sixteenth note stays a sixteenth note whatever the
 	/// host is playing at.
 	#[sub_param]
+	#[id(display = "Attack")]
 	pub attack: SyncedTime,
 	/// The release time of the envelope in milliseconds.
 	#[range(min = 0.0, max = 1000.0)]
@@ -306,6 +307,7 @@ pub struct PeakDetector<const CHANNELS: usize = 2> {
 	pub release_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
+	#[id(display = "Release")]
 	pub release: SyncedTime,
 	/// The lengths this block runs at, read from the tempo by [`Enveloper::set_infos`].
 	#[skip]

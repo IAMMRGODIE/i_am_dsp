@@ -114,7 +114,13 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 /// - `sub_param`: A sub_param attribute that specifies that the field is a sub-parameter struct.
 /// - `logarithmic`: A logarithmic attribute that specifies that the parameter should be displayed in logarithmic scale. Parameters with `logarithmic` must be positive.
 /// - `default`: The value the parameter starts at, so that a host can offer "reset to default" instead of guessing the minimum: `#[default(0.8)]`, `#[default(false)]`.
-/// - `unit`: How a host should show the value as text: `#[unit(beats)]` renders `0.5` as `1/8`, and `#[unit(milliseconds)]` appends `ms`. One of `none`, `milliseconds`, `hertz`, `beats`.
+///
+///   **Declare it wherever there is an answer to give.** A host that is not told falls back to the bottom of the range, which is rarely where an effect starts: a synced time comes back as a thirty-second note instead of a beat, a gain at its quietest instead of at unity. The one case that should be left alone is a parameter whose starting value is an argument to the constructor — a delay time, a sample rate — because then there is no single answer to write down.
+/// - `unit`: How a host should show the value as text: `#[unit(beats)]` renders `0.5` as `1/8`, and `#[unit(milliseconds)]` appends `ms`. One of `none`, `milliseconds` (or `ms`), `hertz` (or `hz`), `beats`, `seconds` (or `s`), `samples`, `decibels` (or `db`) and `percent`. A percentage is a *fraction of one*: `0.5` reads back and forth as `50.0 %`.
+///
+///   Declaring a unit is what keeps a host from having to guess: a value with one is shown with it, and a value that declares none stays a plain number. Not every parameter has one to declare — a gain, a ratio, a mix — and those are fine as they are.
+///
+/// - `id(display = "...")`: What a host should *call* the parameter, when the identifier is not what a person should read: `#[id(display = "BPM Sync")]`. It never touches the identifier, so it can sit on a `sub_param`, where it names the level those parameters sit under: a `Beats` field under a `Tempo` sub-parameter is shown as `Tempo Beats`. A level that declares nothing contributes its field name, so the worst a host sees is `tempo beats` rather than `tempo.beats`.
 /// - `default_float_range`: A default range attribute that specifies the default minimum and maximum values of the parameter for float type.
 /// - `default_int_range`: A default range attribute that specifies the default minimum and maximum values of the parameter for signed integer type.
 /// - `default_uint_range`: A default range attribute that specifies the default minimum and maximum values of the parameter for unsigned integer type.
@@ -172,8 +178,8 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				}
 			},
 			"id" => {
-				let (prefix, name, stable) = parse_id_attribute(attr)?;
-				if name.is_some() || stable.is_some() {
+				let (prefix, name, stable, display) = parse_id_attribute(attr)?;
+				if name.is_some() || stable.is_some() || display.is_some() {
 					return Err(Error::new_spanned(attr, "Struct-level `id` attribute only supports `prefix`"));
 				}
 				if let Some(prefix) = prefix {
@@ -317,11 +323,19 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				Some(ParameterUnit::Milliseconds) => quote!(i_am_dsp::prelude::Unit::Milliseconds),
 				Some(ParameterUnit::Hertz) => quote!(i_am_dsp::prelude::Unit::Hertz),
 				Some(ParameterUnit::Beats) => quote!(i_am_dsp::prelude::Unit::Beats),
+				Some(ParameterUnit::Seconds) => quote!(i_am_dsp::prelude::Unit::Seconds),
+				Some(ParameterUnit::Samples) => quote!(i_am_dsp::prelude::Unit::Samples),
+				Some(ParameterUnit::Decibels) => quote!(i_am_dsp::prelude::Unit::Decibels),
+				Some(ParameterUnit::Percent) => quote!(i_am_dsp::prelude::Unit::Percent),
 				Some(ParameterUnit::None) | None => quote!(i_am_dsp::prelude::Unit::None),
+			};
+			let display = match &config.id_display {
+				Some(name) => quote!(Some(std::borrow::Cow::Borrowed(#name))),
+				None => quote!(None),
 			};
 
 			quote! {
-				i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit }
+				i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit, display_name: #display }
 			}
 		};
 
@@ -454,12 +468,21 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				},
 			});
 		} else if is_sub_param {
+			let display_prefix = config.id_display.clone().unwrap_or_else(|| field_name.clone());
 			let sub_head = format!("{}.", field_name);
 			let sub_head_len = sub_head.len();
 			parameter_imply.push(quote! {
 				let mut sub_parameters = i_am_dsp::prelude::Parameters::get_parameters(&self.#member);
 				sub_parameters.iter_mut().for_each(|p| {
 					p.identifier = format!("{}{}", #sub_head, p.identifier);
+					// A host reads a nested parameter by name, so the level that contains it names
+					// it: a `Beats` field under a `Tempo` sub-parameter shows as `Tempo Beats`.
+					// A level that declares nothing contributes its field name.
+					let child = match &p.meta.display_name {
+						Some(child) => child.clone(),
+						None => p.identifier.rsplit('.').next().unwrap_or_default().into(),
+					};
+					p.meta.display_name = Some(format!("{} {}", #display_prefix, child).into());
 				});
 				parameters.extend(sub_parameters);
 			});
@@ -573,6 +596,10 @@ enum ParameterUnit {
 	Milliseconds,
 	Hertz,
 	Beats,
+	Seconds,
+	Samples,
+	Decibels,
+	Percent,
 }
 
 #[derive(Debug, Default)]
@@ -580,6 +607,8 @@ struct FieldConfig {
 	range: Option<ParamRange>,
 	id_name: String,
 	id_stable: Option<u32>,
+	/// What a host should call the parameter, from `#[id(display = "...")]`.
+	id_display: Option<String>,
 	/// The value the parameter starts at, from `#[default(...)]`.
 	param_default: Option<f64>,
 	unit: Option<ParameterUnit>,
@@ -615,8 +644,9 @@ fn handle_attribute(
 				config.range = Some(parse_range_attribute(attr)?);
 			},
 			"id" => {
-				let (prefix, name, stable) = parse_id_attribute(attr)?;
+				let (prefix, name, stable, display) = parse_id_attribute(attr)?;
 				config.id_stable = stable;
+				config.id_display = display;
 				let prefix = prefix.unwrap_or_default();
 
 				let name = if let Some(name) = name {
@@ -625,17 +655,17 @@ fn handle_attribute(
 					field_name.clone()
 				};
 
-				config.id_name = format!("{}{}", prefix, name);
+				config.id_name = if config.id_display.is_some() && name == field_name && prefix.is_empty() && config.id_stable.is_none() { String::new() } else { format!("{}{}", prefix, name) };
 
 				if config.id_name.contains('.') {
 					return Err(Error::new_spanned(attr, "id attribute cannot contain `.`"));
 				}
 
-				if config.id_name.is_empty() {
+				if config.id_name.is_empty() && config.id_display.is_none() {
 					return Err(Error::new_spanned(attr, "id attribute cannot be empty"));
 				}
 
-				if syn::parse_str::<Ident>(&config.id_name).is_err() {
+				if !config.id_name.is_empty() && syn::parse_str::<Ident>(&config.id_name).is_err() {
 					return Err(Error::new_spanned(attr, "Name must be a valid rust ident"));
 				}
 			},
@@ -818,6 +848,10 @@ fn parse_unit_attribute(attr: &Attribute) -> Result<ParameterUnit> {
 		"milliseconds" | "ms" => Ok(ParameterUnit::Milliseconds),
 		"hertz" | "hz" => Ok(ParameterUnit::Hertz),
 		"beats" => Ok(ParameterUnit::Beats),
+		"seconds" | "s" => Ok(ParameterUnit::Seconds),
+		"samples" => Ok(ParameterUnit::Samples),
+		"decibels" | "db" => Ok(ParameterUnit::Decibels),
+		"percent" => Ok(ParameterUnit::Percent),
 		other => Err(Error::new_spanned(
 			&ident,
 			format!("unknown unit `{other}`: expected one of none, milliseconds, hertz, beats"),
@@ -825,10 +859,15 @@ fn parse_unit_attribute(attr: &Attribute) -> Result<ParameterUnit> {
 	}
 }
 
-fn parse_id_attribute(attr: &Attribute) -> Result<(Option<String>, Option<String>, Option<u32>)> {
+/// What a field's `#[id(..)]` attribute asked for: the identifier prefix, the identifier
+/// name, a pinned host id and the display name.
+type IdAttribute = (Option<String>, Option<String>, Option<u32>, Option<String>);
+
+fn parse_id_attribute(attr: &Attribute) -> Result<IdAttribute> {
 	let mut prefix = None;
 	let mut name = None;
 	let mut stable = None;
+	let mut display = None;
 	attr.parse_nested_meta(|meta| {
 		if meta.path.is_ident("stable") {
 			let val: LitInt = meta.value()?.parse()?;
@@ -858,10 +897,24 @@ fn parse_id_attribute(attr: &Attribute) -> Result<(Option<String>, Option<String
 				},
 				_ => return Err(Error::new_spanned(attr, "Invalid literal for name, expected string")),
 			}
+		} else if meta.path.is_ident("display") {
+			// What a host calls the parameter. Unlike `name` this never touches the identifier,
+			// so it is free-form and may be combined with `sub_param`.
+			let val: Lit = meta.value()?.parse()?;
+			match val {
+				Lit::Str(inner) => {
+					let value = inner.value();
+					if value.trim().is_empty() {
+						return Err(Error::new_spanned(attr, "Display name must not be empty"));
+					}
+					display = Some(value);
+				},
+				_ => return Err(Error::new_spanned(attr, "Invalid literal for display, expected string")),
+			}
 		}
 		Ok(())
 	})?;
-	Ok((prefix, name, stable))
+	Ok((prefix, name, stable, display))
 }
 
 fn parse_persist_attribute(attr: &Attribute) -> Result<(String, String)> {

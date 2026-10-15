@@ -21,6 +21,7 @@ const HISTORY_LEN: usize = 32768;
 pub struct Compressor<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize = 2> {
 	#[range(min = -60.0, max = 0.0)]
 	/// The threshold for the compressor, saves in dB
+	#[unit(decibels)]
 	pub threshold: f32,
 	#[range(min = 1.0, max = 10.0)]
 	/// The ratio for the compressor, Should always be less than 1.0
@@ -51,6 +52,7 @@ pub struct Compressor<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize = 2> 
 	/// from the undelayed input, letting the compressor react to a transient
 	/// before it reaches the output.
 	#[range(min = 0, max = 4096)]
+	#[unit(samples)]
 	pub lookahead: usize,
 	#[skip]
 	/// Per-channel delay line used to implement the lookahead.

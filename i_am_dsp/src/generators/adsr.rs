@@ -162,11 +162,13 @@ impl EnvelopeTimes {
 	};
 
 	/// How long the note sounds before it is let go.
+	#[cfg(feature = "real_time_demo")]
 	fn held(&self) -> f32 {
 		self.delay + self.attack + self.hold + self.decay
 	}
 
 	/// How long the note sounds in total, release included.
+	#[cfg(feature = "real_time_demo")]
 	fn total(&self) -> f32 {
 		self.held() + self.release
 	}
@@ -251,12 +253,14 @@ pub struct Adsr<
 	/// The same stage length in musical time: a sixteenth note of delay stays a sixteenth
 	/// note whatever the host is playing at. See [`Self::times`] for how it is read.
 	#[sub_param]
+	#[id(display = "Delay")]
 	pub delay: SyncedTime,
 	/// The attack time, saves in milliseconds
 	#[unit(milliseconds)]
 	pub attack_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
+	#[id(display = "Attack")]
 	pub attack: SyncedTime,
 	/// The attack bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
@@ -266,12 +270,14 @@ pub struct Adsr<
 	pub hold_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
+	#[id(display = "Hold")]
 	pub hold: SyncedTime,
 	/// The decay time, saves in milliseconds
 	#[unit(milliseconds)]
 	pub decay_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
+	#[id(display = "Decay")]
 	pub decay: SyncedTime,
 	/// The decay bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
@@ -283,6 +289,7 @@ pub struct Adsr<
 	pub release_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
+	#[id(display = "Release")]
 	pub release: SyncedTime,
 	/// The release bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]

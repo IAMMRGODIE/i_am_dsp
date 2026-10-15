@@ -1241,7 +1241,7 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 			id: stable_id.into(),
 			flags,
 			cookie: Default::default(),
-			name: self.param_map.query_param_id(index).unwrap().as_bytes(),
+			name: meta.display_name.as_deref().unwrap_or_else(|| self.param_map.query_param_id(index).unwrap()).as_bytes(),
 			module: Default::default(),
 			min_value,
 			max_value,

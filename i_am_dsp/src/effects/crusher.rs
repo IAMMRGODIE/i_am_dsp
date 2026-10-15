@@ -41,6 +41,7 @@ const MAX_STACK_AMOUNT: usize = 100;
 pub struct Crusher<const CHANNELS: usize = 2> {
 	/// How much dispersion and saturation is applied, from 0 to 1.
 	#[range(min = 0.0, max = 1.0)]
+	#[unit(percent)]
 	pub amount: f32,
 	/// The rate of the LFO that sweeps the disperser cutoff, in Hz.
 	#[range(min = 1.0, max = 2000.0)]

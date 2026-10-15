@@ -28,6 +28,14 @@ pub enum Unit {
 	Hertz,
 	/// A length in quarter-note beats: `0.5` is an eighth note, `0.75` a dotted eighth.
 	Beats,
+	/// A length in seconds.
+	Seconds,
+	/// A count of audio samples.
+	Samples,
+	/// A level in decibels.
+	Decibels,
+	/// A fraction of one, shown as a percentage: `0.5` reads as `50.0 %`.
+	Percent,
 }
 
 impl Unit {
@@ -38,6 +46,11 @@ impl Unit {
 			Unit::Milliseconds => format!("{value:.2} ms"),
 			Unit::Hertz => format!("{value:.2} Hz"),
 			Unit::Beats => format_beats(value),
+			Unit::Seconds => format!("{value:.3} s"),
+			Unit::Samples => format!("{value:.0} samples"),
+			Unit::Decibels => format!("{value:.2} dB"),
+			// The value is a fraction, so half of it reads as fifty percent.
+			Unit::Percent => format!("{:.1} %", value * 100.0),
 		}
 	}
 
@@ -53,6 +66,10 @@ impl Unit {
 			Unit::Milliseconds => Some(text.trim_end_matches("ms").trim().parse().ok()?),
 			Unit::Hertz => Some(text.trim_end_matches("Hz").trim().parse().ok()?),
 			Unit::Beats => parse_beats(text),
+			Unit::Seconds => Some(text.trim_end_matches('s').trim().parse().ok()?),
+			Unit::Samples => Some(text.trim_end_matches("samples").trim().parse().ok()?),
+			Unit::Decibels => Some(text.trim_end_matches("dB").trim().parse().ok()?),
+			Unit::Percent => Some(text.trim_end_matches('%').trim().parse::<f64>().ok()? / 100.0),
 		}
 	}
 }
@@ -107,15 +124,26 @@ fn parse_beats(text: &str) -> Option<f64> {
 }
 
 /// What a host needs to present a parameter beyond its value and its range.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ParameterMeta {
 	/// The value the parameter starts at, for a host that resets parameters to a default.
 	///
-	/// [`None`] leaves it to the host, which generally falls back to the minimum. A parameter
-	/// whose starting value is set when an effect is constructed (a delay time, say) has none.
+	/// **Declare one wherever there is an answer to give.** A host that is not told falls
+	/// back to the bottom of the range, which is rarely where an effect starts: a synced time
+	/// would come back as a thirty-second note rather than a beat, and a gain at its quietest
+	/// rather than at unity. It is only right to leave it as [`None`] when there is no single
+	/// answer — a parameter whose starting value is an argument to the constructor, like a
+	/// delay time or a sample rate. See the `#[default(..)]` attribute for declaring one.
 	pub default: Option<f64>,
 	/// How to render the value as text.
 	pub unit: Unit,
+	/// What a host should call the parameter, when the identifier is not what a person should
+	/// read: `#[id(display = "BPM Sync")]`.
+	///
+	/// A nested parameter is named by joining the names of the levels that contain it with a
+	/// space, so a `Beats` field under a `Tempo` sub-parameter shows to a host as
+	/// `Tempo Beats`. A level that declares nothing contributes its field name.
+	pub display_name: Option<std::borrow::Cow<'static, str>>,
 }
 
 /// A helper struct for report parameters.
@@ -1208,7 +1236,7 @@ impl ParamMap {
 
 		for (index, (identifier, meta, value)) in entries.iter().enumerate() {
 			id.insert(identifier.clone(), index);
-			metas.push(*meta);
+			metas.push(meta.clone());
 			values.push(value.clone());
 		}
 
@@ -1361,7 +1389,7 @@ impl ParamMap {
 	/// Query what a host needs to present the parameter at the given index: its starting value
 	/// and how to show it.
 	pub fn query_meta(&self, index: usize) -> Option<ParameterMeta> {
-		self.metas.get(index).copied()
+		self.metas.get(index).cloned()
 	}
 
 	/// Query the index of the parameter with the given stable id.
@@ -1522,6 +1550,22 @@ mod tests {
 		assert_eq!(Unit::Beats.parse("1/8"), Some(0.5));
 		assert_eq!(Unit::Beats.parse("1/4 dotted"), Some(1.5));
 		assert_eq!(Unit::None.parse("loud"), None);
+	}
+
+	/// The units that are not about music still have to render and read back.
+	#[test]
+	fn the_other_units_render_and_read_back() {
+		assert_eq!(Unit::Seconds.format(0.5), "0.500 s");
+		assert_eq!(Unit::Samples.format(480.0), "480 samples");
+		assert_eq!(Unit::Decibels.format(-6.0), "-6.00 dB");
+		assert_eq!(Unit::Percent.format(0.5), "50.0 %");
+
+		assert_eq!(Unit::Seconds.parse("0.5 s"), Some(0.5));
+		assert_eq!(Unit::Samples.parse("480 samples"), Some(480.0));
+		assert_eq!(Unit::Decibels.parse("-6 dB"), Some(-6.0));
+		// A percentage is a fraction, so reading it back has to undo the hundred.
+		assert_eq!(Unit::Percent.parse("50 %"), Some(0.5));
+		assert_eq!(Unit::Percent.parse("12.5"), Some(0.125));
 	}
 
 	/// Every parameter gets its own id, and both directions of the mapping agree.

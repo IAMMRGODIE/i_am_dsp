@@ -369,6 +369,7 @@ pub struct Reverb<
 	/// at the same rate.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.5)]
+	#[unit(percent)]
 	pub spread: f32,
 	/// The center delay of the reverb, saves in milliseconds.
 	center_delay: f32,

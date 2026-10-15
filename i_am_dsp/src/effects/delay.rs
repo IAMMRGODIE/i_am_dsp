@@ -41,6 +41,7 @@ pub struct PureDelay<const CHANNELS: usize = 2> {
 	#[unit(milliseconds)]
 	pub delay_time: f32,
 	/// The same delay time in musical units, for when the host has a tempo.
+	#[id(display = "Tempo")]
 	#[sub_param]
 	pub tempo: SyncedTime,
 	/// The sample rate of the audio signal, saves in Hz
@@ -223,6 +224,7 @@ pub struct Delay<
 	#[unit(milliseconds)]
 	pub delay_time: f32,
 	/// The same delay time in musical units, for when the host has a tempo.
+	#[id(display = "Tempo")]
 	#[sub_param]
 	pub tempo: SyncedTime,
 	#[skip]
@@ -480,6 +482,7 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// With it syncing, the sweep takes its phase from the song position while the transport
 	/// runs, so it lines up with the grid, and keeps sweeping at the synced rate while the
 	/// transport is stopped.
+	#[id(display = "Tempo")]
 	#[sub_param]
 	pub tempo: SyncedTime,
 	/// The amplitude of the LFO, saves in milliseconds
@@ -618,6 +621,7 @@ pub struct Chorus<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	pub lfo_frequency: f32,
 	/// The same rate in musical time; see [`Flanger::tempo`] for what syncing does to a
 	/// sweep.
+	#[id(display = "Tempo")]
 	#[sub_param]
 	pub tempo: SyncedTime,
 	/// The amplitude of the LFO, saves in milliseconds
