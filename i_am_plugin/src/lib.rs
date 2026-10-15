@@ -94,7 +94,7 @@ use clack_plugin::{
 	}, plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, prelude::{OutputEvents, SampleType}, process::{Audio, Events, Process, ProcessStatus}
 };
 use crossbeam_channel::{Receiver, Sender};
-use i_am_dsp::{ProcessContext, ProcessInfos, prelude::{AtomicValue, ParamMap, SetValue, from_binary, to_binary}};
+use i_am_dsp::{ProcessContext, ProcessInfos, prelude::{AtomicValue, BeatClock, ParamMap, SetValue, from_binary, to_binary}};
 use i_am_dsp_iced::{Message, Processor, SyncedView, timer};
 use iced_baseview::{Application, Settings, Theme, baseview::{Size, WindowOpenOptions, WindowScalePolicy}, open_parented, window::WindowHandle};
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
@@ -643,6 +643,17 @@ pub struct AudioProcessor<'a, P: Plugin> {
 	temp_buffer_3: Vec<[f32; 2]>,
 	sample_rate: usize,
 	last_available_info: Option<ProcessInfos>,
+	/// The musical timeline, kept across blocks.
+	///
+	/// The context is rebuilt for every block, but a host is allowed to report the
+	/// transport once and then leave the plugin to run on its own, so the clock has to
+	/// outlive the context: it is moved in at the start of a block and taken back at the end.
+	clock: BeatClock,
+	/// How many samples have been processed since the plugin was activated.
+	///
+	/// The clock anchors and advances on absolute samples; a block offset is only a
+	/// position inside one block, so it cannot be used to measure elapsed time.
+	samples_processed: u64,
 	event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
 	event_receiver: Receiver<(usize, i_am_dsp::NoteEvent)>,
 	param_map: ParamMap,
@@ -691,6 +702,10 @@ pub struct ClapContext {
 	events_sample: usize,
 	info: Option<ProcessInfos>,
 	current_sample: usize,
+	/// The musical timeline, taken from the audio processor for the duration of the block.
+	clock: BeatClock,
+	/// The absolute sample the current block started at.
+	block_start: u64,
 	event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
 }
 
@@ -733,6 +748,19 @@ impl ProcessContext for ClapContext {
 		self.current_event = 0;
 		self.events.clear();
 	}
+
+	fn set_sample_offset(&mut self, sample_offset: usize) {
+		self.current_sample = sample_offset;
+
+		// The clock measures absolute samples, so the block offset is added to where this
+		// block started. The borrow of `self.clock` ends with the statement, which is what
+		// lets the position be written into `self.info` right after.
+		let position = self.clock.advance_to(self.block_start + sample_offset as u64);
+
+		if let Some(info) = &mut self.info {
+			info.set_position_beats(position);
+		}
+	}
 }
 
 fn convert_transport(inner: &TransportEvent, sample_rate: usize) -> i_am_dsp::ProcessInfos {
@@ -740,11 +768,8 @@ fn convert_transport(inner: &TransportEvent, sample_rate: usize) -> i_am_dsp::Pr
 	info.sample_rate = sample_rate;
 	info.playing = inner.flags.contains(TransportFlags::IS_PLAYING);
 	info.tempo = if inner.flags.contains(TransportFlags::HAS_TEMPO) { Some(inner.tempo as f32) } else { None };
-	info.current_beat_number = if inner.flags.contains(TransportFlags::HAS_BEATS_TIMELINE) {  
-		Some(inner.song_pos_beats.to_float() as f32)
-	}else {
-		None
-	};
+	// `position_beats` and `current_beat_number` are left to the clock, which is the single
+	// writer of the musical position: it fills them per sample in `set_sample_offset`.
 	info.time_signature = if inner.flags.contains(TransportFlags::HAS_TIME_SIGNATURE) {
 		Some((
 			inner.time_signature_numerator as usize, 
@@ -759,32 +784,59 @@ fn convert_transport(inner: &TransportEvent, sample_rate: usize) -> i_am_dsp::Pr
 }
 
 impl ClapContext {
+	/// Takes a transport report and anchors the clock at `sample` (an absolute sample count).
+	///
+	/// CLAP reports the transport twice: once per block in the process struct, which is the
+	/// position at the start of the block, and — when the host wants a change to be
+	/// sample-accurate — as an event inside the block. Both go through here, so a seek, a loop
+	/// wrap or a tempo change moves the position instead of letting it run on.
+	fn apply_transport(&mut self, event: &TransportEvent, sample: u64) {
+		self.clock.set_running(event.flags.contains(TransportFlags::IS_PLAYING));
+
+		if event.flags.contains(TransportFlags::HAS_BEATS_TIMELINE) {
+			// A host that reports a beat timeline without a tempo flag is taken to sit at the
+			// 120 bpm the CLAP wrapper itself assumes: without a rate the position could not
+			// advance at all, and 120 is the tempo every host falls back to.
+			let tempo = if event.flags.contains(TransportFlags::HAS_TEMPO) { event.tempo } else { 120.0 };
+			self.clock.anchor(sample, event.song_pos_beats.to_float(), tempo, event.tempo_inc);
+		} else {
+			// A tempo without a beat timeline still says how fast time passes, but there is no
+			// position for an effect to be in phase with.
+			self.clock.clear();
+		}
+
+		self.info = Some(convert_transport(event, self.clock.sample_rate()));
+	}
+
 	fn from_clap(
-		sample_rate: usize,
 		last_available_info: &mut Option<ProcessInfos>,
 		process: Process,
 		event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
+		block_start: u64,
+		clock: BeatClock,
 	) -> Self {
-		let info = if let Some(inner) = process.transport {
-			let info = convert_transport(
-				inner, 
-				sample_rate
-			);
-			*last_available_info = Some(info.clone());
-			Some(info)
-		}else { 
-			last_available_info.as_mut().map(|info| info.clone()) 
-		};
-		
-		Self {
+		let mut context = Self {
 			current_event: 0,
 			event_sender,
-			// process, 
 			events: Vec::new(),
 			events_sample: 0,
 			current_sample: 0,
-			info 
+			info: None,
+			clock,
+			block_start,
+		};
+
+		if let Some(transport) = process.transport {
+			// The transport in the process struct is the position at the start of the block.
+			context.apply_transport(transport, block_start);
+			*last_available_info = context.info.clone();
+		} else {
+			// The host did not repeat the transport this block, so what it last said still
+			// stands and the clock keeps running from the anchor it already holds.
+			context.info = last_available_info.clone();
 		}
+
+		context
 	}
 }
 
@@ -805,6 +857,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			temp_buffer_3: vec![],
 			sample_rate: config.sample_rate as usize,
 			last_available_info: None,
+			clock: BeatClock::new(config.sample_rate as usize),
+			samples_processed: 0,
 			event_sender,
 			event_receiver,
 			param_map: main_thread.processor.param_map(),
@@ -817,6 +871,9 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		self.temp_buffer_2.clear();
 		self.temp_buffer_3.clear();
 		self.last_available_info = None;
+		// A reset drops the timeline: the host has to tell us where we are again.
+		self.clock = BeatClock::new(self.sample_rate);
+		self.samples_processed = 0;
 		// SAFETY: `activate` stored the address of the `P` owned by the still-alive and
 		// pinned `PluginMain`, so the pointer is valid and the value is never moved.
 		let processor = unsafe { &mut *(self.processor as *mut P) };
@@ -828,6 +885,10 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		self.temp_buffer_2.clear();
 		self.temp_buffer_3.clear();
 		self.last_available_info = None;
+		// Processing stopped, so the timeline is dropped with it; the next block re-anchors
+		// from whatever the host reports when it starts us again.
+		self.clock = BeatClock::new(self.sample_rate);
+		self.samples_processed = 0;
 		// SAFETY: `activate` stored the address of the `P` owned by the still-alive and
 		// pinned `PluginMain`, so the pointer is valid and the value is never moved.
 		let processor = unsafe { &mut *(self.processor as *mut P) };
@@ -861,11 +922,17 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		self.temp_buffer_1.clear();
 		self.temp_buffer_2.clear();
 		self.temp_buffer_3.clear();
+		// The context is per block, but the timeline is not: a host may report the transport
+		// once and then stop repeating it, so the clock is handed in and taken back out.
+		let block_start = self.samples_processed;
+		let clock = self.clock;
+		let event_sender = self.event_sender.clone();
 		let mut context = Some(ClapContext::from_clap(
-			self.sample_rate, 
 			&mut self.last_available_info, 
 			process,
-			self.event_sender.clone()
+			event_sender,
+			block_start,
+			clock,
 		));
 		let mut output_temp = [0.0; 2];
 
@@ -953,12 +1020,11 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						Some(CoreEventSpace::ParamGestureBegin(_)) => {},
 						Some(CoreEventSpace::ParamGestureEnd(_)) => {},
 						Some(CoreEventSpace::Transport(param)) => {
-							let info = convert_transport(
-								param, 
-								self.sample_rate
-							);
-							self.last_available_info = Some(info.clone());
-							ctx.info = Some(info);
+							// A transport event inside the block is the sample-accurate version of
+							// the same report, so the clock re-anchors at this sample rather than
+							// at the start of the block.
+							ctx.apply_transport(param, ctx.block_start + i as u64);
+							self.last_available_info = ctx.info.clone();
 						},
 						
 						Some(CoreEventSpace::Midi(_)) |
@@ -1002,7 +1068,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 				}
 			}
 			let mut context_took = context.take().unwrap();
-			context_took.current_sample = i;
+			// Also advances the musical clock to this sample.
+			context_took.set_sample_offset(i);
 			let mut context_in = Box::new(context_took) as Box<dyn ProcessContext>;
 
 			processor.process(&mut output_temp, &self.temp_buffer_3, &mut context_in);
@@ -1041,6 +1108,14 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 					}
 				}
 			}
+		}
+
+		// Hand the timeline the block ended with back to the processor — a host is free to
+		// report the transport once and then leave the plugin running on it — and count the
+		// samples this block consumed, so the next one measures from the right place.
+		self.samples_processed += buffer_size as u64;
+		if let Some(context) = context {
+			self.clock = context.clock;
 		}
 
 		for (offset, event) in self.event_receiver.try_iter() {
@@ -1561,7 +1636,10 @@ macro_rules! __export_wrapped_entry_points {
 
 #[cfg(test)]
 mod tests {
-	use super::ClapContext;
+	use super::{BeatClock, ClapContext};
+	use clack_plugin::events::event_types::{TransportEvent, TransportFlags};
+	use clack_plugin::events::{EventFlags, EventHeader};
+	use clack_plugin::utils::{BeatTime, SecondsTime};
 	use i_am_dsp::{NoteEvent, ProcessContext};
 
 	impl ClapContext {
@@ -1574,6 +1652,8 @@ mod tests {
 				events_sample: 0,
 				info: None,
 				current_sample: 0,
+				clock: BeatClock::new(48_000),
+				block_start: 0,
 				event_sender,
 			}
 		}
@@ -1585,6 +1665,110 @@ mod tests {
 			note,
 			velocity: 1.0,
 		}
+	}
+
+	/// A host transport report with a beat timeline, as CLAP delivers it.
+	fn transport(beats: f64, tempo: f64, playing: bool) -> TransportEvent {
+		let mut flags = TransportFlags::HAS_TEMPO | TransportFlags::HAS_BEATS_TIMELINE;
+		if playing {
+			flags |= TransportFlags::IS_PLAYING;
+		}
+
+		TransportEvent {
+			header: EventHeader::new_core(0, EventFlags::empty()),
+			flags,
+			song_pos_beats: BeatTime::from_float(beats),
+			song_pos_seconds: SecondsTime::from_float(beats * 0.5),
+			tempo,
+			tempo_inc: 0.0,
+			loop_start_beats: BeatTime::from_float(0.0),
+			loop_end_beats: BeatTime::from_float(0.0),
+			loop_start_seconds: SecondsTime::from_float(0.0),
+			loop_end_seconds: SecondsTime::from_float(0.0),
+			bar_start: BeatTime::from_float(0.0),
+			bar_number: 0,
+			time_signature_numerator: 4,
+			time_signature_denominator: 4,
+		}
+	}
+
+	/// 120 bpm at 48 kHz makes a beat exactly 24_000 samples.
+	#[test]
+	fn the_position_advances_with_every_sample() {
+		let mut context = ClapContext::for_test();
+		context.apply_transport(&transport(8.0, 120.0, true), 0);
+
+		context.set_sample_offset(0);
+		assert_eq!(context.infos().position_beats, Some(8.0));
+		// The legacy `f32` view is filled from the same clock, so it cannot disagree.
+		assert_eq!(context.infos().current_beat_number, Some(8.0));
+
+		context.set_sample_offset(12_000);
+		assert_eq!(context.infos().position_beats, Some(8.5));
+		context.set_sample_offset(24_000);
+		assert_eq!(context.infos().position_beats, Some(9.0));
+	}
+
+	/// A transport event inside the block is the sample-accurate version of the same report,
+	/// which is how a host asks for a seek or a loop wrap to land mid-block.
+	#[test]
+	fn a_mid_block_transport_moves_the_playhead_at_its_own_sample() {
+		let mut context = ClapContext::for_test();
+		context.apply_transport(&transport(8.0, 120.0, true), 0);
+		context.set_sample_offset(24_000);
+		assert_eq!(context.infos().position_beats, Some(9.0));
+
+		// The host seeks back to beat 2, at sample 30_000 of this block.
+		context.apply_transport(&transport(2.0, 120.0, true), 30_000);
+		context.set_sample_offset(30_000);
+		assert_eq!(context.infos().position_beats, Some(2.0));
+
+		context.set_sample_offset(54_000);
+		assert_eq!(context.infos().position_beats, Some(3.0));
+	}
+
+	/// A stopped transport holds the position: a sync'd effect must not glide forward while
+	/// the user is stopped, it sits on the position the host reports.
+	#[test]
+	fn a_stopped_transport_holds_the_position() {
+		let mut context = ClapContext::for_test();
+		context.apply_transport(&transport(8.0, 120.0, false), 0);
+
+		context.set_sample_offset(0);
+		assert_eq!(context.infos().position_beats, Some(8.0));
+		assert!(!context.infos().playing);
+
+		context.set_sample_offset(24_000);
+		assert_eq!(context.infos().position_beats, Some(8.0));
+	}
+
+	/// A tempo with no beat timeline still says how fast time passes, but there is no
+	/// position to be in phase with.
+	#[test]
+	fn a_tempo_without_a_beat_timeline_reports_no_position() {
+		let mut context = ClapContext::for_test();
+		let mut report = transport(0.0, 100.0, true);
+		report.flags.remove(TransportFlags::HAS_BEATS_TIMELINE);
+		context.apply_transport(&report, 0);
+
+		context.set_sample_offset(0);
+		assert_eq!(context.infos().tempo, Some(100.0));
+		assert_eq!(context.infos().position_beats, None);
+		assert_eq!(context.infos().current_beat_number, None);
+	}
+
+	/// The clock counts absolute samples, so a block does not restart the position at its own
+	/// first sample.
+	#[test]
+	fn a_later_block_keeps_the_timeline_running() {
+		let mut context = ClapContext::for_test();
+		context.block_start = 48_000;
+		context.apply_transport(&transport(10.0, 120.0, true), 48_000);
+
+		context.set_sample_offset(0);
+		assert_eq!(context.infos().position_beats, Some(10.0));
+		context.set_sample_offset(24_000);
+		assert_eq!(context.infos().position_beats, Some(11.0));
 	}
 
 	/// A batch is timestamped at one sample, and a generator may only see it there.

@@ -298,6 +298,16 @@ pub trait ProcessContext: Any {
 	/// Clear all note events in the process.
 	fn clear_events(&mut self);
 
+	/// Tells the context which sample of the current block is about to be rendered.
+	///
+	/// The process loop calls this once per sample, before handing the context to an
+	/// effect, so a context that knows the musical timeline can publish a sample-accurate
+	/// [`ProcessInfos::position_beats`]: an effect is only handed the context, never a
+	/// sample offset, so without this it could not tell where inside the block it is.
+	///
+	/// Contexts with no timeline keep the default no-op, and the position stays [`None`].
+	fn set_sample_offset(&mut self, _sample_offset: usize) {}
+
 	/// Whether the process should stop immediately or not.
 	fn should_stop(&self) -> bool {
 		self.events().contains(&NoteEvent::ImmediateStop)
@@ -346,6 +356,10 @@ impl<T: ProcessContext> ProcessContext for Box<T> {
 	fn events(&self) -> &[NoteEvent] {
 		self.as_ref().events()
 	}
+
+	fn set_sample_offset(&mut self, sample_offset: usize) {
+		self.as_mut().set_sample_offset(sample_offset)
+	}
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -362,7 +376,25 @@ pub struct ProcessInfos {
 	pub playing: bool,
 	/// The tempo of the process.
 	pub tempo: Option<f32>,
-	/// The time signature of the process.
+	/// The song position in quarter-note beats, at the sample being rendered.
+	///
+	/// This is the field to sync to. A context that knows the timeline advances it once per
+	/// sample, so it is sample-accurate inside a block, and it is re-anchored whenever the
+	/// host reports a transport change, so a seek or a loop wrap is picked up instead of
+	/// accumulating drift.
+	///
+	/// It is [`None`] when there is nothing to sync to: no host transport, or a transport
+	/// with no beat timeline. It can move *backwards* (the host sought or looped), so an
+	/// effect that tracks a phase has to cope with a jump rather than assume it only grows.
+	///
+	/// The position is `f64` on purpose: an `f32` beat count loses the sub-millisecond
+	/// resolution long before a song ends.
+	pub position_beats: Option<f64>,
+	/// The song position in beats, as a lossy `f32`.
+	///
+	/// A legacy view of [`Self::position_beats`], kept in step with it for the effects that
+	/// were written before the precise field existed. Prefer [`Self::position_beats`]: this
+	/// one rounds, and it is only present when a context fills it.
 	/// 
 	/// The trunc part is current beat number. 
 	/// the fract part is how long have passed in the current beat(in percentage).
@@ -379,6 +411,13 @@ impl ProcessInfos {
 	/// Create a new process infos with default values.
 	pub fn new() -> Self {
 		Self::default()
+	}
+
+	/// Sets the musical position, keeping the legacy [`Self::current_beat_number`] view in
+	/// step so the two can never disagree.
+	pub fn set_position_beats(&mut self, position_beats: Option<f64>) {
+		self.position_beats = position_beats;
+		self.current_beat_number = position_beats.map(|beats| beats as f32);
 	}
 }
 
