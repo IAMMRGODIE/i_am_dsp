@@ -232,10 +232,14 @@ pub struct Delay<
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
 	pub wet_gain: f32,
-	/// Whether the repeats alternate between the channels.
+	/// Whether the repeats walk around the channels instead of staying where they started.
 	///
-	/// Each side feeds the other, so an echo leaves on one side, comes back on the other,
-	/// and so on. Off, each side repeats into itself.
+	/// The repeats become one chain driven by the sum of the inputs, so a repeat leaves on one
+	/// side, the next one on the other, and so on — the alternating pan is the point, and it
+	/// holds for a stereo source too. Off, each side repeats into itself and keeps its input.
+	///
+	/// Summing means out-of-phase input cancels in the repeats, which is the usual trade for
+	/// this effect. The dry signal is untouched and keeps its image.
 	pub pingpong: bool,
 	/// The delay being read right now, in fractional samples.
 	#[skip]
@@ -365,8 +369,8 @@ impl<
 		let whole = delay_samples.floor() as isize;
 		let history_len = history_len as isize;
 
-		// Read every tap before anything is written, because ping-pong feeds each side from
-		// the other's output.
+		// Read every tap before anything is written, because a repeat is fed from another
+		// channel's output.
 		// `history[capacity - k]` is the sample written `k` samples ago, and the cubic reads
 		// from the second tap to the third: the window has to run from `whole - 1` ago to
 		// `whole + 2` ago for the interpolation to land on `whole + t`. Reversed, the read sat
@@ -382,17 +386,34 @@ impl<
 			delayed[i] = cubic_interpolate(t, interpolate_parameters);
 		}
 
+		// Ping-pong is one chain of repeats that walks around the channels, so a repeat comes
+		// out of one side at a time and the sides alternate. Feeding each line from the line
+		// before it is what does that; letting both sides keep their own input would make them
+		// repeat together, and a stereo source would never alternate at all.
+		let pingpong_input = if self.pingpong {
+			// The chain is driven by the sum: the repeats are the effect, and the dry signal
+			// keeps the stereo image.
+			Some(samples.iter().sum::<f32>() / CHANNELS as f32)
+		}else {
+			None
+		};
+
 		let mut delayed_sample_output = [0.0; CHANNELS];
 		for (i, history) in self.history.iter_mut().enumerate() {
-			// Ping-pong crosses the feedback: each side repeats what the *other* side just
-			// produced, so the repeats alternate instead of each side echoing into itself.
-			let feedback = if self.pingpong {
-				delayed[(i + 1) % CHANNELS]
-			}else {
-				delayed[i]
+			let input = match pingpong_input {
+				Some(mono) => {
+					let previous = if i == 0 { CHANNELS - 1 } else { i - 1 };
+					let repeat = delayed[previous] * self.wet_gain * self.decay_factor;
+					if i == 0 {
+						mono + repeat
+					}else {
+						repeat
+					}
+				},
+				None => samples[i] + delayed[i] * self.wet_gain * self.decay_factor,
 			};
 
-			history.push(feedback * self.wet_gain * self.decay_factor + samples[i]);
+			history.push(input);
 			delayed_sample_output[i] = delayed[i] * self.decay_factor;
 		}
 
@@ -780,12 +801,19 @@ mod tests {
 	}
 
 	/// The samples the echoes of an impulse land on, per channel.
-	fn echo_samples(delay: &mut Delay<(), 2>, samples: usize) -> [Vec<usize>; 2] {
+	///
+	/// `input` is what the impulse is put on: `[1.0, 0.0]` for a signal on one side only,
+	/// `[1.0, 1.0]` for the same signal on both.
+	fn echo_samples_with(
+		delay: &mut Delay<(), 2>,
+		samples: usize,
+		input: [f32; 2],
+	) -> [Vec<usize>; 2] {
 		let mut ctx: Box<dyn ProcessContext> = Box::new(());
 		let mut echoes = [Vec::new(), Vec::new()];
 
 		for i in 0..samples {
-			let mut frame = [if i == 0 { 1.0 } else { 0.0 }, 0.0];
+			let mut frame = if i == 0 { input } else { [0.0, 0.0] };
 			delay.process(&mut frame, &[], &mut ctx);
 
 			// The dry input passes through the effect, so the first samples carry the
@@ -811,11 +839,29 @@ mod tests {
 		delay.decay_factor = 0.5;
 		delay.pingpong = true;
 
-		let echoes = echo_samples(&mut delay, 48_000 / 2);
+		let echoes = echo_samples_with(&mut delay, 48_000 / 2, [1.0, 0.0]);
 
 		assert_eq!(echoes[0].first(), Some(&4_800), "left repeats: {:?}", echoes[0]);
 		assert_eq!(echoes[1].first(), Some(&9_600), "right repeats: {:?}", echoes[1]);
 		assert_eq!(echoes[0].get(1), Some(&14_400), "left repeats: {:?}", echoes[0]);
+	}
+
+	/// The alternation has to survive a source that is on *both* sides. Feeding each line its
+	/// own input would make the two sides repeat together, and the effect would be a stereo
+	/// offset rather than a ping-pong.
+	#[test]
+	fn ping_pong_alternates_with_a_stereo_input() {
+		let mut delay = Delay::<(), 2>::new((), 1 << 16, 100.0, 48_000);
+		delay.decay_factor = 0.5;
+		delay.pingpong = true;
+
+		let echoes = echo_samples_with(&mut delay, 48_000 / 2, [1.0, 1.0]);
+
+		// One side at a time, in turn.
+		assert_eq!(echoes[0].first(), Some(&4_800), "left repeats: {:?}", echoes[0]);
+		assert_eq!(echoes[1].first(), Some(&9_600), "right repeats: {:?}", echoes[1]);
+		assert_eq!(echoes[0].get(1), Some(&14_400), "left repeats: {:?}", echoes[0]);
+		assert_eq!(echoes[1].get(1), Some(&19_200), "right repeats: {:?}", echoes[1]);
 	}
 
 	/// Without ping-pong both sides repeat into themselves, at the same distance.
@@ -824,7 +870,7 @@ mod tests {
 		let mut delay = Delay::<(), 2>::new((), 1 << 16, 100.0, 48_000);
 		delay.decay_factor = 0.5;
 
-		let echoes = echo_samples(&mut delay, 48_000 / 2);
+		let echoes = echo_samples_with(&mut delay, 48_000 / 2, [1.0, 0.0]);
 
 		assert_eq!(echoes[0].first(), Some(&4_800));
 		assert_eq!(echoes[0].get(1), Some(&9_600));
