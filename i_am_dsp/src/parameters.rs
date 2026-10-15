@@ -10,6 +10,114 @@ use rustfft::num_complex::Complex;
 
 use crate::{Effect, Generator};
 
+/// How a parameter wants its value shown to a person.
+///
+/// A host that only knows a number can do little better than printing it, which is how a
+/// synced time ends up reading `0.00` where a musician expects `1/8`. A parameter declares its
+/// unit and the host can ask for text; see [`ParameterMeta::default`] for the other half, the
+/// value a parameter starts at.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Unit {
+	/// A plain number.
+	#[default]
+	None,
+	/// A length in milliseconds.
+	Milliseconds,
+	/// A frequency in hertz.
+	Hertz,
+	/// A length in quarter-note beats: `0.5` is an eighth note, `0.75` a dotted eighth.
+	Beats,
+}
+
+impl Unit {
+	/// Renders a value the way this unit wants to be read.
+	pub fn format(self, value: f64) -> String {
+		match self {
+			Unit::None => format!("{value:.2}"),
+			Unit::Milliseconds => format!("{value:.2} ms"),
+			Unit::Hertz => format!("{value:.2} Hz"),
+			Unit::Beats => format_beats(value),
+		}
+	}
+
+	/// Reads back what [`Self::format`] produced, for a host that lets the text be edited.
+	///
+	/// Returns [`None`] when the text is not this unit's business, so a caller can fall back
+	/// to reading a plain number.
+	pub fn parse(self, text: &str) -> Option<f64> {
+		let text = text.trim();
+
+		match self {
+			Unit::None => text.parse().ok(),
+			Unit::Milliseconds => Some(text.trim_end_matches("ms").trim().parse().ok()?),
+			Unit::Hertz => Some(text.trim_end_matches("Hz").trim().parse().ok()?),
+			Unit::Beats => parse_beats(text),
+		}
+	}
+}
+
+/// Renders a length in quarter-note beats as note values, which is how a musician reads one.
+///
+/// Anything that is not a note value (or a dotted or triplet one) falls back to a beat count,
+/// because `3.7 beats` is more use than a wrong fraction.
+fn format_beats(beats: f64) -> String {
+	// A whole note is four quarter-note beats, so a note value is `4 / beats`.
+	for (multiplier, suffix) in [(1.0, ""), (1.5, " dotted"), (2.0 / 3.0, " triplet")] {
+		let note = beats / multiplier;
+		if note > 0.0 {
+			let denominator = (4.0 / note).round();
+			// A power-of-two denominator is a note value; 3, 5, 7 and the rest are not.
+			if (1.0..=128.0).contains(&denominator) {
+				let denominator = denominator as u32;
+				if denominator.is_power_of_two()
+					&& (4.0 / denominator as f64 - note).abs() < 1e-4
+				{
+					return format!("1/{}{}", denominator, suffix);
+				}
+			}
+		}
+	}
+
+	format!("{beats:.2} beats")
+}
+
+/// Reads the note values [`format_beats`] writes, or a plain beat count.
+fn parse_beats(text: &str) -> Option<f64> {
+	let (text, multiplier) = if let Some(text) = text.strip_suffix("dotted") {
+		(text, 1.5)
+	} else if let Some(text) = text.strip_suffix("triplet") {
+		(text, 2.0 / 3.0)
+	} else {
+		(text, 1.0)
+	};
+	let text = text.trim().trim_end_matches("beats").trim();
+
+	if let Some((numerator, denominator)) = text.split_once('/') {
+		let numerator: f64 = numerator.trim().parse().ok()?;
+		let denominator: f64 = denominator.trim().parse().ok()?;
+		if denominator == 0.0 {
+			return None;
+		}
+		// `1/8` is an eighth note, which is half a quarter-note beat.
+		return Some(4.0 * numerator / denominator * multiplier);
+	}
+
+	text.parse::<f64>().ok().map(|beats| beats * multiplier)
+}
+
+/// What a host needs to present a parameter beyond its value and its range.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ParameterMeta {
+	/// The value the parameter starts at, for a host that resets parameters to a default.
+	///
+	/// [`None`] leaves it to the host, which generally falls back to the minimum. A parameter
+	/// whose starting value is set when an effect is constructed (a delay time, say) has none.
+	pub default: Option<f64>,
+	/// How to render the value as text.
+	pub unit: Unit,
+}
+
 /// A helper struct for report parameters.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Parameter {
@@ -17,6 +125,27 @@ pub struct Parameter {
 	pub identifier: String,
 	/// The parameter value.
 	pub value: Value,
+	/// How to present it. Skipped when saving state: it comes from the code, not from the
+	/// project, so a project saved by an older build simply takes the current one.
+	#[serde(skip)]
+	pub meta: ParameterMeta,
+}
+
+impl Parameter {
+	/// A parameter with no metadata, for a hand-written [`Parameters`] implementation.
+	pub fn new(identifier: impl Into<String>, value: Value) -> Self {
+		Self {
+			identifier: identifier.into(),
+			value,
+			meta: ParameterMeta::default(),
+		}
+	}
+
+	/// The same parameter, with the metadata a host presents it by.
+	pub fn with_meta(mut self, meta: ParameterMeta) -> Self {
+		self.meta = meta;
+		self
+	}
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -483,22 +612,22 @@ pub trait Parameters {
 impl Parameters for Complex<f32> {
 	fn get_parameters(&self) -> Vec<Parameter> {
 		vec![
-			Parameter {
-				identifier: "re".to_string(),
-				value: Value::Float {
+			Parameter::new(
+				"re",
+				Value::Float {
 					value: self.re,
 					range: -10000.0..=10000.0,
 					logarithmic: false,
 				},
-			},
-			Parameter {
-				identifier: "im".to_string(),
-				value: Value::Float {
+			),
+			Parameter::new(
+				"im",
+				Value::Float {
 					value: self.im,
 					range: -10000.0..=10000.0,
 					logarithmic: false,
 				},
-			},
+			),
 		]
 	}
 
@@ -654,14 +783,14 @@ impl<T: Parameters> Parameters for &[T] {
 
 impl Parameters for f32 {
 	fn get_parameters(&self) -> Vec<Parameter> {
-		vec![Parameter {
-			identifier: "data".to_string(),
-			value: Value::Float {
+		vec![Parameter::new(
+			"data",
+			Value::Float {
 				value: *self,
 				range: -10000.0..=10000.0,
 				logarithmic: false,
 			},
-		}]
+		)]
 	}
 
 	fn set_parameter(&mut self, _: &str, value: SetValue) -> bool {
@@ -675,10 +804,10 @@ impl Parameters for f32 {
 
 impl Parameters for String {
 	fn get_parameters(&self) -> Vec<Parameter> {
-		vec![Parameter {
-			identifier: "data".to_string(),
-			value: Value::Serialized(self.as_bytes().to_vec()),
-		}]
+		vec![Parameter::new(
+			"data",
+			Value::Serialized(self.as_bytes().to_vec()),
+		)]
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
@@ -892,7 +1021,7 @@ impl<T: Parameters> Paramed<T> {
 	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`Self::param_map`].
 	pub fn update_map(&mut self) {
 		let entries = self.value.get_parameters().into_iter().map(|param| {
-			(param.identifier, Arc::new(param.value.to_atomic_value()))
+			(param.identifier, param.meta, Arc::new(param.value.to_atomic_value()))
 		});
 
 		let overrides = self.value.stable_id_overrides();
@@ -906,10 +1035,16 @@ impl<T: Parameters> Paramed<T> {
 	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`Self::param_map`].
 	pub fn update_map_with_additional(&mut self, additional_params: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) {
 		let mut entries = self.value.get_parameters().into_iter().map(|param| {
-			(param.identifier, Arc::new(param.value.to_atomic_value()))
+			(param.identifier, param.meta, Arc::new(param.value.to_atomic_value()))
 		}).collect::<Vec<_>>();
 
-		entries.extend(additional_params);
+		// Parameters the caller adds by hand carry no metadata; a host falls back to its own
+		// defaults for them.
+		entries.extend(
+			additional_params
+				.into_iter()
+				.map(|(identifier, value)| (identifier, ParameterMeta::default(), value)),
+		);
 
 		let overrides = self.value.stable_id_overrides();
 		self.params = ParamMap::build(entries, self.scheme, &overrides);
@@ -1023,6 +1158,8 @@ pub struct ParamMap {
 	id: Arc<BiMap<String, usize>>,
 	stable_ids: Arc<Vec<u32>>,
 	by_stable_id: Arc<BiMap<u32, usize>>,
+	/// What a host needs to present each parameter, by index.
+	metas: Arc<Vec<ParameterMeta>>,
 }
 
 impl Index<usize> for ParamMap {
@@ -1057,26 +1194,28 @@ impl ParamMap {
 	/// `overrides` pins the id of the parameters it names (see
 	/// [`Parameters::stable_id_overrides`]); `scheme` decides the rest.
 	fn build(
-		entries: impl IntoIterator<Item = (String, Arc<AtomicValue>)>,
+		entries: impl IntoIterator<Item = (String, ParameterMeta, Arc<AtomicValue>)>,
 		scheme: StableIdScheme,
 		overrides: &[(String, u32)],
 	) -> Self {
 		let entries = entries.into_iter().collect::<Vec<_>>();
 		let mut values = Vec::with_capacity(entries.len());
+		let mut metas = Vec::with_capacity(entries.len());
 		let mut id = BiMap::new();
 		let mut stable_ids = vec![0u32; entries.len()];
 		let mut by_stable_id = BiMap::new();
 		let mut assigned = vec![false; entries.len()];
 
-		for (index, (identifier, value)) in entries.iter().enumerate() {
+		for (index, (identifier, meta, value)) in entries.iter().enumerate() {
 			id.insert(identifier.clone(), index);
+			metas.push(*meta);
 			values.push(value.clone());
 		}
 
 		// Pinned ids are handed out first, in declaration order, so the same table always
 		// resolves the same way. A pin that collides with an earlier one is left to the scheme
 		// rather than aliasing two parameters onto one id.
-		for (index, (identifier, _)) in entries.iter().enumerate() {
+		for (index, (identifier, _, _)) in entries.iter().enumerate() {
 			let Some(id) = overrides.iter().find(|(pinned, _)| pinned == identifier).map(|(_, id)| *id) else {
 				continue;
 			};
@@ -1126,6 +1265,7 @@ impl ParamMap {
 			id: Arc::new(id),
 			stable_ids: Arc::new(stable_ids),
 			by_stable_id: Arc::new(by_stable_id),
+			metas: Arc::new(metas),
 		}
 	}
 
@@ -1139,7 +1279,11 @@ impl ParamMap {
 	/// Host-facing ids are derived from the identifiers; use [`ParamMap::new_with_scheme`] to
 	/// reproduce the position-based ids an older build handed out.
 	pub fn new_with(map: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) -> Self {
-		Self::build(map, StableIdScheme::default(), &[])
+		Self::build(
+			map.into_iter().map(|(id, value)| (id, ParameterMeta::default(), value)),
+			StableIdScheme::default(),
+			&[],
+		)
 	}
 
 	/// Create a new parameter map with a pre-defined map and an explicit [`StableIdScheme`].
@@ -1147,7 +1291,11 @@ impl ParamMap {
 		map: impl IntoIterator<Item = (String, Arc<AtomicValue>)>,
 		scheme: StableIdScheme,
 	) -> Self {
-		Self::build(map, scheme, &[])
+		Self::build(
+			map.into_iter().map(|(id, value)| (id, ParameterMeta::default(), value)),
+			scheme,
+			&[],
+		)
 	}
 
 	/// Check if the parameter map is empty.
@@ -1208,6 +1356,12 @@ impl ParamMap {
 	/// This is the id a host knows the parameter by, see [`stable_parameter_id`].
 	pub fn query_stable_id(&self, index: usize) -> Option<u32> {
 		self.stable_ids.get(index).copied()
+	}
+
+	/// Query what a host needs to present the parameter at the given index: its starting value
+	/// and how to show it.
+	pub fn query_meta(&self, index: usize) -> Option<ParameterMeta> {
+		self.metas.get(index).copied()
 	}
 
 	/// Query the index of the parameter with the given stable id.
@@ -1321,6 +1475,55 @@ mod tests {
 		}
 	}
 
+	#[test]
+	fn a_plain_unit_renders_a_number() {
+		assert_eq!(Unit::None.format(0.5), "0.50");
+		assert_eq!(Unit::Milliseconds.format(250.0), "250.00 ms");
+		assert_eq!(Unit::Hertz.format(440.0), "440.00 Hz");
+	}
+
+	/// A synced time is why the unit exists: `0.5` is an eighth note to a musician, and
+	/// `0.00` is not.
+	#[test]
+	fn beats_render_as_note_values() {
+		assert_eq!(Unit::Beats.format(4.0), "1/1");
+		assert_eq!(Unit::Beats.format(2.0), "1/2");
+		assert_eq!(Unit::Beats.format(1.0), "1/4");
+		assert_eq!(Unit::Beats.format(0.5), "1/8");
+		assert_eq!(Unit::Beats.format(0.25), "1/16");
+
+		assert_eq!(Unit::Beats.format(1.5), "1/4 dotted");
+		assert_eq!(Unit::Beats.format(0.75), "1/8 dotted");
+		// A dotted half note is three beats.
+		assert_eq!(Unit::Beats.format(3.0), "1/2 dotted");
+		assert_eq!(Unit::Beats.format(1.0 / 3.0), "1/8 triplet");
+		assert_eq!(Unit::Beats.format(2.0 / 3.0), "1/4 triplet");
+
+		// Anything that is not a note value stays a count rather than a wrong fraction.
+		assert_eq!(Unit::Beats.format(3.7), "3.70 beats");
+		assert_eq!(Unit::Beats.format(7.0), "7.00 beats");
+	}
+
+	#[test]
+	fn a_unit_reads_back_what_it_wrote() {
+		for beats in [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 1.0 / 3.0, 2.0 / 3.0] {
+			let text = Unit::Beats.format(beats);
+			let parsed = Unit::Beats.parse(&text).expect("what it wrote has to read back");
+			assert!(
+				(parsed - beats).abs() < 1e-6,
+				"`{text}` read back as {parsed}, not {beats}"
+			);
+		}
+
+		assert_eq!(Unit::Milliseconds.parse("250 ms"), Some(250.0));
+		assert_eq!(Unit::Hertz.parse("440 Hz"), Some(440.0));
+		// A bare number is always readable, whatever the unit.
+		assert_eq!(Unit::Beats.parse("0.5"), Some(0.5));
+		assert_eq!(Unit::Beats.parse("1/8"), Some(0.5));
+		assert_eq!(Unit::Beats.parse("1/4 dotted"), Some(1.5));
+		assert_eq!(Unit::None.parse("loud"), None);
+	}
+
 	/// Every parameter gets its own id, and both directions of the mapping agree.
 	#[test]
 	fn parameter_map_hands_out_distinct_stable_ids() {
@@ -1418,8 +1621,10 @@ mod tests {
 		};
 		let overrides = [("something_else".to_string(), 4021u32)];
 
+		let entries = [entry("something_else"), entry("other")]
+			.map(|(identifier, value)| (identifier, ParameterMeta::default(), value));
 		let param_map = ParamMap::build(
-			[entry("something_else"), entry("other")],
+			entries,
 			StableIdScheme::Identifier,
 			&overrides,
 		);
@@ -1437,8 +1642,10 @@ mod tests {
 		};
 		let overrides = [("one".to_string(), 0u32)];
 
+		let entries = [entry("zero"), entry("one")]
+			.map(|(identifier, value)| (identifier, ParameterMeta::default(), value));
 		let param_map = ParamMap::build(
-			[entry("zero"), entry("one")],
+			entries,
 			StableIdScheme::Position,
 			&overrides,
 		);

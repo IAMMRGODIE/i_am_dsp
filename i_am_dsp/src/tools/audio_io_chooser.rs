@@ -34,17 +34,17 @@ impl AudioIoChooser {
 
 impl Parameters for AudioIoChooser {
 	fn get_parameters(&self) -> Vec<Parameter> {
-		vec![Parameter {
-			identifier: "AudioIoChooser".to_string(),
-			value: crate::prelude::Value::Int { 
+		vec![Parameter::new(
+			"AudioIoChooser",
+			crate::prelude::Value::Int { 
 				value: match self {
 					AudioIoChooser::Current => 0,
 					AudioIoChooser::Other(i) => (*i + 1) as i32,
 				}, 
 				range: 0..=1023,
 				logarithmic: false,
-			}
-		}]
+			},
+		)]
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: crate::prelude::SetValue) -> bool {

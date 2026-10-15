@@ -64,11 +64,14 @@ use crate::ProcessInfos;
 #[derive(Debug, Clone, Copy, PartialEq, i_am_dsp_derive::Parameters)]
 pub struct SyncedTime {
 	/// Whether to follow the host's tempo instead of the effect's own free value.
+	#[default(false)]
 	pub sync: bool,
 	/// The length in quarter-note beats: `0.5` is an eighth note, `1.0` a quarter, `4.0` a
 	/// bar in four-four. Dotted values are multiplied by `1.5` and triplets by `2/3`.
 	#[range(min = 0.03125, max = 32.0)]
 	#[logarithmic]
+	#[default(1.0)]
+	#[unit(beats)]
 	pub beats: f32,
 }
 
@@ -245,7 +248,7 @@ impl SyncedPhase {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::prelude::{Parameters, SetValue, Value};
+	use crate::prelude::{Parameters, SetValue, Unit, Value};
 	use i_am_dsp_derive::Parameters;
 
 	/// A process with the pieces a synced effect reads.
@@ -427,6 +430,16 @@ mod tests {
 			.map(|parameter| parameter.identifier)
 			.collect::<Vec<_>>();
 		assert_eq!(identifiers, ["delay.sync", "delay.beats", "delay_time"]);
+
+		// The metadata a host presents them by survives the nesting, which is what turns the
+		// beats slider into `1/8` and its starting value into one beat rather than a 128th.
+		let parameters = delay.get_parameters();
+		let beats = parameters
+			.iter()
+			.find(|parameter| parameter.identifier == "delay.beats")
+			.expect("the nested beats parameter exists");
+		assert_eq!(beats.meta.default, Some(1.0));
+		assert_eq!(beats.meta.unit, Unit::Beats);
 
 		assert!(delay.set_parameter("delay.sync", SetValue::Bool(true)));
 		assert!(delay.set_parameter("delay.beats", SetValue::Float(0.5)));

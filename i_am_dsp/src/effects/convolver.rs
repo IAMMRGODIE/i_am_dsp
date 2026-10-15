@@ -960,10 +960,10 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE>
 // FFT partitions are state derived from it and rebuild automatically.
 impl<const CHANNELS: usize, const FFT_SIZE: usize> crate::prelude::Parameters for FftBuffer<CHANNELS, FFT_SIZE> {
 	fn get_parameters(&self) -> Vec<crate::prelude::Parameter> {
-		vec![crate::prelude::Parameter {
-			identifier: "ir".to_string(),
-			value: crate::prelude::Value::Serialized(format_ir(&self.ir)),
-		}]
+		vec![crate::prelude::Parameter::new(
+			"ir",
+			crate::prelude::Value::Serialized(format_ir(&self.ir)),
+		)]
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: crate::prelude::SetValue) -> bool {

@@ -1229,6 +1229,14 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 			_ => (0.0, 0.0),
 		};
 
+		// A parameter that declares what it starts at says so; the ones that do not — a delay
+		// time set by whoever constructs the effect, say — leave it to the host.
+		let meta = self.param_map.query_meta(index).unwrap_or_default();
+		let default_value = meta
+			.default
+			.map(|default| default.clamp(min_value, max_value))
+			.unwrap_or(min_value);
+
 		info.set(&ParamInfo {
 			id: stable_id.into(),
 			flags,
@@ -1237,7 +1245,7 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 			module: Default::default(),
 			min_value,
 			max_value,
-			default_value: min_value,
+			default_value,
 		});
 	}
 
@@ -1261,20 +1269,23 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 	) -> core::fmt::Result {
 		use std::fmt::Write;
 
-		if self.param_map.query_param_index_by_stable_id(param_id.get()).is_none() {
-			Err(std::fmt::Error)
-		}else {
-			write!(writer, "{:.2}", value)
-		}
+		let Some(index) = self.param_map.query_param_index_by_stable_id(param_id.get()) else {
+			return Err(std::fmt::Error);
+		};
 
+		// The unit is what turns `0.5` into `1/8` for a synced time, or adds `ms` to a length.
+		// A parameter that declares nothing keeps the plain number it has always shown.
+		let unit = self.param_map.query_meta(index).unwrap_or_default().unit;
+		write!(writer, "{}", unit.format(value))
 	}
 
 	fn text_to_value(&mut self, param_id: clack_plugin::prelude::ClapId, text: &std::ffi::CStr) -> Option<f64> {
-		let _ = self.param_map.query_param_index_by_stable_id(param_id.get())?;
-		
+		let index = self.param_map.query_param_index_by_stable_id(param_id.get())?;
+
 		let text = text.to_str().ok()?;
-		let value = text.parse::<f64>().ok()?;
-		Some(value)
+		// What the unit wrote, it can read back: `1/8 dotted`, `250 ms`, or a plain number.
+		let unit = self.param_map.query_meta(index).unwrap_or_default().unit;
+		unit.parse(text).or_else(|| text.parse::<f64>().ok())
 	}
 
 	fn flush(

@@ -33,14 +33,14 @@ pub struct Biquad<const CHANNELS: usize = 2> {
 impl<const CHANNELS: usize> Parameters for Biquad<CHANNELS> {
 	fn get_parameters(&self) -> Vec<Parameter> {
 		vec![
-			Parameter {
-				identifier: "a".to_string(),
-				value: Value::Serialized(to_binary(&self.a).expect("cannot serialize")),
-			},
-			Parameter {
-				identifier: "b".to_string(),
-				value: Value::Serialized(to_binary(&self.b).expect("cannot serialize")),
-			},
+			Parameter::new(
+				"a",
+				Value::Serialized(to_binary(&self.a).expect("cannot serialize")),
+			),
+			Parameter::new(
+				"b",
+				Value::Serialized(to_binary(&self.b).expect("cannot serialize")),
+			),
 		]
 	}
 

@@ -16,6 +16,8 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 	skip,
 	sub_param,
 	logarithmic,
+	default,
+	unit,
 	default_float_range,
 	default_int_range,
 	default_uint_range
@@ -111,6 +113,8 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 /// - `skip`: A skip attribute that specifies that the field should be skipped when deriving the `Parameters` trait.
 /// - `sub_param`: A sub_param attribute that specifies that the field is a sub-parameter struct.
 /// - `logarithmic`: A logarithmic attribute that specifies that the parameter should be displayed in logarithmic scale. Parameters with `logarithmic` must be positive.
+/// - `default`: The value the parameter starts at, so that a host can offer "reset to default" instead of guessing the minimum: `#[default(0.8)]`, `#[default(false)]`.
+/// - `unit`: How a host should show the value as text: `#[unit(beats)]` renders `0.5` as `1/8`, and `#[unit(milliseconds)]` appends `ms`. One of `none`, `milliseconds`, `hertz`, `beats`.
 /// - `default_float_range`: A default range attribute that specifies the default minimum and maximum values of the parameter for float type.
 /// - `default_int_range`: A default range attribute that specifies the default minimum and maximum values of the parameter for signed integer type.
 /// - `default_uint_range`: A default range attribute that specifies the default minimum and maximum values of the parameter for unsigned integer type.
@@ -304,6 +308,22 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 			config.id_name
 		};
 		let logarithmic = config.logarithmic;
+		let meta = {
+			let default = match config.param_default {
+				Some(value) => quote!(Some(#value)),
+				None => quote!(None),
+			};
+			let unit = match config.unit {
+				Some(ParameterUnit::Milliseconds) => quote!(i_am_dsp::prelude::Unit::Milliseconds),
+				Some(ParameterUnit::Hertz) => quote!(i_am_dsp::prelude::Unit::Hertz),
+				Some(ParameterUnit::Beats) => quote!(i_am_dsp::prelude::Unit::Beats),
+				Some(ParameterUnit::None) | None => quote!(i_am_dsp::prelude::Unit::None),
+			};
+
+			quote! {
+				i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit }
+			}
+		};
 
 		if let Some(stable_id) = config.id_stable {
 			if let Some(previous) = pinned_ids.insert(stable_id, id_string.clone()) {
@@ -341,6 +361,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 								range: #min..=#max,
 								logarithmic: #logarithmic,
 							},
+						meta: #meta,
 						});
 					});
 					setter_imply.push(quote! {
@@ -368,6 +389,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 								range: #min_i32..=#max_i32,
 								logarithmic: #logarithmic,
 							},
+						meta: #meta,
 						});
 					});
 					setter_imply.push(quote! {
@@ -391,6 +413,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				parameters.push(i_am_dsp::prelude::Parameter {
 					identifier: #id_string.to_string(),
 					value: i_am_dsp::prelude::Value::Serialized(parsed),
+					meta: #meta,
 				});
 			});
 			setter_imply.push(quote! {
@@ -414,6 +437,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				parameters.push(i_am_dsp::prelude::Parameter {
 					identifier: #id_string.to_string(),
 					value: i_am_dsp::prelude::Value::Serialized(parsed),
+						meta: #meta,
 				});
 			});
 			setter_imply.push(quote! {
@@ -451,6 +475,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				parameters.push(i_am_dsp::prelude::Parameter {
 					identifier: #id_string.to_string(),
 					value: i_am_dsp::prelude::Value::Bool(self.#member),
+					meta: #meta,
 				});
 			});
 			setter_imply.push(quote! {
@@ -541,11 +566,23 @@ enum ParamRange {
 	Int(i64, i64),
 }
 
+/// The unit a parameter declares with `#[unit(...)]`, before it becomes tokens.
+#[derive(Debug, Clone, Copy)]
+enum ParameterUnit {
+	None,
+	Milliseconds,
+	Hertz,
+	Beats,
+}
+
 #[derive(Debug, Default)]
 struct FieldConfig {
 	range: Option<ParamRange>,
 	id_name: String,
 	id_stable: Option<u32>,
+	/// The value the parameter starts at, from `#[default(...)]`.
+	param_default: Option<f64>,
+	unit: Option<ParameterUnit>,
 	persist_serialize: Option<String>,
 	persist_deserialize: Option<String>,
 	skip: bool,
@@ -607,6 +644,8 @@ fn handle_attribute(
 				config.persist_serialize = Some(serialize);
 				config.persist_deserialize = Some(deserialize);
 			},
+			"default" => config.param_default = Some(parse_default_attribute(attr)?),
+			"unit" => config.unit = Some(parse_unit_attribute(attr)?),
 			"logarithmic" => config.logarithmic = true,
 			"skip" => config.skip = true,
 			"sub_param" => config.is_sub_param = true,
@@ -620,6 +659,8 @@ fn handle_attribute(
 			config.persist_deserialize.is_none() &&
 			config.id_name.is_empty() &&
 			config.id_stable.is_none() &&
+			config.param_default.is_none() &&
+			config.unit.is_none() &&
 			!config.is_sub_param &&
 			!config.is_serde;
 
@@ -656,6 +697,8 @@ fn handle_attribute(
 			config.persist_deserialize.is_none() &&
 			config.id_name.is_empty() &&
 			config.id_stable.is_none() &&
+			config.param_default.is_none() &&
+			config.unit.is_none() &&
 			!config.skip &&
 			!config.is_serde;
 
@@ -751,6 +794,35 @@ fn parse_range_attribute(attr: &Attribute) -> Result<ParamRange> {
 	}
 
 	Ok(range)
+}
+
+/// Reads `#[default(1.0)]`: a number, or a bool for a bool parameter.
+///
+/// The value is kept as `f64` because that is what a host is handed.
+fn parse_default_attribute(attr: &Attribute) -> Result<f64> {
+	let val: Lit = attr.parse_args()?;
+	match val {
+		Lit::Float(inner) => inner.base10_parse::<f64>(),
+		Lit::Int(inner) => inner.base10_parse::<f64>(),
+		Lit::Bool(inner) => Ok(if inner.value { 1.0 } else { 0.0 }),
+		other => Err(Error::new_spanned(other, "default expects a number, or a bool")),
+	}
+}
+
+/// Reads `#[unit(beats)]` and friends: how a host should show the value.
+fn parse_unit_attribute(attr: &Attribute) -> Result<ParameterUnit> {
+	let ident: Ident = attr.parse_args()?;
+
+	match ident.to_string().as_str() {
+		"none" => Ok(ParameterUnit::None),
+		"milliseconds" | "ms" => Ok(ParameterUnit::Milliseconds),
+		"hertz" | "hz" => Ok(ParameterUnit::Hertz),
+		"beats" => Ok(ParameterUnit::Beats),
+		other => Err(Error::new_spanned(
+			&ident,
+			format!("unknown unit `{other}`: expected one of none, milliseconds, hertz, beats"),
+		)),
+	}
 }
 
 fn parse_id_attribute(attr: &Attribute) -> Result<(Option<String>, Option<String>, Option<u32>)> {

@@ -35,8 +35,10 @@ pub struct PureDelay<const CHANNELS: usize = 2> {
 	position: usize,
 	/// The delay time, saves in milliseconds
 	///
-	/// Used when [`Self::tempo`] is not syncing.
+	/// Used when [`Self::tempo`] is not syncing. It has no declared default: where a delay
+	/// starts is up to whoever builds the effect.
 	#[range(min = 0.0, max = 4000.0)]
+	#[unit(milliseconds)]
 	pub delay_time: f32,
 	/// The same delay time in musical units, for when the host has a tempo.
 	#[sub_param]
@@ -215,8 +217,10 @@ pub struct Delay<
 	delayed_effect: DelayedEffect,
 	/// The delay time, saves in milliseconds.
 	///
-	/// Used when [`Self::tempo`] is not syncing.
+	/// Used when [`Self::tempo`] is not syncing. It has no declared default: where a delay
+	/// starts is up to whoever builds the effect.
 	#[range(min = 0.0, max = 1000.0)]
+	#[unit(milliseconds)]
 	pub delay_time: f32,
 	/// The same delay time in musical units, for when the host has a tempo.
 	#[sub_param]
@@ -227,10 +231,12 @@ pub struct Delay<
 	/// a factor that controls the decay rate of the delay effect
 	/// 
 	/// must be between 0 and 1
+	#[default(0.8)]
 	pub decay_factor: f32,
 	/// The wet gain of the effect, saves in linear scale
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
+	#[default(1.0)]
 	pub wet_gain: f32,
 	/// Whether the repeats walk around the channels instead of staying where they started.
 	///
@@ -240,6 +246,7 @@ pub struct Delay<
 	///
 	/// Summing means out-of-phase input cancels in the repeats, which is the usual trade for
 	/// this effect. The dry signal is untouched and keeps its image.
+	#[default(false)]
 	pub pingpong: bool,
 	/// The delay being read right now, in fractional samples.
 	#[skip]

@@ -4,7 +4,9 @@
 //! `#[skip]`, struct-level `#[id(prefix = "...")]`, `#[serde]` / `#[persist]`
 //! fields and index-based setting.
 
-use i_am_dsp::prelude::{Parameter, Parameters, Paramed, SetValue, Value, to_binary};
+use i_am_dsp::prelude::{
+	Parameter, ParameterMeta, Parameters, Paramed, SetValue, Unit, Value, from_binary, to_binary,
+};
 use i_am_dsp_derive::Parameters; // derive macro (distinct from the trait of the same name)
 
 fn ids(params: &[Parameter]) -> Vec<&str> {
@@ -445,4 +447,53 @@ fn pinned_ids_nest_with_their_prefix() {
 
 	let index = param_map.query_param_index("inner.value").expect("the nested parameter exists");
 	assert_eq!(param_map.query_stable_id(index), Some(4021));
+}
+// ---------- parameter metadata ----------
+
+#[derive(Parameters)]
+struct WithMeta {
+	#[range(min = 0.03125, max = 32.0)]
+	#[logarithmic]
+	#[default(1.0)]
+	#[unit(beats)]
+	beats: f32,
+	#[default(true)]
+	on: bool,
+	#[range(min = 0, max = 8)]
+	#[default(4)]
+	voices: i32,
+	#[range(min = 0.0, max = 4000.0)]
+	#[unit(milliseconds)]
+	time: f32,
+}
+
+#[test]
+fn a_parameter_carries_its_default_and_its_unit() {
+	let parameters = WithMeta { beats: 0.0, on: false, voices: 0, time: 0.0 }.get_parameters();
+	assert_eq!(ids(&parameters), vec!["beats", "on", "voices", "time"]);
+
+	assert_eq!(parameters[0].meta.default, Some(1.0));
+	assert_eq!(parameters[0].meta.unit, Unit::Beats);
+
+	// A bool default is stated as one, and read back as the number a host wants.
+	assert_eq!(parameters[1].meta.default, Some(1.0));
+	assert_eq!(parameters[1].meta.unit, Unit::None);
+	assert_eq!(parameters[2].meta.default, Some(4.0));
+
+	// Nothing declared: the host falls back to its own idea of a default.
+	assert_eq!(parameters[3].meta.default, None);
+	assert_eq!(parameters[3].meta.unit, Unit::Milliseconds);
+}
+
+/// The metadata describes the code, not the project, so it is not what a saved state carries.
+#[test]
+fn metadata_is_not_part_of_the_saved_state() {
+	let parameters = WithMeta { beats: 2.0, on: true, voices: 3, time: 250.0 }.get_parameters();
+	let loaded: Vec<Parameter> = from_binary(to_binary(&parameters).expect("serialize")).expect("deserialize");
+
+	assert_eq!(loaded.len(), parameters.len());
+	assert_eq!(loaded[0].meta, ParameterMeta::default());
+	assert_eq!(loaded[0].identifier, "beats");
+	// ...but the values are, which is the point of saving state at all.
+	assert_eq!(loaded[0].value, parameters[0].value);
 }
