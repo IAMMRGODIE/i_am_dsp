@@ -94,6 +94,7 @@ mod context;
 mod descriptor;
 mod entry;
 mod events;
+mod factory;
 mod latency;
 mod main_thread;
 mod plugin;
@@ -103,8 +104,19 @@ mod shared;
 mod tests;
 
 pub use audio::AudioProcessor;
+pub use factory::{PluginSetSource, SetEntry, SetEntryPoint};
 pub use clap_plugin::ClapPlugin;
 pub use context::ClapContext;
 pub use descriptor::{AudioPort, Descriptor, MidiPort, Tag};
 pub use main_thread::{GuiProgram, PluginMain};
 pub use plugin::{Plugin, PluginAuExt, WindowOptions};
+
+/// The names the export macros need to be able to reach.
+///
+/// A macro expands in the crate that calls it, so everything it mentions has to be
+/// nameable from there; this is that list, and nothing here is meant to be used by
+/// hand.
+#[doc(hidden)]
+pub mod __private {
+	pub use crate::factory::{PluginSetSource, SetEntry, SetEntryPoint};
+}

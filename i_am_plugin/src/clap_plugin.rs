@@ -138,7 +138,7 @@ where
 impl<P: Plugin> ClapPlugin<P> {
 	const VST3_ID: [u8; 16] = xxh3_128(P::DESCRIPTOR.id.as_bytes()).to_be_bytes();
 
-	const VST3_PLUGIN_INFO: PluginInfoAsVST3<'static> = PluginInfoAsVST3::new(
+	pub(crate) const VST3_PLUGIN_INFO: PluginInfoAsVST3<'static> = PluginInfoAsVST3::new(
 		if let Some(vendor) = P::DESCRIPTOR.vendor {
 			if let Ok(vendor) = CStr::from_bytes_until_nul(vendor.as_bytes()) {
 				Some(vendor)
