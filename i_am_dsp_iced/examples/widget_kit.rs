@@ -9,14 +9,23 @@
 //! bundle is meant to share. The scale buttons at the top re-render everything at
 //! another UI scale, which is how a faceplate is meant to handle DPI.
 
-use i_am_dsp::prelude::Unit;
+use i_am_dsp::prelude::{SineWave, Unit};
 use i_am_dsp_iced::{
 	iced::{
 		self, Element, Length, Subscription, alignment,
-		widget::{column, container, row, scrollable, text},
+		widget::{canvas, column, container, row, scrollable, text},
 	},
 	styles::{self, KnobSize},
-	tools::{button::push_button, knob::knob, selector::selector, slider::slider},
+	tools::{
+		button::push_button,
+		knob::knob,
+		meter::Meter,
+		selector::selector,
+		slider::slider,
+		spectrum::Spectrum,
+		transfer::{Transfer, transfer},
+		waveform::{Waveform, WaveformBuf},
+	},
 };
 
 /// The state of the gallery.
@@ -31,21 +40,75 @@ pub struct WidgetKit {
 	slot: usize,
 	pan: f32,
 	scale: f32,
+
+	/// A stereo level meter, fed a random walk.
+	meter: Meter,
+	/// A spectrum display, fed a shape that drifts.
+	spectrum: Spectrum,
+	/// The bins the spectrum is drawn from, kept so the shape can drift.
+	spectrum_bins: Vec<f32>,
+	/// Where the drifting resonance sits, from 0 to 1.
+	resonance: f32,
+	/// A scrolling scope, fed samples.
+	scope: WaveformBuf,
+	/// The phase the scope's own signal is at.
+	phase: f32,
+	/// A wavetable, drawn as it is.
+	table: Waveform<SineWave>,
+	/// The curve of a shaper, which follows the Drive knob.
+	transfer: Transfer,
+	/// The two channel levels the random walk is at.
+	levels: [f32; 2],
 }
 
 impl Default for WidgetKit {
 	fn default() -> Self {
+		let drive = 0.4;
+
+		// The displays start on something fixed, not on noise: a still frame of the
+		// gallery is what the snapshot test compares, and a random one would differ
+		// every run. The random walk only begins once the ticks do.
+		let mut scope = WaveformBuf::new(2048, 240.0);
+
+		for sample in 0..2048 {
+			let t = sample as f32 * 0.02;
+			scope.update(&[(t).sin() * 0.7 * (1.0 + (t * 0.3).sin() * 0.3)]);
+		}
+
+		let spectrum_bins: Vec<f32> = (0..48)
+			.map(|bin| {
+				let t = bin as f32 / 47.0;
+
+				(1.0 - t).powf(1.6) * 0.7
+			})
+			.collect();
+
+		let spectrum = Spectrum::new();
+		spectrum.update(&spectrum_bins);
+
+		let meter = Meter::new();
+		meter.update([0.72, 0.45], [0.5, 0.3]);
+
 		Self {
 			cutoff: 1200.0,
 			gain: -3.0,
 			mix: 0.65,
-			drive: 0.4,
+			drive,
 			sync: 0.5,
 			modulated: 0.35,
 			modulation: 0.72,
 			slot: 0,
 			pan: 0.0,
 			scale: styles::ui_scale(),
+			meter,
+			spectrum,
+			spectrum_bins,
+			resonance: 0.25,
+			scope,
+			phase: 0.0,
+			table: Waveform::new(SineWave, 256, false),
+			transfer: transfer(move |input| (input * (1.0 + drive * 6.0)).tanh()),
+			levels: [0.72, 0.45],
 		}
 	}
 }
@@ -74,7 +137,12 @@ impl WidgetKit {
 			Message::Cutoff(value) => self.cutoff = value,
 			Message::Gain(value) => self.gain = value,
 			Message::Mix(value) => self.mix = value,
-			Message::Drive(value) => self.drive = value,
+			Message::Drive(value) => {
+				self.drive = value;
+				// A shaper's curve follows its controls: this is the one line of wiring
+				// a hero needs.
+				self.transfer.set_curve(move |input| (input * (1.0 + value * 6.0)).tanh());
+			},
 			Message::Sync(value) => self.sync = value,
 			Message::Modulated(value) => self.modulated = value,
 			Message::Slot(slot) => self.slot = slot,
@@ -83,7 +151,53 @@ impl WidgetKit {
 				styles::set_ui_scale(scale);
 				self.scale = scale;
 			},
-			Message::Toggle | Message::Tick => {},
+			Message::Toggle => {},
+			Message::Tick => self.stir(),
+		}
+	}
+
+	/// Feeds the displays something that moves.
+	///
+	/// A random walk rather than noise, so a meter reads like a signal and a
+	/// spectrum drifts instead of flickering. The scope gets real samples.
+	fn stir(&mut self) {
+		for (channel, level) in self.levels.iter_mut().enumerate() {
+			let step = if channel == 0 { 0.07 } else { 0.05 };
+
+			*level = (*level + rand::random_range(-step..step)).clamp(0.04, 1.0);
+		}
+
+		self.meter.update(self.levels, [self.levels[0] * 0.62, self.levels[1] * 0.55]);
+
+		// The shape drifts towards a tilt, with a resonance that wanders across it.
+		self.resonance = (self.resonance + rand::random_range(-0.012..0.012)).clamp(0.08, 0.85);
+
+		let bin_count = self.spectrum_bins.len();
+
+		for (index, bin) in self.spectrum_bins.iter_mut().enumerate() {
+			let t = index as f32 / (bin_count - 1) as f32;
+			let target = (1.0 - t).powf(1.6) * 0.6 + rand::random_range(0.0..0.25);
+
+			*bin = *bin * 0.85 + target * 0.15;
+		}
+
+		let mut bins = self.spectrum_bins.clone();
+		let centre = (self.resonance * (bins.len() - 1) as f32) as usize;
+
+		for index in centre.saturating_sub(2)..(centre + 2).min(bins.len()) {
+			bins[index] = (bins[index] + 0.4).min(1.0);
+		}
+
+		self.spectrum.update(&bins);
+
+		// The scope gets samples, the way an effect would hand them over.
+		self.phase = (self.phase + 0.013) % 1.0;
+
+		for step in 0..64 {
+			let t = self.phase + step as f32 * 0.006;
+			let signal = (t * std::f32::consts::TAU * 4.0).sin() * 0.65 * (1.0 + (t * 5.0).sin() * 0.35);
+
+			self.scope.update(&[signal]);
 		}
 	}
 
@@ -205,6 +319,25 @@ impl WidgetKit {
 			.spacing(styles::u(styles::space::L)),
 		);
 
+		let visuals = self.section(
+			"Visualisers",
+			row![
+				canvas(&self.meter).width(styles::u(22.0)).height(styles::u(34.0)),
+				column![
+					canvas(&self.scope).width(styles::u(60.0)).height(styles::u(16.0)),
+					canvas(&self.spectrum).width(styles::u(60.0)).height(styles::u(16.0)),
+				]
+				.spacing(styles::u(styles::space::S)),
+				column![
+					canvas(&self.table).width(styles::u(30.0)).height(styles::u(16.0)),
+					canvas(&self.transfer).width(styles::u(30.0)).height(styles::u(16.0)),
+				]
+				.spacing(styles::u(styles::space::S)),
+			]
+			.spacing(styles::u(styles::space::L))
+			.align_y(alignment::Vertical::Top),
+		);
+
 		let width = Length::Fixed(styles::u(72.0));
 		let rows = self.section(
 			"Row controls",
@@ -230,7 +363,7 @@ impl WidgetKit {
 
 		container(
 			scrollable(
-				column![header, scales, sizes, rows, readouts, modulation]
+				column![header, scales, sizes, visuals, rows, readouts, modulation]
 					.spacing(styles::u(styles::space::XL))
 					.padding(styles::u(styles::space::XL)),
 			)
