@@ -42,25 +42,34 @@ pub struct Crusher<const CHANNELS: usize = 2> {
 	/// How much dispersion and saturation is applied, from 0 to 1.
 	#[range(min = 0.0, max = 1.0)]
 	#[unit(percent)]
+	#[layout(group = "Drive", order = 0, widget = knob, size = large)]
 	pub amount: f32,
 	/// The rate of the LFO that sweeps the disperser cutoff, in Hz.
 	#[range(min = 1.0, max = 2000.0)]
 	#[logarithmic]
 	#[unit(hertz)]
+	#[layout(group = "Drive", order = 1, widget = knob, size = small)]
 	pub frequency: f32,
 	/// How much the output is amplitude modulated, from 0 to 1.
 	#[range(min = 0.0, max = 1.0)]
+	#[unit(percent)]
+	#[layout(group = "Amplitude", order = 0, widget = knob)]
 	pub am_amount: f32,
 	/// The rate of the amplitude modulation, in Hz.
 	#[range(min = 1.0, max = 2000.0)]
 	#[logarithmic]
 	#[unit(hertz)]
+	#[layout(group = "Amplitude", order = 1, widget = knob, size = small)]
 	pub am_frequency: f32,
 	/// The gain applied before the effect.
 	#[sub_param]
+	#[id(display = "Input")]
+	#[layout(group = "Gain", order = 0)]
 	pub input_gain: Gain,
 	/// The gain applied after the effect.
 	#[sub_param]
+	#[id(display = "Output")]
+	#[layout(group = "Gain", order = 1)]
 	pub output_gain: Gain,
 	#[skip]
 	sample_rate: usize,

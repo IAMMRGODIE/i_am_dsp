@@ -516,6 +516,15 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 			let display_prefix = config.id_display.clone().unwrap_or_else(|| field_name.clone());
 			let sub_head = format!("{}.", field_name);
 			let sub_head_len = sub_head.len();
+			// Where the level itself asked to sit, for the children that did not say.
+			let parent_group = match &config.layout.group {
+				Some(group) => quote!(Some(std::borrow::Cow::Borrowed(#group))),
+				None => quote!(None),
+			};
+			let parent_order = match config.layout.order {
+				Some(order) => quote!(Some(#order)),
+				None => quote!(None),
+			};
 			parameter_imply.push(quote! {
 				let mut sub_parameters = i_am_dsp::prelude::Parameters::get_parameters(&self.#member);
 				sub_parameters.iter_mut().for_each(|p| {
@@ -528,6 +537,15 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 						None => p.identifier.rsplit('.').next().unwrap_or_default().into(),
 					};
 					p.meta.display_name = Some(format!("{} {}", #display_prefix, child).into());
+					// A nested level sits wherever its parent sits, unless the child
+					// asked for somewhere of its own: a Tempo Beats control belongs
+					// with the rest of the timing controls.
+					if p.meta.layout.group.is_none() {
+						p.meta.layout.group = #parent_group;
+					}
+					if p.meta.layout.order.is_none() {
+						p.meta.layout.order = #parent_order;
+					}
 				});
 				parameters.extend(sub_parameters);
 			});

@@ -111,3 +111,58 @@ fn a_faceplate_is_drawn_from_the_metadata() {
 		path.display()
 	);
 }
+
+/// The same faceplate, four real effects, and not one line of interface code
+/// between them: each effect declares where its controls belong and how they want
+/// to be drawn, and that is the whole of what it knows about being on screen.
+#[test]
+fn four_effects_share_one_faceplate() {
+	use i_am_dsp::prelude::{Crusher, HardClipper, Lowpass, Phaser, SineWave};
+	use i_am_dsp_iced::iced::{
+		Element,
+		widget::{column, row, text},
+	};
+
+	let effects = [
+		("I Am Crusher", Crusher::<2>::new(44_100).get_parameters()),
+		("I Am Drive", HardClipper::new(0.8, 1.0).get_parameters()),
+		("I Am Filter", Lowpass::<2>::new(44_100, 1_000.0, 0.7).get_parameters()),
+		("I Am Phaser", Phaser::<SineWave, 2>::new(SineWave, 4, 44_100).get_parameters()),
+	];
+
+	// A function rather than a closure: a closure cannot say that what it returns
+	// borrows from what it was handed.
+	fn card<'a>(effect: &'a (&'static str, Vec<i_am_dsp::prelude::Parameter>)) -> Element<'a, Change> {
+		column![
+			text(effect.0).size(styles::px(styles::font::TITLE)),
+			faceplate::faceplate(&effect.1, |_, value| Change(value)),
+		]
+		.spacing(styles::u(styles::space::S))
+		.into()
+	}
+
+	let sheet: Element<'_, Change> = row![
+		column![card(&effects[0]), card(&effects[1])].spacing(styles::u(styles::space::XL)),
+		column![card(&effects[2]), card(&effects[3])].spacing(styles::u(styles::space::XL)),
+	]
+	.spacing(styles::u(styles::space::XL))
+	.padding(styles::u(styles::space::L))
+	.into();
+
+	let mut ui = iced_test::simulator(sheet);
+	let snapshot = match ui.snapshot(&styles::theme()) {
+		Ok(snapshot) => snapshot,
+		Err(error) => panic!("the family sheet renders: {error:?}"),
+	};
+
+	let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+		.join("tests")
+		.join("snapshots")
+		.join("family.png");
+
+	assert!(
+		snapshot.matches_image(&path).expect("the frame is written"),
+		"the family sheet changed; delete {} and run again to accept it",
+		path.display()
+	);
+}

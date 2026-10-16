@@ -89,14 +89,19 @@ pub fn faceplate<'a, Message: Clone + 'a>(
 	parameters: &'a [Parameter],
 	on_change: impl Fn(&'a str, SetValue) -> Message + Copy + 'a,
 ) -> Element<'a, Message> {
-	let sections = arrange(parameters).into_iter().map(|(group, members)| {
-		let controls = members.into_iter().map(|parameter| control(parameter, on_change));
+	let sections = arrange(parameters).into_iter().filter_map(|(group, members)| {
+		let controls: Vec<_> = members
+			.into_iter()
+			.filter_map(|parameter| control(parameter, on_change))
+			.collect();
 
-		let mut content = row(Vec::new()).spacing(styles::u(styles::space::L));
-
-		for control in controls {
-			content = content.push(control);
+		// A section whose every parameter turned out not to be a control -- a
+		// filter that only carries its coefficients, say -- is not drawn at all.
+		if controls.is_empty() {
+			return None;
 		}
+
+		let content = row(controls).spacing(styles::u(styles::space::L));
 
 		let mut card = column![].spacing(styles::u(styles::space::M));
 
@@ -110,7 +115,8 @@ pub fn faceplate<'a, Message: Clone + 'a>(
 
 		// The card hugs its controls rather than filling the window: a faceplate is
 		// a row of sections, not a wall of empty boxes.
-		container(card.push(content))
+		Some(
+			container(card.push(content))
 			.padding(styles::u(styles::space::L))
 			.style(|_| container::Style {
 				background: Some(styles::CARD_COLOR.into()),
@@ -121,17 +127,22 @@ pub fn faceplate<'a, Message: Clone + 'a>(
 				},
 				..Default::default()
 			})
-			.into()
+			.into(),
+		)
 	});
 
 	column(sections).spacing(styles::u(styles::space::M)).into()
 }
 
-/// Draws one parameter.
+/// Draws one parameter, when it is one a person can move.
+///
+/// A serialized value is state that travels with a preset rather than a control
+/// -- a filter's coefficients, say -- so a faceplate leaves it alone; the host is
+/// told it is not editable and this agrees with the host.
 fn control<'a, Message: Clone + 'a>(
 	parameter: &'a Parameter,
 	on_change: impl Fn(&'a str, SetValue) -> Message + Copy + 'a,
-) -> Element<'a, Message> {
+) -> Option<Element<'a, Message>> {
 	let identifier = parameter.identifier.as_str();
 	let name = parameter
 		.meta
@@ -168,7 +179,7 @@ fn control<'a, Message: Clone + 'a>(
 					control = control.default_value(default as f32);
 				}
 
-				return control.into();
+				return Some(control.into());
 			}
 
 			let mut control = knob(range, value, move |value| on_change(identifier, SetValue::Float(value)))
@@ -185,7 +196,7 @@ fn control<'a, Message: Clone + 'a>(
 				control = control.default_value(default as f32);
 			}
 
-			control.into()
+			Some(control.into())
 		},
 		Value::Int { value, range, .. } => {
 			let value = *value;
@@ -194,12 +205,14 @@ fn control<'a, Message: Clone + 'a>(
 			if layout.widget == ParamWidget::Slider {
 				// A whole number is still a slider if it asked to be one; it snaps
 				// to its own steps because it has no fractions to offer.
-				return slider(range, value, move |value| on_change(identifier, SetValue::Int(value)))
-					.text(name)
-					.formatter(|value| format!("{value:.0}"))
-					.step(step.unwrap_or(1.0) as f32)
-					.width(width_of(layout.size, ParamWidget::Slider))
-					.into();
+				return Some(
+					slider(range, value, move |value| on_change(identifier, SetValue::Int(value)))
+						.text(name)
+						.formatter(|value| format!("{value:.0}"))
+						.step(step.unwrap_or(1.0) as f32)
+						.width(width_of(layout.size, ParamWidget::Slider))
+						.into(),
+				);
 			}
 
 			let mut control = knob(range, value, move |value| on_change(identifier, SetValue::Int(value)))
@@ -214,18 +227,18 @@ fn control<'a, Message: Clone + 'a>(
 				control = control.default_value(default as f32);
 			}
 
-			control.into()
+			Some(control.into())
 		},
 		Value::Bool(value) => {
 			// A latching button, which is the same shape as everything else here.
-			push_button(name)
-				.accent(*value)
-				.on_press(on_change(identifier, SetValue::Bool(!value)))
-				.into()
+			Some(
+				push_button(name)
+					.accent(*value)
+					.on_press(on_change(identifier, SetValue::Bool(!value)))
+					.into(),
+			)
 		},
-		_ => text(name)
-			.size(styles::px(styles::font::LABEL))
-			.color(styles::DISABLE_TEXT_COLOR)
-			.into(),
+		// Serialized state and placeholders are not controls.
+		_ => None,
 	}
 }

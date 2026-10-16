@@ -17,10 +17,12 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	feedback_history: [f32; CHANNELS],
 	/// the LFO waveform
 	#[sub_param]
+	#[layout(group = "LFO", order = 0)]
 	pub lfo: Lfo,
 	/// LFO frequency in Hz, used when [`Self::tempo`] is not syncing.
 	#[range(min = 0.01, max = 20.0)]
 	#[unit(hertz)]
+	#[layout(group = "LFO", order = 1, widget = knob)]
 	pub lfo_freq: f32,
 	/// The same rate in musical time.
 	///
@@ -29,16 +31,19 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// transport is stopped.
 	#[sub_param]
 	#[id(display = "Tempo")]
+	#[layout(group = "LFO", order = 2)]
 	pub tempo: SyncedTime,
 	#[range(min = 10.0, max = 10000.0)]
 	#[logarithmic]
 	/// Minimum frequency in Hz
 	#[unit(hertz)]
+	#[layout(group = "Sweep", order = 0, widget = knob)]
 	pub min_freq: f32,
 	#[range(min = 10.0, max = 10000.0)]
 	#[logarithmic]
 	/// Maximum frequency in Hz
 	#[unit(hertz)]
+	#[layout(group = "Sweep", order = 1, widget = knob)]
 	pub max_freq: f32,
 	#[skip]
 	sample_rate: usize,
@@ -47,8 +52,10 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// The feedback gain, saves in linear scale
 	#[range(min = 0.01, max = 1.0)]
 	#[logarithmic]
+	#[layout(group = "Feedback", order = 0, widget = knob)]
 	pub feedback_gain: f32,
 	/// Add phase delta to each allpass
+	#[layout(group = "Feedback", order = 1, widget = knob)]
 	pub phase_delta: f32,
 }
 

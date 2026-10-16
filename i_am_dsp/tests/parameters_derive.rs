@@ -5,7 +5,7 @@
 //! fields and index-based setting.
 
 use i_am_dsp::prelude::{
-	Parameter, ParameterMeta, Parameters, Paramed, SetValue, SyncedTime, Unit, Value, from_binary, to_binary,
+	ParamWidget, Parameter, ParameterMeta, Parameters, Paramed, SetValue, SyncedTime, Unit, Value, from_binary, to_binary,
 };
 use i_am_dsp_derive::Parameters; // derive macro (distinct from the trait of the same name)
 
@@ -549,4 +549,56 @@ fn a_nested_parameter_without_names_is_labelled_by_its_fields() {
 	let parameters = PlainOuter { inner: PlainInner { x: 0.0 } }.get_parameters();
 	assert_eq!(ids(&parameters), vec!["inner.x"]);
 	assert_eq!(parameters[0].meta.display_name.as_deref(), Some("inner x"));
+}
+
+// ---------- layout ----------
+
+#[derive(Parameters)]
+struct LaidOutChild {
+	#[range(min = 0.0, max = 4.0)]
+	beats: f32,
+	#[range(min = 0.0, max = 1.0)]
+	#[layout(group = "Elsewhere", order = 0, widget = slider)]
+	own: f32,
+}
+
+#[derive(Parameters)]
+struct LaidOutParent {
+	#[sub_param]
+	#[layout(group = "Time", order = 3, widget = knob)]
+	tempo: LaidOutChild,
+	#[range(min = 0.0, max = 1.0)]
+	#[layout(group = "Time", order = 4)]
+	amount: f32,
+}
+
+/// A nested level sits where its parent sits, unless the child asked for somewhere
+/// of its own: five controls that all have to be placed by hand is how a faceplate
+/// stops being automatic.
+#[test]
+fn a_sub_parameter_inherits_the_place_its_parent_asked_for() {
+	let parent = LaidOutParent {
+		tempo: LaidOutChild { beats: 1.0, own: 0.5 },
+		amount: 0.5,
+	};
+	let parameters = parent.get_parameters();
+	let layout = |id: &str| {
+		parameters
+			.iter()
+			.find(|parameter| parameter.identifier == id)
+			.unwrap_or_else(|| panic!("{id} is a parameter"))
+			.meta
+			.layout
+			.clone()
+	};
+
+	let beats = layout("tempo.beats");
+	assert_eq!(beats.group.as_deref(), Some("Time"), "a child with no place of its own inherits its parent's");
+	assert_eq!(beats.order, Some(3));
+
+	let own = layout("tempo.own");
+	assert_eq!(own.group.as_deref(), Some("Elsewhere"), "a child that asked for its own place keeps it");
+	assert_eq!(own.widget, ParamWidget::Slider, "and keeps everything else it asked for");
+
+	assert_eq!(layout("amount").order, Some(4), "a sibling still sorts after the whole nested level");
 }
