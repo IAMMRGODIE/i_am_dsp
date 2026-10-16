@@ -16,7 +16,9 @@ use i_am_dsp_iced::{
 	styles,
 	tools::{
 		meter::Meter,
+		spectrogram::Spectrogram,
 		spectrum::Spectrum,
+		stereo::StereoMeter,
 		transfer::transfer,
 		waveform::{Waveform, WaveformBuf},
 	},
@@ -74,6 +76,33 @@ fn the_visualisers_draw() {
 	// A soft clipper: the curve a drive effect is.
 	let shaper = transfer(|input| (input * 2.0).tanh() * 0.9);
 
+	// A stereo field, a corner of a pan apart.
+	let stereo = StereoMeter::new(128);
+	let frames: Vec<(f32, f32)> = (0..128)
+		.map(|step| {
+			let t = step as f32 / 128.0 * std::f32::consts::TAU * 2.0;
+
+			((t.sin() * 0.7), ((t + 0.6).sin() * 0.5))
+		})
+		.collect();
+
+	stereo.update(&frames);
+
+	// The same spectrum over time, with a resonance walking across it.
+	let spectrogram = Spectrogram::new(48);
+
+	for column in 0..48 {
+		let mut shaded = bins.clone();
+		let count = shaded.len();
+		let centre = (column * 2) % count;
+
+		for band in &mut shaded[centre.saturating_sub(2)..(centre + 2).min(count)] {
+			*band = (*band + 0.4).min(1.0);
+		}
+
+		spectrogram.update(&shaded);
+	}
+
 	let sheet: Element<'_, Message> = column![
 		row![
 			panel("Waveform (buffer)", canvas(waveform).width(320.0).height(120.0), (320.0, 150.0)),
@@ -84,6 +113,11 @@ fn the_visualisers_draw() {
 			panel("Meter", canvas(meter).width(96.0).height(160.0), (96.0, 190.0)),
 			panel("Spectrum", canvas(spectrum).width(300.0).height(160.0), (300.0, 190.0)),
 			panel("Transfer", canvas(shaper).width(150.0).height(160.0), (150.0, 190.0)),
+		]
+		.spacing(styles::u(styles::space::L)),
+		row![
+			panel("Stereo", canvas(stereo).width(150.0).height(160.0), (150.0, 190.0)),
+			panel("Spectrogram", canvas(spectrogram).width(300.0).height(160.0), (300.0, 190.0)),
 		]
 		.spacing(styles::u(styles::space::L)),
 	]
