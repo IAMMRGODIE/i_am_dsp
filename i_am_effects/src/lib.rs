@@ -26,7 +26,8 @@ effect_plugin!(
 	CrusherDsp::<2>::new,
 	"iamdsp.effects.crusher",
 	"I Am Crusher",
-	(620.0, 380.0)
+	// Three sections stacked, and the tallest row in them is two knobs.
+	(400.0, 640.0)
 );
 
 effect_plugin!(
@@ -35,7 +36,8 @@ effect_plugin!(
 	|_rate| DriveDsp::new(0.8, 1.0),
 	"iamdsp.effects.drive",
 	"I Am Drive",
-	(420.0, 300.0)
+	// One section: a curve over two controls.
+	(420.0, 250.0)
 );
 
 effect_plugin!(
@@ -44,7 +46,8 @@ effect_plugin!(
 	|rate| FilterDsp::<2>::new(rate, 1_000.0, 0.707),
 	"iamdsp.effects.filter",
 	"I Am Filter",
-	(460.0, 320.0)
+	// One section: a response curve over two controls.
+	(460.0, 250.0)
 );
 
 // One call, one library, three plug-ins.

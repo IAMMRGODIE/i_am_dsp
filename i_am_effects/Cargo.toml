@@ -7,6 +7,9 @@ description = "The small effects, as plug-ins: one library, many plug-ins"
 [features]
 # Adds the VST3 entry points to the exported library (through i_am_plugin).
 vst3 = ["i_am_plugin/vst3"]
+# The standalone demo host, for running an effect in a window with a test source in
+# front of it: cargo run -p i_am_effects --example effects_demo --features standalone
+standalone = ["i_am_dsp_iced/standalone"]
 
 [lib]
 # A plug-in library, and an rlib so the tests and examples in this crate can link it.

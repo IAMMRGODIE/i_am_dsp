@@ -331,7 +331,9 @@ macro_rules! effect_plugin {
 			}
 
 			fn window_options() -> i_am_plugin::WindowOptions {
-				i_am_plugin::WindowOptions::new().with_size($size)
+				i_am_plugin::WindowOptions::new()
+					.with_size($size)
+					.with_title($title)
 			}
 
 			fn param_map(&self) -> i_am_dsp::prelude::ParamMap {
