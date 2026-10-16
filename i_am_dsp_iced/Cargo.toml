@@ -18,3 +18,7 @@ lazy_static = "1.5.0"
 portable-atomic = { version = "1.15.0", features = ["float"] }
 rand = "0.10.2"
 # random = "0.14.1"
+
+[dev-dependencies]
+# Renders the gallery headlessly, so a faceplate can be checked without a window.
+iced_test = "0.14"

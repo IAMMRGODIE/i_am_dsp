@@ -13,14 +13,14 @@ use i_am_dsp::prelude::Unit;
 use i_am_dsp_iced::{
 	iced::{
 		self, Element, Length, Subscription, alignment,
-		widget::{button, column, container, row, scrollable, text},
+		widget::{column, container, row, scrollable, text},
 	},
 	styles::{self, KnobSize},
-	tools::{knob::knob, selector::selector, slider::slider},
+	tools::{button::push_button, knob::knob, selector::selector, slider::slider},
 };
 
 /// The state of the gallery.
-struct WidgetKit {
+pub struct WidgetKit {
 	cutoff: f32,
 	gain: f32,
 	mix: f32,
@@ -35,14 +35,6 @@ struct WidgetKit {
 
 impl Default for WidgetKit {
 	fn default() -> Self {
-		// A plug-in reads its scale from the host; the gallery takes it from the
-		// environment so the same build can be compared at different scales.
-		if let Ok(scale) = std::env::var("IAM_UI_SCALE")
-			&& let Ok(scale) = scale.parse::<f32>()
-		{
-			styles::set_ui_scale(scale);
-		}
-
 		Self {
 			cutoff: 1200.0,
 			gain: -3.0,
@@ -59,7 +51,7 @@ impl Default for WidgetKit {
 }
 
 #[derive(Debug, Clone)]
-enum Message {
+pub enum Message {
 	Cutoff(f32),
 	Gain(f32),
 	Mix(f32),
@@ -114,7 +106,8 @@ impl WidgetKit {
 		])
 	}
 
-	fn view(&self) -> Element<'_, Message> {
+	/// The whole gallery.
+	pub fn view(&self) -> Element<'_, Message> {
 		let header = row![
 			text("Widget kit").size(styles::px(styles::font::TITLE)),
 			text("Shift: fine, double click or Ctrl+click: reset, wheel: step, right click: menu")
@@ -230,10 +223,7 @@ impl WidgetKit {
 					.default_value(0.0)
 					.modulation(self.pan + 0.45)
 					.width(width),
-				button(text("A button").size(styles::px(styles::font::VALUE)))
-					.padding([styles::u(styles::space::XS), styles::u(styles::space::M)])
-					.style(styles::button_style)
-					.on_press(Message::Toggle),
+				push_button("A button").on_press(Message::Toggle),
 			]
 			.spacing(styles::u(styles::space::S)),
 		);
@@ -258,25 +248,7 @@ impl WidgetKit {
 	fn scale_button(&self, scale: f32) -> Element<'_, Message> {
 		let label = format!("{:.0} %", scale * 100.0);
 		let active = (self.scale - scale).abs() < f32::EPSILON;
-
-		let button = button(text(label).size(styles::px(styles::font::LABEL))).on_press(Message::Scale(scale));
-
-		if active {
-			button
-				.style(|_, _| button::Style {
-					background: Some(styles::PRIMARY_COLOR.into()),
-					text_color: styles::PRIMARY_TEXT_COLOR,
-					border: iced::Border {
-						color: styles::PRIMARY_COLOR,
-						width: 2.0,
-						radius: styles::u(styles::size::CONTROL_RADIUS).into(),
-					},
-					..Default::default()
-				})
-				.into()
-		} else {
-			button.style(styles::button_style).into()
-		}
+		push_button(label).accent(active).on_press(Message::Scale(scale)).into()
 	}
 
 	/// One titled card of controls.
@@ -306,6 +278,14 @@ impl WidgetKit {
 
 #[cfg(feature = "standalone")]
 fn main() -> iced::Result {
+	// A plug-in reads its scale from the host; the gallery takes it from the
+	// environment, so the same build can be compared at different scales.
+	if let Ok(scale) = std::env::var("IAM_UI_SCALE")
+		&& let Ok(scale) = scale.parse::<f32>()
+	{
+		styles::set_ui_scale(scale);
+	}
+
 	iced::application(WidgetKit::default, WidgetKit::update, WidgetKit::view)
 		.subscription(WidgetKit::subscription)
 		.theme(styles::theme())

@@ -82,6 +82,25 @@ pub(crate) fn animation(t: f32) -> f32 {
 	calc(t / total_time)
 }
 
+#[cfg(test)]
+mod tests {
+	use super::Animator;
+
+	/// A control that starts in a state that is not the default one has to be
+	/// drawn that way on its very first frame, or the interface fades in from
+	/// nothing every time it is opened.
+	#[test]
+	fn a_snapped_animator_reports_the_value_it_was_set_to() {
+		let mut animator = Animator::new();
+
+		animator.set(0.0);
+		assert_eq!(animator.calc(), 0.0);
+
+		animator.set(1.0);
+		assert_eq!(animator.calc(), 1.0);
+	}
+}
+
 #[derive(Debug, Clone)]
 pub struct Animator {
 	last_in_time: Instant,
@@ -102,6 +121,26 @@ impl Animator {
 			last_in_time: Instant::now(),
 			last_out_time: Instant::now(),
 			start: 0.0,
+		}
+	}
+
+	/// Jumps straight to a value, without playing the transition.
+	///
+	/// For a control that starts in a state that is not the default one: without
+	/// this its very first frame would fade in from nothing.
+	pub fn set(&mut self, value: f32) {
+		let now = Instant::now();
+
+		if value <= 0.0 {
+			// Not hovering, and calc() resolves to exactly 0 when the two
+			// timestamps agree.
+			self.last_in_time = now;
+			self.last_out_time = now;
+			self.start = 0.0;
+		} else {
+			self.last_in_time = now;
+			self.last_out_time = now.checked_sub(ANIMATION_DURATION).unwrap_or(now);
+			self.start = ANIMATION_DURATION.as_secs_f32();
 		}
 	}
 

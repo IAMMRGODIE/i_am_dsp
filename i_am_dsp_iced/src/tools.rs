@@ -7,6 +7,7 @@ pub mod knob;
 pub mod input;
 pub mod selector;
 pub mod slider;
+pub mod button;
 pub mod equalizer;
 pub(crate) mod utils;
 
