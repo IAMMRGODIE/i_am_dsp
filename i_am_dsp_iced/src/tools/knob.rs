@@ -438,7 +438,9 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Knob<'a, Message> {
 
 			let angle = angle_of(modulated_percent);
 			let marker = Point::new(center.x + angle.cos() * ring_radius, center.y + angle.sin() * ring_radius);
-			frame.fill(&Path::circle(marker, mod_width), styles::MOD_COLOR);
+			// The marker sits on the ring, so half the ring width is all the room
+			// there is before it pokes past the edge of the widget.
+			frame.fill(&Path::circle(marker, mod_width / 2.0), styles::MOD_COLOR);
 		}
 
 		frame.stroke(

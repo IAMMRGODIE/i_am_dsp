@@ -281,10 +281,14 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Slider<'a, Message> {
 		} else {
 			bounds.y + (bounds.height - track_height) / 2.0
 		};
+		// The thumb is wider than the track, so the track is inset by its radius:
+		// a thumb parked at either end would otherwise be cut in half by the edge
+		// of the widget.
+		let thumb_base = track_height * 0.8;
 		let track = Rectangle {
-			x: bounds.x,
+			x: bounds.x + thumb_base,
 			y: track_y,
-			width: bounds.width,
+			width: (bounds.width - 2.0 * thumb_base).max(1.0),
 			height: track_height,
 		};
 
@@ -330,7 +334,7 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Slider<'a, Message> {
 		// A thumb, so the track reads as something that can be grabbed.
 		let click = state.click_animator.calc();
 		let thumb = Point::new(track.x + track.width * percent, track.y + track.height / 2.0);
-		let thumb_radius = track_height * (0.8 - 0.2 * click);
+		let thumb_radius = thumb_base * (1.0 - 0.25 * click);
 
 		frame.fill(&Path::circle(thumb, thumb_radius), text_color);
 		frame.fill(

@@ -219,7 +219,7 @@ pub fn button_style(theme: &Theme, status: iced::widget::button::Status) -> iced
 	let radius = u(size::CONTROL_RADIUS).into();
 	let border = |color| iced::Border {
 		color,
-		width: BORDER_WIDTH,
+		width: px(1.0),
 		radius,
 	};
 

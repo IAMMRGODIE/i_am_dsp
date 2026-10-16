@@ -203,13 +203,12 @@ impl<'a, Message, Slot: ToString> Widget<Message, Theme, Renderer> for Selector<
 			slot.max_width = width;
 			slot.size = Pixels(styles::px(styles::font::VALUE));
 			slot.position = Point::new(width * i as f32 + width / 2.0 + bounds.x, bounds.height / 2.0 + bounds.y);
+			// The pill under the selected slot is the accent colour, so the label on
+			// it has to be the text colour paired with that accent; the muted grey
+			// the other slots use disappears against it.
 			slot.color = if i == self.current_id {
-				iced::theme::palette::mix(
-					theme.extended_palette().background.weakest.text,
-					theme.palette().text,
-					click_animator,
-				)
-			}else {
+				theme.extended_palette().primary.base.text
+			} else {
 				theme.extended_palette().background.weakest.text
 			};
 
