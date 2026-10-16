@@ -56,25 +56,47 @@ fn rms(samples: &[f32]) -> f32 {
     (samples.iter().map(|s| s * s).sum::<f32>() / samples.len().max(1) as f32).sqrt()
 }
 
-/// Estimate a fundamental by autocorrelation, on the mean removed signal.
+/// The energy of `samples` at `frequency`, by the Goertzel recurrence.
+fn goertzel(samples: &[f32], frequency: f32) -> f32 {
+    let omega = std::f32::consts::TAU * frequency / FS as f32;
+    let coefficient = 2.0 * omega.cos();
+    let (mut s1, mut s2) = (0.0f32, 0.0f32);
+    for sample in samples {
+        let s0 = sample + coefficient * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    (s1 * s1 + s2 * s2 - coefficient * s1 * s2).max(0.0)
+}
+
+/// Where in `low..high` the sound actually sits.
+///
+/// This used to be an autocorrelation, and on this instrument that was simply
+/// wrong. A piano note is three detuned strings driving a body with resonances
+/// of its own, and on a decaying inharmonic tone the correlation picked a lag
+/// that was not the period - measured, it called a perfectly correct 659 Hz note
+/// 585 Hz, and the failure looked exactly like a transpose bug. Scanning the
+/// spectrum asks the question directly and needs no assumptions about the
+/// waveform.
 fn estimate_frequency(samples: &[f32], low: f32, high: f32) -> f32 {
-    let fs = FS as f32;
-    let mean = samples.iter().sum::<f32>() / samples.len() as f32;
-    let min_lag = (fs / high).floor() as usize;
-    let max_lag = (fs / low).ceil() as usize;
-    let mut best = (min_lag, f32::NEG_INFINITY);
-    for lag in min_lag..=max_lag {
-        let count = samples.len() - lag;
-        let mut sum = 0.0f64;
-        for i in 0..count {
-            sum += ((samples[i] - mean) as f64) * ((samples[i + lag] - mean) as f64);
-        }
-        let value = (sum / count as f64) as f32;
-        if value > best.1 {
-            best = (lag, value);
+    let mut windowed = samples.to_vec();
+    let last = (windowed.len() - 1) as f32;
+    for (index, sample) in windowed.iter_mut().enumerate() {
+        let t = index as f32 / last;
+        *sample *= 0.5 - 0.5 * (std::f32::consts::TAU * t).cos();
+    }
+    let mut best = low;
+    let mut best_energy = 0.0f32;
+    let steps = 400;
+    for step in 0..steps {
+        let probe = low * (high / low).powf(step as f32 / (steps - 1) as f32);
+        let energy = goertzel(&windowed, probe);
+        if energy > best_energy {
+            best_energy = energy;
+            best = probe;
         }
     }
-    fs / best.0 as f32
+    best
 }
 
 #[test]
@@ -139,13 +161,11 @@ fn a_released_note_decays_away() {
     );
 }
 
-#[test]
-fn the_library_note_numbering_is_an_octave_below_midi() {
-    // The library puts A4 at note 57; the engine speaks standard MIDI, where
-    // A4 is 69. An octave of error here would be very audible, so it is worth
-    // one test.
+/// The pitch library note 57 sounds at, with the panel transposed by `shift`.
+fn sounding_pitch(shift: f32) -> f32 {
     let mut instrument = StringInstrument::new(FS);
     instrument.select_preset(0);
+    instrument.transpose = shift;
     let mut context: Box<dyn ProcessContext> = Box::new(TestContext::new());
     context.send_event(NoteEvent::NoteOn {
         channel: 0,
@@ -153,11 +173,44 @@ fn the_library_note_numbering_is_an_octave_below_midi() {
         velocity: 1.0,
     });
     let audio = render(&mut instrument, &mut context, FS * 3);
-    let segment = &audio[FS / 2..];
-    let fundamental = estimate_frequency(segment, 380.0, 520.0);
+    // Two semitones either side is wide enough to see a transposition error and
+    // narrow enough that only the fundamental is in range.
+    let low = 440.0 * 2f32.powf((shift - 2.0) / 12.0);
+    let high = 440.0 * 2f32.powf((shift + 2.0) / 12.0);
+    estimate_frequency(&audio[FS / 2..], low, high)
+}
+
+#[test]
+fn the_library_note_numbering_is_an_octave_below_midi() {
+    // The library puts A4 at note 57; the engine speaks standard MIDI, where
+    // A4 is 69. An octave of error here would be very audible, so it is worth
+    // one test.
+    //
+    // At concert pitch, which is where the presets sit. A transpose control that
+    // moved the note numbering itself would make the whole library disagree with
+    // itself about what a note number means, so the presets leave it alone and
+    // the panel is the only thing that ever moves it.
+    let fundamental = sounding_pitch(0.0);
     assert!(
         (fundamental - 440.0).abs() < 12.0,
         "library note 57 sounded at {fundamental} Hz, expected 440 Hz"
+    );
+}
+
+/// And the panel really does ship an octave down, which is the whole point of
+/// the control: the model is only convincing in the middle of its range.
+#[test]
+fn the_transpose_control_moves_the_pitch() {
+    let down = sounding_pitch(-12.0);
+    assert!(
+        (down - 220.0).abs() < 6.0,
+        "transposed down an octave, note 57 sounded at {down} Hz, expected 220"
+    );
+    let up = sounding_pitch(7.0);
+    let wanted = 440.0 * 2f32.powf(7.0 / 12.0);
+    assert!(
+        (up - wanted).abs() < 12.0,
+        "transposed up a fifth, note 57 sounded at {up} Hz, expected {wanted}"
     );
 }
 

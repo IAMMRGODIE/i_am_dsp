@@ -623,11 +623,7 @@ fn every_modelled_partial_is_in_tune() {
         (Preset::Cello, &[36, 45, 52][..]),
     ] {
         for note in notes {
-            let mut params = preset.defaults();
-            // The transpose is where the instrument sits, not what it is made
-            // of, and a string six hertz below the model's own floor is not a
-            // fair test of the dispersion fit.
-            params.transpose = 0.0;
+            let params = preset.defaults();
             let spec = preset.spec(*note, 0.9, &params);
             let string = WaveguideString::new(FS, spec.string.clone());
             let intended = string.partial_frequencies();

@@ -46,14 +46,19 @@ pub struct EngineParams {
     pub sympathetic: f32,
     /// How far the whole instrument is shifted, in semitones.
     ///
-    /// Negative is down. This exists because the model is only convincing over
-    /// about two octaves in the middle of its range: below that a string has too
-    /// few partials to have a character, and above it the excitation is short
-    /// enough compared to the period that the contact model's approximations
-    /// start to show. Shifting the instrument down is treating the symptom
-    /// rather than the cause, but it is an honest symptom to treat, and it
-    /// happens to make a piano sound like a nine foot concert grand rather than
-    /// a bright upright.
+    /// Negative is down. This is a transpose control rather than a property of
+    /// the instrument, and it defaults to concert pitch so that
+    /// [crate::instrument::note_to_frequency] keeps meaning what it says and a
+    /// note number sounds the pitch that note number names. A patch that wants
+    /// to sit lower sets it itself.
+    ///
+    /// It exists because the model is only convincing over about two octaves in
+    /// the middle of its range: below that a string has too few partials to have
+    /// a character, and above it the excitation is short enough compared to the
+    /// period that the contact model's approximations start to show. Shifting
+    /// the instrument down is treating the symptom rather than the cause, but it
+    /// is an honest symptom to treat, and it happens to make a piano sound like
+    /// a nine foot concert grand rather than a bright upright.
     pub transpose: f32,
     /// How fast the player's left hand shakes the string, in hertz.
     pub vibrato_rate: f32,
@@ -86,9 +91,7 @@ impl Default for EngineParams {
             bow_speed: 0.35,
             body: 0.6,
             sympathetic: 0.6,
-            // One octave down, which puts the middle of a keyboard in the part
-            // of the model's range that holds up. See the field's own note.
-            transpose: -12.0,
+            transpose: 0.0,
             vibrato_rate: 5.4,
             vibrato_depth: 12.0,
             vibrato_delay: 0.12,

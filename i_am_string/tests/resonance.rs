@@ -193,8 +193,16 @@ fn the_whole_engine_runs_comfortably_faster_than_realtime() {
     // eighty eight sympathetic strings is the heaviest thing the crate does, and
     // the guard is against someone quietly making *that* ten times worse, not
     // against the two cores costing the same.
+    //
+    // Only an optimised build is worth measuring. Unoptimised Rust is about an
+    // order of magnitude slower - the same engine that runs at five times real
+    // time in release manages half of real time in debug - so a wall clock
+    // threshold means nothing there. The loop above still runs in debug, because
+    // it is also the only place the engine is driven for ten seconds with a full
+    // pedal and eight voices.
+    let budget = if cfg!(debug_assertions) { 0.2 } else { 2.5 };
     assert!(
-        realtime > 2.5,
+        realtime > budget,
         "the engine only managed {realtime:.1}x realtime"
     );
     assert!(peak < 4.0, "eight voices peaked at {peak}");

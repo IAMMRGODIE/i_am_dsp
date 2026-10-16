@@ -199,10 +199,11 @@ impl StringInstrument {
         self.body = defaults.body;
         self.sympathetic = defaults.sympathetic;
         self.pedal = 0.0;
-        // The transpose is a choice about where the instrument sits, like the
-        // core, so it survives a change of preset.
-        let transpose = self.transpose;
-        self.transpose = if transpose == -12.0 { defaults.transpose } else { transpose };
+        // The transpose is deliberately not reloaded. It is a performance
+        // control, like a keyboard's transpose button, and every preset sits at
+        // concert pitch. This panel ships an octave down because the model is
+        // strongest in the middle of its range, but that is this panel's choice
+        // and changing instrument must not undo it.
         self.vibrato_rate = defaults.vibrato_rate;
         self.vibrato_depth = defaults.vibrato_depth;
         self.vibrato_delay = defaults.vibrato_delay;
