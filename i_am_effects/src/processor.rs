@@ -166,7 +166,11 @@ pub struct EffectView {
 impl SyncedView for EffectView {
 	type Message = EffectMessage;
 
-	fn update(&mut self, _: &Self::Message) {}
+	fn update(&mut self, _: &Self::Message) {
+		// The controls write into the map and are drawn from the snapshot, so the
+		// snapshot has to be taken again for a knob to follow the drag.
+		faceplate::refresh(&mut self.parameters, &self.param_map);
+	}
 
 	fn view(&self) -> Element<'_, EffectMessage> {
 		let map = &self.param_map;
@@ -182,6 +186,7 @@ impl SyncedView for EffectView {
 		)
 	}
 }
+
 
 /// The first parameter of the given names that this effect has.
 fn value_of(map: &ParamMap, names: &[&str]) -> Option<f32> {
@@ -341,4 +346,38 @@ macro_rules! effect_plugin {
 			}
 		}
 	};
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use i_am_dsp::prelude::Value;
+
+	/// A control draws the value it was handed, so the view has to hand it a new one
+	/// when the map changes. This is the bug that made every knob in the demo sit still
+	/// while its value moved underneath.
+	#[test]
+	fn a_view_follows_the_values_in_the_map() {
+		let effect = EffectProcessor::new(|_rate| i_am_dsp::prelude::HardClipper::new(0.8, 1.0));
+		let mut view = effect.synced_view();
+		let map = effect.param_map();
+
+		let drawn = |view: &EffectView| match view.parameters[0].value {
+			Value::Float { value, .. } => value,
+			_ => panic!("the shaper's first control is a float"),
+		};
+
+		let before = drawn(&view);
+
+		// What a drag does: the callback writes into the shared map.
+		map[view.parameters[0].identifier.as_str()].store(SetValue::Float(0.25), Ordering::SeqCst);
+		view.update(&EffectMessage::Changed);
+
+		assert_ne!(before, 0.25, "the test is pointless if it started there");
+		assert_eq!(
+			drawn(&view),
+			0.25,
+			"the snapshot the controls are drawn from followed the map"
+		);
+	}
 }

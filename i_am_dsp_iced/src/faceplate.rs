@@ -53,6 +53,33 @@ fn knob_size(size: ParamSize) -> KnobSize {
 	}
 }
 
+/// Takes the values a faceplate is drawn from, again.
+///
+/// A control hands back its change and is drawn from the value it was handed, so a host
+/// that keeps the parameters around -- which it has to, because a faceplate borrows them
+/// -- has to take that snapshot again whenever anything moves. Doing it nowhere is the
+/// bug where every control sits still while its value moves underneath, which looks
+/// exactly like a knob that cannot be dragged.
+///
+/// The values themselves live in the map the audio thread reads; the parameters carry a
+/// copy of them, and this is what makes the copy current.
+pub fn refresh(parameters: &mut [Parameter], map: &i_am_dsp::prelude::ParamMap) {
+	for parameter in parameters {
+		let Some(index) = map.query_param_index(&parameter.identifier) else {
+			continue;
+		};
+
+		match (&mut parameter.value, map[index].load(std::sync::atomic::Ordering::SeqCst)) {
+			(Value::Float { value, .. }, SetValue::Float(current)) => *value = current,
+			(Value::Int { value, .. }, SetValue::Int(current)) => *value = current,
+			(Value::Bool(value), SetValue::Bool(current)) => *value = current,
+			// A serialized value is not a control, and a type that does not match is not
+			// something to guess about.
+			_ => {},
+		}
+	}
+}
+
 /// Arranges parameters into the sections a faceplate draws.
 ///
 /// Sections appear in the order they were first declared in, and the members of a
