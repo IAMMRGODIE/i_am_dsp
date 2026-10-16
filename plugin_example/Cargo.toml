@@ -6,9 +6,14 @@ edition = "2024"
 [features]
 # Adds the VST3 entry points to the exported library (through i_am_plugin).
 vst3 = ["i_am_plugin/vst3"]
+# Builds the standalone runner (the demo host in i_am_dsp_iced).
+#   cargo run -p plugin_example --example wavetable_synth --features standalone
+standalone = ["i_am_dsp_iced/standalone"]
 
+# `rlib` as well as `cdylib`, so the examples in this crate can link it -- the
+# same shape the other plug-in crates use.
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 # Read by "cargo bundle" (the i_am_bundler tool) when naming the .vst3 / .clap bundle.
 [package.metadata.i_am_dsp]
@@ -18,6 +23,7 @@ id = "iamdsp.example.wavetable.synth"
 
 [dependencies]
 
+crossbeam-channel = "0.5.16"
 i_am_plugin = { workspace = true }
 i_am_dsp_iced = { workspace = true }
 i_am_dsp = { workspace = true }

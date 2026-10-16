@@ -1,5 +1,9 @@
 use i_am_dsp::prelude::{Parameters, SawWave, SineWave, SquareWave, TriangleWave, WaveTable};
-use i_am_dsp_iced::{Processor, plugins::wavetable_synth::{WavetableSynth, WavetableSynthMessage, WavetableSynthView}};
+use i_am_dsp_iced::Processor;
+
+pub mod wavetable_synth;
+
+use wavetable_synth::{WavetableSynth, WavetableSynthMessage, WavetableSynthView};
 use i_am_plugin::{Descriptor, MidiPort, Plugin, Tag, WindowOptions, export_clap};
 
 pub struct SynthWrapper(WavetableSynth);

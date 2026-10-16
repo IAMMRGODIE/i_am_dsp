@@ -21,7 +21,9 @@ use iced::{
 /// The default padding for the application.
 pub const PADDING: f32 = 6.0;
 
-pub(crate) const BORDER_WIDTH: f32 = 2.0;
+/// The width of a panel border, in design units. Public: a product that draws its
+/// own panel uses the same one the kit does.
+pub const BORDER_WIDTH: f32 = 2.0;
 
 /// The alpha factor for the waveform display.
 pub const ALPHA_FACTOR: f32 = 0.3;

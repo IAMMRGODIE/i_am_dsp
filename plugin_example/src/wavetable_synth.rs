@@ -7,12 +7,12 @@ use i_am_dsp::{
 	Generator, NoteEvent, 
 	prelude::{Adsr, AtomicValue, EqualTemperament, ParamMap, Paramed, Parameters, PmTable, TableOsc, WaveTable, WaveTableSmoother}
 };
-use iced::{Border, Element, Length, Theme, alignment::{Horizontal, Vertical}, widget::{button, canvas, column, container, hover, row, text}};
-use portable_atomic::AtomicUsize;
+use i_am_dsp_iced::iced::{self, Border, Element, Length, Theme, alignment::{Horizontal, Vertical}, widget::{button, canvas, column, container, hover, row, text}};
+use std::sync::atomic::AtomicUsize;
 
-use crate::{
-	Message, Processor, SyncedView, 
-	styles::{BORDER_WIDTH, ERROR_COLOR, PADDING, PRIMARY_COLOR}, 
+use i_am_dsp_iced::{
+	Message, Processor, SyncedView,
+	styles::{BORDER_WIDTH, ERROR_COLOR, PADDING, PRIMARY_COLOR},
 	tools::{
 		adsr_editor::AdsrEditor, 
 		knob::knob, 

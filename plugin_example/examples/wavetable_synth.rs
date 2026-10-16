@@ -2,8 +2,9 @@
 
 #[cfg(feature = "standalone")]
 fn main() {
-	use i_am_dsp_iced::styles::theme;
-	use i_am_dsp_iced::{demo::Demo, plugins::wavetable_synth::WavetableSynth};
+	use i_am_dsp_iced::iced;
+	use i_am_dsp_iced::{demo::Demo, styles::theme};
+	use plugin_example::wavetable_synth::WavetableSynth;
 	use i_am_dsp::prelude::{SawWave, SineWave, SquareWave, TriangleWave};
 	use i_am_dsp::prelude::WaveTable;
 

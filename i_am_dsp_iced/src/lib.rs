@@ -15,7 +15,6 @@ pub mod styles;
 #[cfg(feature = "faceplate")]
 pub mod faceplate;
 pub mod tools;
-pub mod plugins;
 #[cfg(feature = "standalone")]
 pub mod demo;
 
