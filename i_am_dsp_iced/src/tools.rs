@@ -10,6 +10,8 @@ pub mod slider;
 pub mod button;
 pub mod meter;
 pub mod spectrum;
+pub mod stereo;
+pub mod spectrogram;
 pub mod transfer;
 pub mod equalizer;
 pub(crate) mod utils;

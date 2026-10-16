@@ -12,7 +12,7 @@
 use std::sync::atomic::Ordering;
 
 use iced::{
-	Point, Rectangle, Renderer, Size, Theme,
+	Point, Rectangle, Renderer, Theme,
 	mouse,
 	theme::palette::lighten,
 	widget::canvas::{Cache, Path, Program, Stroke},
@@ -28,8 +28,15 @@ use crate::{
 const FLOOR_DB: f32 = -60.0;
 /// The loudest the meter shows: a little above full scale, so clipping is visible.
 const CEILING_DB: f32 = 6.0;
+/// Where a signal stops being comfortable, and where it stops being safe.
+const HOT_DB: f32 = -12.0;
+const CLIP_DB: f32 = -3.0;
 /// How far the peak hold falls back on every update.
 const HOLD_FALL_DB: f32 = 0.4;
+/// How much of a channel's width the bar takes: the rest is the gap beside it.
+const BAR_RATIO: f32 = 0.62;
+/// The RMS core inside the bar.
+const CORE_RATIO: f32 = 0.34;
 
 /// A stereo level meter.
 pub struct Meter {
@@ -90,15 +97,62 @@ fn position(db: f32) -> f32 {
 	((db - FLOOR_DB) / (CEILING_DB - FLOOR_DB)).clamp(0.0, 1.0)
 }
 
-/// The colour a level is drawn in: the accent until it is hot, then the meter
-/// says so.
-fn level_color(db: f32, accent: iced::Color) -> iced::Color {
-	if db > -3.0 {
+/// The colour of the band a level falls in.
+///
+/// The bar is drawn band by band rather than in one colour, so it turns at the
+/// points a meter is read at instead of switching colour wholesale.
+fn band_color(db: f32, accent: iced::Color) -> iced::Color {
+	if db > CLIP_DB {
 		styles::ERROR_COLOR
-	} else if db > -12.0 {
+	} else if db > HOT_DB {
 		styles::WARNING_COLOR
 	} else {
 		accent
+	}
+}
+
+/// Draws the part of a bar between two levels, split at the band boundaries.
+fn fill_bands(
+	frame: &mut iced::widget::canvas::Frame,
+	track: Rectangle,
+	top_db: f32,
+	width: f32,
+	accent: iced::Color,
+	alpha: f32,
+) {
+	let height = track.height;
+	let bar = Rectangle {
+		x: track.x + (track.width - width) / 2.0,
+		y: track.y,
+		width,
+		height,
+	};
+
+	for (low, high) in [
+		(FLOOR_DB, HOT_DB),
+		(HOT_DB, CLIP_DB),
+		(CLIP_DB, CEILING_DB),
+	] {
+		let high = high.min(top_db);
+
+		if high <= low {
+			continue;
+		}
+
+		let from = height * (1.0 - position(low));
+		let to = height * (1.0 - position(high));
+		let segment = Rectangle {
+			x: bar.x,
+			y: bar.y + to,
+			width: bar.width,
+			height: (from - to).max(0.5),
+		};
+		let radius = (bar.width / 2.0).min(segment.height / 2.0);
+
+		frame.fill(
+			&Path::rounded_rectangle(segment.position(), segment.size(), radius.into()),
+			band_color(high, accent).scale_alpha(alpha),
+		);
 	}
 }
 
@@ -153,55 +207,44 @@ impl<Message> Program<Message> for Meter {
 					&Path::rounded_rectangle(track.position(), track.size(), radius.into()),
 					palette.background.weakest.color,
 				);
+				frame.stroke(
+					&Path::rounded_rectangle(track.position(), track.size(), radius.into()),
+					Stroke::default()
+						.with_color(palette.background.strong.color)
+						.with_width(1.0),
+				);
 
+				// The peak, in bands: the bar changes colour where a meter is read,
+				// not all at once.
 				let peak_db = to_db(self.peak[channel].load(Ordering::Relaxed));
 
-				// The peak, as the whole bar.
 				if peak_db > FLOOR_DB {
-					let filled = height * position(peak_db);
-					let bar = Rectangle {
-						x,
-						y: top + height - filled,
-						width,
-						height: filled,
-					};
-					let bar_radius = (width / 2.0).min(filled / 2.0);
-
-					frame.fill(
-						&Path::rounded_rectangle(bar.position(), bar.size(), bar_radius.into()),
-						level_color(peak_db, accent).scale_alpha(0.55),
-					);
+					fill_bands(frame, track, peak_db, width * BAR_RATIO, accent, 0.7);
 				}
 
-				// The RMS, as the core of it.
+				// The RMS, as a brighter core inside it.
 				let rms_db = to_db(self.rms[channel].load(Ordering::Relaxed));
 
 				if rms_db > FLOOR_DB {
-					let filled = height * position(rms_db);
-					let bar = Rectangle {
-						x: x + width * 0.25,
-						y: top + height - filled,
-						width: width * 0.5,
-						height: filled,
-					};
-					let bar_radius = (width * 0.25).min(filled / 2.0);
-
-					frame.fill(
-						&Path::rounded_rectangle(bar.position(), bar.size(), bar_radius.into()),
-						lighten(level_color(rms_db, accent), 0.05),
-					);
+					fill_bands(frame, track, rms_db, width * CORE_RATIO, accent, 1.0);
 				}
 
-				// The peak hold.
+				// The peak hold: a thin line, with a cap so it reads as a mark rather
+				// than the top of the bar.
 				let hold_db = to_db(self.hold[channel].load(Ordering::Relaxed));
 
 				if hold_db > FLOOR_DB {
 					let y = top + height * (1.0 - position(hold_db));
+					let line = Rectangle {
+						x: x + width * 0.1,
+						y: y - 1.0,
+						width: width * 0.8,
+						height: 2.0,
+					};
+
 					frame.fill(
-						&Path::new(|builder| {
-							builder.rectangle(Point::new(x, y - 1.0), Size::new(width, 2.0));
-						}),
-						lighten(theme.palette().text, 0.1),
+						&Path::rounded_rectangle(line.position(), line.size(), 1.0.into()),
+						lighten(theme.palette().text, 0.15),
 					);
 				}
 			}

@@ -9,7 +9,7 @@
 //! bundle is meant to share. The scale buttons at the top re-render everything at
 //! another UI scale, which is how a faceplate is meant to handle DPI.
 
-use i_am_dsp::prelude::{SineWave, Unit};
+use i_am_dsp::prelude::{SawWave, SineWave, SquareWave, TriangleWave, Unit, WaveTable};
 use i_am_dsp_iced::{
 	iced::{
 		self, Element, Length, Subscription, alignment,
@@ -22,11 +22,25 @@ use i_am_dsp_iced::{
 		meter::Meter,
 		selector::selector,
 		slider::slider,
+		spectrogram::Spectrogram,
 		spectrum::Spectrum,
+		stereo::StereoMeter,
 		transfer::{Transfer, transfer},
 		waveform::{Waveform, WaveformBuf},
 	},
 };
+
+/// The amplitude a gain in decibels means.
+fn amplitude_of(db: f32) -> f32 {
+	10.0_f32.powf(db / 20.0)
+}
+
+/// Where a frequency sits between two others on a logarithmic axis, from 0 to 1.
+fn across_log(frequency: f32, low: f32, high: f32) -> f32 {
+	let frequency = frequency.max(low);
+
+	((frequency.log10() - low.log10()) / (high.log10() - low.log10())).clamp(0.0, 1.0)
+}
 
 /// The state of the gallery.
 pub struct WidgetKit {
@@ -47,18 +61,22 @@ pub struct WidgetKit {
 	spectrum: Spectrum,
 	/// The bins the spectrum is drawn from, kept so the shape can drift.
 	spectrum_bins: Vec<f32>,
-	/// Where the drifting resonance sits, from 0 to 1.
-	resonance: f32,
 	/// A scrolling scope, fed samples.
 	scope: WaveformBuf,
 	/// The phase the scope's own signal is at.
 	phase: f32,
-	/// A wavetable, drawn as it is.
-	table: Waveform<SineWave>,
 	/// The curve of a shaper, which follows the Drive knob.
 	transfer: Transfer,
-	/// The two channel levels the random walk is at.
-	levels: [f32; 2],
+	/// A stereo field display, fed the two channels a pan apart.
+	stereo: StereoMeter,
+	/// The frames the stereo display is given, kept so they are not rebuilt.
+	stereo_frames: Vec<(f32, f32)>,
+	/// A spectrogram, fed the same spectrum as the display above it.
+	spectrogram: Spectrogram,
+	/// The tables the wavetable display can show, chosen by the selector.
+	tables: Vec<Waveform<Box<dyn WaveTable>>>,
+	/// Which of them is on screen.
+	table: usize,
 }
 
 impl Default for WidgetKit {
@@ -87,7 +105,39 @@ impl Default for WidgetKit {
 		spectrum.update(&spectrum_bins);
 
 		let meter = Meter::new();
-		meter.update([0.72, 0.45], [0.5, 0.3]);
+		meter.update([0.55, 0.38], [0.34, 0.22]);
+
+		// The stereo display and the spectrogram are fed on the tick, so they are
+		// seeded here: a still frame of the gallery should not show two empty boxes
+		// any more than it should show a random one.
+		let stereo = StereoMeter::new(96);
+		let mut stereo_frames = Vec::with_capacity(96);
+
+		for step in 0..64 {
+			let t = step as f32 / 64.0 * std::f32::consts::TAU;
+
+			stereo_frames.push(((t * 3.0).sin() * 0.6, (t * 3.0 + 0.4).sin() * 0.5));
+		}
+
+		stereo.update(&stereo_frames);
+
+		let spectrogram = Spectrogram::new(64);
+
+		for column in 0..64 {
+			let decay = 1.0 - column as f32 / 80.0;
+			let mut shaded: Vec<f32> = spectrum_bins.iter().map(|bin| bin * decay).collect();
+
+			// A resonance that moves from column to column, so a still frame reads as
+			// a waterfall rather than as one shape repeated.
+			let count = shaded.len();
+			let centre = (column * 3) % count;
+
+			for band in &mut shaded[centre.saturating_sub(2)..(centre + 2).min(count)] {
+				*band = (*band + 0.4).min(1.0);
+			}
+
+			spectrogram.update(&shaded);
+		}
 
 		Self {
 			cutoff: 1200.0,
@@ -103,12 +153,19 @@ impl Default for WidgetKit {
 			meter,
 			spectrum,
 			spectrum_bins,
-			resonance: 0.25,
 			scope,
 			phase: 0.0,
-			table: Waveform::new(SineWave, 256, false),
+			tables: vec![
+				Waveform::new(Box::new(SineWave) as Box<dyn WaveTable>, 256, false),
+				Waveform::new(Box::new(TriangleWave) as Box<dyn WaveTable>, 256, false),
+				Waveform::new(Box::new(SawWave) as Box<dyn WaveTable>, 256, false),
+				Waveform::new(Box::new(SquareWave) as Box<dyn WaveTable>, 256, false),
+			],
+			table: 0,
 			transfer: transfer(move |input| (input * (1.0 + drive * 6.0)).tanh()),
-			levels: [0.72, 0.45],
+			stereo,
+			stereo_frames,
+			spectrogram,
 		}
 	}
 }
@@ -161,44 +218,79 @@ impl WidgetKit {
 	/// A random walk rather than noise, so a meter reads like a signal and a
 	/// spectrum drifts instead of flickering. The scope gets real samples.
 	fn stir(&mut self) {
-		for (channel, level) in self.levels.iter_mut().enumerate() {
-			let step = if channel == 0 { 0.07 } else { 0.05 };
+		// The knobs drive the displays -- Gain is the level, Cutoff is where the
+		// spectrum peaks and how fast the scope runs, Pan opens the stereo field --
+		// and a little wobble on top keeps them reading as a signal rather than as
+		// a still picture of the settings.
+		let amplitude = amplitude_of(self.gain).min(2.0);
+		// Scaled so that the gain the gallery starts at sits in the middle of the
+		// meter and turning it up is what reaches the top.
+		let left = (amplitude * (0.08 + self.mix * 0.28)).min(1.0);
+		let right = (amplitude * (0.06 + self.mix * 0.22)).min(1.0);
 
-			*level = (*level + rand::random_range(-step..step)).clamp(0.04, 1.0);
-		}
+		self.meter.update(
+			[
+				(left + rand::random_range(-0.04..0.04)).clamp(0.0, 1.0),
+				(right + rand::random_range(-0.03..0.03)).clamp(0.0, 1.0),
+			],
+			[left * 0.62, right * 0.62],
+		);
 
-		self.meter.update(self.levels, [self.levels[0] * 0.62, self.levels[1] * 0.55]);
-
-		// The shape drifts towards a tilt, with a resonance that wanders across it.
-		self.resonance = (self.resonance + rand::random_range(-0.012..0.012)).clamp(0.08, 0.85);
-
+		// The spectrum: a tilt, a peak where the filter is, and the level the gain
+		// puts it at.
+		let resonance = across_log(self.cutoff, 20.0, 20_000.0);
 		let bin_count = self.spectrum_bins.len();
 
 		for (index, bin) in self.spectrum_bins.iter_mut().enumerate() {
 			let t = index as f32 / (bin_count - 1) as f32;
-			let target = (1.0 - t).powf(1.6) * 0.6 + rand::random_range(0.0..0.25);
+			let target = (1.0 - t).powf(1.6) * 0.5 * amplitude.min(1.5) + rand::random_range(0.0..0.12);
 
-			*bin = *bin * 0.85 + target * 0.15;
+			*bin = *bin * 0.85 + target.clamp(0.0, 1.0) * 0.15;
 		}
 
 		let mut bins = self.spectrum_bins.clone();
-		let centre = (self.resonance * (bins.len() - 1) as f32) as usize;
+		let centre = (resonance * (bin_count - 1) as f32).round() as usize;
 
-		for index in centre.saturating_sub(2)..(centre + 2).min(bins.len()) {
-			bins[index] = (bins[index] + 0.4).min(1.0);
+		for band in &mut bins[centre.saturating_sub(2)..(centre + 2).min(bin_count)] {
+			*band = (*band + 0.45).min(1.0);
 		}
 
 		self.spectrum.update(&bins);
+		self.spectrogram.update(&bins);
 
-		// The scope gets samples, the way an effect would hand them over.
+		// The scope draws the gain as amplitude and the cutoff as frequency.
 		self.phase = (self.phase + 0.013) % 1.0;
+
+		let cycles = 1.0 + across_log(self.cutoff, 20.0, 20_000.0) * 9.0;
+		let scope_gain = amplitude.min(1.0) * 0.8;
 
 		for step in 0..64 {
 			let t = self.phase + step as f32 * 0.006;
-			let signal = (t * std::f32::consts::TAU * 4.0).sin() * 0.65 * (1.0 + (t * 5.0).sin() * 0.35);
+			let signal = (t * std::f32::consts::TAU * cycles).sin()
+				* scope_gain
+				* (1.0 + (t * 5.0).sin() * 0.25);
 
 			self.scope.update(&[signal]);
 		}
+
+		// The stereo field: the two channels are the same signal a pan apart, so the
+		// scope stands up for mono and opens out as the pan widens.
+		let offset = self.pan * std::f32::consts::FRAC_PI_2;
+		self.stereo_frames.clear();
+
+		for step in 0..64 {
+			let t = self.phase * 6.0 + step as f32 * 0.11;
+
+			self.stereo_frames.push((
+				(t.sin() * left).clamp(-1.0, 1.0),
+				((t + offset).sin() * right).clamp(-1.0, 1.0),
+			));
+		}
+
+		self.stereo.update(&self.stereo_frames);
+
+		// The wavetable display shows the table the selector picked.
+		self.table = self.slot.min(self.tables.len().saturating_sub(1));
 	}
 
 	/// Keeps the modifier state the controls read, and nothing else.
@@ -321,21 +413,26 @@ impl WidgetKit {
 
 		let visuals = self.section(
 			"Visualisers",
-			row![
-				canvas(&self.meter).width(styles::u(22.0)).height(styles::u(34.0)),
-				column![
-					canvas(&self.scope).width(styles::u(60.0)).height(styles::u(16.0)),
-					canvas(&self.spectrum).width(styles::u(60.0)).height(styles::u(16.0)),
+			column![
+				row![
+					canvas(&self.meter).width(styles::u(20.0)).height(styles::u(32.0)),
+					column![
+						canvas(&self.scope).width(styles::u(58.0)).height(styles::u(15.0)),
+						canvas(&self.spectrum).width(styles::u(58.0)).height(styles::u(15.0)),
+					]
+					.spacing(styles::u(styles::space::S)),
+					column![
+						canvas(&self.tables[self.table]).width(styles::u(26.0)).height(styles::u(15.0)),
+						canvas(&self.transfer).width(styles::u(26.0)).height(styles::u(15.0)),
+					]
+					.spacing(styles::u(styles::space::S)),
+					canvas(&self.stereo).width(styles::u(30.0)).height(styles::u(32.0)),
 				]
-				.spacing(styles::u(styles::space::S)),
-				column![
-					canvas(&self.table).width(styles::u(30.0)).height(styles::u(16.0)),
-					canvas(&self.transfer).width(styles::u(30.0)).height(styles::u(16.0)),
-				]
-				.spacing(styles::u(styles::space::S)),
+				.spacing(styles::u(styles::space::L))
+				.align_y(alignment::Vertical::Top),
+				canvas(&self.spectrogram).width(styles::u(158.0)).height(styles::u(18.0)),
 			]
-			.spacing(styles::u(styles::space::L))
-			.align_y(alignment::Vertical::Top),
+			.spacing(styles::u(styles::space::S)),
 		);
 
 		let width = Length::Fixed(styles::u(72.0));
