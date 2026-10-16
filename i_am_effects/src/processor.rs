@@ -235,26 +235,51 @@ fn hero<'a>(kind: &str, map: &ParamMap) -> Option<Element<'a, EffectMessage>> {
 	}
 }
 
-/// The magnitude response of a second-order lowpass, on the logarithmic axis a
+/// The magnitude response of the filter this effect is, on the logarithmic axis a
 /// spectrum draws: 0 to 1, low frequencies on the left.
+///
+/// The shape is the second-order transfer function the biquad implements rather than a
+/// curve drawn to look like one: flat below the corner, twelve decibels an octave below
+/// it, and the resonance the filter was given showing as a peak at the corner. Drawing
+/// it from the distance to the corner instead -- which is what this did at first -- falls
+/// away on both sides and reads as a bandpass, which is not what the effect does.
+///
+/// Vertically it is decibels over a fixed range, because a filter falls away by orders of
+/// magnitude: on a linear axis everything past the corner is a cliff against the floor.
 fn lowpass_response(cutoff: f32, q: f32) -> Vec<f32> {
 	const POINTS: usize = 64;
 	const LOW: f32 = 20.0;
 	const HIGH: f32 = 20_000.0;
+	/// How far below the loudest point the picture goes.
+	const RANGE_DB: f32 = 40.0;
 
-	let ratio = (cutoff.clamp(LOW, HIGH) / LOW).ln() / (HIGH / LOW).ln();
+	let corner = cutoff.clamp(LOW, HIGH);
+	let resonance = q.max(0.05);
 
-	(0..POINTS)
+	let magnitudes: Vec<f32> = (0..POINTS)
 		.map(|index| {
 			let position = index as f32 / (POINTS - 1) as f32;
-			// Two octaves either side of the corner is where a lowpass moves.
-			let octaves = (position - ratio) * 10.0;
-			let distance = octaves.abs();
+			let frequency = LOW * (HIGH / LOW).powf(position);
+			let ratio = frequency / corner;
 
-			let rolloff = 1.0 / (1.0 + (distance / 0.8).powi(2));
-			let ring = (q - 0.707).max(0.0) * (-(octaves * 2.5).powi(2)).exp() * 0.8;
+			// |H| of a second-order lowpass at this frequency.
+			let real = 1.0 - ratio * ratio;
+			let imaginary = ratio / resonance;
 
-			(rolloff + ring).clamp(0.0, 1.0)
+			1.0 / (real * real + imaginary * imaginary).sqrt()
+		})
+		.collect();
+
+	// One scale for every curve, whatever its resonance: the loudest point of this one
+	// is the top of the picture and everything else is read against it.
+	let loudest = magnitudes.iter().copied().fold(f32::MIN, f32::max).max(1e-6);
+
+	magnitudes
+		.into_iter()
+		.map(|magnitude| {
+			let decibels = 20.0 * (magnitude / loudest).max(1e-6).log10();
+
+			(1.0 + decibels / RANGE_DB).clamp(0.0, 1.0)
 		})
 		.collect()
 }
@@ -352,6 +377,29 @@ macro_rules! effect_plugin {
 mod tests {
 	use super::*;
 	use i_am_dsp::prelude::Value;
+
+	/// A lowpass is flat below its corner and falls away above it. This is the shape the
+	/// picture has to have: drawing it from the distance to the corner falls away on both
+	/// sides, and a bump in the middle is a bandpass.
+	#[test]
+	fn the_filter_picture_is_a_lowpass_and_not_a_bump() {
+		let response = lowpass_response(1_000.0, 0.707);
+		let last = response.len() - 1;
+		let at = |frequency: f32| {
+			let position = (frequency / 20.0).ln() / (20_000.0_f32 / 20.0).ln();
+
+			response[(position * last as f32).round() as usize]
+		};
+
+		assert!(
+			(at(20.0) - at(200.0)).abs() < 0.05,
+			"the passband is flat, not a slope up to the corner"
+		);
+		assert!(
+			at(200.0) > at(20_000.0) + 0.5,
+			"and it falls away above the corner, which is what makes it a lowpass"
+		);
+	}
 
 	/// A control draws the value it was handed, so the view has to hand it a new one
 	/// when the map changes. This is the bug that made every knob in the demo sit still
