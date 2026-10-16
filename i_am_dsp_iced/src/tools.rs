@@ -4,6 +4,7 @@ pub mod waveform;
 pub mod adsr_editor;
 pub mod unison;
 pub mod knob;
+pub mod input;
 pub mod selector;
 pub mod slider;
 pub mod equalizer;

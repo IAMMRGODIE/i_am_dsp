@@ -25,6 +25,26 @@ pub fn timer<P: Processor>() -> Subscription<P::Message> {
 	iced::time::every(std::time::Duration::from_millis(16)).map(P::Message::tick)
 }
 
+/// A subscription that keeps [tools::input::modifiers] up to date.
+///
+/// iced sends keyboard events to the focused widget only, and a mouse event
+/// carries no modifiers of its own, so this is the one place a control can learn
+/// that Shift is being held. Add it next to [timer] in the application's
+/// subscriptions:
+///
+/// ```ignore
+/// Subscription::batch([timer::<MyProcessor>(), modifiers_subscription::<MyProcessor>()])
+/// ```
+pub fn modifiers_subscription<P: Processor>() -> Subscription<P::Message> {
+	iced::event::listen_with(|event, _status, _window| match event {
+		iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) => {
+			tools::input::set_modifiers(modifiers);
+			P::Message::from_modifiers(modifiers)
+		},
+		_ => None,
+	})
+}
+
 /// A trait for views that can be synced with the processor.
 pub trait SyncedView: Send {
 	/// The message type used by the view.
@@ -45,6 +65,15 @@ pub trait Message: Clone + Send + Sync + 'static {
 	fn note_event(&self) -> Option<NoteEvent>;
 	/// The tick function for the processor.
 	fn tick(instant: Instant) -> Self;
+
+	/// Called when the keyboard modifiers change, for the controls that read
+	/// them: Shift to fine-tune a value, Ctrl/Cmd to reset it to the default.
+	///
+	/// Defaults to nothing, so an application that never subscribes to
+	/// [modifiers_subscription] simply leaves the modifiers empty.
+	fn from_modifiers(_modifiers: iced::keyboard::Modifiers) -> Option<Self> {
+		None
+	}
 }
 
 impl Message for () {

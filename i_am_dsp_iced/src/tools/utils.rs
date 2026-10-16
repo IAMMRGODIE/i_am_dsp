@@ -1,6 +1,10 @@
 use std::time::{Duration, Instant};
 
-use iced::{Point, Size, Theme, widget::canvas::{Frame, Path, Stroke}};
+use iced::{
+	Color, Font, Pixels, Point, Size, Theme, alignment,
+	advanced::graphics::geometry::frame::Backend,
+	widget::canvas::{Frame, Path, Stroke, Text},
+};
 
 use crate::styles::{BORDER_WIDTH, PADDING};
 
@@ -19,6 +23,36 @@ pub(crate) fn card_border_sized(theme: &Theme, frame: &mut Frame, border_color: 
 
 	frame.fill(&rect, theme.extended_palette().background.weakest.color);
 	frame.stroke(&rect, Stroke::default().with_color(border_color).with_width(BORDER_WIDTH));
+}
+
+/// Draws one line of text through the canvas.
+///
+/// This is the only text path in this crate that renders correctly: the
+/// low-level text call on the renderer lays a paragraph out by its own rules and
+/// clips it to the widget, which is how a label ends up drawn in half.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn draw_text<F: Backend>(
+	frame: &mut F,
+	content: &str,
+	anchor: Point,
+	align_x: iced::widget::text::Alignment,
+	align_y: alignment::Vertical,
+	size: f32,
+	font: Font,
+	color: Color,
+	max_width: f32,
+) {
+	Text {
+		size: Pixels(size),
+		font,
+		color,
+		position: anchor,
+		align_x,
+		align_y,
+		max_width,
+		..Text::from(content)
+	}
+	.draw_with(|path, color| frame.fill(&path, color));
 }
 
 #[inline(always)]

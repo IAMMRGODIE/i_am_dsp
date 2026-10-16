@@ -1,13 +1,13 @@
 //! A horizontal selector that allows the user to select a slot from a list of options.
 
 use iced::{
-	Element, Length, Point, Rectangle, Renderer, Size, Theme, 
+	Element, Length, Pixels, Point, Rectangle, Renderer, Size, Theme, 
 	advanced::{Widget, graphics::geometry::{Renderer as _, frame::Backend}, layout}, 
 	border::Radius, mouse::Event, theme::palette::lighten, 
 	widget::canvas::{Path, Stroke, Text}
 };
 
-use crate::{styles::{BORDER_WIDTH, BRIGHT_FACTOR, PADDING}, tools::utils::Animator};
+use crate::{styles::{self, BORDER_WIDTH, BRIGHT_FACTOR, PADDING}, tools::utils::Animator};
 
 type ChangeFunc<'a, Message, Slot> = Box<dyn Fn(&Vec<Slot>, usize) -> Message + 'a>;
 
@@ -39,7 +39,7 @@ impl<'a, Message, Slot: ToString> Selector<'a, Message, Slot> {
 			on_change: None,
 			current_id,
 			width: Length::Fill,
-			height: Length::Fixed(32.0),
+			height: Length::Fixed(styles::u(styles::size::ROW)),
 		}
 	}
 
@@ -143,8 +143,13 @@ impl<'a, Message, Slot: ToString> Widget<Message, Theme, Renderer> for Selector<
 		let bounds = layout.bounds();
 		let slots_count = self.slots.len();
 
-		let usable_width = bounds.width - 2.0 * BORDER_WIDTH;
-		let usable_height = bounds.height - 2.0 * BORDER_WIDTH;
+		// Every measurement here is a design token, so the control scales with the
+		// rest of a faceplate instead of staying at whatever pixel size it was
+		// written with.
+		let border_width = styles::px(BORDER_WIDTH);
+		let padding = styles::px(PADDING);
+		let usable_width = bounds.width - 2.0 * border_width;
+		let usable_height = bounds.height - 2.0 * border_width;
 
 		let width = usable_width / slots_count as f32;
 		let mut frame = renderer.new_frame(bounds);
@@ -154,7 +159,7 @@ impl<'a, Message, Slot: ToString> Widget<Message, Theme, Renderer> for Selector<
 
 		let background = Path::new(|builder| {
 			builder.rounded_rectangle(
-				Point::new(bounds.x + BORDER_WIDTH, bounds.y + BORDER_WIDTH), 
+				Point::new(bounds.x + border_width, bounds.y + border_width), 
 				Size::new(usable_width, usable_height), 
 				Radius::new(radius)
 			);
@@ -168,8 +173,8 @@ impl<'a, Message, Slot: ToString> Widget<Message, Theme, Renderer> for Selector<
 
 		let foreground = Path::new(|builder| {
 			builder.rounded_rectangle(
-				Point::new(x + bounds.x + BORDER_WIDTH + PADDING / 2.0, bounds.y + BORDER_WIDTH + PADDING / 2.0), 
-				Size::new(width - PADDING, usable_height - PADDING), 
+				Point::new(x + bounds.x + border_width + padding / 2.0, bounds.y + border_width + padding / 2.0), 
+				Size::new(width - padding, usable_height - padding), 
 				Radius::new(radius)
 			);
 		});
@@ -177,7 +182,7 @@ impl<'a, Message, Slot: ToString> Widget<Message, Theme, Renderer> for Selector<
 		frame.fill(&background, theme.extended_palette().background.weakest.color);
 		frame.stroke(&background, Stroke::default()
 			.with_color(theme.extended_palette().background.strongest.color)
-			.with_width(BORDER_WIDTH)
+			.with_width(border_width)
 		);
 
 		// let factor = if slots_count <= 1 {
@@ -196,6 +201,7 @@ impl<'a, Message, Slot: ToString> Widget<Message, Theme, Renderer> for Selector<
 			slot.align_x = iced::widget::text::Alignment::Center;
 			slot.align_y = iced::alignment::Vertical::Center;
 			slot.max_width = width;
+			slot.size = Pixels(styles::px(styles::font::VALUE));
 			slot.position = Point::new(width * i as f32 + width / 2.0 + bounds.x, bounds.height / 2.0 + bounds.y);
 			slot.color = if i == self.current_id {
 				iced::theme::palette::mix(
@@ -220,7 +226,7 @@ impl<'a, Message, Slot: ToString> Widget<Message, Theme, Renderer> for Selector<
 		tree: &mut iced::advanced::widget::Tree,
 		event: &iced::Event,
 		layout: layout::Layout<'_>,
-		_: iced::advanced::mouse::Cursor,
+		cursor: iced::advanced::mouse::Cursor,
 		_: &Renderer,
 		_: &mut dyn iced::advanced::Clipboard,
 		shell: &mut iced::advanced::Shell<'_, Message>,
@@ -229,6 +235,13 @@ impl<'a, Message, Slot: ToString> Widget<Message, Theme, Renderer> for Selector<
 		let state = tree.state.downcast_mut::<SelectorState>();
 		let bounds = layout.bounds();
 		let slots_count = self.slots.len();
+
+		// The cursor the widget is handed was already translated by any scrollable
+		// above it. The position inside a mouse event was not, and is off by the
+		// scroll offset, which is how a control starts reacting in the wrong place.
+		if let Some(position) = cursor.position() {
+			state.current_mouse_pos = position;
+		}
 
 		let width = bounds.width / slots_count as f32;
 		let rect = Rectangle::new(
@@ -249,9 +262,6 @@ impl<'a, Message, Slot: ToString> Widget<Message, Theme, Renderer> for Selector<
 		let iced::Event::Mouse(mouse_event) = event else { return; };
 
 		match mouse_event {
-			Event::CursorMoved { position } => {
-				state.current_mouse_pos = *position;
-			},
 			Event::ButtonPressed(_) if bounds.contains(state.current_mouse_pos) => {
 				state.is_pressed_on = true;
 			},
