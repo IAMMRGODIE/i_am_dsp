@@ -214,6 +214,14 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Slider<'a, Message> {
 		layout::Node::new(size)
 	}
 
+	fn tag(&self) -> iced::advanced::widget::tree::Tag {
+		// Without a tag of its own this widget inherits the stateless one, which
+		// is the tag of the empty tree a root element is diffed against: the two
+		// match, the state is never built, and the first event panics on the
+		// downcast. A widget with state has to say so.
+		iced::advanced::widget::tree::Tag::of::<SliderState>()
+	}
+
 	fn state(&self) -> iced::advanced::widget::tree::State {
 		iced::advanced::widget::tree::State::new(SliderState::default())
 	}

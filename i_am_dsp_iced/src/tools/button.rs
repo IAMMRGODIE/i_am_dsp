@@ -105,6 +105,14 @@ impl<'a, Message: Clone> Widget<Message, Theme, Renderer> for PushButton<'a, Mes
 		layout::Node::new(size)
 	}
 
+	fn tag(&self) -> iced::advanced::widget::tree::Tag {
+		// Without a tag of its own this widget inherits the stateless one, which
+		// is the tag of the empty tree a root element is diffed against: the two
+		// match, the state is never built, and the first event panics on the
+		// downcast. A widget with state has to say so.
+		iced::advanced::widget::tree::Tag::of::<ButtonState>()
+	}
+
 	fn state(&self) -> iced::advanced::widget::tree::State {
 		// A button that is born selected is born at its final colour: the fade is
 		// for a change of state, not for the first frame of the interface.
@@ -127,9 +135,7 @@ impl<'a, Message: Clone> Widget<Message, Theme, Renderer> for PushButton<'a, Mes
 		// change animates; the first sight of a button does not.
 		let state = tree.state.downcast_mut::<ButtonState>();
 
-		if state.accent != Some(self.accent) {
-			state.accent = Some(self.accent);
-
+		if should_animate(state.accent, self.accent) {
 			if self.accent {
 				state.accent_animator.in_now();
 			} else {
@@ -137,6 +143,7 @@ impl<'a, Message: Clone> Widget<Message, Theme, Renderer> for PushButton<'a, Mes
 			}
 		}
 
+		state.accent = Some(self.accent);
 		tree.children.clear();
 	}
 
@@ -246,6 +253,30 @@ impl<'a, Message: Clone> Widget<Message, Theme, Renderer> for PushButton<'a, Mes
 			},
 			_ => {},
 		}
+	}
+}
+
+/// Whether a change of selection should be played rather than snapped.
+///
+/// A button that is born selected is born at its final colour: the first sight of
+/// a widget is not a change of state, and animating it would make the interface
+/// fade in from nothing every time it is opened.
+fn should_animate(previous: Option<bool>, current: bool) -> bool {
+	previous.is_some_and(|previous| previous != current)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::should_animate;
+
+	#[test]
+	fn only_a_real_change_of_selection_animates() {
+		assert!(!should_animate(None, true), "a button born selected must not fade in");
+		assert!(!should_animate(None, false));
+		assert!(!should_animate(Some(true), true));
+		assert!(!should_animate(Some(false), false));
+		assert!(should_animate(Some(false), true));
+		assert!(should_animate(Some(true), false));
 	}
 }
 
