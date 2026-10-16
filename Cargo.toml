@@ -7,6 +7,7 @@ members = [
 	"i_am_dsp_iced", 
 	"i_am_plugin", "plugin_example", 
 	"i_am_bundler",
+	"i_am_effects",
 ]
 
 [workspace.dependencies]
@@ -15,3 +16,4 @@ i_am_string = { path = "i_am_string" }
 i_am_dsp = { path = "i_am_dsp" }
 i_am_dsp_iced = { path = "i_am_dsp_iced" }
 i_am_plugin = { path = "i_am_plugin" }
+i_am_effects = { path = "i_am_effects" }
