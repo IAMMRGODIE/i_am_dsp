@@ -45,6 +45,11 @@ struct Demo {
 	#[default(0.0)]
 	#[layout(group = "Amplitude", order = 2, widget = slider, step = 1.0)]
 	semitones: f32,
+	#[range(min = 0, max = 2)]
+	#[default(0)]
+	#[choices("Low", "Band", "High")]
+	#[layout(group = "Amplitude", order = 3, widget = choice)]
+	mode: i32,
 }
 
 impl Default for Demo {
@@ -56,6 +61,7 @@ impl Default for Demo {
 			loose: 0.5,
 			polarity: false,
 			semitones: 0.0,
+			mode: 0,
 		}
 	}
 }
@@ -91,7 +97,10 @@ fn a_faceplate_arranges_parameters_the_way_they_asked() {
 		["first", "second"],
 		"inside a section the declared order wins over the order they were written in"
 	);
-	assert_eq!(members(Some("Amplitude")), ["mix", "polarity", "semitones"]);
+	assert_eq!(
+		members(Some("Amplitude")),
+		["mix", "polarity", "semitones", "mode"]
+	);
 	assert_eq!(members(None), ["loose"], "a parameter that declares no order keeps its place");
 }
 

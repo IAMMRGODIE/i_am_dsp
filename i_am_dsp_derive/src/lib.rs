@@ -18,6 +18,7 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 	logarithmic,
 	default,
 	unit,
+	choices,
 	layout,
 	default_float_range,
 	default_int_range,
@@ -342,6 +343,10 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				Some(name) => quote!(Some(std::borrow::Cow::Borrowed(#name))),
 				None => quote!(None),
 			};
+			let choices = match &config.choices {
+				Some(choices) => quote!(Some(&[#(#choices),*])),
+				None => quote!(None),
+			};
 
 			// The layout half is behind a feature on both sides of the boundary: the
 			// derive only emits the field when it is asked to, and i_am_dsp only has
@@ -392,13 +397,13 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				};
 
 				quote! {
-					i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit, display_name: #display, layout: #layout }
+					i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit, display_name: #display, choices: #choices, layout: #layout }
 				}
 			};
 
 			#[cfg(not(feature = "layout"))]
 			let meta = quote! {
-				i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit, display_name: #display }
+				i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit, display_name: #display, choices: #choices }
 			};
 
 			meta
@@ -706,6 +711,8 @@ struct FieldConfig {
 	/// The value the parameter starts at, from `#[default(...)]`.
 	param_default: Option<f64>,
 	unit: Option<ParameterUnit>,
+	/// The names of an integer parameter's modes, from `#[choices("Low", ..)]`.
+	choices: Option<Vec<String>>,
 	/// Where the parameter wants to sit in a faceplate, from `#[layout(..)]`.
 	#[cfg(feature = "layout")]
 	layout: ParamLayoutConfig,
@@ -773,6 +780,7 @@ fn handle_attribute(
 			},
 			"default" => config.param_default = Some(parse_default_attribute(attr)?),
 			"unit" => config.unit = Some(parse_unit_attribute(attr)?),
+			"choices" => config.choices = Some(parse_choices_attribute(attr)?),
 			#[cfg(feature = "layout")]
 			"layout" => config.layout = parse_layout_attribute(attr)?,
 			"logarithmic" => config.logarithmic = true,
@@ -939,6 +947,25 @@ fn parse_default_attribute(attr: &Attribute) -> Result<f64> {
 }
 
 /// Reads `#[unit(beats)]` and friends: how a host should show the value.
+fn parse_choices_attribute(attr: &Attribute) -> Result<Vec<String>> {
+	use syn::punctuated::Punctuated;
+
+	let names = attr.parse_args_with(Punctuated::<syn::LitStr, syn::Token![,]>::parse_terminated)?;
+	let choices: Vec<String> = names.iter().map(|name| name.value()).collect();
+
+	if choices.is_empty() {
+		return Err(Error::new_spanned(attr, "A parameter needs at least one choice"));
+	}
+
+	for choice in &choices {
+		if choice.trim().is_empty() {
+			return Err(Error::new_spanned(attr, "A choice name must not be empty"));
+		}
+	}
+
+	Ok(choices)
+}
+
 fn parse_unit_attribute(attr: &Attribute) -> Result<ParameterUnit> {
 	let ident: Ident = attr.parse_args()?;
 

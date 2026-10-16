@@ -553,6 +553,32 @@ fn a_nested_parameter_without_names_is_labelled_by_its_fields() {
 	assert_eq!(parameters[0].meta.display_name.as_deref(), Some("inner x"));
 }
 
+// ---------- choices ----------
+
+#[derive(Parameters)]
+struct WithChoices {
+	#[range(min = 0, max = 2)]
+	#[choices("Low", "Band", "High")]
+	mode: i32,
+	#[range(min = 0.0, max = 1.0)]
+	amount: f32,
+}
+
+/// The names of a mode parameter reach the host, and a parameter that has none
+/// says so rather than leaving it to be guessed.
+#[test]
+fn the_names_of_a_choice_reach_the_metadata() {
+	let parameters = WithChoices { mode: 1, amount: 1.0 }.get_parameters();
+
+	assert_eq!(
+		parameters[0].meta.choices,
+		Some(&["Low", "Band", "High"][..]),
+		"the names a parameter is a choice between are part of what it means"
+	);
+	assert_eq!(parameters[1].meta.choices, None, "a number is not always a mode");
+	assert_eq!(parameters[0].meta.display_name, None);
+}
+
 // ---------- layout ----------
 
 #[cfg(feature = "layout")]

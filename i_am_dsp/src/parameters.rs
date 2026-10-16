@@ -276,6 +276,13 @@ pub struct ParameterMeta {
 	/// space, so a `Beats` field under a `Tempo` sub-parameter shows to a host as
 	/// `Tempo Beats`. A level that declares nothing contributes its field name.
 	pub display_name: Option<std::borrow::Cow<'static, str>>,
+	/// What the numbers of an integer parameter mean, when it is a choice between
+	/// named modes: `#[choices("Low", "Band", "High")]`.
+	///
+	/// A range says a parameter goes from nothing to two; this says what those are.
+	/// A host that only shows the number can ignore it, and one that shows a list of
+	/// names has nowhere else to get them from.
+	pub choices: Option<&'static [&'static str]>,
 	/// Where it wants to sit in a faceplate, and how it wants to be drawn.
 	///
 	/// Nothing reads this yet except a faceplate that chooses to; a host that only

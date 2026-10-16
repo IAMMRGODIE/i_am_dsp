@@ -18,7 +18,7 @@ use iced::{
 
 use crate::{
 	styles::{self, KnobSize},
-	tools::{button::push_button, knob::knob, slider::slider},
+	tools::{button::push_button, knob::knob, selector::selector, slider::slider},
 };
 
 /// How wide a control of each size is asked to be, in design units.
@@ -27,6 +27,10 @@ use crate::{
 /// room than a knob, which only has to fit its own name underneath.
 fn width_of(size: ParamSize, widget: ParamWidget) -> Length {
 	let units = match (widget, size) {
+		// A list of names is read along its length, like a slider's label and value.
+		(ParamWidget::Choice, ParamSize::Small) => 26.0,
+		(ParamWidget::Choice, ParamSize::Large) => 44.0,
+		(ParamWidget::Choice, _) => 34.0,
 		(ParamWidget::Slider, ParamSize::Small) => 24.0,
 		(ParamWidget::Slider, ParamSize::Large) => 40.0,
 		(ParamWidget::Slider, _) => 32.0,
@@ -229,6 +233,25 @@ fn control<'a, Message: Clone + 'a>(
 		Value::Int { value, range, .. } => {
 			let value = *value;
 			let range = range.clone();
+
+			// A choice is a list of names, and the metadata is the only place they
+			// can come from: a range says a parameter goes from nothing to two, the
+			// choices say what those are. Without them there is nothing to show but
+			// a number, so the control falls back to one.
+			if layout.widget == ParamWidget::Choice
+				&& let Some(choices) = parameter.meta.choices
+				&& !choices.is_empty()
+			{
+				let slots: Vec<String> = choices.iter().map(|choice| (*choice).to_string()).collect();
+				let selected = (value.max(0) as usize).min(slots.len() - 1);
+
+				return Some(
+					selector(slots, selected)
+						.on_change(move |_, selected| on_change(identifier, SetValue::Int(selected as i32)))
+						.width(width_of(layout.size, ParamWidget::Choice))
+						.into(),
+				);
+			}
 
 			if layout.widget == ParamWidget::Slider {
 				// A whole number is still a slider if it asked to be one; it snaps
