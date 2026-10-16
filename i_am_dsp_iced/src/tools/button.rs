@@ -265,6 +265,12 @@ fn should_animate(previous: Option<bool>, current: bool) -> bool {
 	previous.is_some_and(|previous| previous != current)
 }
 
+impl<'a, Message: Clone + 'a> From<PushButton<'a, Message>> for Element<'a, Message> {
+	fn from(value: PushButton<'a, Message>) -> Self {
+		Element::new(value)
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::should_animate;
@@ -277,11 +283,5 @@ mod tests {
 		assert!(!should_animate(Some(false), false));
 		assert!(should_animate(Some(false), true));
 		assert!(should_animate(Some(true), false));
-	}
-}
-
-impl<'a, Message: Clone + 'a> From<PushButton<'a, Message>> for Element<'a, Message> {
-	fn from(value: PushButton<'a, Message>) -> Self {
-		Element::new(value)
 	}
 }

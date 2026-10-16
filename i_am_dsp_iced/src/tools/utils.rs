@@ -82,25 +82,6 @@ pub(crate) fn animation(t: f32) -> f32 {
 	calc(t / total_time)
 }
 
-#[cfg(test)]
-mod tests {
-	use super::Animator;
-
-	/// A control that starts in a state that is not the default one has to be
-	/// drawn that way on its very first frame, or the interface fades in from
-	/// nothing every time it is opened.
-	#[test]
-	fn a_snapped_animator_reports_the_value_it_was_set_to() {
-		let mut animator = Animator::new();
-
-		animator.set(0.0);
-		assert_eq!(animator.calc(), 0.0);
-
-		animator.set(1.0);
-		assert_eq!(animator.calc(), 1.0);
-	}
-}
-
 #[derive(Debug, Clone)]
 pub struct Animator {
 	last_in_time: Instant,
@@ -209,5 +190,24 @@ impl Animator {
 			let t = self.last_out_time.elapsed().as_secs_f32() + self.start;
 			total_time - (last_time - t) < ANIMATION_DURATION.as_secs_f32()
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::Animator;
+
+	/// A control that starts in a state that is not the default one has to be
+	/// drawn that way on its very first frame, or the interface fades in from
+	/// nothing every time it is opened.
+	#[test]
+	fn a_snapped_animator_reports_the_value_it_was_set_to() {
+		let mut animator = Animator::new();
+
+		animator.set(0.0);
+		assert_eq!(animator.calc(), 0.0);
+
+		animator.set(1.0);
+		assert_eq!(animator.calc(), 1.0);
 	}
 }
