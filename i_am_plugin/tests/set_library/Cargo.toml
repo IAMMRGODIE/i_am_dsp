@@ -1,0 +1,16 @@
+[package]
+name = "set_library"
+version = "0.1.0"
+edition = "2024"
+
+# Its own workspace, like particula: this is a test fixture, not a member of the
+# i_am_dsp workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+i_am_plugin = { path = "../.." }
+i_am_dsp = { path = "../../../i_am_dsp", default-features = false }
+i_am_dsp_iced = { path = "../../../i_am_dsp_iced", default-features = false }

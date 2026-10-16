@@ -26,3 +26,7 @@ raw-window-handle = { version = "0.5.2" }
 crossbeam-channel = "0.5.16"
 xxhash-rust = { version = "0.8.18", features = ["const_xxh3"] }
 clap-wrapper = { version = "0.3.1", optional = true, default-features = false }
+
+[dev-dependencies]
+# A CLAP host, for the probe that loads a built library and asks it what it has.
+clack-host = "0.1.1"

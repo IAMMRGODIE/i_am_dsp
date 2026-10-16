@@ -1,5 +1,9 @@
-/target
+# A nested crate (a fixture, an example plug-in) has a target directory of its own.
+target/
 Cargo.lock
+# Except the fixture's: it pins the versions it was verified against, and it cannot
+# resolve them without a lock because one of them is yanked upstream.
+!i_am_plugin/tests/set_library/Cargo.lock
 
 *.wav
 *.png
