@@ -123,6 +123,117 @@ fn parse_beats(text: &str) -> Option<f64> {
 	text.parse::<f64>().ok().map(|beats| beats * multiplier)
 }
 
+/// How a parameter wants to be drawn.
+///
+/// A hint, not a rule: a faceplate with its own idea of a parameter is free to
+/// ignore it, and one with no idea at all can lay a whole effect out from these.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParamWidget {
+	/// Whatever a faceplate draws a plain number with.
+	#[default]
+	Auto,
+	/// A knob.
+	Knob,
+	/// A horizontal slider.
+	Slider,
+	/// An on/off switch.
+	Toggle,
+	/// One of a few named choices.
+	Choice,
+}
+
+/// How much room a parameter wants in a faceplate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParamSize {
+	/// A control for a parameter that is set once and left alone.
+	Small,
+	/// The default.
+	#[default]
+	Medium,
+	/// The control the window is about.
+	Large,
+}
+
+/// Where a parameter wants to sit in a faceplate, and how it wants to be drawn.
+///
+/// A parameter already carries its range, its unit and the value it starts at.
+/// What it does not carry is how a person is meant to meet it: which of the
+/// other controls it belongs beside, whether it wants a knob or a slider,
+/// whether it is a trim that deserves a small control or the one control the
+/// whole window is about.
+///
+/// Every field here is a hint. A faceplate that reads them can lay an effect out
+/// without being told anything else; one that ignores them still works, and a
+/// parameter that declares none of them is laid out by the order it was
+/// declared in.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ParamLayout {
+	/// The section of a faceplate this parameter belongs to.
+	pub group: Option<std::borrow::Cow<'static, str>>,
+	/// Where it sits inside that group. Ties keep declaration order.
+	pub order: Option<u16>,
+	/// How it wants to be drawn.
+	pub widget: ParamWidget,
+	/// How much room it wants.
+	pub size: ParamSize,
+	/// Whether the middle of its range is its neutral point, so a control fills
+	/// outward from the centre: a pan, a gain in decibels, a pitch offset.
+	pub bipolar: bool,
+	/// The interval its values snap to, when it has one: a whole voice, a
+	/// semitone, an eighth note. A control that knows this can show its ticks.
+	pub step: Option<f64>,
+}
+
+impl ParamLayout {
+	/// A layout with nothing declared, which is what a parameter has by default.
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	/// The section of a faceplate this parameter belongs to.
+	pub fn group(mut self, group: impl Into<std::borrow::Cow<'static, str>>) -> Self {
+		self.group = Some(group.into());
+		self
+	}
+
+	/// Where it sits inside that group.
+	pub fn order(mut self, order: u16) -> Self {
+		self.order = Some(order);
+		self
+	}
+
+	/// How it wants to be drawn.
+	pub fn widget(mut self, widget: ParamWidget) -> Self {
+		self.widget = widget;
+		self
+	}
+
+	/// How much room it wants.
+	pub fn size(mut self, size: ParamSize) -> Self {
+		self.size = size;
+		self
+	}
+
+	/// Whether the middle of its range is its neutral point.
+	pub fn bipolar(mut self) -> Self {
+		self.bipolar = true;
+		self
+	}
+
+	/// The interval its values snap to.
+	pub fn step(mut self, step: f64) -> Self {
+		self.step = Some(step);
+		self
+	}
+
+	/// Whether this says anything at all.
+	pub fn is_empty(&self) -> bool {
+		self == &Self::default()
+	}
+}
+
 /// What a host needs to present a parameter beyond its value and its range.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ParameterMeta {
@@ -144,6 +255,11 @@ pub struct ParameterMeta {
 	/// space, so a `Beats` field under a `Tempo` sub-parameter shows to a host as
 	/// `Tempo Beats`. A level that declares nothing contributes its field name.
 	pub display_name: Option<std::borrow::Cow<'static, str>>,
+	/// Where it wants to sit in a faceplate, and how it wants to be drawn.
+	///
+	/// Nothing reads this yet except a faceplate that chooses to; a host that only
+	/// wants the value, the range and the unit can ignore all of it.
+	pub layout: ParamLayout,
 }
 
 /// A helper struct for report parameters.
@@ -1456,6 +1572,56 @@ mod tests {
 		h: (f32, f32),
 	}
 
+
+	#[derive(Parameters, Default)]
+	struct LaidOut {
+		#[range(min = 0.0, max = 1.0)]
+		#[layout(group = "Time", order = 0, widget = knob, size = large)]
+		time: f32,
+		#[range(min = -1.0, max = 1.0)]
+		#[layout(group = "Time", order = 1, widget = slider, bipolar)]
+		pan: f32,
+		#[range(min = 0.0, max = 16.0)]
+		#[layout(group = "Voices", widget = slider, size = small, step = 1.0)]
+		voices: f32,
+		#[range(min = 0.0, max = 1.0)]
+		plain: f32,
+	}
+
+	/// A parameter can say where it wants to sit and how it wants to be drawn, and
+	/// one that says nothing keeps an empty layout.
+	#[test]
+	fn a_layout_reaches_the_metadata() {
+		let parameters = LaidOut::default().get_parameters();
+		let layout = |id: &str| {
+			parameters
+				.iter()
+				.find(|parameter| parameter.identifier == id)
+				.expect("a declared parameter")
+				.meta
+				.layout
+				.clone()
+		};
+
+		let time = layout("time");
+		assert_eq!(time.group.as_deref(), Some("Time"));
+		assert_eq!(time.order, Some(0));
+		assert_eq!(time.widget, ParamWidget::Knob);
+		assert_eq!(time.size, ParamSize::Large);
+		assert!(!time.bipolar);
+		assert_eq!(time.step, None);
+
+		let pan = layout("pan");
+		assert_eq!(pan.widget, ParamWidget::Slider);
+		assert!(pan.bipolar);
+		assert_eq!(pan.order, Some(1));
+
+		let voices = layout("voices");
+		assert_eq!(voices.step, Some(1.0));
+		assert_eq!(voices.size, ParamSize::Small);
+
+		assert!(layout("plain").is_empty(), "a parameter that declares nothing keeps an empty layout");
+	}
 
 	fn string_to_binary(s: &String) -> Vec<u8> {
 		s.as_bytes().to_vec()

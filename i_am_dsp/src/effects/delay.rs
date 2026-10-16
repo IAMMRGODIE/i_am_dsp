@@ -222,6 +222,7 @@ pub struct Delay<
 	/// starts is up to whoever builds the effect.
 	#[range(min = 0.0, max = 1000.0)]
 	#[unit(milliseconds)]
+	#[layout(group = "Time", order = 0, widget = knob)]
 	pub delay_time: f32,
 	/// The same delay time in musical units, for when the host has a tempo.
 	#[id(display = "Tempo")]
@@ -234,11 +235,13 @@ pub struct Delay<
 	/// 
 	/// must be between 0 and 1
 	#[default(0.8)]
+	#[layout(group = "Feedback", order = 0, widget = knob)]
 	pub decay_factor: f32,
 	/// The wet gain of the effect, saves in linear scale
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
 	#[default(1.0)]
+	#[layout(group = "Output", order = 0, widget = knob, bipolar)]
 	pub wet_gain: f32,
 	/// Whether the repeats walk around the channels instead of staying where they started.
 	///
@@ -249,6 +252,7 @@ pub struct Delay<
 	/// Summing means out-of-phase input cancels in the repeats, which is the usual trade for
 	/// this effect. The dry signal is untouched and keeps its image.
 	#[default(false)]
+	#[layout(group = "Output", order = 1, widget = toggle)]
 	pub pingpong: bool,
 	/// The delay being read right now, in fractional samples.
 	#[skip]

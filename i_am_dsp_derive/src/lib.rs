@@ -18,6 +18,7 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 	logarithmic,
 	default,
 	unit,
+	layout,
 	default_float_range,
 	default_int_range,
 	default_uint_range
@@ -119,6 +120,14 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 /// - `unit`: How a host should show the value as text: `#[unit(beats)]` renders `0.5` as `1/8`, and `#[unit(milliseconds)]` appends `ms`. One of `none`, `milliseconds` (or `ms`), `hertz` (or `hz`), `beats`, `seconds` (or `s`), `samples`, `decibels` (or `db`) and `percent`. A percentage is a *fraction of one*: `0.5` reads back and forth as `50.0 %`.
 ///
 ///   Declaring a unit is what keeps a host from having to guess: a value with one is shown with it, and a value that declares none stays a plain number. Not every parameter has one to declare — a gain, a ratio, a mix — and those are fine as they are.
+/// - layout: Where the parameter wants to sit in a faceplate, and how it wants to be
+///   drawn: which group it belongs to, where it sits inside it, whether it wants a knob or
+///   a slider, how much room it wants, whether the middle of its range is its neutral
+///   point, and the interval its values snap to. Every one of them is a hint, and a
+///   faceplate is free to ignore all of them:
+///   `#[layout(group = "Time", order = 0, widget = knob, size = large, bipolar, step = 0.25)]`.
+///   The options are group, order, widget (auto, knob, slider, toggle, choice), size
+///   (small, medium, large), bipolar and step.
 ///
 /// - `id(display = "...")`: What a host should *call* the parameter, when the identifier is not what a person should read: `#[id(display = "BPM Sync")]`. It never touches the identifier, so it can sit on a `sub_param`, where it names the level those parameters sit under: a `Beats` field under a `Tempo` sub-parameter is shown as `Tempo Beats`. A level that declares nothing contributes its field name, so the worst a host sees is `tempo beats` rather than `tempo.beats`.
 /// - `default_float_range`: A default range attribute that specifies the default minimum and maximum values of the parameter for float type.
@@ -334,8 +343,44 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				None => quote!(None),
 			};
 
+			let group = match &config.layout.group {
+				Some(group) => quote!(Some(std::borrow::Cow::Borrowed(#group))),
+				None => quote!(None),
+			};
+			let order = match config.layout.order {
+				Some(order) => quote!(Some(#order)),
+				None => quote!(None),
+			};
+			let widget = match config.layout.widget.unwrap_or(LayoutWidget::Auto) {
+				LayoutWidget::Auto => quote!(i_am_dsp::prelude::ParamWidget::Auto),
+				LayoutWidget::Knob => quote!(i_am_dsp::prelude::ParamWidget::Knob),
+				LayoutWidget::Slider => quote!(i_am_dsp::prelude::ParamWidget::Slider),
+				LayoutWidget::Toggle => quote!(i_am_dsp::prelude::ParamWidget::Toggle),
+				LayoutWidget::Choice => quote!(i_am_dsp::prelude::ParamWidget::Choice),
+			};
+			let size = match config.layout.size.unwrap_or(LayoutSize::Medium) {
+				LayoutSize::Small => quote!(i_am_dsp::prelude::ParamSize::Small),
+				LayoutSize::Medium => quote!(i_am_dsp::prelude::ParamSize::Medium),
+				LayoutSize::Large => quote!(i_am_dsp::prelude::ParamSize::Large),
+			};
+			let bipolar = config.layout.bipolar;
+			let step = match config.layout.step {
+				Some(step) => quote!(Some(#step)),
+				None => quote!(None),
+			};
+			let layout = quote! {
+				i_am_dsp::prelude::ParamLayout {
+					group: #group,
+					order: #order,
+					widget: #widget,
+					size: #size,
+					bipolar: #bipolar,
+					step: #step,
+				}
+			};
+
 			quote! {
-				i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit, display_name: #display }
+				i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit, display_name: #display, layout: #layout }
 			}
 		};
 
@@ -612,6 +657,8 @@ struct FieldConfig {
 	/// The value the parameter starts at, from `#[default(...)]`.
 	param_default: Option<f64>,
 	unit: Option<ParameterUnit>,
+	/// Where the parameter wants to sit in a faceplate, from `#[layout(..)]`.
+	layout: ParamLayoutConfig,
 	persist_serialize: Option<String>,
 	persist_deserialize: Option<String>,
 	skip: bool,
@@ -676,6 +723,7 @@ fn handle_attribute(
 			},
 			"default" => config.param_default = Some(parse_default_attribute(attr)?),
 			"unit" => config.unit = Some(parse_unit_attribute(attr)?),
+			"layout" => config.layout = parse_layout_attribute(attr)?,
 			"logarithmic" => config.logarithmic = true,
 			"skip" => config.skip = true,
 			"sub_param" => config.is_sub_param = true,
@@ -857,6 +905,103 @@ fn parse_unit_attribute(attr: &Attribute) -> Result<ParameterUnit> {
 			format!("unknown unit `{other}`: expected one of none, milliseconds, hertz, beats"),
 		)),
 	}
+}
+
+/// How a parameter asked to be drawn, from the widget option of a layout attribute.
+#[derive(Debug, Clone, Copy)]
+enum LayoutWidget {
+	Auto,
+	Knob,
+	Slider,
+	Toggle,
+	Choice,
+}
+
+/// How much room a parameter asked for, from the size option of a layout attribute.
+#[derive(Debug, Clone, Copy)]
+enum LayoutSize {
+	Small,
+	Medium,
+	Large,
+}
+
+/// What a field's layout attribute asked for.
+#[derive(Debug, Default)]
+struct ParamLayoutConfig {
+	group: Option<String>,
+	order: Option<u16>,
+	widget: Option<LayoutWidget>,
+	size: Option<LayoutSize>,
+	bipolar: bool,
+	step: Option<f64>,
+}
+
+/// Reads the layout attribute: where a parameter wants to sit in a faceplate.
+///
+/// Every option is optional, and every one of them is a hint. The attribute
+/// exists so that an effect can say how it wants to be met without a faceplate
+/// having to be written for it.
+fn parse_layout_attribute(attr: &Attribute) -> Result<ParamLayoutConfig> {
+	let mut layout = ParamLayoutConfig::default();
+
+	attr.parse_nested_meta(|meta| {
+		if meta.path.is_ident("group") {
+			let val: Lit = meta.value()?.parse()?;
+			match val {
+				Lit::Str(inner) => {
+					let value = inner.value();
+					if value.trim().is_empty() {
+						return Err(Error::new_spanned(attr, "A group name must not be empty"));
+					}
+					layout.group = Some(value);
+				},
+				_ => return Err(Error::new_spanned(attr, "Invalid literal for group, expected a string")),
+			}
+		} else if meta.path.is_ident("order") {
+			let val: LitInt = meta.value()?.parse()?;
+			let order: u32 = val.base10_parse()?;
+			layout.order = Some(u16::try_from(order).map_err(|_| Error::new_spanned(attr, "An order must fit in 16 bits"))?);
+		} else if meta.path.is_ident("widget") {
+			let ident: Ident = meta.value()?.parse()?;
+			layout.widget = Some(match ident.to_string().as_str() {
+				"auto" => LayoutWidget::Auto,
+				"knob" => LayoutWidget::Knob,
+				"slider" => LayoutWidget::Slider,
+				"toggle" => LayoutWidget::Toggle,
+				"choice" => LayoutWidget::Choice,
+				other => return Err(Error::new_spanned(&ident, format!("unknown widget {other}: expected auto, knob, slider, toggle or choice"))),
+			});
+		} else if meta.path.is_ident("size") {
+			let ident: Ident = meta.value()?.parse()?;
+			layout.size = Some(match ident.to_string().as_str() {
+				"small" => LayoutSize::Small,
+				"medium" => LayoutSize::Medium,
+				"large" => LayoutSize::Large,
+				other => return Err(Error::new_spanned(&ident, format!("unknown size {other}: expected small, medium or large"))),
+			});
+		} else if meta.path.is_ident("bipolar") {
+			layout.bipolar = true;
+		} else if meta.path.is_ident("step") {
+			let val: Lit = meta.value()?.parse()?;
+			let step = match val {
+				Lit::Float(inner) => inner.base10_parse::<f64>()?,
+				Lit::Int(inner) => inner.base10_parse::<f64>()?,
+				other => return Err(Error::new_spanned(other, "step expects a number")),
+			};
+
+			if step <= 0.0 {
+				return Err(Error::new_spanned(attr, "A step must be greater than zero"));
+			}
+
+			layout.step = Some(step);
+		} else {
+			return Err(Error::new_spanned(attr, "unknown layout option: expected group, order, widget, size, bipolar or step"));
+		}
+
+		Ok(())
+	})?;
+
+	Ok(layout)
 }
 
 /// What a field's `#[id(..)]` attribute asked for: the identifier prefix, the identifier
