@@ -172,6 +172,14 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		_: &'a (),
 		config: clack_plugin::prelude::PluginAudioConfiguration,
 	) -> Result<Self, PluginError> {
+		// The host says what it will run at here, and this is the first moment anyone
+		// can know: everything was built before the session existed.
+		//
+		// SAFETY: the processor is pinned in the still-alive `PluginMain`, and this is
+		// the same place that takes its address below. Pinning it stops it moving, not
+		// being borrowed mutably, and the borrow ends before the address is taken.
+		unsafe { main_thread.processor.as_mut().get_unchecked_mut() }.on_activate(config.sample_rate as usize);
+
 		let ptr = main_thread.processor.as_ref().get_ref() as *const P as usize;
 		let (event_sender, event_receiver) = crossbeam_channel::unbounded();
 

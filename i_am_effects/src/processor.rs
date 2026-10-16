@@ -52,7 +52,16 @@ impl IcedMessage for EffectMessage {
 
 /// An effect, with the interface its metadata describes.
 pub struct EffectProcessor<E: Parameters> {
+	/// The effect, kept inside a `Paramed` because that is what holds the parameter
+	/// map the host and the interface both write into.
+	///
+	/// The map is made with the effect and has to stay the same map for the plug-in's
+	/// whole life, so the effect is what moves when the rate changes: `Paramed` keeps
+	/// its map when the value inside it is replaced.
 	effect: Paramed<E>,
+	/// How to build the effect for a sample rate.
+	build: fn(usize) -> E,
+	sample_rate: usize,
 }
 
 impl<E: Parameters> Parameters for EffectProcessor<E> {
@@ -66,11 +75,36 @@ impl<E: Parameters> Parameters for EffectProcessor<E> {
 }
 
 impl<E: Parameters> EffectProcessor<E> {
-	/// Wraps an effect that is already built for a rate.
-	pub fn new(effect: E) -> Self {
+	/// Wraps an effect, given how to build it for a sample rate.
+	///
+	/// It is built once for the placeholder rate, and rebuilt by
+	/// [`activate`](Self::activate) when the host says what it really runs at.
+	pub fn new(build: fn(usize) -> E) -> Self {
 		Self {
-			effect: Paramed::new(effect),
+			effect: Paramed::new(build(DEFAULT_SAMPLE_RATE)),
+			build,
+			sample_rate: DEFAULT_SAMPLE_RATE,
 		}
+	}
+
+	/// The rate the effect is currently built for.
+	pub fn sample_rate(&self) -> usize {
+		self.sample_rate
+	}
+
+	/// Rebuilds the effect for the rate the host just announced.
+	///
+	/// The parameter map is deliberately left alone: it is the one the host is
+	/// holding, and swapping the effect inside it is the whole trick. The values are
+	/// pushed into the new effect so nothing the interface moved is lost.
+	pub fn activate(&mut self, sample_rate: usize) {
+		if sample_rate == self.sample_rate || sample_rate == 0 {
+			return;
+		}
+
+		self.effect.value = (self.build)(sample_rate);
+		self.effect.sync_params();
+		self.sample_rate = sample_rate;
 	}
 
 	/// The parameters, as a host presents them.
@@ -232,10 +266,16 @@ macro_rules! effect_plugin {
 		#[doc = concat!("The ", $title, " plug-in.")]
 		pub struct $name($crate::processor::EffectProcessor<$effect>);
 
+		impl Default for $name {
+			fn default() -> Self {
+				Self($crate::processor::EffectProcessor::new($build))
+			}
+		}
+
 		impl $name {
-			#[doc = concat!("Builds ", $title, " for a sample rate.")]
-			pub fn new(sample_rate: usize) -> Self {
-				Self($crate::processor::EffectProcessor::new(($build)(sample_rate)))
+			/// The rate the effect inside is currently built for.
+			pub fn sample_rate(&self) -> usize {
+				self.0.sample_rate()
 			}
 		}
 
@@ -282,8 +322,12 @@ macro_rules! effect_plugin {
 		impl i_am_plugin::Plugin for $name {
 			const DESCRIPTOR: i_am_plugin::Descriptor = i_am_plugin::Descriptor::new($id, $title);
 
+			fn on_activate(&mut self, sample_rate: usize) {
+				self.0.activate(sample_rate);
+			}
+
 			fn new() -> Self {
-				Self::new($crate::processor::DEFAULT_SAMPLE_RATE)
+				Self::default()
 			}
 
 			fn window_options() -> i_am_plugin::WindowOptions {

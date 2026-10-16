@@ -79,6 +79,7 @@ where
 		})
 	}
 }
+
 impl<P: Plugin> PluginLatencyImpl for PluginMain<P> {
 	fn get(&mut self) -> u32 {
 		// What the audio thread last ran at, which is the latency the host has to compensate.

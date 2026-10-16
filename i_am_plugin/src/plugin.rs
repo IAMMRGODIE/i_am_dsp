@@ -33,6 +33,22 @@ pub trait Plugin: Processor {
 	/// Get the plugin's parameter map.
 	fn param_map(&self) -> ParamMap;
 
+	/// Called when the host activates the plug-in, with the sample rate it will run
+	/// at.
+	///
+	/// This is the first moment a plug-in can know it. One is built before the host
+	/// has said anything about the session -- [`new`](Self::new) takes no arguments,
+	/// because a host asks for a plug-in before it has a session to ask about -- so an
+	/// effect whose coefficients depend on the rate is built with the wrong ones until
+	/// this arrives, and rebuilding here is what fixes it.
+	///
+	/// A plug-in that rebuilds has to keep the parameter map it already handed out:
+	/// a host reads parameters through the map it was given, and a new one would leave
+	/// its automation writing into a map nothing is reading.
+	fn on_activate(&mut self, sample_rate: usize) {
+		let _ = sample_rate;
+	}
+
 	/// The function to be called when host sends `reset` to plugin.
 	fn on_reset(&mut self) {}
 
