@@ -1139,7 +1139,7 @@ pub struct Lowpass<const CHANNELS: usize> {
 	#[logarithmic]
 	/// The cutoff of the lowpass filter
 	#[unit(hertz)]
-	#[layout(group = "Filter", order = 0, widget = knob, size = large)]
+	#[layout(group = "Filter", order = 0, widget = knob, size = large, hero = "spectrum")]
 	pub cutoff: f32,
 	#[range(min = 0.01, max = 10.0)]
 	/// The Q value of the lowpass filter

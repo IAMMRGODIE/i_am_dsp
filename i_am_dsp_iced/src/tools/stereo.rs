@@ -218,7 +218,7 @@ impl<Message> Program<Message> for StereoMeter {
 
 			let marker = padding + width * (correlation + 1.0) / 2.0;
 			frame.fill(
-				&Path::circle(Point::new(marker, groove.y + groove.height / 2.0), groove.height * 0.8),
+				&Path::circle(Point::new(marker, groove.y + groove.height / 2.0), groove.height * 0.35),
 				if correlation < 0.0 {
 					styles::ERROR_COLOR
 				} else {

@@ -11,7 +11,11 @@ use std::path::Path;
 
 use i_am_dsp::prelude::{Parameters, SetValue};
 use i_am_dsp_derive::Parameters;
-use i_am_dsp_iced::{faceplate, styles};
+use i_am_dsp_iced::{
+	faceplate,
+	iced::Element,
+	styles,
+};
 
 /// A stand-in for a real effect: four parameters that declare where they want to
 /// go, written in an order that is deliberately not the order they asked for.
@@ -25,7 +29,7 @@ struct Demo {
 	second: f32,
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.5)]
-	#[layout(group = "Amplitude", order = 0, widget = slider)]
+	#[layout(group = "Amplitude", order = 0, widget = slider, hero = "curve")]
 	mix: f32,
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.5)]
@@ -113,15 +117,48 @@ fn a_faceplate_is_drawn_from_the_metadata() {
 	);
 }
 
+/// A section asks for its picture by name, and only the sections that asked are
+/// asked about.
+///
+/// A faceplate that queried the host about every section would be making it answer
+/// for pictures nobody wanted, and it would draw one wherever the host happened to
+/// recognise a name.
+#[test]
+fn only_a_section_that_asked_is_asked_about() {
+	let parameters = Demo::default().get_parameters();
+	let asked = std::cell::RefCell::new(Vec::new());
+
+	let view = faceplate::faceplate_with_heroes(
+		&parameters,
+		|_, value| Change(value),
+		|kind: &str| -> Option<Element<'_, Change>> {
+			asked.borrow_mut().push(kind.to_string());
+
+			None
+		},
+	);
+
+	drop(view);
+
+	assert_eq!(
+		asked.into_inner(),
+		vec!["curve".to_string()],
+		"one section declared a hero, so one section asks for it"
+	);
+}
+
 /// The same faceplate, four real effects, and not one line of interface code
 /// between them: each effect declares where its controls belong and how they want
 /// to be drawn, and that is the whole of what it knows about being on screen.
 #[test]
 fn four_effects_share_one_faceplate() {
 	use i_am_dsp::prelude::{Crusher, HardClipper, Lowpass, Phaser, SineWave};
-	use i_am_dsp_iced::iced::{
-		Element,
-		widget::{column, row, text},
+	use i_am_dsp_iced::{
+		iced::{
+			Element, Length,
+			widget::{canvas, column, row, text},
+		},
+		tools::{spectrum::Spectrum, transfer::transfer},
 	};
 
 	let effects = [
@@ -131,20 +168,63 @@ fn four_effects_share_one_faceplate() {
 		("I Am Phaser", Phaser::<SineWave, 2>::new(SineWave, 4, 44_100).get_parameters()),
 	];
 
+	// The pictures this host can draw, by the names the effects asked for. This is
+	// the whole of what a hero needs: the metadata names a section's picture and
+	// whoever draws the faceplate says what that picture is.
+	//
+	// A host that keeps its displays in state would borrow them here instead of
+	// building one per call; a function that owns what it returns is the shortest
+	// way to say it.
+	fn hero<'a>(kind: &'a str) -> Option<Element<'a, Change>> {
+		match kind {
+			// A shaper is its curve.
+			"transfer" => Some(
+				canvas(transfer(|input| (input * 2.0).tanh() * 0.9))
+					.width(Length::Fill)
+					.height(styles::u(14.0))
+					.into(),
+			),
+			// A filter is its response.
+			"spectrum" => {
+				let response = Spectrum::new();
+				let bins: Vec<f32> = (0..48)
+					.map(|bin| {
+						let t = bin as f32 / 47.0;
+
+						(0.12 + (1.0 - (t - 0.42).abs() * 7.0).max(0.0) * 0.85).clamp(0.0, 1.0)
+					})
+					.collect();
+
+				response.update(&bins);
+
+				Some(
+					canvas(response)
+						.width(Length::Fill)
+						.height(styles::u(14.0))
+						.into(),
+				)
+			},
+			_ => None,
+		}
+	}
+
 	// A function rather than a closure: a closure cannot say that what it returns
 	// borrows from what it was handed.
-	fn card<'a>(effect: &'a (&'static str, Vec<i_am_dsp::prelude::Parameter>)) -> Element<'a, Change> {
+	fn card<'a>(
+		effect: &'a (&'static str, Vec<i_am_dsp::prelude::Parameter>),
+		hero: fn(&'a str) -> Option<Element<'a, Change>>,
+	) -> Element<'a, Change> {
 		column![
 			text(effect.0).size(styles::px(styles::font::TITLE)),
-			faceplate::faceplate(&effect.1, |_, value| Change(value)),
+			faceplate::faceplate_with_heroes(&effect.1, |_, value| Change(value), hero),
 		]
 		.spacing(styles::u(styles::space::S))
 		.into()
 	}
 
 	let sheet: Element<'_, Change> = row![
-		column![card(&effects[0]), card(&effects[1])].spacing(styles::u(styles::space::XL)),
-		column![card(&effects[2]), card(&effects[3])].spacing(styles::u(styles::space::XL)),
+		column![card(&effects[0], hero), card(&effects[1], hero)].spacing(styles::u(styles::space::XL)),
+		column![card(&effects[2], hero), card(&effects[3], hero)].spacing(styles::u(styles::space::XL)),
 	]
 	.spacing(styles::u(styles::space::XL))
 	.padding(styles::u(styles::space::L))

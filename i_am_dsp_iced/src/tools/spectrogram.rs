@@ -55,7 +55,7 @@ impl Spectrogram {
 	/// show detail the display may not have room for. Whatever the incoming bins
 	/// are, they are averaged down to this many.
 	pub fn bands(mut self, bands: usize) -> Self {
-		self.bands = bands.clamp(1, 128);
+		self.bands = bands.clamp(1, 1024);
 		self.cache.clear();
 		self
 	}

@@ -89,9 +89,26 @@ pub fn faceplate<'a, Message: Clone + 'a>(
 	parameters: &'a [Parameter],
 	on_change: impl Fn(&'a str, SetValue) -> Message + Copy + 'a,
 ) -> Element<'a, Message> {
+	faceplate_with_heroes(parameters, on_change, |_| None)
+}
+
+/// Lays a set of parameters out, with a picture wherever one was asked for.
+///
+/// A section whose parameters carry a [hero](i_am_dsp::prelude::ParamLayout::hero)
+/// name is given whatever the callback returns for that name, above its controls.
+/// The metadata says what a section is *about* and the caller decides what that
+/// looks like, because the caller is the one that knows what it can draw. A
+/// section that names a picture nobody supplies is drawn without one, which is
+/// what makes a hero an addition rather than a requirement.
+pub fn faceplate_with_heroes<'a, Message: Clone + 'a>(
+	parameters: &'a [Parameter],
+	on_change: impl Fn(&'a str, SetValue) -> Message + Copy + 'a,
+	hero: impl Fn(&'a str) -> Option<Element<'a, Message>> + Copy + 'a,
+) -> Element<'a, Message> {
 	let sections = arrange(parameters).into_iter().filter_map(|(group, members)| {
 		let controls: Vec<_> = members
-			.into_iter()
+			.iter()
+			.copied()
 			.filter_map(|parameter| control(parameter, on_change))
 			.collect();
 
@@ -111,6 +128,17 @@ pub fn faceplate<'a, Message: Clone + 'a>(
 					.size(styles::px(styles::font::SECTION))
 					.color(styles::SECONDARY_TEXT_COLOR),
 			);
+		}
+
+		// The picture, if this section asked for one and the caller can draw it.
+		// The first member that asks decides for the whole section: a hero belongs
+		// to a section, and naming it twice would be a contradiction.
+		if let Some(kind) = members
+			.iter()
+			.find_map(|parameter| parameter.meta.layout.hero.as_deref())
+			&& let Some(picture) = hero(kind)
+		{
+			card = card.push(picture);
 		}
 
 		// The card hugs its controls rather than filling the window: a faceplate is

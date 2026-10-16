@@ -375,6 +375,10 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 					Some(step) => quote!(Some(#step)),
 					None => quote!(None),
 				};
+				let hero = match &config.layout.hero {
+					Some(hero) => quote!(Some(std::borrow::Cow::Borrowed(#hero))),
+					None => quote!(None),
+				};
 				let layout = quote! {
 					i_am_dsp::prelude::ParamLayout {
 						group: #group,
@@ -383,6 +387,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 						size: #size,
 						bipolar: #bipolar,
 						step: #step,
+						hero: #hero,
 					}
 				};
 
@@ -983,6 +988,7 @@ struct ParamLayoutConfig {
 	size: Option<LayoutSize>,
 	bipolar: bool,
 	step: Option<f64>,
+	hero: Option<String>,
 }
 
 #[cfg(feature = "layout")]
@@ -1029,6 +1035,18 @@ fn parse_layout_attribute(attr: &Attribute) -> Result<ParamLayoutConfig> {
 				"large" => LayoutSize::Large,
 				other => return Err(Error::new_spanned(&ident, format!("unknown size {other}: expected small, medium or large"))),
 			});
+		} else if meta.path.is_ident("hero") {
+			let val: Lit = meta.value()?.parse()?;
+			match val {
+				Lit::Str(inner) => {
+					let value = inner.value();
+					if value.trim().is_empty() {
+						return Err(Error::new_spanned(attr, "A hero name must not be empty"));
+					}
+					layout.hero = Some(value);
+				},
+				_ => return Err(Error::new_spanned(attr, "Invalid literal for hero, expected a string")),
+			}
 		} else if meta.path.is_ident("bipolar") {
 			layout.bipolar = true;
 		} else if meta.path.is_ident("step") {

@@ -187,6 +187,14 @@ pub struct ParamLayout {
 	/// The interval its values snap to, when it has one: a whole voice, a
 	/// semitone, an eighth note. A control that knows this can show its ticks.
 	pub step: Option<f64>,
+	/// The picture this parameter's section shows, if the host can draw it.
+	///
+	/// A name rather than a widget: the metadata says what a section is *about*
+	/// ("transfer", "spectrum", "eq") and the host decides what that looks like,
+	/// because the host is the one that knows what it can draw. A section whose
+	/// parameters name none is drawn as controls and nothing else, and one that
+	/// names something the host cannot draw is too.
+	pub hero: Option<std::borrow::Cow<'static, str>>,
 }
 
 #[cfg(feature = "layout")]
@@ -229,6 +237,15 @@ impl ParamLayout {
 	/// The interval its values snap to.
 	pub fn step(mut self, step: f64) -> Self {
 		self.step = Some(step);
+		self
+	}
+
+	/// Asks for a picture at the top of this parameter's section.
+	///
+	/// The name is the host's to interpret: an effect says its drive section is
+	/// about a "transfer" curve, and whichever host draws it decides how.
+	pub fn hero(mut self, hero: &'static str) -> Self {
+		self.hero = Some(std::borrow::Cow::Borrowed(hero));
 		self
 	}
 

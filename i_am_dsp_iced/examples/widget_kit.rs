@@ -121,7 +121,7 @@ impl Default for WidgetKit {
 
 		stereo.update(&stereo_frames);
 
-		let spectrogram = Spectrogram::new(64);
+		let spectrogram = Spectrogram::new(64).bands(64);
 
 		for column in 0..64 {
 			let decay = 1.0 - column as f32 / 80.0;
