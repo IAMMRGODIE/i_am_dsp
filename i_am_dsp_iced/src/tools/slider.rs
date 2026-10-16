@@ -319,6 +319,30 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for Slider<'a, Message> {
 			frame.fill(&rounded(fill, radius), color);
 		}
 
+		// A parameter that snaps to whole values shows where they are. Only when
+		// there are few enough ticks to read: a range with hundreds of steps is
+		// better served by a continuous track.
+		if self.step > 0.0 {
+			let steps = ((self.to - self.from) / self.step).round() as i32;
+
+			if (2..=32).contains(&steps) {
+				let height = styles::u(0.75);
+				let y = track.y + track.height + height;
+				let color = palette.background.strongest.color;
+
+				for step in 1..steps {
+					let x = track.x + track.width * self.percent_of(self.from + self.step * step as f32);
+
+					frame.fill(
+						&Path::new(|builder| {
+							builder.rectangle(Point::new(x - styles::px(0.5), y), Size::new(styles::px(1.0), height));
+						}),
+						color,
+					);
+				}
+			}
+		}
+
 		// Modulation lives above the track, mirroring the ring around a knob, so
 		// that the value underneath is never covered up.
 		if let Some(modulated) = self.modulation {

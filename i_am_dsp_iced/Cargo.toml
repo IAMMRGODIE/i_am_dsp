@@ -22,3 +22,5 @@ rand = "0.10.2"
 [dev-dependencies]
 # Renders the gallery headlessly, so a faceplate can be checked without a window.
 iced_test = "0.14"
+# Declaring parameters the way an effect does, for the tests that lay one out.
+i_am_dsp_derive.workspace = true
