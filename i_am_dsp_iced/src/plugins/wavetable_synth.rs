@@ -351,8 +351,14 @@ impl Processor for WavetableSynth {
 			return;
 		};
 
-		senders.retain(|inner| {
-			inner.try_send(to_send).is_ok()
+		senders.retain(|inner| match inner.try_send(to_send) {
+			Ok(()) => true,
+			// A full queue means the interface is behind. A scope wants the newest
+			// samples and can lose the oldest, and the audio thread must never wait
+			// for it -- nor allocate, which is what an unbounded queue does when it
+			// runs out of room.
+			Err(crossbeam_channel::TrySendError::Full(_)) => true,
+			Err(crossbeam_channel::TrySendError::Disconnected(_)) => false,
 		}); 
 
 		self.table.value.sample_rate = process_context.infos().sample_rate;
@@ -373,7 +379,9 @@ impl Processor for WavetableSynth {
 	}
 
 	fn synced_view(&self) -> Self::SyncedView {
-		let (sender, reciver) = crossbeam_channel::unbounded();
+		// Bounded, so a stalled interface costs dropped samples rather than an
+		// allocation on the audio thread.
+		let (sender, reciver) = crossbeam_channel::bounded(8192);
 		let param_map = self.table.param_map();
 		let sample_rate = self.table.value.sample_rate;
 

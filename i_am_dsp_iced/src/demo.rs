@@ -53,12 +53,31 @@ lazy_static::lazy_static! {
 	};
 }
 
-/// A simple context that just holds the midi events
+/// A simple context that holds the midi events of one block.
 pub struct SimpleContext {
 	/// The process infos
 	pub info: ProcessInfos,
-	/// The midi events
+	/// The midi events, which belong to the sample the block started at
 	pub midi_events: Vec<NoteEvent>,
+	/// The sample the events belong to
+	events_sample: usize,
+	/// The sample being rendered right now
+	current_sample: usize,
+	/// The first event that has not been consumed yet
+	next_event: usize,
+}
+
+impl SimpleContext {
+	/// Builds a context for one block, whose events belong to its first sample.
+	pub fn new(info: ProcessInfos, midi_events: Vec<NoteEvent>) -> Self {
+		Self {
+			info,
+			midi_events,
+			events_sample: 0,
+			current_sample: 0,
+			next_event: 0,
+		}
+	}
 }
 
 impl ProcessContext for SimpleContext {
@@ -67,23 +86,45 @@ impl ProcessContext for SimpleContext {
 	}
 
 	fn next_event(&mut self) -> Option<NoteEvent> {
-		self.midi_events.pop()
+		if self.current_sample != self.events_sample || self.next_event >= self.midi_events.len() {
+			return None;
+		}
+
+		let event = self.midi_events[self.next_event].clone();
+		self.next_event += 1;
+		Some(event)
 	}
 
 	fn send_event(&mut self, event: NoteEvent) {
 		self.midi_events.push(event);
+		// An event a midi effect sends belongs to the sample it was sent on.
+		self.events_sample = self.current_sample;
 	}
 
 	fn clear_events(&mut self) {
 		self.midi_events.clear();
+		self.next_event = 0;
 	}
 
 	fn events(&self) -> &[NoteEvent] {
-		&self.midi_events
+		// A generator is handed the events of the sample it is rendering, not the
+		// whole block. A processor that reads them once per sample -- which is what
+		// every generator here does -- would otherwise see the same note on every
+		// sample that follows it, and play it that many times over.
+		//
+		// The CLAP side of this crate keeps the same promise; this is the demo
+		// keeping it too.
+		if self.current_sample == self.events_sample {
+			&self.midi_events
+		} else {
+			&[]
+		}
+	}
+
+	fn set_sample_offset(&mut self, sample_offset: usize) {
+		self.current_sample = sample_offset;
 	}
 }
-
-
 
 /// A simple runable demo based on a processor
 pub struct Demo<P: Processor> {
@@ -149,12 +190,16 @@ impl<P: Processor> Demo<P> {
 				process_info.current_time = 0.0;
 				process_info.playing = true;
 
-				let mut process_context = Box::new(SimpleContext {
-					info: process_info,
-					midi_events: std::mem::take(&mut shared_data.midi_events),
-				}) as Box<dyn ProcessContext>;
+				let mut process_context = Box::new(SimpleContext::new(
+					process_info,
+					std::mem::take(&mut shared_data.midi_events),
+				)) as Box<dyn ProcessContext>;
 
-				for val in data.chunks_mut(2) {
+				for (sample, val) in data.chunks_mut(2).enumerate() {
+					// Every generator reads the events of the sample it is rendering, so
+					// the context has to be told where it is.
+					process_context.set_sample_offset(sample);
+
 					if val.len() != 2 {
 						error_sender.send("Received invalid number of samples".to_string()).expect("canot send error message");
 						break;
@@ -259,5 +304,34 @@ impl<P: Processor> Demo<P> {
 
 		self.view.update(&message);
 		self.sender.send(message).expect("Sender disconnected");
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// The events of a block belong to the sample they were stamped with: a
+	/// generator reading them once per sample must not see the same note again on
+	/// the samples that follow it. Getting this wrong multiplies the voices by the
+	/// length of the block, which is exactly how a note turns into a hang.
+	#[test]
+	fn a_context_hides_its_events_after_their_sample() {
+		let mut context = SimpleContext::new(
+			ProcessInfos::default(),
+			vec![NoteEvent::NoteOn {
+				channel: 0,
+				note: 60,
+				velocity: 1.0,
+			}],
+		);
+
+		context.set_sample_offset(0);
+		assert_eq!(context.events().len(), 1, "the events belong to the first sample");
+
+		for sample in 1..64 {
+			context.set_sample_offset(sample);
+			assert!(context.events().is_empty(), "a note must not be read again on sample {sample}");
+		}
 	}
 }
