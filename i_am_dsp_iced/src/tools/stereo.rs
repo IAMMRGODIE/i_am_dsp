@@ -120,9 +120,11 @@ impl<Message> Program<Message> for StereoMeter {
 			let width = (size.width - padding * 2.0).max(1.0);
 			let height = (size.height - padding * 2.0).max(1.0);
 
-			// The correlation strip along the bottom, and the field above it.
-			let strip = styles::u(2.0);
-			let field_height = (height - strip * 2.0).max(1.0);
+			// The correlation groove along the bottom, with a gap above it so it does
+			// not read as part of the field.
+			let groove_height = styles::u(1.5);
+			let gap = styles::u(2.5);
+			let field_height = (height - groove_height - gap).max(1.0);
 			let radius = field_height.min(width) / 2.0;
 			let centre = Point::new(padding + width / 2.0, padding + field_height / 2.0);
 
@@ -175,30 +177,38 @@ impl<Message> Program<Message> for StereoMeter {
 				);
 			}
 
-			// The correlation: a bar from -1 to 1, marked at the value.
-			let y = padding + field_height + styles::u(0.5);
-			let bar = Rectangle {
+			// The correlation: a groove from -1 to 1, with the value riding in it the
+			// way a slider's handle rides in its track, so the range it can travel is
+			// the range that is drawn.
+			let groove = Rectangle {
 				x: padding,
-				y,
+				y: padding + field_height + gap,
 				width,
-				height: styles::u(0.5),
+				height: groove_height,
 			};
+			let rounding = groove.height / 2.0;
 
 			frame.fill(
-				&Path::rounded_rectangle(bar.position(), bar.size(), (bar.height / 2.0).into()),
+				&Path::rounded_rectangle(groove.position(), groove.size(), rounding.into()),
 				palette.background.weakest.color,
 			);
+			frame.stroke(
+				&Path::rounded_rectangle(groove.position(), groove.size(), rounding.into()),
+				Stroke::default()
+					.with_color(palette.background.strong.color)
+					.with_width(1.0),
+			);
 
-			// The slots the correlation is read against: -1, -0.5, 0, +0.5, +1.
+			// The slots it is read against: -1, -0.5, 0, +0.5, +1.
 			for slot in [-1.0f32, -0.5, 0.0, 0.5, 1.0] {
 				let x = padding + width * (slot + 1.0) / 2.0;
 				let tall = slot == 0.0 || slot.abs() == 1.0;
-				let height = if tall { styles::u(1.0) } else { styles::u(0.5) };
+				let height = if tall { groove.height * 0.55 } else { groove.height * 0.3 };
 
 				frame.fill(
 					&Path::new(|builder| {
 						builder.rectangle(
-							Point::new(x - styles::px(0.5), y + bar.height + styles::u(0.25)),
+							Point::new(x - styles::px(0.5), groove.y + (groove.height - height) / 2.0),
 							iced::Size::new(styles::px(1.0), height),
 						);
 					}),
@@ -208,7 +218,7 @@ impl<Message> Program<Message> for StereoMeter {
 
 			let marker = padding + width * (correlation + 1.0) / 2.0;
 			frame.fill(
-				&Path::circle(Point::new(marker, y + bar.height / 2.0), bar.height),
+				&Path::circle(Point::new(marker, groove.y + groove.height / 2.0), groove.height * 0.8),
 				if correlation < 0.0 {
 					styles::ERROR_COLOR
 				} else {

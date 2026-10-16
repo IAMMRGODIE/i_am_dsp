@@ -157,10 +157,23 @@ fn fill_bands(
 			width: bar.width,
 			height: (from - to).max(0.5),
 		};
-		let radius = (bar.width / 2.0).min(segment.height / 2.0);
+
+		// The bands of one fill have to look like one bar. Only the band sitting on
+		// the floor follows the track's rounding, and nothing is rounded at a seam:
+		// rounding every band turns one bar into a stack of loose pills.
+		let bottom = if low <= FLOOR_DB {
+			(bar.width / 2.0).min(segment.height / 2.0)
+		} else {
+			0.0
+		};
+		let radius = iced::border::Radius {
+			bottom_left: bottom,
+			bottom_right: bottom,
+			..Default::default()
+		};
 
 		frame.fill(
-			&Path::rounded_rectangle(segment.position(), segment.size(), radius.into()),
+			&Path::rounded_rectangle(segment.position(), segment.size(), radius),
 			band_color(high, accent).scale_alpha(alpha),
 		);
 	}
