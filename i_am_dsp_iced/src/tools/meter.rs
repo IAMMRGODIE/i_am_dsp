@@ -17,7 +17,7 @@ use iced::{
 	theme::palette::lighten,
 	widget::canvas::{Cache, Path, Program, Stroke},
 };
-use portable_atomic::AtomicF32;
+use portable_atomic::{AtomicF32, AtomicUsize};
 
 use crate::{
 	styles,
@@ -43,6 +43,12 @@ pub struct Meter {
 	peak: [AtomicF32; 2],
 	rms: [AtomicF32; 2],
 	hold: [AtomicF32; 2],
+	/// Bumped on every update. The drawing is cached, and a cache that is never
+	/// invalidated shows the first block forever -- which is exactly how a meter
+	/// that is being fed stops moving.
+	generation: AtomicUsize,
+	/// The generation the cache was drawn from.
+	drawn: AtomicUsize,
 	cache: Cache,
 }
 
@@ -59,6 +65,8 @@ impl Meter {
 			peak: [AtomicF32::new(0.0), AtomicF32::new(0.0)],
 			rms: [AtomicF32::new(0.0), AtomicF32::new(0.0)],
 			hold: [AtomicF32::new(0.0), AtomicF32::new(0.0)],
+			generation: AtomicUsize::new(0),
+			drawn: AtomicUsize::new(0),
 			cache: Cache::default(),
 		}
 	}
@@ -75,6 +83,8 @@ impl Meter {
 			self.rms[channel].store(rms[channel], Ordering::Relaxed);
 			self.hold[channel].store(db_to_amplitude(level), Ordering::Relaxed);
 		}
+
+		self.generation.fetch_add(1, Ordering::Relaxed);
 	}
 }
 
@@ -169,6 +179,16 @@ impl<Message> Program<Message> for Meter {
 	) -> Vec<iced::widget::canvas::Geometry<Renderer>> {
 		let palette = theme.extended_palette();
 		let accent = theme.palette().primary;
+
+		// The numbers change under the cache, so a new block has to throw the
+		// drawing away; there is no other way for the meter to move.
+		let generation = self.generation.load(Ordering::Relaxed);
+
+		if self.drawn.load(Ordering::Relaxed) != generation {
+			self.cache.clear();
+			self.drawn.store(generation, Ordering::Relaxed);
+		}
+
 		let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
 			utils::card(theme, frame);
 

@@ -32,6 +32,8 @@ pub struct Spectrogram {
 	columns: Mutex<Vec<f32>>,
 	cache: Cache,
 	capacity: usize,
+	/// How many bands a column is reduced to.
+	bands: usize,
 }
 
 impl Spectrogram {
@@ -43,7 +45,19 @@ impl Spectrogram {
 			columns: Mutex::new(Vec::with_capacity(capacity * BANDS)),
 			cache: Cache::default(),
 			capacity,
+			bands: BANDS,
 		}
+	}
+
+	/// Sets how many bands a column is reduced to.
+	///
+	/// Fewer bands are cheaper to draw and easier to read as a shape; more of them
+	/// show detail the display may not have room for. Whatever the incoming bins
+	/// are, they are averaged down to this many.
+	pub fn bands(mut self, bands: usize) -> Self {
+		self.bands = bands.clamp(1, 128);
+		self.cache.clear();
+		self
 	}
 
 	/// Pushes one column: the magnitudes of a frame, from low to high.
@@ -52,11 +66,12 @@ impl Spectrogram {
 			return;
 		}
 
-		let mut column = [0.0f32; BANDS];
+		let bands = self.bands;
+		let mut column = vec![0.0f32; bands];
 
 		for (band, slot) in column.iter_mut().enumerate() {
-			let first = band * bins.len() / BANDS;
-			let last = ((band + 1) * bins.len() / BANDS).max(first + 1).min(bins.len());
+			let first = band * bins.len() / bands;
+			let last = ((band + 1) * bins.len() / bands).max(first + 1).min(bins.len());
 			let slice = &bins[first..last];
 
 			*slot = (slice.iter().sum::<f32>() / slice.len() as f32).clamp(0.0, 1.0);
@@ -67,7 +82,7 @@ impl Spectrogram {
 
 			held.extend_from_slice(&column);
 
-			let limit = self.capacity * BANDS;
+			let limit = self.capacity * bands;
 
 			if held.len() > limit {
 				let excess = held.len() - limit;
@@ -107,7 +122,7 @@ impl<Message> Program<Message> for Spectrogram {
 		_cursor: mouse::Cursor,
 	) -> Vec<iced::widget::canvas::Geometry<Renderer>> {
 		let columns = self.columns.lock().expect("the columns are never held across a panic");
-		let count = columns.len() / BANDS;
+		let count = columns.len() / self.bands;
 
 		let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
 			utils::card(theme, frame);
@@ -125,13 +140,13 @@ impl<Message> Program<Message> for Spectrogram {
 			// only just started fills in from the right rather than jumping about.
 			let step = width / self.capacity as f32;
 			let column_width = step.max(1.0);
-			let band_height = height / BANDS as f32;
+			let band_height = height / self.bands as f32;
 
 			for column in 0..count {
 				let x = padding + width - (count - column) as f32 * step;
 
-				for band in 0..BANDS {
-					let magnitude = columns[column * BANDS + band];
+				for band in 0..self.bands {
+					let magnitude = columns[column * self.bands + band];
 
 					// Bands run from low to high upwards on the display.
 					let y = padding + height - (band + 1) as f32 * band_height;

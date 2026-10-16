@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["standalone", "string"]
+default = ["standalone", "string", "layout"]
+# Hints about where a parameter wants to sit in a faceplate, and how it wants to
+# be drawn. Nothing in the audio path reads them; a crate that brings its own
+# interface can leave them out.
+layout = ["i_am_dsp_derive/layout"]
 # Physical string modelling: plucked, struck and bowed.
 string = ["dep:i_am_string"]
 room_gen = ["parry3d"]

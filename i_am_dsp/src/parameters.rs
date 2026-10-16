@@ -123,6 +123,7 @@ fn parse_beats(text: &str) -> Option<f64> {
 	text.parse::<f64>().ok().map(|beats| beats * multiplier)
 }
 
+#[cfg(feature = "layout")]
 /// How a parameter wants to be drawn.
 ///
 /// A hint, not a rule: a faceplate with its own idea of a parameter is free to
@@ -143,6 +144,7 @@ pub enum ParamWidget {
 	Choice,
 }
 
+#[cfg(feature = "layout")]
 /// How much room a parameter wants in a faceplate.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
@@ -156,6 +158,7 @@ pub enum ParamSize {
 	Large,
 }
 
+#[cfg(feature = "layout")]
 /// Where a parameter wants to sit in a faceplate, and how it wants to be drawn.
 ///
 /// A parameter already carries its range, its unit and the value it starts at.
@@ -186,6 +189,7 @@ pub struct ParamLayout {
 	pub step: Option<f64>,
 }
 
+#[cfg(feature = "layout")]
 impl ParamLayout {
 	/// A layout with nothing declared, which is what a parameter has by default.
 	pub fn new() -> Self {
@@ -259,6 +263,7 @@ pub struct ParameterMeta {
 	///
 	/// Nothing reads this yet except a faceplate that chooses to; a host that only
 	/// wants the value, the range and the unit can ignore all of it.
+	#[cfg(feature = "layout")]
 	pub layout: ParamLayout,
 }
 
@@ -1573,6 +1578,7 @@ mod tests {
 	}
 
 
+	#[cfg(feature = "layout")]
 	#[derive(Parameters, Default)]
 	struct LaidOut {
 		#[range(min = 0.0, max = 1.0)]
@@ -1590,6 +1596,7 @@ mod tests {
 
 	/// A parameter can say where it wants to sit and how it wants to be drawn, and
 	/// one that says nothing keeps an empty layout.
+	#[cfg(feature = "layout")]
 	#[test]
 	fn a_layout_reaches_the_metadata() {
 		let parameters = LaidOut::default().get_parameters();

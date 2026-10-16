@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["standalone"]
+default = ["standalone", "faceplate"]
 standalone = ["cpal"]
+# Lay an effect out from what its parameters say about themselves. It is the only
+# part of this crate that needs the layout metadata, so it can be left out along
+# with it.
+faceplate = ["i_am_dsp/layout"]
 
 [dependencies]
 i_am_dsp.workspace = true

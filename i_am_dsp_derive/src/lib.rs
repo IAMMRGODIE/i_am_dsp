@@ -343,45 +343,60 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				None => quote!(None),
 			};
 
-			let group = match &config.layout.group {
-				Some(group) => quote!(Some(std::borrow::Cow::Borrowed(#group))),
-				None => quote!(None),
-			};
-			let order = match config.layout.order {
-				Some(order) => quote!(Some(#order)),
-				None => quote!(None),
-			};
-			let widget = match config.layout.widget.unwrap_or(LayoutWidget::Auto) {
-				LayoutWidget::Auto => quote!(i_am_dsp::prelude::ParamWidget::Auto),
-				LayoutWidget::Knob => quote!(i_am_dsp::prelude::ParamWidget::Knob),
-				LayoutWidget::Slider => quote!(i_am_dsp::prelude::ParamWidget::Slider),
-				LayoutWidget::Toggle => quote!(i_am_dsp::prelude::ParamWidget::Toggle),
-				LayoutWidget::Choice => quote!(i_am_dsp::prelude::ParamWidget::Choice),
-			};
-			let size = match config.layout.size.unwrap_or(LayoutSize::Medium) {
-				LayoutSize::Small => quote!(i_am_dsp::prelude::ParamSize::Small),
-				LayoutSize::Medium => quote!(i_am_dsp::prelude::ParamSize::Medium),
-				LayoutSize::Large => quote!(i_am_dsp::prelude::ParamSize::Large),
-			};
-			let bipolar = config.layout.bipolar;
-			let step = match config.layout.step {
-				Some(step) => quote!(Some(#step)),
-				None => quote!(None),
-			};
-			let layout = quote! {
-				i_am_dsp::prelude::ParamLayout {
-					group: #group,
-					order: #order,
-					widget: #widget,
-					size: #size,
-					bipolar: #bipolar,
-					step: #step,
+			// The layout half is behind a feature on both sides of the boundary: the
+			// derive only emits the field when it is asked to, and i_am_dsp only has
+			// the field to emit into under the same feature, because one forwards the
+			// other. A crate that brings its own interface turns it off and pays
+			// nothing for it.
+			#[cfg(feature = "layout")]
+			let meta = {
+				let group = match &config.layout.group {
+					Some(group) => quote!(Some(std::borrow::Cow::Borrowed(#group))),
+					None => quote!(None),
+				};
+				let order = match config.layout.order {
+					Some(order) => quote!(Some(#order)),
+					None => quote!(None),
+				};
+				let widget = match config.layout.widget.unwrap_or(LayoutWidget::Auto) {
+					LayoutWidget::Auto => quote!(i_am_dsp::prelude::ParamWidget::Auto),
+					LayoutWidget::Knob => quote!(i_am_dsp::prelude::ParamWidget::Knob),
+					LayoutWidget::Slider => quote!(i_am_dsp::prelude::ParamWidget::Slider),
+					LayoutWidget::Toggle => quote!(i_am_dsp::prelude::ParamWidget::Toggle),
+					LayoutWidget::Choice => quote!(i_am_dsp::prelude::ParamWidget::Choice),
+				};
+				let size = match config.layout.size.unwrap_or(LayoutSize::Medium) {
+					LayoutSize::Small => quote!(i_am_dsp::prelude::ParamSize::Small),
+					LayoutSize::Medium => quote!(i_am_dsp::prelude::ParamSize::Medium),
+					LayoutSize::Large => quote!(i_am_dsp::prelude::ParamSize::Large),
+				};
+				let bipolar = config.layout.bipolar;
+				let step = match config.layout.step {
+					Some(step) => quote!(Some(#step)),
+					None => quote!(None),
+				};
+				let layout = quote! {
+					i_am_dsp::prelude::ParamLayout {
+						group: #group,
+						order: #order,
+						widget: #widget,
+						size: #size,
+						bipolar: #bipolar,
+						step: #step,
+					}
+				};
+
+				quote! {
+					i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit, display_name: #display, layout: #layout }
 				}
 			};
 
-			quote! {
-				i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit, display_name: #display, layout: #layout }
-			}
+			#[cfg(not(feature = "layout"))]
+			let meta = quote! {
+				i_am_dsp::prelude::ParameterMeta { default: #default, unit: #unit, display_name: #display }
+			};
+
+			meta
 		};
 
 		if let Some(stable_id) = config.id_stable {
@@ -517,14 +532,33 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 			let sub_head = format!("{}.", field_name);
 			let sub_head_len = sub_head.len();
 			// Where the level itself asked to sit, for the children that did not say.
-			let parent_group = match &config.layout.group {
-				Some(group) => quote!(Some(std::borrow::Cow::Borrowed(#group))),
-				None => quote!(None),
+			// Without the layout feature there is no such place to inherit.
+			#[cfg(feature = "layout")]
+			let inherit_layout = {
+				let parent_group = match &config.layout.group {
+					Some(group) => quote!(Some(std::borrow::Cow::Borrowed(#group))),
+					None => quote!(None),
+				};
+				let parent_order = match config.layout.order {
+					Some(order) => quote!(Some(#order)),
+					None => quote!(None),
+				};
+
+				quote! {
+					// A nested level sits wherever its parent sits, unless the child
+					// asked for somewhere of its own: a Tempo Beats control belongs
+					// with the rest of the timing controls.
+					if p.meta.layout.group.is_none() {
+						p.meta.layout.group = #parent_group;
+					}
+					if p.meta.layout.order.is_none() {
+						p.meta.layout.order = #parent_order;
+					}
+				}
 			};
-			let parent_order = match config.layout.order {
-				Some(order) => quote!(Some(#order)),
-				None => quote!(None),
-			};
+
+			#[cfg(not(feature = "layout"))]
+			let inherit_layout = quote! {};
 			parameter_imply.push(quote! {
 				let mut sub_parameters = i_am_dsp::prelude::Parameters::get_parameters(&self.#member);
 				sub_parameters.iter_mut().for_each(|p| {
@@ -537,15 +571,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 						None => p.identifier.rsplit('.').next().unwrap_or_default().into(),
 					};
 					p.meta.display_name = Some(format!("{} {}", #display_prefix, child).into());
-					// A nested level sits wherever its parent sits, unless the child
-					// asked for somewhere of its own: a Tempo Beats control belongs
-					// with the rest of the timing controls.
-					if p.meta.layout.group.is_none() {
-						p.meta.layout.group = #parent_group;
-					}
-					if p.meta.layout.order.is_none() {
-						p.meta.layout.order = #parent_order;
-					}
+					#inherit_layout
 				});
 				parameters.extend(sub_parameters);
 			});
@@ -676,6 +702,7 @@ struct FieldConfig {
 	param_default: Option<f64>,
 	unit: Option<ParameterUnit>,
 	/// Where the parameter wants to sit in a faceplate, from `#[layout(..)]`.
+	#[cfg(feature = "layout")]
 	layout: ParamLayoutConfig,
 	persist_serialize: Option<String>,
 	persist_deserialize: Option<String>,
@@ -741,6 +768,7 @@ fn handle_attribute(
 			},
 			"default" => config.param_default = Some(parse_default_attribute(attr)?),
 			"unit" => config.unit = Some(parse_unit_attribute(attr)?),
+			#[cfg(feature = "layout")]
 			"layout" => config.layout = parse_layout_attribute(attr)?,
 			"logarithmic" => config.logarithmic = true,
 			"skip" => config.skip = true,
@@ -925,6 +953,7 @@ fn parse_unit_attribute(attr: &Attribute) -> Result<ParameterUnit> {
 	}
 }
 
+#[cfg(feature = "layout")]
 /// How a parameter asked to be drawn, from the widget option of a layout attribute.
 #[derive(Debug, Clone, Copy)]
 enum LayoutWidget {
@@ -935,6 +964,7 @@ enum LayoutWidget {
 	Choice,
 }
 
+#[cfg(feature = "layout")]
 /// How much room a parameter asked for, from the size option of a layout attribute.
 #[derive(Debug, Clone, Copy)]
 enum LayoutSize {
@@ -943,6 +973,7 @@ enum LayoutSize {
 	Large,
 }
 
+#[cfg(feature = "layout")]
 /// What a field's layout attribute asked for.
 #[derive(Debug, Default)]
 struct ParamLayoutConfig {
@@ -954,6 +985,7 @@ struct ParamLayoutConfig {
 	step: Option<f64>,
 }
 
+#[cfg(feature = "layout")]
 /// Reads the layout attribute: where a parameter wants to sit in a faceplate.
 ///
 /// Every option is optional, and every one of them is a hint. The attribute

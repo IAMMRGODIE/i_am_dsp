@@ -12,6 +12,7 @@ use i_am_dsp::{NoteEvent, ProcessContext, prelude::{Paramed, Parameters}};
 use iced::{Element, Subscription};
 
 pub mod styles;
+#[cfg(feature = "faceplate")]
 pub mod faceplate;
 pub mod tools;
 pub mod plugins;

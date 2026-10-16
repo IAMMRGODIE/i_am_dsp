@@ -1,3 +1,4 @@
+#![cfg(feature = "faceplate")]
 //! A faceplate built from nothing but the parameters.
 //!
 //! The point of the parameter metadata is that an effect can say where its

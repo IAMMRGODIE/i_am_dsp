@@ -225,13 +225,18 @@ impl WidgetKit {
 		let amplitude = amplitude_of(self.gain).min(2.0);
 		// Scaled so that the gain the gallery starts at sits in the middle of the
 		// meter and turning it up is what reaches the top.
-		let left = (amplitude * (0.08 + self.mix * 0.28)).min(1.0);
-		let right = (amplitude * (0.06 + self.mix * 0.22)).min(1.0);
+		let level = (amplitude * (0.07 + self.mix * 0.25)).min(1.0);
+		let balance = self.pan.clamp(-1.0, 1.0);
+
+		// The pan is a balance: at the centre the two channels are equal, so the
+		// meter sits level and the stereo field stands up; turning it leans both.
+		let left = level * (1.0 - balance * 0.5);
+		let right = level * (1.0 + balance * 0.5);
 
 		self.meter.update(
 			[
-				(left + rand::random_range(-0.04..0.04)).clamp(0.0, 1.0),
-				(right + rand::random_range(-0.03..0.03)).clamp(0.0, 1.0),
+				(left + rand::random_range(-0.02..0.02)).clamp(0.0, 1.0),
+				(right + rand::random_range(-0.02..0.02)).clamp(0.0, 1.0),
 			],
 			[left * 0.62, right * 0.62],
 		);
@@ -275,7 +280,9 @@ impl WidgetKit {
 
 		// The stereo field: the two channels are the same signal a pan apart, so the
 		// scope stands up for mono and opens out as the pan widens.
-		let offset = self.pan * std::f32::consts::FRAC_PI_2;
+		// A little width even at the centre, so the display shows a field rather than
+		// a single line; the pan opens it from there.
+		let offset = 0.18 + self.pan * std::f32::consts::FRAC_PI_2;
 		self.stereo_frames.clear();
 
 		for step in 0..64 {

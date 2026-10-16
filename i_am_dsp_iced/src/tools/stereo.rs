@@ -189,6 +189,23 @@ impl<Message> Program<Message> for StereoMeter {
 				palette.background.weakest.color,
 			);
 
+			// The slots the correlation is read against: -1, -0.5, 0, +0.5, +1.
+			for slot in [-1.0f32, -0.5, 0.0, 0.5, 1.0] {
+				let x = padding + width * (slot + 1.0) / 2.0;
+				let tall = slot == 0.0 || slot.abs() == 1.0;
+				let height = if tall { styles::u(1.0) } else { styles::u(0.5) };
+
+				frame.fill(
+					&Path::new(|builder| {
+						builder.rectangle(
+							Point::new(x - styles::px(0.5), y + bar.height + styles::u(0.25)),
+							iced::Size::new(styles::px(1.0), height),
+						);
+					}),
+					palette.background.strongest.color,
+				);
+			}
+
 			let marker = padding + width * (correlation + 1.0) / 2.0;
 			frame.fill(
 				&Path::circle(Point::new(marker, y + bar.height / 2.0), bar.height),

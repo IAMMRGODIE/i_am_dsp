@@ -5,8 +5,10 @@
 //! fields and index-based setting.
 
 use i_am_dsp::prelude::{
-	ParamWidget, Parameter, ParameterMeta, Parameters, Paramed, SetValue, SyncedTime, Unit, Value, from_binary, to_binary,
+	Parameter, ParameterMeta, Parameters, Paramed, SetValue, SyncedTime, Unit, Value, from_binary, to_binary,
 };
+#[cfg(feature = "layout")]
+use i_am_dsp::prelude::ParamWidget;
 use i_am_dsp_derive::Parameters; // derive macro (distinct from the trait of the same name)
 
 fn ids(params: &[Parameter]) -> Vec<&str> {
@@ -553,6 +555,7 @@ fn a_nested_parameter_without_names_is_labelled_by_its_fields() {
 
 // ---------- layout ----------
 
+#[cfg(feature = "layout")]
 #[derive(Parameters)]
 struct LaidOutChild {
 	#[range(min = 0.0, max = 4.0)]
@@ -562,6 +565,7 @@ struct LaidOutChild {
 	own: f32,
 }
 
+#[cfg(feature = "layout")]
 #[derive(Parameters)]
 struct LaidOutParent {
 	#[sub_param]
@@ -575,6 +579,7 @@ struct LaidOutParent {
 /// A nested level sits where its parent sits, unless the child asked for somewhere
 /// of its own: five controls that all have to be placed by hand is how a faceplate
 /// stops being automatic.
+#[cfg(feature = "layout")]
 #[test]
 fn a_sub_parameter_inherits_the_place_its_parent_asked_for() {
 	let parent = LaidOutParent {

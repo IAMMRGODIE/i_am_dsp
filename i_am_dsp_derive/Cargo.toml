@@ -3,6 +3,11 @@ name = "i_am_dsp_derive"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Emits the faceplate layout metadata. `i_am_dsp` forwards its own feature of the
+# same name, so the two can never disagree about whether the field exists.
+layout = []
+
 [dependencies]
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
