@@ -6,23 +6,35 @@ use iced::{
 	widget::canvas::{Frame, Path, Stroke, Text},
 };
 
-use crate::styles::{BORDER_WIDTH, PADDING};
+use crate::styles::{self, BORDER_WIDTH};
 
 const ANIMATION_DURATION: Duration = Duration::from_millis(150);
+
+/// The border and the corner of a panel, in design units, so a card drawn by hand
+/// scales like one drawn by a container.
+fn card_border() -> (f32, f32) {
+	(styles::px(BORDER_WIDTH), styles::u(styles::size::RADIUS))
+}
 
 pub(crate) fn card(theme: &Theme, frame: &mut Frame) {
 	card_border_sized(theme, frame, theme.extended_palette().background.strongest.color, frame.size())
 }
 
 pub(crate) fn card_border_sized(theme: &Theme, frame: &mut Frame, border_color: iced::Color, size: Size) {
+	let (border, radius) = card_border();
 	let rect = Path::rounded_rectangle(
-		Point::new(BORDER_WIDTH, BORDER_WIDTH), 
-		size.expand([- BORDER_WIDTH * 2.0, - BORDER_WIDTH * 2.0]), 
-		PADDING.into()
+		Point::new(border, border),
+		size.expand([-border * 2.0, -border * 2.0]),
+		radius.into()
 	);
 
 	frame.fill(&rect, theme.extended_palette().background.weakest.color);
-	frame.stroke(&rect, Stroke::default().with_color(border_color).with_width(BORDER_WIDTH));
+	frame.stroke(&rect, Stroke::default().with_color(border_color).with_width(border));
+}
+
+/// The rectangle a hand-drawn panel's contents may use, inside its border.
+pub(crate) fn card_padding() -> f32 {
+	styles::u(styles::space::M)
 }
 
 /// Draws one line of text through the canvas.

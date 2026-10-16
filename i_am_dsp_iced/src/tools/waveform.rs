@@ -10,7 +10,7 @@ use iced::{
 };
 use portable_atomic::{AtomicBool, AtomicF32};
 
-use crate::{styles::{ALPHA_FACTOR, BRIGHT_FACTOR, PADDING}, tools::utils::{Animator, card, card_border_sized}};
+use crate::{styles::{self, ALPHA_FACTOR, BRIGHT_FACTOR}, tools::utils::{Animator, card, card_border_sized}};
 
 /// A waveform displayer based on buffer, will automatically draw waveform based on the bound size
 pub struct WaveformBuf {
@@ -54,8 +54,8 @@ impl<Message> Program<Message> for WaveformBuf {
 
 			card(theme, frame);
 
-			let usable_width = width - PADDING * 2.0;
-			let usable_height = height - PADDING * 2.0;
+			let usable_width = width - styles::u(styles::space::M) * 2.0;
+			let usable_height = height - styles::u(styles::space::M) * 2.0;
 
 			let cache_buffer_len = self.cache.capacity();
 			if cache_buffer_len == 0 {
@@ -68,7 +68,7 @@ impl<Message> Program<Message> for WaveformBuf {
 				let x = i as f32 * step;
 				let y = (- sample.clamp(-1.0, 1.0) + 1.0) / 2.0 * height;
 
-				let p = Point::new(x + PADDING, y + PADDING);
+				let p = Point::new(x + styles::u(styles::space::M), y + styles::u(styles::space::M));
 
 				builder.line_to(p);
 			}
@@ -77,17 +77,17 @@ impl<Message> Program<Message> for WaveformBuf {
 				let step = usable_width / cache_buffer_len as f32;
 
 				Path::new(|builder| {
-					builder.move_to(Point::new(PADDING, usable_height / 2.0 + PADDING));
+					builder.move_to(Point::new(styles::u(styles::space::M), usable_height / 2.0 + styles::u(styles::space::M)));
 					for (i, sample) in self.cache.iter().enumerate() {
 						draw_point(i, *sample, step, usable_height, builder);
 					}
-					builder.line_to(Point::new(width - PADDING, usable_height / 2.0 + PADDING));
+					builder.line_to(Point::new(width - styles::u(styles::space::M), usable_height / 2.0 + styles::u(styles::space::M)));
 				})
 			}else {
 				let step = usable_width / self.min_cache.capacity() as f32;
 				
 				Path::new(|builder| {
-					builder.move_to(Point::new(PADDING, usable_height / 2.0 + PADDING));
+					builder.move_to(Point::new(styles::u(styles::space::M), usable_height / 2.0 + styles::u(styles::space::M)));
 					for (i, sample) in self.max_cache.iter().enumerate() {
 						draw_point(i, *sample, step, usable_height, builder);
 					}
@@ -236,8 +236,8 @@ impl<Table: WaveTable, Message> Program<Message> for Waveform<Table> {
 
 			card_border_sized(theme, frame, lighten(border_color, bright_factor), frame.size());
 
-			let usable_width = width - PADDING * 2.0;
-			let usable_height = height - PADDING * 2.0;
+			let usable_width = width - styles::u(styles::space::M) * 2.0;
+			let usable_height = height - styles::u(styles::space::M) * 2.0;
 
 			if self.sample_points <= 1 {
 				return;
@@ -246,19 +246,19 @@ impl<Table: WaveTable, Message> Program<Message> for Waveform<Table> {
 			let step = usable_width / self.sample_points as f32;
 
 			let path = Path::new(|builder| {
-				builder.move_to(Point::new(PADDING, usable_height / 2.0 + PADDING));
+				builder.move_to(Point::new(styles::u(styles::space::M), usable_height / 2.0 + styles::u(styles::space::M)));
 				for i in 0..self.sample_points {
 					let t = i as f32 / self.sample_points as f32;
 					let sample = self.table.sample(t, 0).clamp(-1.0, 1.0);
 
-					let x = i as f32 * step + PADDING;
-					let y = (- sample + 1.0) / 2.0 * usable_height + PADDING;
+					let x = i as f32 * step + styles::u(styles::space::M);
+					let y = (- sample + 1.0) / 2.0 * usable_height + styles::u(styles::space::M);
 
 					let p = Point::new(x, y);
 
 					builder.line_to(p);
 				}
-				builder.line_to(Point::new(width - PADDING, usable_height / 2.0 + PADDING));
+				builder.line_to(Point::new(width - styles::u(styles::space::M), usable_height / 2.0 + styles::u(styles::space::M)));
 			});
 
 			frame.stroke(&path, Stroke::default().with_color(color).with_width(1.0));

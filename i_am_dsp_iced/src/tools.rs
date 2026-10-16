@@ -8,6 +8,9 @@ pub mod input;
 pub mod selector;
 pub mod slider;
 pub mod button;
+pub mod meter;
+pub mod spectrum;
+pub mod transfer;
 pub mod equalizer;
 pub(crate) mod utils;
 
