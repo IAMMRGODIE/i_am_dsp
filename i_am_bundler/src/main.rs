@@ -422,6 +422,23 @@ fn build(args: &Args, info: &CrateInfo) -> Result<(), String> {
 		command.arg("--target-dir").arg(dir);
 	}
 
+	// The linker writes its scratch files to TMP/TEMP. A build run inside a sandbox may be
+	// denied the system temp directory, and then link.exe stops with
+	// `LNK1104: cannot open file ...\lnk{...}.tmp` before writing anything. The target
+	// directory is a place the build is already allowed to write, so use it when needed.
+	if !system_temp_is_writable() {
+		let scratch = cargo_target_dir(args, info).join("tmp");
+		std::fs::create_dir_all(&scratch)
+			.map_err(|error| format!("cannot create {}: {error}", scratch.display()))?;
+
+		command
+			.env("TMP", &scratch)
+			.env("TEMP", &scratch)
+			.env("TMPDIR", &scratch);
+
+		println!("system temp is not writable; building with {}", scratch.display());
+	}
+
 	println!(
 		"building {} ({})...",
 		info.package_name.as_deref().unwrap_or("<unknown package>"),
@@ -434,16 +451,35 @@ fn build(args: &Args, info: &CrateInfo) -> Result<(), String> {
 	Ok(())
 }
 
+/// The directory cargo builds into, which is also where a build's scratch files can go.
+fn cargo_target_dir(args: &Args, info: &CrateInfo) -> PathBuf {
+	let workspace_root = manifest::find_workspace_root(&info.dir);
+
+	target::target_dir(
+		args.target_dir.as_deref(),
+		workspace_root.as_deref(),
+		&info.dir,
+	)
+}
+
+/// Whether the linker can create its scratch files in the system temp directory.
+fn system_temp_is_writable() -> bool {
+	let probe = std::env::temp_dir().join(format!(".i_am_bundler-probe-{}", std::process::id()));
+
+	match std::fs::File::create(&probe) {
+		Ok(_) => {
+			let _ = std::fs::remove_file(&probe);
+			true
+		}
+		Err(_) => false,
+	}
+}
+
 fn lookup_library(args: &Args, info: &CrateInfo) -> Result<PathBuf, String> {
 	let file_name = info
 		.library_file_name()
 		.ok_or_else(|| "cannot determine the library file name; pass the library path".to_string())?;
-	let workspace_root = manifest::find_workspace_root(&info.dir);
-	let target_dir = target::target_dir(
-		args.target_dir.as_deref(),
-		workspace_root.as_deref(),
-		&info.dir,
-	);
+	let target_dir = cargo_target_dir(args, info);
 	let profile = if args.release { "release" } else { "debug" };
 	target::find_library(&target_dir, &file_name, profile, args.target.as_deref())
 }
