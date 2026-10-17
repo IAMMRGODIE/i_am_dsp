@@ -13,7 +13,7 @@ pub(crate) use clack_extensions::{
 		auv2::PluginFactoryAsAUv2Impl, 
 		vst3::{PluginAsVST3, PluginAsVST3Impl, PluginFactoryAsVST3Impl, PluginInfoAsVST3}
 	}, 
-	gui::{GuiApiType, GuiConfiguration, GuiResizeHints, PluginGui, PluginGuiImpl}, 
+	gui::{GuiApiType, GuiConfiguration, GuiResizeHints, PluginGui, PluginGuiImpl, Window as GuiWindow}, 
 	latency::{PluginLatency, PluginLatencyImpl}, 
 	note_ports::{NoteDialect, NoteDialects, NotePortInfo, PluginNotePorts, PluginNotePortsImpl}, 
 	params::{ParamInfo, ParamInfoFlags, PluginAudioProcessorParams, PluginMainThreadParams, PluginParams}, 
@@ -27,8 +27,11 @@ pub(crate) use clack_plugin::{
 pub(crate) use crossbeam_channel::{Receiver, Sender};
 pub(crate) use i_am_dsp::{ProcessContext, ProcessInfos, prelude::{AtomicValue, BeatClock, ParamMap, SetValue, from_binary, to_binary}};
 pub(crate) use i_am_dsp_iced::{Message, Processor, SyncedView, timer};
-pub(crate) use iced_baseview::{Application, Settings, Theme, baseview::{Size, WindowOpenOptions, WindowScalePolicy}, open_parented, window::WindowHandle};
-pub(crate) use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+pub(crate) use iced_baseview::{
+	Element, IcedWindowSettings, PollSubNotifier, Program, Size, Subscription, Task, Theme,
+	baseview::{ParentWindowHandle, Window, dpi::{LogicalSize, PhysicalSize}},
+	create_window, executor,
+};
 
 extern crate self as i_am_plugin;
 

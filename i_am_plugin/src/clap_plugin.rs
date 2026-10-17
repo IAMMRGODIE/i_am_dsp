@@ -67,6 +67,7 @@ where
 		Ok(PluginMain {
 			window_size: options.window_size,
 			scale_factor: 1.0,
+			scale_set: false,
 			title: options.title,
 			resize_hints: options.resize_hints,
 			param_map,
@@ -75,6 +76,7 @@ where
 			latency,
 			parent: None,
 			handle: None,
+			zoom: None,
 			message_receivers: vec![],
 		})
 	}

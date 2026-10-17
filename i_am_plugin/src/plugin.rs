@@ -106,7 +106,7 @@ impl WindowOptions {
 	/// Set the window size of the plugin GUI.
 	pub fn with_size(self, size: (f64, f64)) -> Self {
 		Self {
-			window_size: Size::new(size.0, size.1),
+			window_size: Size::new(size.0 as f32, size.1 as f32),
 			..self
 		}
 	}
