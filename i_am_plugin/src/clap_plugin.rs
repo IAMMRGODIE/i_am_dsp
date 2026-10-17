@@ -192,8 +192,3 @@ impl<P: PluginAuExt> PluginFactoryAsAUv2Impl for ClapPlugin<P> {
 	}
 }
 
-/// Re-exported so that [`export_clap`] can add the VST3 entry points to the exported
-/// library without the plug-in crate having to depend on `clap-wrapper` itself.
-#[cfg(feature = "vst3")]
-#[doc(hidden)]
-pub use clap_wrapper::export_vst3 as __export_vst3;
