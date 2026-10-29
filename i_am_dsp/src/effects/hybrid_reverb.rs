@@ -42,10 +42,8 @@ pub struct HybridReverb<
 
 impl<const CHANNELS: usize, const DELAY_LINES: usize> HybridReverb<CHANNELS, DELAY_LINES> {
 	fn gen_ir(ir_gen: &RayTracing) -> [Vec<f32>; CHANNELS] {
-		let single_ir = ir_gen.generate_ir(Some(IR_SIZE));
-		core::array::from_fn(|_| {
-			single_ir.iter().map(|f| *f * rand::random_range(0.8..=1.0)).collect::<Vec<_>>()
-		})
+		let stereo = ir_gen.generate_stereo_ir(Some(IR_SIZE));
+		core::array::from_fn(|channel| stereo[channel % 2].clone())
 	}
 
 	/// Creates a new `HybridReverb` effect.

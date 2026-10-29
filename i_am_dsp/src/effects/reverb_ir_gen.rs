@@ -12,6 +12,13 @@ pub trait GenIr: Parameters {
 	/// Maximum length of the impulse response, in samples, none for unlimited length.
 	fn gen_ir(&self, maxium_ir_len: Option<usize>) -> Vec<f32>;
 
+	/// Generate a stereo impulse response. The default keeps the mono response
+	/// in both channels; the ray tracer overrides it with positional panning.
+	fn gen_stereo_ir(&self, maxium_ir_len: Option<usize>) -> [Vec<f32>; 2] {
+		let mono = self.gen_ir(maxium_ir_len);
+		[mono.clone(), mono]
+	}
+
 	/// Simple UI for the reverb impulse response generator.
 	/// 
 	/// Returns `true` if we need regenerate the impulse response.
@@ -63,6 +70,29 @@ pub struct RayTracing {
 	#[range(min = 0.001, max = 10.0)]
 	#[logarithmic]
 	pub decay_factor: f32,
+}
+
+/// One traced reflection: when it reaches the listener, how loud it is, and
+/// which side of the listener it arrives from.
+struct Echo {
+	time: f32,
+	amplitude: f32,
+	/// Unit direction from the listener towards the reflection point. With the
+	/// listener facing +x and +y up, +z is the right-hand side.
+	direction: (f32, f32, f32),
+}
+
+/// Add a sample at a fractional sample index.
+fn add_sample(output: &mut Vec<f32>, index_f32: f32, sample: f32) {
+	let index = index_f32.max(0.0).floor() as usize;
+	let fraction = index_f32 - index as f32;
+
+	if output.len() < index + 2 {
+		output.resize(index + 2, 0.0);
+	}
+
+	output[index] += sample * (1.0 - fraction);
+	output[index + 1] += sample * fraction;
 }
 
 /// Triangle shape for generating reverb impulse response.
@@ -368,15 +398,15 @@ impl RayTracing {
 			let theta = rand::random_range(-PI..=PI);
 			let phi = rand::random_range(0.0..=PI);
 			let ir = self.generate_single_point(theta, phi, 1.0, max_ir_len);
-			for (time, sample) in ir {
-				let index_f32 = time * self.sample_rate as f32;
+			for echo in ir {
+				let index_f32 = echo.time * self.sample_rate as f32;
 				let index = index_f32.floor() as usize;
 				let frac = index_f32 - index as f32;
 				if output.len() < index + 2 {
 					output.resize(index + 2, 0.0);
 				}
-				output[index] += sample * (1.0 - frac);
-				output[index + 1] += sample * frac;
+				output[index] += echo.amplitude * (1.0 - frac);
+				output[index + 1] += echo.amplitude * frac;
 			}
 		}
 
@@ -412,7 +442,102 @@ impl RayTracing {
 		output.into_iter().skip(trim_start).take(trim_end - trim_start + 1).collect()
 	}
 
-	fn generate_single_point(&self, theta: f32, phi: f32, amp: f32, maxium_ir_len: Option<f32>) -> Vec<(f32, f32)> {
+	/// Generate a stereo impulse response from the same reflections. Every echo
+	/// is panned by the direction from the listener to its reflection point:
+	/// with the listener facing +x and +y up, +z is the right-hand side. The far
+	/// ear also gets a small ITD. No per-channel random gain is involved.
+	pub fn generate_stereo_ir(&self, maxium_ir_len: Option<usize>) -> [Vec<f32>; 2] {
+		if let Some(max_ir_len) = maxium_ir_len && max_ir_len <= 1 {
+			return [vec![0.0; max_ir_len], vec![0.0; max_ir_len]];
+		}
+
+		let max_ir_len = maxium_ir_len.map(|len| len as f32 / self.sample_rate as f32);
+		let right = (0.0, 0.0, 1.0);
+		const MAX_ITD: f32 = 0.0006;
+		let mut left = vec![];
+		let mut right_channel = vec![];
+
+		for _ in 0..10000 {
+			let theta = rand::random_range(-PI..=PI);
+			let phi = rand::random_range(0.0..=PI);
+			for echo in self.generate_single_point(theta, phi, 1.0, max_ir_len) {
+				let pan = dot(echo.direction, right).clamp(-1.0, 1.0);
+				let angle = (pan + 1.0) * PI / 4.0;
+				let itd = MAX_ITD * pan.abs();
+				let left_time = echo.time + if pan > 0.0 { itd } else { 0.0 };
+				let right_time = echo.time + if pan < 0.0 { itd } else { 0.0 };
+
+				add_sample(
+					&mut left,
+					left_time * self.sample_rate as f32,
+					echo.amplitude * angle.cos(),
+				);
+				add_sample(
+					&mut right_channel,
+					right_time * self.sample_rate as f32,
+					echo.amplitude * angle.sin(),
+				);
+			}
+		}
+
+		if left.is_empty() && right_channel.is_empty() {
+			return [vec![], vec![]];
+		}
+
+		let peak = left
+			.iter()
+			.chain(right_channel.iter())
+			.map(|sample| sample.abs())
+			.fold(0.0, f32::max);
+
+		if peak > 0.0 {
+			for sample in left.iter_mut().chain(right_channel.iter_mut()) {
+				*sample /= peak;
+			}
+		}
+
+		if let Some(max_ir_len) = maxium_ir_len {
+			left.truncate(max_ir_len);
+			right_channel.truncate(max_ir_len);
+			let denominator = (max_ir_len - 1).max(1) as f32;
+
+			for channel in [&mut left, &mut right_channel] {
+				for (index, sample) in channel.iter_mut().enumerate() {
+					let t = index as f32 / denominator;
+					let window = (t * PI).cos() * 0.5 + 0.5;
+					*sample *= window;
+				}
+			}
+
+			return [left, right_channel];
+		}
+
+		let length = left.len().max(right_channel.len());
+		let audible = |channel: &[f32], index: usize| {
+			channel.get(index).is_some_and(|sample| sample.abs() > 0.005)
+		};
+		let start = (0..length).find(|&index| {
+			audible(&left, index) || audible(&right_channel, index)
+		});
+		let end = (0..length).rev().find(|&index| {
+			audible(&left, index) || audible(&right_channel, index)
+		});
+		let (Some(start), Some(end)) = (start, end) else {
+			return [vec![], vec![]];
+		};
+		let length = end - start + 1;
+		let mut left = left.into_iter().skip(start).take(length).collect::<Vec<_>>();
+		let mut right_channel = right_channel
+			.into_iter()
+			.skip(start)
+			.take(length)
+			.collect::<Vec<_>>();
+		left.resize(length, 0.0);
+		right_channel.resize(length, 0.0);
+		[left, right_channel]
+	}
+
+	fn generate_single_point(&self, theta: f32, phi: f32, amp: f32, maxium_ir_len: Option<f32>) -> Vec<Echo> {
 		const MAX_T_VALUE: f32 = 50.0;
 		const THRESHOLD: f32 = 0.001;
 
@@ -537,7 +662,16 @@ impl RayTracing {
 				if let Some(max_ir_len) = maxium_ir_len && time > max_ir_len {
 					break;
 				}
-				output.push((time, decayed_amp * current_phase.cos()));
+				let direction = normalized((
+					current_pos.0 - self.listener.0,
+					current_pos.1 - self.listener.1,
+					current_pos.2 - self.listener.2,
+				));
+				output.push(Echo {
+					time,
+					amplitude: decayed_amp * current_phase.cos(),
+					direction,
+				});
 			}
 
 			if decayed_amp < THRESHOLD {
@@ -552,6 +686,10 @@ impl RayTracing {
 impl GenIr for RayTracing {
 	fn gen_ir(&self, maxium_ir_len: Option<usize>) -> Vec<f32> {
 		self.generate_ir(maxium_ir_len)
+	}
+
+	fn gen_stereo_ir(&self, maxium_ir_len: Option<usize>) -> [Vec<f32>; 2] {
+		self.generate_stereo_ir(maxium_ir_len)
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -593,11 +731,12 @@ pub struct IrBasedReverb<T: GenIr, const CHANNELS: usize> {
 impl<T: GenIr, const CHANNELS: usize> IrBasedReverb<T, CHANNELS> {
 	/// Create a new `IrBasedReverb` with the given reverb impulse response generator.
 	pub fn new(ir_gen: T, sample_rate: usize) -> Self {
+		let stereo = ir_gen.gen_stereo_ir(None);
 		let convolver = FftConvolver::new(
-			core::array::from_fn(|_| {
-				let mut ir = ir_gen.gen_ir(None);
+			core::array::from_fn(|channel| {
+				let mut ir = stereo[channel % 2].clone();
 				ir.truncate(48000);
-				ir 
+				ir
 			}),
 			sample_rate
 		);
@@ -632,9 +771,10 @@ impl<T: GenIr + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for IrBased
     	use crate::tools::ui_tools::gain_ui;
 
 		if self.ir_gen.demo_ui(ui, format!("{}_ir_gen", id_prefix)) {
+			let stereo = self.ir_gen.gen_stereo_ir(None);
 			self.convolver.replace_ir(
-				core::array::from_fn(|_| {
-					let mut ir = self.ir_gen.gen_ir(None);
+				core::array::from_fn(|channel| {
+					let mut ir = stereo[channel % 2].clone();
 					ir.truncate(48000);
 					ir
 				})
@@ -681,6 +821,23 @@ mod tests {
 		let nonzero = ir.iter().filter(|&&x| x.abs() > 1e-4).count();
 		assert!(nonzero > 10, "IR has too few nonzero taps: {nonzero}");
 	}
+	/// A source on the right must produce more energy in the right IR channel.
+	#[test]
+	fn the_stereo_ir_pans_reflections_by_side() {
+		use super::*;
+
+		let mut rt = RayTracing::rectangular_room(10.0, 10.0, 10.0, 0.001, 6.0, 48000);
+		rt.listener = (5.0, 5.0, 5.0);
+		rt.sound_source = (5.0, 5.0, 8.0);
+
+		let irs = rt.generate_stereo_ir(Some(4_800));
+		let energy = |ir: &[f32]| ir.iter().map(|sample| sample * sample).sum::<f32>();
+		let left = energy(&irs[0]);
+		let right = energy(&irs[1]);
+
+		assert!(right > left * 1.05, "right {right} should lead left {left}");
+	}
+
 	#[test]
 	fn test_ray_tracing() {
 		use crate::{effects::reverb_ir_gen::RayTracing, tools::pcm_data::save_pcm_data};
