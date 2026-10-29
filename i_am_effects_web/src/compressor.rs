@@ -24,6 +24,26 @@ pub struct SelectableEnvelope {
 }
 
 impl SelectableEnvelope {
+	/// The peak detector's own attack and release, distinct from the compressor's
+	/// gain smoother.
+	fn set_peak_times(&mut self, attack: f32, release: f32) {
+		self.peak.attack_time = attack;
+		self.peak.release_time = release;
+	}
+
+	/// The rectified detector's smoothing cutoff.
+	fn set_rectify_cutoff(&mut self, cutoff: f32) {
+		self.rectify.set_cutoff(cutoff);
+	}
+
+	/// The detector's level gain; all four share it.
+	fn set_gain(&mut self, gain: f32) {
+		self.peak.gain_factor = gain;
+		self.rectify.gain_factor = gain;
+		self.tkeo.gain_factor = gain;
+		self.hilbert.gain_factor = gain;
+	}
+
 	fn new(sample_rate: usize) -> Self {
 		Self {
 			kind: 0,
@@ -163,6 +183,40 @@ pub struct CompressorEffect {
 	#[layout(group = "Compressor", order = 8, widget = toggle)]
 	pub sidechain: bool,
 
+	/// The peak detector's own attack, distinct from the gain smoother.
+	#[range(min = 0.01, max = 100.0)]
+	#[unit(milliseconds)]
+	#[default(0.1)]
+	#[id(display = "Env Attack")]
+	#[layout(group = "Compressor", order = 9, widget = knob)]
+	pub env_attack: f32,
+
+	/// The peak detector's own release.
+	#[range(min = 0.1, max = 500.0)]
+	#[unit(milliseconds)]
+	#[default(10.0)]
+	#[id(display = "Env Release")]
+	#[layout(group = "Compressor", order = 10, widget = knob)]
+	pub env_release: f32,
+
+	/// The rectified detector's smoothing cutoff.
+	#[range(min = 1.0, max = 200.0)]
+	#[logarithmic]
+	#[unit(hertz)]
+	#[default(30.0)]
+	#[id(display = "Smooth")]
+	#[layout(group = "Compressor", order = 9, widget = knob)]
+	pub env_cutoff: f32,
+
+	/// The detector's level gain.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
+	#[unit(percent)]
+	#[default(1.0)]
+	#[id(display = "Env Gain")]
+	#[layout(group = "Compressor", order = 11, widget = knob)]
+	pub env_gain: f32,
+
 	#[skip]
 	inner: Compressor<SelectableEnvelope, 2>,
 
@@ -195,6 +249,10 @@ impl CompressorEffect {
 			wet_gain: 1.0,
 			enveloper: 0,
 			sidechain: false,
+			env_attack: 0.1,
+			env_release: 10.0,
+			env_cutoff: 30.0,
+			env_gain: 1.0,
 			inner,
 			dry_buffer: core::array::from_fn(|_| RingBuffer::new(0)),
 		}
@@ -229,6 +287,9 @@ impl Effect<2> for CompressorEffect {
 			AudioIoChooser::Current
 		};
 		self.inner.enveloper.kind = self.enveloper.clamp(0, 3);
+		self.inner.enveloper.set_peak_times(self.env_attack, self.env_release);
+		self.inner.enveloper.set_rectify_cutoff(self.env_cutoff);
+		self.inner.enveloper.set_gain(self.env_gain);
 		self.inner.enveloper.set_infos(context.infos());
 
 		self.inner.process(samples, other, context);

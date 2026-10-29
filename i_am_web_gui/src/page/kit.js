@@ -1050,8 +1050,8 @@
     );
   }
 
-  /// The static transfer curve: below the threshold the line is unity, above it
-  /// the ratio flattens it, and makeup lifts the whole thing.
+  /// Left: the static transfer curve. Right: the measured before/after level
+  /// envelope of the recent audio, which is what the demo's history showed.
   function compressorSvg() {
     var threshold = clamp(valueOf("threshold", -24), -60, 0);
     var ratio = Math.max(valueOf("ratio", 4), 1);
@@ -1065,20 +1065,77 @@
         : threshold + (input - threshold) / ratio;
       output = clamp(output + makeup, -60, 0);
 
-      var x = 20 + i / 120 * 480;
+      var x = 20 + i / 120 * 220;
       var y = 150 - (output + 60) / 60 * 140;
       path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
     }
 
-    var knee = 20 + (threshold + 60) / 60 * 480;
-
-    return heroSvg(
-      '<line x1="20" y1="150" x2="500" y2="10" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+    var knee = 20 + (threshold + 60) / 60 * 220;
+    var left =
+      '<line x1="20" y1="150" x2="240" y2="10" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
       '<line x1="' + knee.toFixed(1) + '" y1="10" x2="' + knee.toFixed(1) +
         '" y2="150" stroke="#343434" stroke-dasharray="3 5"/>' +
-      '<line x1="20" y1="150" x2="500" y2="150" stroke="#3a3a3a"/>' +
+      '<line x1="20" y1="150" x2="240" y2="150" stroke="#3a3a3a"/>' +
       '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
-        'vector-effect="non-scaling-stroke"/>'
+        'vector-effect="non-scaling-stroke"/>';
+
+    var right = "";
+    var legend = "";
+
+    if (scope.input && scope.output) {
+      var segments = 64;
+      var step = Math.floor(Math.min(scope.input.length, scope.output.length) / segments);
+      var inputLevels = [];
+      var outputLevels = [];
+      var loudest = 1e-6;
+
+      for (var s = 0; s < segments; s++) {
+        var inSum = 0;
+        var outSum = 0;
+
+        for (var j = 0; j < step; j++) {
+          var index = s * step + j;
+          inSum += scope.input[index] * scope.input[index];
+          outSum += scope.output[index] * scope.output[index];
+        }
+
+        var inLevel = Math.sqrt(inSum / Math.max(step, 1));
+        var outLevel = Math.sqrt(outSum / Math.max(step, 1));
+        inputLevels.push(inLevel);
+        outputLevels.push(outLevel);
+        loudest = Math.max(loudest, inLevel, outLevel);
+      }
+
+      var inputPath = "";
+      var outputPath = "";
+
+      for (var k = 0; k < segments; k++) {
+        var px = 280 + k / (segments - 1) * 220;
+        var iy = 150 - inputLevels[k] / loudest * 140;
+        var oy = 150 - outputLevels[k] / loudest * 140;
+        inputPath += (k ? " L " : "M ") + px.toFixed(1) + " " + iy.toFixed(1);
+        outputPath += (k ? " L " : "M ") + px.toFixed(1) + " " + oy.toFixed(1);
+      }
+
+      right =
+        '<path d="' + outputPath + ' L 500 150 L 280 150 Z" fill="' + accent +
+          '" fill-opacity=".06"/>' +
+        '<path d="' + inputPath + '" fill="none" stroke="#8a8a8a" stroke-width="1.1" ' +
+          'opacity=".65" vector-effect="non-scaling-stroke"/>' +
+        '<path d="' + outputPath + '" fill="none" stroke="' + accent + '" stroke-width="1.6" ' +
+          'vector-effect="non-scaling-stroke"/>';
+      legend =
+        '<text x="392" y="14" fill="#8a8a8a" font-size="7">IN</text>' +
+        '<text x="460" y="14" fill="' + accent + '" font-size="7">OUT</text>';
+    } else {
+      right = '<line x1="280" y1="150" x2="500" y2="150" stroke="#3a3a3a"/>';
+    }
+
+    return heroSvg(
+      left +
+      '<line x1="260" y1="10" x2="260" y2="150" stroke="#2f2f2f"/>' +
+      right +
+      legend
     );
   }
 
@@ -1441,7 +1498,8 @@
     // bands, or a response with the input and output spectra on it.
     wantsScope = heroes.some(function (hero) {
       return hero.kind === "waveform" || hero.kind === "transfer" ||
-        hero.kind === "spectrum" || hero.kind === "spectra";
+        hero.kind === "spectrum" || hero.kind === "spectra" ||
+        hero.kind === "compressor";
     });
 
     var shell = element("div", "face");

@@ -15,7 +15,7 @@ use std::path::Path;
 use i_am_effects_web::{
 	BalanceWeb, ChorusWeb, CompressorWeb, CrusherWeb, DelayWeb, DisperserWeb, DistortionWeb,
 	FilterWeb, FlangerWeb, GainWeb, PhaserWeb, PitchWeb, ShifterWeb, WidthWeb, CHORUS_HEADER,
-	CHORUS_SWITCHES, COMPRESSOR_HEADER, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE,
+	CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE,
 	FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES, SHIFTER_CURVES,
 };
 use i_am_effects_web::{FILTER_HEADER, FILTER_VISIBLE};
@@ -125,8 +125,9 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Compressor", "#ff7a6b", (700.0, 300.0))
-						.with_header(COMPRESSOR_HEADER),
+					&Faceplate::new("I Am Compressor", "#ff7a6b", (700.0, 380.0))
+						.with_mode("enveloper")
+						.with_visible(COMPRESSOR_VISIBLE),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

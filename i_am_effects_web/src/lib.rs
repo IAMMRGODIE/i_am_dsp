@@ -162,14 +162,45 @@ pub const PHASER_SWITCHES: &[Switch] = &[Switch::new(
 	&["lfo_freq"],
 )];
 
-/// The compressor's envelope choice is a header drop-down.
-pub const COMPRESSOR_HEADER: &[&str] = &["enveloper"];
-
 /// Main input plus a sidechain input. The compressor reads the sidechain as
 /// other[1]; port 0 is always the main input.
 pub const COMPRESSOR_PORTS: &[i_am_plugin::AudioPort] = &[
 	i_am_plugin::AudioPort { name: "Main" },
 	i_am_plugin::AudioPort { name: "Sidechain" },
+];
+
+/// The compressor's controls by envelope. The gain controls repeat in every
+/// mode; the detection controls that belong to the selected detector ride with
+/// it.
+pub const COMPRESSOR_VISIBLE: &[(i32, &[&str])] = &[
+	(
+		0,
+		&[
+			"threshold", "ratio", "attack", "release", "lookahead", "makeup_db", "dry_gain",
+			"wet_gain", "sidechain", "env_attack", "env_release", "env_gain",
+		],
+	),
+	(
+		1,
+		&[
+			"threshold", "ratio", "attack", "release", "lookahead", "makeup_db", "dry_gain",
+			"wet_gain", "sidechain", "env_cutoff", "env_gain",
+		],
+	),
+	(
+		2,
+		&[
+			"threshold", "ratio", "attack", "release", "lookahead", "makeup_db", "dry_gain",
+			"wet_gain", "sidechain", "env_gain",
+		],
+	),
+	(
+		3,
+		&[
+			"threshold", "ratio", "attack", "release", "lookahead", "makeup_db", "dry_gain",
+			"wet_gain", "sidechain", "env_gain",
+		],
+	),
 ];
 
 web_plugin!(
@@ -178,9 +209,10 @@ web_plugin!(
 	CompressorEffect::new,
 	"iamdsp.effects.compressor.web",
 	"I Am Compressor",
-	(700.0, 300.0),
+	(700.0, 380.0),
 	"#ff7a6b",
-	header = COMPRESSOR_HEADER,
+	mode = "enveloper",
+	visible = COMPRESSOR_VISIBLE,
 	ports = COMPRESSOR_PORTS
 );
 
@@ -485,14 +517,17 @@ mod tests {
 	fn the_compressor_has_an_enveloper_menu_and_a_sidechain() {
 		let face = i_am_web_gui::face_json(
 			&CompressorWeb::new(),
-			&Faceplate::new("I Am Compressor", "#ff7a6b", (700.0, 300.0))
-				.with_header(COMPRESSOR_HEADER),
+			&Faceplate::new("I Am Compressor", "#ff7a6b", (700.0, 380.0))
+				.with_mode("enveloper")
+				.with_visible(COMPRESSOR_VISIBLE),
 		);
 
 		assert!(face.contains("\"hero\":\"compressor\""), "{face}");
 		assert!(face.contains("\"id\":\"threshold\""), "{face}");
 		assert!(face.contains("\"id\":\"sidechain\""), "{face}");
-		assert!(face.contains("\"header\":[\"enveloper\"]"), "{face}");
+		assert!(face.contains("\"mode\":\"enveloper\""), "{face}");
+		assert!(face.contains("\"id\":\"env_attack\""), "{face}");
+		assert!(face.contains("[0,[\"threshold\",\"ratio\""), "{face}");
 		assert!(
 			face.contains("\"choices\":[\"Peak\",\"RMS\",\"TKeo\",\"Hilbert\"]"),
 			"{face}"
