@@ -144,7 +144,7 @@ web_plugin!(
 	|rate| Delay::<(), 2>::new((), 1 << 16, 250.0, rate),
 	"iamdsp.effects.delay.web",
 	"I Am Delay",
-	(560.0, 450.0),
+	(560.0, 300.0),
 	"#e8c35a",
 	header = DELAY_HEADER,
 	switches = DELAY_SWITCHES
@@ -379,7 +379,7 @@ mod tests {
 			face.contains("\"switches\":[{\"control\":\"tempo.sync\",\"on\":[\"tempo.beats\"],\"off\":[\"delay_time\"]}]"),
 			"{face}"
 		);
-		assert!(face.contains("\"name\":\"Time\""), "{face}");
+		assert!(face.contains("\"name\":\"Delay\""), "{face}");
 	}
 
 	/// Distortion has six algorithms, and each mode lists the controls it reads.

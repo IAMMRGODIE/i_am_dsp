@@ -223,11 +223,11 @@ pub struct Delay<
 	#[range(min = 0.0, max = 1000.0)]
 	#[unit(milliseconds)]
 	#[id(display = "Time")]
-	#[layout(group = "Time", order = 0, widget = knob, hero = "taps")]
+	#[layout(group = "Delay", order = 0, widget = knob, hero = "taps")]
 	pub delay_time: f32,
 	/// The same delay time in musical units, for when the host has a tempo.
 	#[id(display = "Tempo")]
-	#[layout(group = "Time", order = 1)]
+	#[layout(group = "Delay", order = 1)]
 	#[sub_param]
 	pub tempo: SyncedTime,
 	#[skip]
@@ -240,7 +240,7 @@ pub struct Delay<
 	#[unit(percent)]
 	#[default(0.8)]
 	#[id(display = "Feedback")]
-	#[layout(group = "Feedback", order = 0, widget = knob)]
+	#[layout(group = "Delay", order = 2, widget = knob)]
 	pub decay_factor: f32,
 	/// The wet gain of the effect, saves in linear scale
 	#[range(min = 0.01, max = 4.0)]
@@ -248,7 +248,7 @@ pub struct Delay<
 	#[unit(percent)]
 	#[default(1.0)]
 	#[id(display = "Mix")]
-	#[layout(group = "Output", order = 0, widget = knob, bipolar)]
+	#[layout(group = "Delay", order = 3, widget = knob, bipolar)]
 	pub wet_gain: f32,
 	/// Whether the repeats walk around the channels instead of staying where they started.
 	///
@@ -260,7 +260,7 @@ pub struct Delay<
 	/// this effect. The dry signal is untouched and keeps its image.
 	#[default(false)]
 	#[id(display = "Ping-Pong")]
-	#[layout(group = "Output", order = 1, widget = toggle)]
+	#[layout(group = "Delay", order = 4, widget = toggle)]
 	pub pingpong: bool,
 	/// The delay being read right now, in fractional samples.
 	#[skip]

@@ -123,7 +123,7 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Delay", "#e8c35a", (560.0, 450.0))
+					&Faceplate::new("I Am Delay", "#e8c35a", (560.0, 300.0))
 						.with_header(DELAY_HEADER)
 						.with_switches(DELAY_SWITCHES),
 				),
