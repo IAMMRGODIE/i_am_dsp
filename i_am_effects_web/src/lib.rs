@@ -448,6 +448,8 @@ mod tests {
 			"{face}"
 		);
 		assert!(face.contains("\"id\":\"pingpong_pan\""), "{face}");
+		assert!(face.contains("\"id\":\"dry_gain\""), "{face}");
+		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");
 		assert!(face.contains("\"name\":\"Delay\""), "{face}");
 	}
 

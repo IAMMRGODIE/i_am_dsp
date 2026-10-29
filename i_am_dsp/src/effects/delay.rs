@@ -22,7 +22,8 @@ fn glide_coefficient(sample_rate: usize) -> f32 {
 
 /// Equal-power gains for a pan position in [-1, 1]: +1 is left, -1 right.
 fn pan_gains(pan: f32) -> (f32, f32) {
-	let angle = (1.0 - pan.clamp(-1.0, 1.0)) * std::f32::consts::PI / 4.0;
+	// The UI puts -1 on the left; positive therefore has to be the right side.
+	let angle = (1.0 + pan.clamp(-1.0, 1.0)) * std::f32::consts::PI / 4.0;
 	(angle.cos(), angle.sin())
 }
 
@@ -271,12 +272,20 @@ pub struct Delay<
 	#[layout(group = "Delay", order = 2, widget = knob)]
 	pub decay_factor: f32,
 	/// The wet gain of the effect, saves in linear scale
+	/// The dry gain of the effect.
+	#[range(min = 0.0, max = 1.0)]
+	#[unit(percent)]
+	#[default(1.0)]
+	#[id(display = "Dry")]
+	#[layout(group = "Delay", order = 3, widget = knob)]
+	pub dry_gain: f32,
+	/// The wet gain of the effect.
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
 	#[unit(percent)]
 	#[default(1.0)]
 	#[id(display = "Wet")]
-	#[layout(group = "Delay", order = 3, widget = knob, bipolar)]
+	#[layout(group = "Delay", order = 4, widget = knob, bipolar)]
 	pub wet_gain: f32,
 	/// Whether the repeats walk around the channels instead of staying where they started.
 	///
@@ -288,15 +297,15 @@ pub struct Delay<
 	/// this effect. The dry signal is untouched and keeps its image.
 	#[default(false)]
 	#[id(display = "Ping-Pong")]
-	#[layout(group = "Delay", order = 4, widget = toggle)]
+	#[layout(group = "Delay", order = 5, widget = toggle)]
 	pub pingpong: bool,
-	/// How far a ping-pong repeat is panned: +1 is full left then full right,
-	/// -1 starts on the right, and 0 centres both.
+	/// How far a ping-pong repeat is panned: -1 is full left then full right,
+	/// +1 starts on the right, and 0 centres both.
 	#[range(min = -1.0, max = 1.0)]
 	#[unit(percent)]
-	#[default(1.0)]
+	#[default(-1.0)]
 	#[id(display = "Pan")]
-	#[layout(group = "Delay", order = 5, widget = knob, bipolar)]
+	#[layout(group = "Delay", order = 6, widget = knob, bipolar)]
 	pub pingpong_pan: f32,
 	/// The delay being read right now, in fractional samples.
 	#[skip]
@@ -339,8 +348,9 @@ impl<
 			sample_rate,
 			wet_gain: 1.0,
 			decay_factor: 0.8,
+			dry_gain: 1.0,
 			pingpong: false,
-			pingpong_pan: 1.0,
+			pingpong_pan: -1.0,
 			smoothed_delay: delay,
 			target_delay: delay,
 		}
@@ -409,6 +419,7 @@ impl<
 	}
 	
 	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+		let dry = *samples;
 		let history_len = self.history[0].capacity();
 		// The interpolation reads one sample either side of the delay, so the last few slots
 		// cannot be addressed.
@@ -486,12 +497,12 @@ impl<
 			let left = delayed_sample_output[0] * self.wet_gain;
 			let right = delayed_sample_output[1] * self.wet_gain;
 
-			samples[0] += left * left_left + right * right_left;
-			samples[1] += left * left_right + right * right_right;
+			samples[0] = dry[0] * self.dry_gain + left * left_left + right * right_left;
+			samples[1] = dry[1] * self.dry_gain + left * left_right + right * right_right;
 		} else {
 			delayed_sample_output.into_iter().enumerate().for_each(|(i, mut inner)| {
 				inner *= self.wet_gain;
-				samples[i] += inner;
+				samples[i] = dry[i] * self.dry_gain + inner;
 			});
 		}
 
@@ -1138,7 +1149,7 @@ mod tests {
 		assert_eq!(delay.delay(), 12_000);
 	}
 
-	/// The pan decides where the first ping-pong repeat lands: +1 left, -1 right,
+	/// The pan decides where the first ping-pong repeat lands: -1 left, +1 right,
 	/// 0 centred at equal power.
 	#[test]
 	fn ping_pong_pan_moves_the_first_repeat() {
@@ -1163,10 +1174,10 @@ mod tests {
 			at
 		}
 
-		let left = first_repeat(1.0);
+		let left = first_repeat(-1.0);
 		assert!(left[0] > 0.4 && left[1] < 0.01, "left repeat: {left:?}");
 
-		let right = first_repeat(-1.0);
+		let right = first_repeat(1.0);
 		assert!(right[0] < 0.01 && right[1] > 0.4, "right repeat: {right:?}");
 
 		let centre = first_repeat(0.0);
