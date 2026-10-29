@@ -118,6 +118,12 @@ pub fn editor<P: Plugin>(
 				content_type: "application/octet-stream",
 				body: scope.snapshot(),
 			},
+			"/meter" => {
+				let (input, sidechain) = scope.meter();
+				ProtocolResponse::json(format!(
+					"{{\"input\":{input:.2},\"sidechain\":{sidechain:.2}}}"
+				))
+			},
 			_ => ProtocolResponse::not_found(),
 		})
 		.with_url("webgui://localhost/"),
@@ -234,17 +240,23 @@ macro_rules! web_plugin {
 				// 85 ms at 48 kHz, long enough to read a waveform and full-rate
 				// enough for the page to run an FFT over it.
 				let input = (samples[0] + samples[1]) * 0.5;
+				// A compressor with a sidechain port reads other[1]; without one the
+				// input stands in for it, which is also what the DSP does.
+				let sidechain = other
+					.get(1)
+					.map(|frame| (frame[0] + frame[1]) * 0.5)
+					.unwrap_or(input);
 
 				// Bypassed is the input, untouched: an effect has nothing to add.
 				if self.bypass.load(std::sync::atomic::Ordering::Relaxed) {
-					self.scope.push(input, input);
+					self.scope.push_with_sidechain(input, input, sidechain);
 					return;
 				}
 
 				i_am_dsp::Processor::process(&mut self.processor, samples, other, process_context);
 
 				let output = (samples[0] + samples[1]) * 0.5;
-				self.scope.push(input, output);
+				self.scope.push_with_sidechain(input, output, sidechain);
 			}
 
 			fn on_message(&self, message: Self::Message) {

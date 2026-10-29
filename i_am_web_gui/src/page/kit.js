@@ -19,6 +19,8 @@
   var powerButton = null;
   var modeSpec = null;
   var wantsScope = false;
+var wantsMeter = false;
+var meter = { input: null, sidechain: null };
   var scope = { input: null, output: null };
   var knobs = [];
   var scale = 1;
@@ -1050,8 +1052,9 @@
     );
   }
 
-  /// Left: the static transfer curve. Right: the measured before/after level
-  /// envelope of the recent audio, which is what the demo's history showed.
+  /// Left: the static transfer curve on a square plot. Right: the measured
+  /// before/after level envelope. A dot on the curve marks the current input
+  /// level, or the sidechain level when the detector is listening to it.
   function compressorSvg() {
     var threshold = clamp(valueOf("threshold", -24), -60, 0);
     var ratio = Math.max(valueOf("ratio", 4), 1);
@@ -1065,19 +1068,46 @@
         : threshold + (input - threshold) / ratio;
       output = clamp(output + makeup, -60, 0);
 
-      var x = 20 + i / 120 * 220;
+      var x = 30 + i / 120 * 140;
       var y = 150 - (output + 60) / 60 * 140;
       path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
     }
 
-    var knee = 20 + (threshold + 60) / 60 * 220;
+    var knee = 30 + (threshold + 60) / 60 * 140;
+    var sidechainOn = !!valueOf("sidechain", 0);
+    var level = sidechainOn ? meter.sidechain : meter.input;
+    var marker = "";
+
+    if (level !== null && level !== undefined && isFinite(level)) {
+      var db = clamp(level, -60, 0);
+      var mx = 30 + (db + 60) / 60 * 140;
+      var markerOut = db <= threshold ? db : threshold + (db - threshold) / ratio;
+      markerOut = clamp(markerOut + makeup, -60, 0);
+      var my = 150 - (markerOut + 60) / 60 * 140;
+      var tag = sidechainOn ? "SC " : "IN ";
+      var textX = mx > 120 ? mx - 4 : mx + 4;
+      var anchor = mx > 120 ? "end" : "start";
+
+      marker =
+        '<line x1="' + mx.toFixed(1) + '" y1="10" x2="' + mx.toFixed(1) +
+          '" y2="150" stroke="' + accent + '" stroke-opacity=".22" stroke-dasharray="2 4"/>' +
+        '<line x1="30" y1="' + my.toFixed(1) + '" x2="170" y2="' + my.toFixed(1) +
+          '" stroke="' + accent + '" stroke-opacity=".12" stroke-dasharray="2 4"/>' +
+        '<circle cx="' + mx.toFixed(1) + '" cy="' + my.toFixed(1) + '" r="2.6" fill="' +
+          accent + '"/>' +
+        '<text x="' + textX.toFixed(1) + '" y="19" fill="' + accent +
+          '" font-size="7" text-anchor="' + anchor + '">' + tag + db.toFixed(1) + ' dB</text>';
+    }
+
     var left =
-      '<line x1="20" y1="150" x2="240" y2="10" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+      '<rect x="30" y="10" width="140" height="140" fill="none" stroke="#2a2a2a"/>' +
+      '<line x1="30" y1="150" x2="170" y2="10" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
       '<line x1="' + knee.toFixed(1) + '" y1="10" x2="' + knee.toFixed(1) +
         '" y2="150" stroke="#343434" stroke-dasharray="3 5"/>' +
-      '<line x1="20" y1="150" x2="240" y2="150" stroke="#3a3a3a"/>' +
+      '<line x1="30" y1="150" x2="170" y2="150" stroke="#3a3a3a"/>' +
       '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
-        'vector-effect="non-scaling-stroke"/>';
+        'vector-effect="non-scaling-stroke"/>' +
+      marker;
 
     var right = "";
     var legend = "";
@@ -1110,7 +1140,7 @@
       var outputPath = "";
 
       for (var k = 0; k < segments; k++) {
-        var px = 280 + k / (segments - 1) * 220;
+        var px = 200 + k / (segments - 1) * 300;
         var iy = 150 - inputLevels[k] / loudest * 140;
         var oy = 150 - outputLevels[k] / loudest * 140;
         inputPath += (k ? " L " : "M ") + px.toFixed(1) + " " + iy.toFixed(1);
@@ -1118,22 +1148,22 @@
       }
 
       right =
-        '<path d="' + outputPath + ' L 500 150 L 280 150 Z" fill="' + accent +
+        '<path d="' + outputPath + ' L 500 150 L 200 150 Z" fill="' + accent +
           '" fill-opacity=".06"/>' +
         '<path d="' + inputPath + '" fill="none" stroke="#8a8a8a" stroke-width="1.1" ' +
           'opacity=".65" vector-effect="non-scaling-stroke"/>' +
         '<path d="' + outputPath + '" fill="none" stroke="' + accent + '" stroke-width="1.6" ' +
           'vector-effect="non-scaling-stroke"/>';
       legend =
-        '<text x="392" y="14" fill="#8a8a8a" font-size="7">IN</text>' +
-        '<text x="460" y="14" fill="' + accent + '" font-size="7">OUT</text>';
+        '<text x="378" y="19" fill="#8a8a8a" font-size="7">IN</text>' +
+        '<text x="452" y="19" fill="' + accent + '" font-size="7">OUT</text>';
     } else {
-      right = '<line x1="280" y1="150" x2="500" y2="150" stroke="#3a3a3a"/>';
+      right = '<line x1="200" y1="150" x2="500" y2="150" stroke="#3a3a3a"/>';
     }
 
-    return heroSvg(
+    return heroSvgSquare(
       left +
-      '<line x1="260" y1="10" x2="260" y2="150" stroke="#2f2f2f"/>' +
+      '<line x1="185" y1="10" x2="185" y2="150" stroke="#2f2f2f"/>' +
       right +
       legend
     );
@@ -1239,6 +1269,24 @@
       .then(function () {
         setTimeout(pollScope, 50);
       });
+  }
+
+  // The level meter is tiny JSON, polled alongside the scope for the transfer
+  // marker. A plug-in without one just answers 404.
+  function pollMeter() {
+    if (document.hidden || !wantsMeter) return;
+
+    fetch("/meter", { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("meter " + response.status);
+        return response.json();
+      })
+      .then(function (value) {
+        meter.input = typeof value.input === "number" ? value.input : null;
+        meter.sidechain = typeof value.sidechain === "number" ? value.sidechain : null;
+        markDirty();
+      })
+      .catch(function () {});
   }
 
   // ------------------------------------------------------------------- build
@@ -1501,6 +1549,10 @@
         hero.kind === "spectrum" || hero.kind === "spectra" ||
         hero.kind === "compressor";
     });
+    wantsMeter = heroes.some(function (hero) {
+      return hero.kind === "compressor";
+    });
+    if (wantsMeter) setInterval(pollMeter, 100);
 
     var shell = element("div", "face");
     shell.appendChild(header);
