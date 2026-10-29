@@ -45,6 +45,20 @@ impl<P: Plugin> PluginMain<P> {
 	///
 	/// CLAP hands this to a plugin as a host extension, and the bindings in use only wrap the
 	/// host side of it, so the call goes through the raw struct.
+	pub(crate) fn request_callback(&self) {
+		let Some(host) = &self.host else {
+			return;
+		};
+
+		// SAFETY: the host handle outlives the plugin.
+		unsafe {
+			let raw = host.as_raw();
+			if let Some(request) = raw.request_callback {
+				request(raw as *const _);
+			}
+		}
+	}
+
 	fn notify_latency_changed(&self) {
 		let Some(host) = &self.host else {
 			return;
@@ -100,5 +114,10 @@ impl<P: Plugin> PluginMainThread<'_, ()> for PluginMain<P> {
 			}
 			true
 		});
+
+		// CLAP only calls this after the plugin asks for it. Renewing keeps a
+		// main-thread tick alive, so a latency published by the audio thread is
+		// seen even when the editor is closed.
+		self.request_callback();
 	}
 }

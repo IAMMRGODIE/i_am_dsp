@@ -61,7 +61,7 @@ impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> {
 		// struct; the lifetime is erased only because `PluginMain` is not parameterized by it.
 		let host = unsafe { host.with_arbitrary_lifetime() };
 
-		Ok(PluginMain {
+		let main = PluginMain {
 			window_size: options.window_size,
 			scale_factor: 1.0,
 			scale_set: false,
@@ -74,7 +74,9 @@ impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> {
 			parent: None,
 			editor: None,
 			message_receivers: vec![],
-		})
+		};
+		main.request_callback();
+		Ok(main)
 	}
 }
 
