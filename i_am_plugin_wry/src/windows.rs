@@ -109,18 +109,15 @@ thread_local! {
 /// profile; a host that loads the plug-in from there gets a blank editor. A folder
 /// under the user's local application data always is writable, so that is the fallback.
 ///
-/// The folder carries the process id: two DAW processes must never open the same
-/// WebView2 user-data folder at once, and a crashed DAW must not leave a profile
-/// lock that the next first open trips over.
+/// One profile for the whole user, shared by every editor and every DAW that
+/// loads the bundle. It saves the per-process profile copies; WebView2 itself
+/// expects a single process per user-data folder, so if a second DAW trips on
+/// the lock, give the process its own subfolder here again.
 fn default_data_directory() -> Option<PathBuf> {
 	let mut candidates = Vec::with_capacity(2);
-	let process = std::process::id();
 
 	if let Some(base) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
-		candidates.push(
-			base.join("i_am_plugin_wry")
-				.join(format!("WebView2-{process}")),
-		);
+		candidates.push(base.join("i_am_plugin_wry").join("WebView2"));
 	}
 
 	// The temp directory is the fallback: it is writable even when a profile folder
@@ -128,7 +125,7 @@ fn default_data_directory() -> Option<PathBuf> {
 	candidates.push(
 		std::env::temp_dir()
 			.join("i_am_plugin_wry")
-			.join(format!("WebView2-{process}")),
+			.join("WebView2"),
 	);
 
 	candidates
