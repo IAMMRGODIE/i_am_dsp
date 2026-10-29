@@ -14,7 +14,7 @@ use std::path::Path;
 
 use i_am_effects_web::{
 	BalanceWeb, CrusherWeb, DisperserWeb, DistortionWeb, FilterWeb, GainWeb, PitchWeb,
-	ShifterWeb, WidthWeb, DISTORTION_VISIBLE,
+	ShifterWeb, WidthWeb, DISTORTION_VISIBLE, SHIFTER_CURVES,
 };
 use i_am_plugin::Plugin;
 use i_am_web_gui::Faceplate;
@@ -88,7 +88,8 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0)),
+					&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0))
+						.with_curves(SHIFTER_CURVES),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

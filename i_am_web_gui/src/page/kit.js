@@ -79,14 +79,35 @@
   }
 
   // ------------------------------------------------------------ value space
+  function curveOf(spec) {
+    return face && face.curves ? face.curves[spec.id] : null;
+  }
+
+  function atanKnee(spec) {
+    var limit = Math.max(Math.abs(spec.min), Math.abs(spec.max), 1);
+    return { limit: limit, knee: Math.max(limit * 0.1, 1e-3) };
+  }
+
   function norm(spec, value) {
     if (spec.max === spec.min) return 0;
+
+    if (curveOf(spec) === "atan") {
+      var k = atanKnee(spec);
+      return 0.5 + Math.atan(value / k.knee) / (2 * Math.atan(k.limit / k.knee));
+    }
+
     if (spec.log && spec.min > 0) return Math.log(value / spec.min) / Math.log(spec.max / spec.min);
     return (value - spec.min) / (spec.max - spec.min);
   }
 
   function at(spec, position) {
     position = clamp(position, 0, 1);
+
+    if (curveOf(spec) === "atan") {
+      var k = atanKnee(spec);
+      return k.knee * Math.tan((position - 0.5) * 2 * Math.atan(k.limit / k.knee));
+    }
+
     if (spec.log && spec.min > 0) return spec.min * Math.pow(spec.max / spec.min, position);
     return spec.min + position * (spec.max - spec.min);
   }
@@ -98,10 +119,19 @@
 
   function setValue(control, value, send) {
     value = snap(control.spec, value);
+
+    // An integer parameter has to go back as an integer: the host parses it with
+    // the parameter's own kind, and "8.37" is not an integer.
+    if (control.spec.kind === "int") value = Math.round(value);
+
     control.value = value;
     control.paint();
     markDirty();
-    if (send && window.ipc) window.ipc.postMessage(control.spec.id + "=" + value);
+
+    if (send && window.ipc) {
+      var wire = control.spec.kind === "int" ? Math.round(value) : value;
+      window.ipc.postMessage(control.spec.id + "=" + wire);
+    }
   }
 
   // --------------------------------------------------------------- controls
@@ -620,10 +650,11 @@
 
   /// Log-spaced bands in dBFS, so a spectrum can share the response's x axis.
   ///
-  /// Four times zero padding puts several bins in the lowest bands, and a band
-  /// takes the average power of the bins it covers instead of the loudest one:
-  /// a maximum turns every leaky bin into a spike, which is what a spectrum of
-  /// real audio must not look like.
+  /// Four times zero padding gives every band several bins, so a band can keep
+  /// the loudest bin without looking like a comb; the triangular filter below
+  /// smooths the result across neighbouring bands. Averaging the power over a
+  /// band would make the same tone quieter the higher it sits, because a high
+  /// band covers far more bins than a low one.
   function bandsOf(samples, rate) {
     var n = samples.length;
     if (!n || (n & (n - 1)) !== 0) return null;
@@ -639,8 +670,7 @@
 
     fft(real, imag);
 
-    var power = new Float64Array(BANDS);
-    var counts = new Uint16Array(BANDS);
+    var raw = new Float32Array(BANDS);
 
     for (var k = 1; k < fftLength / 2; k++) {
       var frequency = k * rate / fftLength;
@@ -651,38 +681,34 @@
 
       if (band < 0) band = 0;
       if (band >= BANDS) band = BANDS - 1;
-
-      power[band] += magnitude * magnitude;
-      counts[band] += 1;
+      if (magnitude > raw[band]) raw[band] = magnitude;
     }
 
-    var raw = new Float32Array(BANDS);
-    raw.fill(-120);
-
     for (var b = 0; b < BANDS; b++) {
-      if (counts[b] > 0) {
-        raw[b] = 10 * Math.log10(Math.max(power[b] / counts[b], 1e-14));
-      }
+      raw[b] = 20 * Math.log10(Math.max(raw[b], 1e-7));
     }
 
     // A short triangular filter across neighbouring bands. The response curve
     // is analytic; the spectrum is measured, and a few pixels of smoothing make
     // the two readable together without hiding the shape of either.
     var smooth = new Float32Array(BANDS);
-    var weights = [1, 2, 3, 2, 1];
+    var weights = [1, 2, 1];
 
     for (var c = 0; c < BANDS; c++) {
       var sum = 0;
       var weight = 0;
 
-      for (var w = -2; w <= 2; w++) {
+      for (var w = -1; w <= 1; w++) {
         var index = clamp(c + w, 0, BANDS - 1);
-        var factor = weights[w + 2];
+        var factor = weights[w + 1];
         sum += raw[index] * factor;
         weight += factor;
       }
 
-      smooth[c] = sum / weight;
+      // A tone can live in a single band; averaging it with empty neighbours
+      // would make it quieter the higher it is. Keep the band's own peak and use
+      // the average only to lift the gaps between measured bands.
+      smooth[c] = Math.max(raw[c], sum / weight);
     }
 
     return smooth;
@@ -866,13 +892,15 @@
   function phaseSvg() {
     var cutoff = Math.max(valueOf("cutoff", 440), 10);
     var bandwidth = Math.max(valueOf("bandwidth", 1000), 10);
+    var amount = clamp(valueOf("amount", 0.5), 0, 1);
     var width = Math.max(0.15, Math.abs(Math.log2(bandwidth / cutoff)) * 0.35);
+    var strength = 0.35 + 0.65 * amount;
     var path = "";
 
     for (var i = 0; i <= 120; i++) {
       var frequency = 20 * Math.pow(1000, i / 120);
       var octaves = Math.log2(frequency / cutoff);
-      var delay = 1 / (1 + Math.pow(octaves / width, 2));
+      var delay = 1 / (1 + Math.pow(octaves / width, 2)) * strength;
       var x = 20 + i / 120 * 480;
       var y = 150 - delay * 120;
       path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
@@ -1043,8 +1071,45 @@
     var el = element("div", "mode");
     var buttons = [];
 
-    var control = { spec: spec, value: spec.default, paint: function () {} };
+    var control = { spec: spec, value: spec.default, el: null, paint: function () {} };
     controls[spec.id] = control;
+
+    var choices = spec.choices || [];
+
+    // A long switch is a drop-down: six segments would either squeeze the title
+    // or take a row of their own, and neither is worth the space.
+    if (choices.length > 3) {
+      el.classList.add("mode-drop");
+
+      var select = document.createElement("select");
+      select.className = "mode-select";
+      select.setAttribute("aria-label", spec.label || "Mode");
+
+      choices.forEach(function (name, index) {
+        var option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = name;
+        select.appendChild(option);
+      });
+
+      select.addEventListener("change", function () {
+        control.value = parseInt(select.value, 10);
+        control.paint();
+        markDirty();
+        if (window.ipc) window.ipc.postMessage(spec.id + "=" + control.value);
+      });
+
+      control.el = select;
+      control.paint = function () {
+        var active = Math.round(control.value);
+        select.value = String(active);
+        applyVisibility(active);
+      };
+
+      el.appendChild(select);
+      control.paint();
+      return el;
+    }
 
     control.paint = function () {
       var active = Math.round(control.value);
@@ -1125,10 +1190,8 @@
     header.appendChild(element("span", "spacer"));
 
     var modeEl = modeSpec ? buildMode(modeSpec) : null;
-    // Six segments do not fit beside a title; give a long switch its own bar.
-    var modesInBar = !!(modeSpec && modeSpec.choices && modeSpec.choices.length > 3);
 
-    if (modeEl && !modesInBar) header.appendChild(modeEl);
+    if (modeEl) header.appendChild(modeEl);
 
     var body = element("div", "body");
     var many = face.sections.length > 1;
@@ -1175,13 +1238,6 @@
 
     var shell = element("div", "face");
     shell.appendChild(header);
-
-    if (modeEl && modesInBar) {
-      var modeBar = element("div", "mode-bar");
-      modeBar.appendChild(modeEl);
-      shell.appendChild(modeBar);
-    }
-
     shell.appendChild(body);
     app.appendChild(shell);
 

@@ -14,12 +14,14 @@
 //! cargo run -p i_am_effects_web --example dump_face -- target/web-preview gain
 //! ```
 
+mod disperser;
 mod filter;
 
+use disperser::Dispersion;
 use filter::Multimode;
 use i_am_dsp::prelude::{
-	Crusher, Disperser, Distortion, FIRFreqShifter, Gain as GainDsp, LrControl,
-	PitchShifter, StereoController,
+	Crusher, Distortion, Gain as GainDsp, IIRFreqShifter, LrControl, PitchShifter,
+	StereoController,
 };
 use i_am_plugin::export_clap;
 use i_am_web_gui::web_plugin;
@@ -87,24 +89,25 @@ web_plugin!(
 	"#c8e04a"
 );
 
+/// A shift in hertz crosses zero, so the knob edits it through atan: fine near
+/// zero, quick at the ends.
+pub const SHIFTER_CURVES: &[(&str, &str)] = &[("shift_freq", "atan")];
+
 web_plugin!(
 	ShifterWeb,
-	FIRFreqShifter<2>,
-	|rate| FIRFreqShifter::<2>::new(rate, 0.0),
+	IIRFreqShifter<8, 2>,
+	|rate| IIRFreqShifter::<8, 2>::new(rate, 0.0),
 	"iamdsp.effects.shifter.web",
 	"I Am Shifter",
 	(360.0, 230.0),
-	"#7aa2ff"
+	"#7aa2ff",
+	curves = SHIFTER_CURVES
 );
 
 web_plugin!(
 	DisperserWeb,
-	Disperser<2>,
-	|rate| {
-		let mut disperser = Disperser::<2>::new(rate);
-		disperser.set_biquad_count(64);
-		disperser
-	},
+	Dispersion,
+	Dispersion::new,
 	"iamdsp.effects.disperser.web",
 	"I Am Disperser",
 	(380.0, 250.0),
@@ -327,7 +330,8 @@ mod tests {
 	fn the_a_group_has_its_pictures() {
 		let shifter = i_am_web_gui::face_json(
 			&ShifterWeb::new(),
-			&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0)),
+			&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0))
+				.with_curves(SHIFTER_CURVES),
 		);
 		let disperser = i_am_web_gui::face_json(
 			&DisperserWeb::new(),
@@ -340,7 +344,9 @@ mod tests {
 
 		assert!(shifter.contains("\"hero\":\"spectra\""), "{shifter}");
 		assert!(shifter.contains("\"id\":\"shift_freq\""), "{shifter}");
+		assert!(shifter.contains("\"curves\":{\"shift_freq\":\"atan\"}"), "{shifter}");
 		assert!(disperser.contains("\"hero\":\"phase\""), "{disperser}");
+		assert!(disperser.contains("\"id\":\"amount\""), "{disperser}");
 		assert!(disperser.contains("\"id\":\"cutoff\""), "{disperser}");
 		assert!(balance.contains("\"hero\":\"balance\""), "{balance}");
 		assert!(balance.contains("\"label\":\"Left\""), "{balance}");

@@ -28,6 +28,11 @@ pub struct Faceplate {
 	/// algorithms has one set of controls per algorithm; showing all of them at
 	/// once would be a wall of knobs that do nothing.
 	pub visible: Option<&'static [(i32, &'static [&'static str])]>,
+	/// A non-linear editing curve for a parameter whose range crosses zero, for
+	/// which the logarithmic mapping does not work. A shift in hertz is such a
+	/// parameter: atan spends most of the knob travel near zero and reaches the
+	/// ends quickly.
+	pub curves: Option<&'static [(&'static str, &'static str)]>,
 }
 
 impl Faceplate {
@@ -39,6 +44,7 @@ impl Faceplate {
 			size,
 			mode: None,
 			visible: None,
+			curves: None,
 		}
 	}
 
@@ -54,6 +60,15 @@ impl Faceplate {
 		visible: &'static [(i32, &'static [&'static str])],
 	) -> Self {
 		self.visible = Some(visible);
+		self
+	}
+
+	/// Give parameters an editing curve other than linear or logarithmic.
+	pub const fn with_curves(
+		mut self,
+		curves: &'static [(&'static str, &'static str)],
+	) -> Self {
+		self.curves = Some(curves);
 		self
 	}
 }
@@ -317,6 +332,22 @@ pub fn face_json_with_rate(
 				out.push_str("]]");
 			}
 			out.push(']');
+		},
+		None => out.push_str("null"),
+	}
+	out.push_str(",\"curves\":");
+	match face.curves {
+		Some(rows) => {
+			out.push('{');
+			for (index, (id, curve)) in rows.iter().enumerate() {
+				if index > 0 {
+					out.push(',');
+				}
+				string(&mut out, id);
+				out.push(':');
+				string(&mut out, curve);
+			}
+			out.push('}');
 		},
 		None => out.push_str("null"),
 	}
