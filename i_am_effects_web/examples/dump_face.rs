@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use i_am_effects_web::{DriveWeb, FilterWeb, GainWeb};
+use i_am_effects_web::{DriveWeb, FilterWeb, GainWeb, PitchWeb, WidthWeb};
 use i_am_plugin::Plugin;
 use i_am_web_gui::Faceplate;
 
@@ -58,8 +58,28 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		},
+		"width" => {
+			let plugin = WidthWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Width", "#ff6fae", (360.0, 230.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"pitch" => {
+			let plugin = PitchWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Pitch", "#c8e04a", (360.0, 230.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
 		other => {
-			eprintln!("unknown product {other}; expected gain, drive or filter");
+			eprintln!("unknown product {other}; expected gain, drive, filter, width or pitch");
 			std::process::exit(2);
 		},
 	};

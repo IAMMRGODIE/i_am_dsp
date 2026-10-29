@@ -746,11 +746,65 @@
     );
   }
 
+  /// A stereo field: the ellipse is as wide as the side gain and as tall as the
+  /// mid gain, so a mono setting is a line and a wide one is a circle.
+  function stereoSvg() {
+    var mid = clamp(valueOf("mid_gain", 1), 0.01, 4);
+    var side = clamp(valueOf("side_gain", 1), 0.01, 4);
+    var rx = 18 + 58 * clamp(side / 2, 0, 1);
+    var ry = 18 + 58 * clamp(mid / 2, 0, 1);
+
+    return heroSvg(
+      '<circle cx="260" cy="80" r="70" fill="none" stroke="#2c2c2c" stroke-width="1" ' +
+        'stroke-dasharray="3 5"/>' +
+      '<line x1="176" y1="80" x2="344" y2="80" stroke="#2b2b2b"/>' +
+      '<line x1="260" y1="4" x2="260" y2="156" stroke="#2b2b2b"/>' +
+      '<ellipse cx="260" cy="80" rx="' + rx.toFixed(1) + '" ry="' + ry.toFixed(1) + '" ' +
+        'fill="' + accent + '" fill-opacity=".10" stroke="' + accent + '" stroke-width="1.8"/>' +
+      '<circle cx="260" cy="80" r="2.2" fill="' + accent + '"/>'
+    );
+  }
+
+  /// A semitone ruler: the pitch factor is a ratio, so the picture reads it as
+  /// the semitones a person actually hears.
+  function pitchSvg() {
+    var factor = clamp(valueOf("pitch_shift_factor", 1), 0.25, 4);
+    var semitones = 12 * Math.log2(factor);
+    var marker = 40 + (semitones + 24) / 48 * 440;
+    var ticks = "";
+
+    for (var step = -24; step <= 24; step += 3) {
+      var x = 40 + (step + 24) / 48 * 440;
+      var major = step % 12 === 0;
+      ticks += '<line x1="' + x.toFixed(1) + '" y1="' + (major ? 58 : 66) + '" x2="' +
+        x.toFixed(1) + '" y2="' + (major ? 102 : 94) + '" stroke="' +
+        (major ? "#4a4a4a" : "#333") + '" stroke-width="1"/>';
+    }
+
+    return heroSvg(
+      '<line x1="40" y1="80" x2="480" y2="80" stroke="#3a3a3a" stroke-width="1"/>' +
+      ticks +
+      '<line x1="' + marker.toFixed(1) + '" y1="30" x2="' + marker.toFixed(1) +
+        '" y2="130" stroke="' + accent + '" stroke-width="2"/>' +
+      '<circle cx="' + marker.toFixed(1) + '" cy="80" r="4" fill="' + accent + '"/>'
+    );
+  }
+
+  function pitchBadge() {
+    var factor = clamp(valueOf("pitch_shift_factor", 1), 0.25, 4);
+    var semitones = 12 * Math.log2(factor);
+    var sign = semitones > 0.05 ? "+" : "";
+
+    return '<div class="hero-badge">' + sign + semitones.toFixed(1) + ' st</div>';
+  }
+
   function updateHeroes() {
     heroes.forEach(function (hero) {
       if (hero.kind === "waveform") hero.el.innerHTML = waveformSvg();
       else if (hero.kind === "transfer") hero.el.innerHTML = transferSvg() + rmsBadge();
       else if (hero.kind === "spectrum") hero.el.innerHTML = spectrumSvg();
+      else if (hero.kind === "stereo") hero.el.innerHTML = stereoSvg();
+      else if (hero.kind === "pitch") hero.el.innerHTML = pitchSvg() + pitchBadge();
     });
   }
 

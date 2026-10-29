@@ -17,7 +17,9 @@
 mod filter;
 
 use filter::Multimode;
-use i_am_dsp::prelude::{Clipper, Gain as GainDsp};
+use i_am_dsp::prelude::{
+	Clipper, Gain as GainDsp, PitchShifter, StereoController,
+};
 use i_am_plugin::export_clap;
 use i_am_web_gui::web_plugin;
 
@@ -53,7 +55,27 @@ web_plugin!(
 	mode = "mode"
 );
 
-export_clap!(GainWeb, DriveWeb, FilterWeb);
+web_plugin!(
+	WidthWeb,
+	StereoController,
+	|_| StereoController::new(),
+	"iamdsp.effects.width.web",
+	"I Am Width",
+	(360.0, 230.0),
+	"#ff6fae"
+);
+
+web_plugin!(
+	PitchWeb,
+	PitchShifter<2>,
+	|_| PitchShifter::<2>::new(1_024),
+	"iamdsp.effects.pitch.web",
+	"I Am Pitch",
+	(360.0, 230.0),
+	"#c8e04a"
+);
+
+export_clap!(GainWeb, DriveWeb, FilterWeb, WidthWeb, PitchWeb);
 
 #[cfg(test)]
 mod tests {
@@ -150,6 +172,28 @@ mod tests {
 		assert!(GainWeb::new().editor().is_some());
 		assert!(DriveWeb::new().editor().is_some());
 		assert!(FilterWeb::new().editor().is_some());
+		assert!(WidthWeb::new().editor().is_some());
+		assert!(PitchWeb::new().editor().is_some());
+	}
+
+	/// Two more modules, each with the picture its section asked for.
+	#[test]
+	fn width_and_pitch_have_their_own_pictures() {
+		let width = i_am_web_gui::face_json(
+			&WidthWeb::new(),
+			&Faceplate::new("I Am Width", "#ff6fae", (360.0, 230.0)),
+		);
+		let pitch = i_am_web_gui::face_json(
+			&PitchWeb::new(),
+			&Faceplate::new("I Am Pitch", "#c8e04a", (360.0, 230.0)),
+		);
+
+		assert!(width.contains("\"hero\":\"stereo\""), "{width}");
+		assert!(width.contains("\"id\":\"mid_gain\""), "{width}");
+		assert!(width.contains("\"label\":\"Mid\""), "{width}");
+		assert!(pitch.contains("\"hero\":\"pitch\""), "{pitch}");
+		assert!(pitch.contains("\"id\":\"pitch_shift_factor\""), "{pitch}");
+		assert!(pitch.contains("\"label\":\"Shift\""), "{pitch}");
 	}
 
 	/// The filter has three algorithms behind one set of controls, and the page
@@ -193,6 +237,8 @@ mod tests {
 			GainWeb::window_options(),
 			DriveWeb::window_options(),
 			FilterWeb::window_options(),
+			WidthWeb::window_options(),
+			PitchWeb::window_options(),
 		] {
 			let hints = options.resize_hints.expect("the web windows are resizable");
 
