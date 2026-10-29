@@ -6,8 +6,15 @@ use std::path::PathBuf;
 
 use crossbeam_channel::Sender;
 use i_am_plugin::{Editor, EditorContext, EditorError, ParentWindow, Plugin, WindowSize};
+use windows_sys::Win32::Foundation::{GetLastError, HWND};
+use windows_sys::Win32::Graphics::Gdi::COLOR_WINDOW;
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+	CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, SetParent, SetWindowPos,
+	ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, WNDCLASSW, WS_CHILD,
+	WS_CLIPCHILDREN, WS_VISIBLE,
+};
 use wry::dpi::{LogicalPosition, LogicalSize};
-use wry::raw_window_handle::RawWindowHandle;
 use wry::WebViewExtWindows;
 
 use crate::ProtocolResponse;
@@ -17,6 +24,68 @@ type IpcMapper<P> = Box<dyn Fn(&str) -> Option<<P as i_am_plugin::Processor>::Me
 
 /// One route of a page served over a custom protocol.
 type ProtocolHandler = Box<dyn Fn(&str) -> ProtocolResponse + Send + Sync>;
+
+/// The window class the WebView2 child lives in. The host's editor window only
+/// has to host one normal child; WebView2 creates its controller inside it.
+fn host_class() -> &'static Vec<u16> {
+	static CLASS: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+
+	CLASS.get_or_init(|| "i_am_plugin_wry_host\0".encode_utf16().collect())
+}
+
+fn register_host_class() {
+	static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+	ONCE.get_or_init(|| {
+		let class = host_class();
+		let window_class = WNDCLASSW {
+			style: 0,
+			lpfnWndProc: Some(DefWindowProcW),
+			cbClsExtra: 0,
+			cbWndExtra: 0,
+			hInstance: unsafe { GetModuleHandleW(std::ptr::null()) },
+			hIcon: std::ptr::null_mut(),
+			hCursor: std::ptr::null_mut(),
+			hbrBackground: COLOR_WINDOW as usize as _,
+			lpszMenuName: std::ptr::null(),
+			lpszClassName: class.as_ptr(),
+		};
+
+		// A failure here is reported by the CreateWindowExW that follows; the
+		// class may also already exist from an earlier instance, which is fine.
+		unsafe {
+			RegisterClassW(&window_class);
+		}
+	});
+}
+
+fn create_host_window(parent: *mut std::ffi::c_void, size: WindowSize) -> Result<HWND, EditorError> {
+	register_host_class();
+
+	let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
+	let window = unsafe {
+		CreateWindowExW(
+			0,
+			host_class().as_ptr(),
+			std::ptr::null(),
+			WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+			0,
+			0,
+			size.width as i32,
+			size.height as i32,
+			parent,
+			std::ptr::null_mut(),
+			instance,
+			std::ptr::null_mut(),
+		)
+	};
+
+	if window.is_null() {
+		return Err(format!("CreateWindowExW failed: {}", unsafe { GetLastError() }).into());
+	}
+
+	Ok(window)
+}
 
 thread_local! {
 	/// One WebView2 environment per UI thread. Creating a new environment for
@@ -128,6 +197,10 @@ pub struct WryEditor<P: Plugin> {
 	/// to own the mapper, not borrow it from an editor the host also owns.
 	on_ipc: Option<IpcMapper<P>>,
 	webview: Option<wry::WebView>,
+	/// The Win32 child window the WebView2 lives in. The host's editor window is
+	/// its parent; the WebView2 controller's parent is this window, which is a
+	/// plain window class of our own.
+	window: Option<HWND>,
 	/// The logical size the page is laid out for.
 	size: WindowSize,
 	/// Where WebView2 keeps its profile and caches, if the plug-in picks a place.
@@ -150,6 +223,7 @@ impl<P: Plugin> WryEditor<P> {
 			html: html.into(),
 			on_ipc: Some(Box::new(on_ipc)),
 			webview: None,
+			window: None,
 			size: WindowSize::default(),
 			data_directory: None,
 			url: None,
@@ -281,9 +355,20 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 			note(&format!("com: {result:#x}"));
 		}
 
+		let parent_hwnd = parent
+			.as_win32_hwnd()
+			.ok_or_else(|| "the wry editor needs a Win32 parent window")?;
+		let window = create_host_window(parent_hwnd, size)?;
+		note("window: created");
+		let outer_parent = ParentWindow::from_win32_hwnd(window)
+			.ok_or_else(|| "the host window handle was invalid")?;
+
 		let protocols = std::mem::take(&mut self.protocols);
 		let url = self.url.take();
 
+		// The WebView2 runs inside our own child window; the host's editor window
+		// only has to host that child. Creating the controller directly in the
+		// host's window is what crashed some DAWs at build time.
 		let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
 			WEB_CONTEXT.with(move |shared| {
 				let mut shared = shared.borrow_mut();
@@ -325,18 +410,24 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 							let _ = sender.send(message);
 						}
 					})
-					.build_as_child(&parent)
+					.build_as_child(&outer_parent)
 			})
 		}));
 
 		let webview = match opened {
 			Ok(Ok(webview)) => webview,
 			Ok(Err(error)) => {
+				unsafe {
+					DestroyWindow(window);
+				}
 				let error = EditorError::new(error);
 				report_error(&error);
 				return Err(error);
 			}
 			Err(_) => {
+				unsafe {
+					DestroyWindow(window);
+				}
 				let error = EditorError::from("WebView2 panicked while opening");
 				report_error(&error);
 				return Err(error);
@@ -359,28 +450,44 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		let _ = title;
 
 		self.webview = Some(webview);
+		self.window = Some(window);
 		Ok(())
 	}
 
 	fn show(&mut self) -> Result<(), EditorError> {
+		if let Some(window) = self.window {
+			unsafe {
+				ShowWindow(window, SW_SHOW);
+			}
+		}
 		self.webview()?.set_visible(true).map_err(EditorError::new)
 	}
 
 	fn hide(&mut self) -> Result<(), EditorError> {
+		if let Some(window) = self.window {
+			unsafe {
+				ShowWindow(window, SW_HIDE);
+			}
+		}
 		self.webview()?.set_visible(false).map_err(EditorError::new)
 	}
 
 	fn close(&mut self) {
-		// Dropping the web view closes its controller and destroys the child
-		// window; there is nothing else to unwind.
+		// Drop the WebView2 controller before destroying the window it lives in.
 		let _ = self.webview.take();
+
+		if let Some(window) = self.window.take() {
+			unsafe {
+				DestroyWindow(window);
+			}
+		}
 	}
 
 	fn set_parent(&mut self, parent: ParentWindow) -> Result<(), EditorError> {
-		if let RawWindowHandle::Win32(handle) = parent.as_raw() {
-			self.webview()?
-				.reparent(handle.hwnd.get())
-				.map_err(EditorError::new)?;
+		if let (Some(window), Some(parent)) = (self.window, parent.as_win32_hwnd()) {
+			unsafe {
+				SetParent(window, parent);
+			}
 		}
 
 		Ok(())
@@ -395,6 +502,20 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 
 	fn set_size(&mut self, size: WindowSize) -> Result<(), EditorError> {
 		self.size = size;
+
+		if let Some(window) = self.window {
+			unsafe {
+				SetWindowPos(
+					window,
+					std::ptr::null_mut(),
+					0,
+					0,
+					size.width as i32,
+					size.height as i32,
+					SWP_NOZORDER | SWP_NOACTIVATE,
+				);
+			}
+		}
 
 		if self.webview.is_some() {
 			self.webview()?
