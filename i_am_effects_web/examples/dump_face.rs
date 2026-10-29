@@ -15,7 +15,7 @@ use std::path::Path;
 use i_am_effects_web::{
 	AllpassWeb, BalanceWeb, ChorusWeb, CombWeb, CompressorWeb, CrusherWeb, DelayWeb,
 	DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
-	PitchWeb, ReverbWeb, SchroederWeb, ShifterWeb, WidthWeb,
+	ParticleWiderWeb, PitchWeb, ReverbWeb, SchroederWeb, ShifterWeb, WidthWeb,
 	CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
 	SHIFTER_CURVES,
@@ -87,6 +87,17 @@ fn main() {
 				i_am_web_gui::face_json(
 					&plugin,
 					&Faceplate::new("I Am Allpass", "#b18cff", (360.0, 230.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"particle_wider" => {
+			let plugin = ParticleWiderWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Particle Wider", "#67d7a8", (700.0, 340.0))
+						.with_mode("fft_size"),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -244,7 +255,7 @@ fn main() {
 		},
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, distortion, filter, comb, allpass, width, pitch, shifter, disperser, balance, compressor, reverb, schroeder, ir_reverb, chorus, flanger, phaser, delay or crusher"
+				"unknown product {other}; expected gain, distortion, filter, comb, allpass, width, pitch, shifter, disperser, balance, compressor, reverb, schroeder, particle_wider, ir_reverb, chorus, flanger, phaser, delay or crusher"
 			);
 			std::process::exit(2);
 		},

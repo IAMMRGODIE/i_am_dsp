@@ -20,6 +20,7 @@ mod compressor;
 mod disperser;
 mod filter;
 mod ir_reverb;
+mod particle_wider;
 mod reverb;
 mod schroeder;
 
@@ -28,6 +29,7 @@ use comb::CombEffect;
 use compressor::CompressorEffect;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
+use particle_wider::ParticleWiderEffect;
 use reverb::ReverbEffect;
 use schroeder::SchroederEffect;
 use filter::Multimode;
@@ -257,6 +259,17 @@ web_plugin!(
 );
 
 web_plugin!(
+	ParticleWiderWeb,
+	ParticleWiderEffect,
+	ParticleWiderEffect::new,
+	"iamdsp.effects.particle_wider.web",
+	"I Am Particle Wider",
+	(700.0, 340.0),
+	"#67d7a8",
+	mode = "fft_size"
+);
+
+web_plugin!(
 	SchroederWeb,
 	SchroederEffect,
 	SchroederEffect::new,
@@ -349,6 +362,7 @@ export_clap!(
 	CompressorWeb,
 	ReverbWeb,
 	SchroederWeb,
+	ParticleWiderWeb,
 	IrReverbWeb,
 	ChorusWeb,
 	FlangerWeb,
@@ -464,6 +478,7 @@ mod tests {
 		assert!(CompressorWeb::new().editor().is_some());
 		assert!(ReverbWeb::new().editor().is_some());
 		assert!(SchroederWeb::new().editor().is_some());
+		assert!(ParticleWiderWeb::new().editor().is_some());
 		assert!(IrReverbWeb::new().editor().is_some());
 		assert!(ChorusWeb::new().editor().is_some());
 		assert!(FlangerWeb::new().editor().is_some());
@@ -614,6 +629,27 @@ mod tests {
 		assert!(face.contains("\"id\":\"damping\""), "{face}");
 		assert!(face.contains("\"id\":\"dry_gain\""), "{face}");
 		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");
+	}
+
+	/// The particle wider has a small surface over the spectral mapper.
+	#[test]
+	fn the_particle_wider_has_a_particle_hero() {
+		let face = i_am_web_gui::face_json(
+			&ParticleWiderWeb::new(),
+			&Faceplate::new("I Am Particle Wider", "#67d7a8", (700.0, 340.0))
+				.with_mode("fft_size"),
+		);
+
+		assert!(face.contains("\"hero\":\"particles\""), "{face}");
+		assert!(face.contains("\"id\":\"depth\""), "{face}");
+		assert!(face.contains("\"id\":\"low_frequency\""), "{face}");
+		assert!(face.contains("\"id\":\"high_frequency\""), "{face}");
+		assert!(face.contains("\"id\":\"width\""), "{face}");
+		assert!(face.contains("\"id\":\"allow_negative\""), "{face}");
+		assert!(face.contains("\"id\":\"window_factor\""), "{face}");
+		assert!(face.contains("\"id\":\"fft_size\""), "{face}");
+		assert!(face.contains("\"mode\":\"fft_size\""), "{face}");
+		assert!(face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"), "{face}");
 	}
 
 	/// The IR reverb exposes the room, the T60, and a wet-only convolver.
@@ -785,6 +821,7 @@ mod tests {
 			CompressorWeb::window_options(),
 			ReverbWeb::window_options(),
 			SchroederWeb::window_options(),
+			ParticleWiderWeb::window_options(),
 			IrReverbWeb::window_options(),
 			ChorusWeb::window_options(),
 			FlangerWeb::window_options(),

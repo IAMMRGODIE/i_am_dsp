@@ -21,6 +21,7 @@
   var wantsScope = false;
 var wantsMeter = false;
 var wantsStereo = false;
+var wantsParticles = false;
 var stereoScope = {
   inputLeft: null,
   inputRight: null,
@@ -900,6 +901,37 @@ var ENV_MAX = 512;
       : 0;
   }
 
+  /// The particle wider's schematic: one pair of L/R lines per bin, each
+  /// scattered by a fresh random factor. Depth and Width set how far they jump.
+  function particlesSvg() {
+    var depth = clamp(valueOf("depth", 0.5), 0, 1);
+    var width = clamp(valueOf("width", 1), 0, 2);
+    var count = 64;
+    var left = "";
+    var right = "";
+    var grid =
+      '<line x1="18" y1="80" x2="502" y2="80" stroke="#343434"/>' +
+      '<line x1="260" y1="14" x2="260" y2="146" stroke="#2a2a2a"/>' +
+      '<text x="22" y="20" fill="#8a8a8a" font-size="8">L</text>' +
+      '<text x="490" y="20" fill="#8a8a8a" font-size="8">R</text>';
+
+    for (var index = 0; index < count; index++) {
+      var x = 30 + index / (count - 1) * 460;
+      var range = (0.12 + 0.88 * depth) * (0.25 + 0.75 * Math.min(width, 2) / 2);
+      var jumpLeft = (Math.random() * 2 - 1) * range * 60;
+      var jumpRight = (Math.random() * 2 - 1) * range * 60;
+
+      left += '<line x1="' + x.toFixed(1) + '" y1="80" x2="' + x.toFixed(1) +
+        '" y2="' + (80 - jumpLeft).toFixed(1) + '" stroke="' + accent +
+        '" stroke-width="1.4" opacity=".7"/>';
+      right += '<line x1="' + (x + 1.5).toFixed(1) + '" y1="80" x2="' +
+        (x + 1.5).toFixed(1) + '" y2="' + (80 - jumpRight).toFixed(1) +
+        '" stroke="#b7f0e2" stroke-width="1.1" opacity=".5"/>';
+    }
+
+    return heroSvgSquare(grid + left + right);
+  }
+
   function stereoSvg() {
     var cx = 160;
     var cy = 72;
@@ -1345,6 +1377,7 @@ var ENV_MAX = 512;
       else if (hero.kind === "phase") hero.el.innerHTML = phaseSvg();
       else if (hero.kind === "balance") hero.el.innerHTML = balanceSvg();
       else if (hero.kind === "stereo") hero.el.innerHTML = stereoSvg();
+  else if (hero.kind === "particles") hero.el.innerHTML = particlesSvg();
       else if (hero.kind === "pitch") hero.el.innerHTML = pitchSvg() + pitchBadge();
     });
   }
@@ -1802,8 +1835,16 @@ var ENV_MAX = 512;
     wantsStereo = heroes.some(function (hero) {
       return hero.kind === "stereo";
     });
+    wantsParticles = heroes.some(function (hero) {
+      return hero.kind === "particles";
+    });
     if (wantsMeter) setInterval(pollMeter, 100);
     if (wantsStereo) setTimeout(pollStereo, 50);
+    if (wantsParticles) {
+      setInterval(function () {
+        if (!document.hidden && wantsParticles) markDirty();
+      }, 40);
+    }
 
     var shell = element("div", "face");
     shell.appendChild(header);
