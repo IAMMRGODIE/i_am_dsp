@@ -13,8 +13,10 @@
 use std::path::Path;
 
 use i_am_effects_web::{
-	BalanceWeb, CrusherWeb, DelayWeb, DisperserWeb, DistortionWeb, FilterWeb, GainWeb, PitchWeb,
-	ShifterWeb, WidthWeb, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE, SHIFTER_CURVES,
+	BalanceWeb, ChorusWeb, CrusherWeb, DelayWeb, DisperserWeb, DistortionWeb, FilterWeb,
+	FlangerWeb, GainWeb, PhaserWeb, PitchWeb, ShifterWeb, WidthWeb, CHORUS_HEADER,
+	CHORUS_SWITCHES, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE, FLANGER_HEADER,
+	FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES, SHIFTER_CURVES,
 };
 use i_am_effects_web::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -118,6 +120,42 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		},
+		"chorus" => {
+			let plugin = ChorusWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Chorus", "#5fe0b0", (560.0, 300.0))
+						.with_header(CHORUS_HEADER)
+						.with_switches(CHORUS_SWITCHES),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"flanger" => {
+			let plugin = FlangerWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Flanger", "#6bb8ff", (560.0, 300.0))
+						.with_header(FLANGER_HEADER)
+						.with_switches(FLANGER_SWITCHES),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"phaser" => {
+			let plugin = PhaserWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Phaser", "#b48cff", (560.0, 300.0))
+						.with_header(PHASER_HEADER)
+						.with_switches(PHASER_SWITCHES),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
 		"delay" => {
 			let plugin = DelayWeb::new();
 			(
@@ -142,7 +180,7 @@ fn main() {
 		},
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance, delay or crusher"
+				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance, chorus, flanger, phaser, delay or crusher"
 			);
 			std::process::exit(2);
 		},

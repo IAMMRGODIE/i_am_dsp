@@ -478,6 +478,8 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// the center saves in milliseconds
 	#[range(min = 0.0, max = 4000.0)]
 	#[unit(milliseconds)]
+	#[id(display = "Delay")]
+	#[layout(group = "Flanger", order = 1, widget = knob)]
 	pub center_delay_time: f32,
 	/// The sample rate of the audio signal, saves in Hz
 	#[skip]
@@ -488,6 +490,8 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// The frequency of the LFO, saves in Hz, used when [`Self::tempo`] is not syncing.
 	#[range(min = 0.01, max = 20.0)]
 	#[unit(hertz)]
+	#[id(display = "Rate")]
+	#[layout(group = "Flanger", order = 0, widget = knob, hero = "lfo")]
 	pub lfo_frequency: f32,
 	/// The same rate in musical time.
 	///
@@ -495,20 +499,29 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// runs, so it lines up with the grid, and keeps sweeping at the synced rate while the
 	/// transport is stopped.
 	#[id(display = "Tempo")]
+	#[layout(group = "Flanger", order = 0)]
 	#[sub_param]
 	pub tempo: SyncedTime,
 	/// The amplitude of the LFO, saves in milliseconds
 	#[range(min = 0.01, max = 10.0)]
 	#[unit(milliseconds)]
+	#[id(display = "Depth")]
+	#[layout(group = "Flanger", order = 2, widget = knob)]
 	pub lfo_amplitude: f32,
 	#[skip]
 	phase: SyncedPhase,
 	/// The wet gain of the effect, saves in linear scale
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
+	#[unit(percent)]
+	#[id(display = "Mix")]
+	#[layout(group = "Flanger", order = 4, widget = knob)]
 	pub wet_gain: f32,
 	#[range(min = 0.01, max = 1.0)]
 	#[logarithmic]
+	#[unit(percent)]
+	#[id(display = "Feedback")]
+	#[layout(group = "Flanger", order = 3, widget = knob)]
 	/// The feed back gain, saves in linear scale
 	pub feed_back_gain: f32,
 }
@@ -623,28 +636,39 @@ pub struct Chorus<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	/// The center delay time, saves in milliseconds
 	#[range(min = 5.0, max = 20.0)]
 	#[unit(milliseconds)]
+	#[id(display = "Delay")]
+	#[layout(group = "Chorus", order = 1, widget = knob)]
 	pub center_delay_time: f32,
 	/// The LFO waveform
+	#[layout(group = "Chorus", order = 0)]
 	#[sub_param]
 	pub lfo: Lfo,
 	/// The frequency of the LFO, saves in Hz, used when [`Self::tempo`] is not syncing.
 	#[range(min = 0.01, max = 2.0)]
 	#[unit(hertz)]
+	#[id(display = "Rate")]
+	#[layout(group = "Chorus", order = 0, widget = knob, hero = "lfo")]
 	pub lfo_frequency: f32,
 	/// The same rate in musical time; see [`Flanger::tempo`] for what syncing does to a
 	/// sweep.
 	#[id(display = "Tempo")]
+	#[layout(group = "Chorus", order = 0)]
 	#[sub_param]
 	pub tempo: SyncedTime,
 	/// The amplitude of the LFO, saves in milliseconds
 	#[range(min = 5.0, max = 20.0)]
 	#[unit(milliseconds)]
+	#[id(display = "Depth")]
+	#[layout(group = "Chorus", order = 2, widget = knob)]
 	pub lfo_amplitude: f32,
 	/// The wet_gain of the effect, saves in linear scale
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
+	#[unit(percent)]
+	#[id(display = "Mix")]
+	#[layout(group = "Chorus", order = 3, widget = knob)]
 	pub wet_gain: f32,
-	#[range(min = 1, max = 50)]
+	#[skip]
 	delay_lines: usize,
 	#[skip]
 	phase: SyncedPhase,

@@ -68,7 +68,10 @@
     }
     switch (spec.unit) {
       case "db": return (value > 0 ? "+" : "") + value.toFixed(2) + " dB";
-      case "hz": return value >= 1000 ? (value / 1000).toFixed(2) + " kHz" : value.toFixed(0) + " Hz";
+      case "hz":
+        if (value >= 1000) return (value / 1000).toFixed(2) + " kHz";
+        if (value >= 10) return value.toFixed(0) + " Hz";
+        return value.toFixed(2) + " Hz";
       case "percent": return (value * 100).toFixed(1) + " %";
       case "ms": return value.toFixed(1) + " ms";
       case "s": return value.toFixed(3) + " s";
@@ -1021,9 +1024,39 @@
     );
   }
 
+  /// The LFO as it is set now: the free rate in hertz, or the beat period converted
+  /// to hertz at 120 BPM for the picture.
+  function lfoSvg() {
+    var sync = !!valueOf("tempo.sync", 0);
+    var beats = Math.max(valueOf("tempo.beats", 1), 0.03125);
+    var free = Math.max(valueOf("lfo_frequency", valueOf("lfo_freq", 1)), 0.01);
+    var rate = clamp(sync ? 1 / (beats * 0.5) : free, 0.01, 20);
+    var amplitude = valueOf("lfo_amplitude", 0);
+    var depth = amplitude > 0 ? clamp(amplitude / 10, 0.1, 1) : 0.6;
+    var scale = 45 * depth;
+    var path = "";
+
+    for (var i = 0; i <= 520; i++) {
+      var t = i / 520 * 2.0;
+      var x = 20 + i / 520 * 480;
+      var y = 80 - Math.sin(t * rate * Math.PI * 2) * scale;
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    return heroSvg(
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+      '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
+        'vector-effect="non-scaling-stroke"/>'
+    );
+  }
+
   function updateHeroes() {
     heroes.forEach(function (hero) {
-      if (hero.kind === "taps") {
+      if (hero.kind === "lfo") {
+        hero.el.innerHTML = lfoSvg() +
+          (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");
+      }
+      else if (hero.kind === "taps") {
         hero.el.innerHTML = tapsSvg() +
           (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");
       }

@@ -21,8 +21,8 @@ use disperser::Dispersion;
 use filter::Multimode;
 pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_dsp::prelude::{
-	Crusher, Delay, Distortion, Gain as GainDsp, IIRFreqShifter, LrControl, PitchShifter,
-	StereoController,
+	Chorus, Crusher, Delay, Distortion, Flanger, Gain as GainDsp, IIRFreqShifter, LrControl,
+	Phaser, PitchShifter, SineWave, StereoController,
 };
 use i_am_web_gui::Switch;
 use i_am_plugin::export_clap;
@@ -138,6 +138,64 @@ pub const DELAY_SWITCHES: &[Switch] = &[Switch::new(
 	&["delay_time"],
 )];
 
+/// The chorus sync switch: free hertz or beats.
+pub const CHORUS_HEADER: &[&str] = &["tempo.sync"];
+pub const CHORUS_SWITCHES: &[Switch] = &[Switch::new(
+	"tempo.sync",
+	&["tempo.beats"],
+	&["lfo_frequency"],
+)];
+/// The flanger uses the same pair.
+pub const FLANGER_HEADER: &[&str] = &["tempo.sync"];
+pub const FLANGER_SWITCHES: &[Switch] = &[Switch::new(
+	"tempo.sync",
+	&["tempo.beats"],
+	&["lfo_frequency"],
+)];
+/// The phaser names its free rate lfo_freq.
+pub const PHASER_HEADER: &[&str] = &["tempo.sync"];
+pub const PHASER_SWITCHES: &[Switch] = &[Switch::new(
+	"tempo.sync",
+	&["tempo.beats"],
+	&["lfo_freq"],
+)];
+
+web_plugin!(
+	ChorusWeb,
+	Chorus<SineWave, 2>,
+	|rate| Chorus::<SineWave, 2>::new(1 << 14, 4, rate, SineWave),
+	"iamdsp.effects.chorus.web",
+	"I Am Chorus",
+	(560.0, 300.0),
+	"#5fe0b0",
+	header = CHORUS_HEADER,
+	switches = CHORUS_SWITCHES
+);
+
+web_plugin!(
+	FlangerWeb,
+	Flanger<SineWave, 2>,
+	|rate| Flanger::<SineWave, 2>::new(1 << 18, rate, SineWave),
+	"iamdsp.effects.flanger.web",
+	"I Am Flanger",
+	(560.0, 300.0),
+	"#6bb8ff",
+	header = FLANGER_HEADER,
+	switches = FLANGER_SWITCHES
+);
+
+web_plugin!(
+	PhaserWeb,
+	Phaser<SineWave, 2>,
+	|rate| Phaser::<SineWave, 2>::new(SineWave, 6, rate),
+	"iamdsp.effects.phaser.web",
+	"I Am Phaser",
+	(560.0, 300.0),
+	"#b48cff",
+	header = PHASER_HEADER,
+	switches = PHASER_SWITCHES
+);
+
 web_plugin!(
 	DelayWeb,
 	Delay<(), 2>,
@@ -170,6 +228,9 @@ export_clap!(
 	DisperserWeb,
 	BalanceWeb,
 	DelayWeb,
+	ChorusWeb,
+	FlangerWeb,
+	PhaserWeb,
 	CrusherWeb
 );
 
@@ -276,6 +337,9 @@ mod tests {
 		assert!(DisperserWeb::new().editor().is_some());
 		assert!(BalanceWeb::new().editor().is_some());
 		assert!(DelayWeb::new().editor().is_some());
+		assert!(ChorusWeb::new().editor().is_some());
+		assert!(FlangerWeb::new().editor().is_some());
+		assert!(PhaserWeb::new().editor().is_some());
 		assert!(CrusherWeb::new().editor().is_some());
 	}
 
@@ -382,6 +446,45 @@ mod tests {
 		assert!(face.contains("\"name\":\"Delay\""), "{face}");
 	}
 
+	/// Chorus, flanger and phaser share the sync dot; only the free parameter's id
+	/// changes, and phaser calls it lfo_freq.
+	#[test]
+	fn the_b_group_uses_the_same_sync_pair() {
+		let chorus = i_am_web_gui::face_json(
+			&ChorusWeb::new(),
+			&Faceplate::new("I Am Chorus", "#5fe0b0", (560.0, 300.0))
+				.with_header(CHORUS_HEADER)
+				.with_switches(CHORUS_SWITCHES),
+		);
+		let flanger = i_am_web_gui::face_json(
+			&FlangerWeb::new(),
+			&Faceplate::new("I Am Flanger", "#6bb8ff", (560.0, 300.0))
+				.with_header(FLANGER_HEADER)
+				.with_switches(FLANGER_SWITCHES),
+		);
+		let phaser = i_am_web_gui::face_json(
+			&PhaserWeb::new(),
+			&Faceplate::new("I Am Phaser", "#b48cff", (560.0, 300.0))
+				.with_header(PHASER_HEADER)
+				.with_switches(PHASER_SWITCHES),
+		);
+
+		assert!(chorus.contains("\"hero\":\"lfo\""), "{chorus}");
+		assert!(chorus.contains("\"id\":\"lfo_frequency\""), "{chorus}");
+		assert!(chorus.contains("\"name\":\"Chorus\""), "{chorus}");
+		assert!(
+			chorus.contains("\"switches\":[{\"control\":\"tempo.sync\",\"on\":[\"tempo.beats\"],\"off\":[\"lfo_frequency\"]}]"),
+			"{chorus}"
+		);
+
+		assert!(flanger.contains("\"name\":\"Flanger\""), "{flanger}");
+		assert!(flanger.contains("\"id\":\"feed_back_gain\""), "{flanger}");
+
+		assert!(phaser.contains("\"name\":\"Phaser\""), "{phaser}");
+		assert!(phaser.contains("\"id\":\"lfo_freq\""), "{phaser}");
+		assert!(phaser.contains("\"off\":[\"lfo_freq\"]"), "{phaser}");
+	}
+
 	/// Distortion has six algorithms, and each mode lists the controls it reads.
 	#[test]
 	fn the_distortion_has_modes_and_visible_controls() {
@@ -444,6 +547,9 @@ mod tests {
 			DisperserWeb::window_options(),
 			BalanceWeb::window_options(),
 			DelayWeb::window_options(),
+			ChorusWeb::window_options(),
+			FlangerWeb::window_options(),
+			PhaserWeb::window_options(),
 			CrusherWeb::window_options(),
 		] {
 			let hints = options.resize_hints.expect("the web windows are resizable");
