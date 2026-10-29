@@ -361,7 +361,15 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 							self.last_available_info = ctx.info.clone();
 						},
 						
-						Some(CoreEventSpace::Midi(_)) |
+						Some(CoreEventSpace::Midi(midi)) => {
+							// A host may talk to a note port in the MIDI dialect, and FL
+							// Studio's MIDI Out route does exactly that: the bytes a
+							// keyboard would send arrive unprocessed, so they have to be
+							// decoded before a note-following effect can see them.
+							if let Some(event) = note_event_from_midi(midi.data()) {
+								ctx.events.push(event);
+							}
+						}
 						Some(CoreEventSpace::Midi2(_)) |
 						Some(CoreEventSpace::MidiSysEx(_)) |
 						Some(CoreEventSpace::NoteExpression(_)) |
@@ -464,5 +472,103 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		sync_params(events.output, &self.param_map);
 
 		Ok(ProcessStatus::Continue)
+	}
+}
+
+/// Decodes one raw MIDI 1.0 message into the note events effects understand.
+///
+/// A note port may be driven in the MIDI dialect as well as the CLAP one. FL
+/// Studio's MIDI Out route sends the raw bytes a keyboard would send, so a
+/// note-following effect otherwise never hears the notes it is meant to follow.
+/// Every message the host delivers is complete: running status is the host's job.
+fn note_event_from_midi(data: [u8; 3]) -> Option<i_am_dsp::NoteEvent> {
+	let channel = data[0] & 0x0F;
+
+	match data[0] & 0xF0 {
+		// A note on with no velocity is the running-status note off, and hosts use it.
+		0x90 if data[2] > 0 => Some(i_am_dsp::NoteEvent::NoteOn {
+			channel,
+			note: data[1] as usize,
+			velocity: data[2] as f32 / 127.0,
+		}),
+		0x90 => Some(i_am_dsp::NoteEvent::NoteOff {
+			channel,
+			note: data[1] as usize,
+			velocity: 0.0,
+		}),
+		0x80 => Some(i_am_dsp::NoteEvent::NoteOff {
+			channel,
+			note: data[1] as usize,
+			velocity: data[2] as f32 / 127.0,
+		}),
+		// All Sound Off and All Notes Off both mean "release everything".
+		0xB0 if data[1] == 120 || data[1] == 123 => Some(i_am_dsp::NoteEvent::ImmediateStop),
+		0xB0 => Some(i_am_dsp::NoteEvent::MidiCC {
+			channel,
+			cc: data[1],
+			value: data[2] as f32 / 127.0,
+		}),
+		_ => None,
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::note_event_from_midi;
+	use i_am_dsp::NoteEvent;
+
+	#[test]
+	fn a_note_on_keeps_its_channel_and_velocity() {
+		match note_event_from_midi([0x92, 60, 100]) {
+			Some(NoteEvent::NoteOn { channel, note, velocity }) => {
+				assert_eq!(channel, 2);
+				assert_eq!(note, 60);
+				assert!((velocity - 100.0 / 127.0).abs() < 1e-6);
+			},
+			other => panic!("expected a note on, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn a_note_on_with_no_velocity_is_a_note_off() {
+		assert_eq!(
+			note_event_from_midi([0x90, 60, 0]),
+			Some(NoteEvent::NoteOff { channel: 0, note: 60, velocity: 0.0 })
+		);
+	}
+
+	#[test]
+	fn a_note_off_carries_the_release_velocity() {
+		match note_event_from_midi([0x83, 52, 64]) {
+			Some(NoteEvent::NoteOff { channel, note, velocity }) => {
+				assert_eq!(channel, 3);
+				assert_eq!(note, 52);
+				assert!((velocity - 64.0 / 127.0).abs() < 1e-6);
+			},
+			other => panic!("expected a note off, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn all_notes_off_stops_everything() {
+		assert_eq!(note_event_from_midi([0xB5, 123, 0]), Some(NoteEvent::ImmediateStop));
+		assert_eq!(note_event_from_midi([0xB5, 120, 0]), Some(NoteEvent::ImmediateStop));
+	}
+
+	#[test]
+	fn another_controller_stays_a_controller_event() {
+		match note_event_from_midi([0xB1, 1, 127]) {
+			Some(NoteEvent::MidiCC { channel, cc, value }) => {
+				assert_eq!(channel, 1);
+				assert_eq!(cc, 1);
+				assert!((value - 1.0).abs() < 1e-6);
+			},
+			other => panic!("expected a controller, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn a_message_that_is_not_a_note_or_controller_is_dropped() {
+		assert_eq!(note_event_from_midi([0xE0, 0, 64]), None);
 	}
 }

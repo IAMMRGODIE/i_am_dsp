@@ -110,7 +110,10 @@ impl<P: Plugin> PluginNotePortsImpl for PluginMain<P> {
 		writer.set(&NotePortInfo {
 			id: index.into(),
 			name: ports[index as usize].name.as_bytes(),
-			supported_dialects: NoteDialects::CLAP,
+			// A host can drive the port in either dialect: CLAP notes are the native
+			// path, and MIDI is what FL Studio's MIDI Out route sends. Advertising
+			// only the CLAP dialect makes that host consider the port unusable.
+			supported_dialects: NoteDialects::CLAP | NoteDialects::MIDI,
 			preferred_dialect: Some(NoteDialect::Clap),
 		});
 	}
