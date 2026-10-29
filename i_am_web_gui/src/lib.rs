@@ -118,6 +118,11 @@ pub fn editor<P: Plugin>(
 				content_type: "application/octet-stream",
 				body: scope.snapshot(),
 			},
+			"/stereo" => ProtocolResponse {
+				status: 200,
+				content_type: "application/octet-stream",
+				body: scope.stereo_snapshot(),
+			},
 			"/meter" => {
 				let (input, sidechain) = scope.meter();
 				ProtocolResponse::json(format!(
@@ -239,24 +244,25 @@ macro_rules! web_plugin {
 				// The scope keeps the last 4096 frames at the host's rate: about
 				// 85 ms at 48 kHz, long enough to read a waveform and full-rate
 				// enough for the page to run an FFT over it.
-				let input = (samples[0] + samples[1]) * 0.5;
+				let input = *samples;
+				let input_mono = (input[0] + input[1]) * 0.5;
 				// A compressor with a sidechain port reads other[1]; without one the
 				// input stands in for it, which is also what the DSP does.
 				let sidechain = other
 					.get(1)
 					.map(|frame| (frame[0] + frame[1]) * 0.5)
-					.unwrap_or(input);
+					.unwrap_or(input_mono);
 
 				// Bypassed is the input, untouched: an effect has nothing to add.
 				if self.bypass.load(std::sync::atomic::Ordering::Relaxed) {
-					self.scope.push_with_sidechain(input, input, sidechain);
+					self.scope.push_stereo(input, input, sidechain);
 					return;
 				}
 
 				i_am_dsp::Processor::process(&mut self.processor, samples, other, process_context);
 
-				let output = (samples[0] + samples[1]) * 0.5;
-				self.scope.push_with_sidechain(input, output, sidechain);
+				let output = *samples;
+				self.scope.push_stereo(input, output, sidechain);
 			}
 
 			fn on_message(&self, message: Self::Message) {

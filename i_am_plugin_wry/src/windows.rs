@@ -398,7 +398,7 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 
 		let parent_hwnd = parent
 			.as_win32_hwnd()
-			.ok_or_else(|| "the wry editor needs a Win32 parent window")?;
+			.ok_or("the wry editor needs a Win32 parent window")?;
 
 		// The host's window is the truth for the visible area: a DAW may size the
 		// plug-in window differently from the design size the wrapper reports.
@@ -420,7 +420,7 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		let window = create_host_window(parent_hwnd, size, self.scale)?;
 		note(&format!("window: created {}x{} logical", size.width, size.height));
 		let outer_parent = ParentWindow::from_win32_hwnd(window)
-			.ok_or_else(|| "the host window handle was invalid")?;
+			.ok_or("the host window handle was invalid")?;
 
 		let protocols = std::mem::take(&mut self.protocols);
 		let url = self.url.take();

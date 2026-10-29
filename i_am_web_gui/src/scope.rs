@@ -22,6 +22,10 @@ pub struct Scope {
 	input: Box<[AtomicU32]>,
 	output: Box<[AtomicU32]>,
 	sidechain: Box<[AtomicU32]>,
+	input_left: Box<[AtomicU32]>,
+	input_right: Box<[AtomicU32]>,
+	output_left: Box<[AtomicU32]>,
+	output_right: Box<[AtomicU32]>,
 	write: AtomicUsize,
 }
 
@@ -45,6 +49,10 @@ impl Scope {
 			input: empty(),
 			output: empty(),
 			sidechain: empty(),
+			input_left: empty(),
+			input_right: empty(),
+			output_left: empty(),
+			output_right: empty(),
 			write: AtomicUsize::new(0),
 		}
 	}
@@ -52,17 +60,30 @@ impl Scope {
 	/// Records one mono frame. Called from the audio thread. Without a separate
 	/// sidechain the input stands in for it, so the meter has a signal either way.
 	pub fn push(&self, input: f32, output: f32) {
-		self.push_with_sidechain(input, output, input);
+		self.push_stereo([input, input], [output, output], input);
 	}
 
 	/// Records one mono frame and the sidechain frame that fed the detector.
 	pub fn push_with_sidechain(&self, input: f32, output: f32, sidechain: f32) {
+		self.push_stereo([input, input], [output, output], sidechain);
+	}
+
+	/// Records one stereo frame before and after the effect, plus the sidechain
+	/// frame. The mono rings are kept for the existing waveform/spectrum heroes;
+	/// the L/R rings feed the goniometer.
+	pub fn push_stereo(&self, input: [f32; 2], output: [f32; 2], sidechain: f32) {
 		let index = self.write.load(Ordering::Relaxed);
 		let slot = index % CAPACITY;
+		let input_mono = (input[0] + input[1]) * 0.5;
+		let output_mono = (output[0] + output[1]) * 0.5;
 
-		self.input[slot].store(input.to_bits(), Ordering::Relaxed);
-		self.output[slot].store(output.to_bits(), Ordering::Relaxed);
+		self.input[slot].store(input_mono.to_bits(), Ordering::Relaxed);
+		self.output[slot].store(output_mono.to_bits(), Ordering::Relaxed);
 		self.sidechain[slot].store(sidechain.to_bits(), Ordering::Relaxed);
+		self.input_left[slot].store(input[0].to_bits(), Ordering::Relaxed);
+		self.input_right[slot].store(input[1].to_bits(), Ordering::Relaxed);
+		self.output_left[slot].store(output[0].to_bits(), Ordering::Relaxed);
+		self.output_right[slot].store(output[1].to_bits(), Ordering::Relaxed);
 		self.write.store(index + 1, Ordering::Release);
 	}
 
@@ -116,6 +137,34 @@ impl Scope {
 
 		bytes
 	}
+
+	/// The last [POINTS] stereo frames as little-endian f32: input L, input R,
+	/// output L, output R. The goniometer reads the L/R fields from this.
+	pub fn stereo_snapshot(&self) -> Vec<u8> {
+		let end = self.write.load(Ordering::Acquire);
+		let start = end.saturating_sub(POINTS);
+		let mut bytes = Vec::with_capacity(POINTS * 16);
+
+		for channel in [
+			&self.input_left,
+			&self.input_right,
+			&self.output_left,
+			&self.output_right,
+		] {
+			for offset in 0..POINTS {
+				let frame = start + offset;
+				let value = if frame < end {
+					f32::from_bits(channel[frame % CAPACITY].load(Ordering::Relaxed))
+				} else {
+					0.0
+				};
+
+				bytes.extend_from_slice(&value.to_le_bytes());
+			}
+		}
+
+		bytes
+	}
 }
 
 #[cfg(test)]
@@ -143,6 +192,28 @@ mod tests {
 		assert_eq!(read(POINTS - 1), (count - 1) as f32);
 		assert_eq!(read(POINTS), -100.0, "the output follows the input");
 		assert_eq!(read(POINTS * 2 - 1), -((count - 1) as f32));
+	}
+
+	/// The stereo snapshot keeps L/R separately, before and after the effect.
+	#[test]
+	fn a_stereo_snapshot_holds_both_sides() {
+		let scope = Scope::new();
+
+		for _ in 0..POINTS {
+			scope.push_stereo([0.5, -0.25], [0.25, -0.5], 0.0);
+		}
+
+		let bytes = scope.stereo_snapshot();
+		assert_eq!(bytes.len(), POINTS * 16);
+
+		let read = |offset: usize| {
+			f32::from_le_bytes(bytes[offset * 4..offset * 4 + 4].try_into().unwrap())
+		};
+
+		assert_eq!(read(0), 0.5, "input L");
+		assert_eq!(read(POINTS), -0.25, "input R");
+		assert_eq!(read(POINTS * 2), 0.25, "output L");
+		assert_eq!(read(POINTS * 3), -0.5, "output R");
 	}
 
 	/// Before any audio arrives, a scope is silence rather than garbage.

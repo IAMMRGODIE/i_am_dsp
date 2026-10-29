@@ -75,7 +75,7 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Width", "#ff6fae", (360.0, 230.0)),
+					&Faceplate::new("I Am Width", "#ff6fae", (420.0, 340.0)),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

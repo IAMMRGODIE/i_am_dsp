@@ -20,6 +20,13 @@
   var modeSpec = null;
   var wantsScope = false;
 var wantsMeter = false;
+var wantsStereo = false;
+var stereoScope = {
+  inputLeft: null,
+  inputRight: null,
+  outputLeft: null,
+  outputRight: null
+};
 var meter = { input: null, sidechain: null };
 // A short level history so the right-hand envelope can scroll; the wheel
 // changes how much of it is visible, which changes how fast it appears to move.
@@ -493,6 +500,10 @@ var ENV_MAX = 512;
     return '<svg viewBox="0 0 520 160" preserveAspectRatio="xMidYMid meet">' + content + '</svg>';
   }
 
+  function heroSvgMeter(content) {
+    return '<svg viewBox="0 0 320 160" preserveAspectRatio="xMidYMid meet">' + content + '</svg>';
+  }
+
   function wavePath(amplitude, middle, cycles) {
     var path = "";
     for (var i = 0; i <= 180; i++) {
@@ -854,33 +865,75 @@ var ENV_MAX = 512;
     );
   }
 
-  /// A goniometer: the circle is fixed and a fan opens upward, its angle being
-  /// how wide the side gain is against the mid gain. A circle cannot become an
-  /// ellipse here, so the shape reads the same at every window size.
+  /// A stereo meter: input and output L/R plotted on one goniometer. The x axis
+  /// is the side field (L - R) and y is the mid field (L + R); a wider Width
+  /// opens the accent cloud horizontally. Grey is before, accent is after.
   function stereoSvg() {
-    var mid = clamp(valueOf("mid_gain", 1), 0.01, 4);
-    var side = clamp(valueOf("side_gain", 1), 0.01, 4);
-    var radius = 62;
-    var spread = clamp(Math.atan2(side, mid), 0.03, 1.35);
-    var top = -Math.PI / 2;
-    var a0 = top - spread;
-    var a1 = top + spread;
-    var p0 = [260 + Math.cos(a0) * radius, 80 + Math.sin(a0) * radius];
-    var p1 = [260 + Math.cos(a1) * radius, 80 + Math.sin(a1) * radius];
-    var fan = "M 260 80 L " + p0[0].toFixed(1) + " " + p0[1].toFixed(1) +
-      " A " + radius + " " + radius + " 0 0 1 " + p1[0].toFixed(1) + " " + p1[1].toFixed(1) + " Z";
+    var cx = 160;
+    var cy = 80;
+    var radius = 70;
+    var grid = "";
 
-    return heroSvgSquare(
-      '<circle cx="260" cy="80" r="' + radius + '" fill="#ffffff" fill-opacity=".015" ' +
-        'stroke="#464646" stroke-width="1.2"/>' +
-      '<line x1="198" y1="80" x2="322" y2="80" stroke="#343434"/>' +
-      '<line x1="260" y1="18" x2="260" y2="142" stroke="#343434"/>' +
-      '<path d="' + fan + '" fill="' + accent + '" fill-opacity=".12" stroke="' +
-        accent + '" stroke-width="1.4"/>' +
-      '<line x1="260" y1="80" x2="260" y2="18" stroke="' + accent + '" stroke-width="1" ' +
-        'opacity=".5"/>' +
-      '<circle cx="260" cy="80" r="2.4" fill="' + accent + '"/>'
-    );
+    for (var r = 23; r <= 70; r += 23) {
+      grid += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
+        '" fill="none" stroke="#3a3a3a" stroke-width="1"/>';
+    }
+
+    grid += '<line x1="' + (cx - 70) + '" y1="' + cy + '" x2="' + (cx + 70) + '" y2="' +
+      cy + '" stroke="#2f2f2f"/>' +
+      '<line x1="' + cx + '" y1="' + (cy - 70) + '" x2="' + cx + '" y2="' + (cy + 70) +
+      '" stroke="#2f2f2f"/>';
+
+    var diagonal = 70 / Math.SQRT2;
+    grid += '<line x1="' + (cx - diagonal).toFixed(1) + '" y1="' + (cy - diagonal).toFixed(1) +
+      '" x2="' + (cx + diagonal).toFixed(1) + '" y2="' + (cy + diagonal).toFixed(1) +
+      '" stroke="#2a2a2a"/>' +
+      '<line x1="' + (cx - diagonal).toFixed(1) + '" y1="' + (cy + diagonal).toFixed(1) +
+      '" x2="' + (cx + diagonal).toFixed(1) + '" y2="' + (cy - diagonal).toFixed(1) +
+      '" stroke="#2a2a2a"/>';
+
+    var input = "";
+    var output = "";
+    var labels = "";
+    var points = stereoScope.inputLeft ? stereoScope.inputLeft.length : 0;
+
+    if (points > 1) {
+      // Keep a quiet signal from filling the meter, but let a loud one use it.
+      var peak = 0.4;
+
+      for (var p = 0; p < points; p += 2) {
+        peak = Math.max(
+          peak,
+          Math.abs(stereoScope.inputLeft[p]),
+          Math.abs(stereoScope.inputRight[p]),
+          Math.abs(stereoScope.outputLeft[p]),
+          Math.abs(stereoScope.outputRight[p])
+        );
+      }
+
+      var scale = radius / peak;
+      var step = Math.max(1, Math.floor(points / 512));
+
+      for (var i = 0; i < points; i += step) {
+        var il = stereoScope.inputLeft[i];
+        var ir = stereoScope.inputRight[i];
+        var ol = stereoScope.outputLeft[i];
+        var or = stereoScope.outputRight[i];
+
+        input += '<circle cx="' + (cx + (il - ir) * 0.5 * scale).toFixed(1) +
+          '" cy="' + (cy - (il + ir) * 0.5 * scale).toFixed(1) +
+          '" r="1.1" fill="#a8a8a8" fill-opacity=".42"/>';
+        output += '<circle cx="' + (cx + (ol - or) * 0.5 * scale).toFixed(1) +
+          '" cy="' + (cy - (ol + or) * 0.5 * scale).toFixed(1) +
+          '" r="1.2" fill="' + accent + '" fill-opacity=".52"/>';
+      }
+
+      labels =
+        '<text x="238" y="24" fill="#8a8a8a" font-size="8">IN</text>' +
+        '<text x="278" y="24" fill="' + accent + '" font-size="8">OUT</text>';
+    }
+
+    return heroSvgMeter(grid + input + output + labels);
   }
 
   /// A semitone ruler: the pitch factor is a ratio, so the picture reads it as
@@ -1355,6 +1408,37 @@ var ENV_MAX = 512;
       });
   }
 
+  // The goniometer needs L/R before and after the effect; the mono /scope is not
+  // enough for it, so it has its own small poll.
+  function pollStereo() {
+    if (document.hidden || !wantsStereo) {
+      setTimeout(pollStereo, 150);
+      return;
+    }
+
+    fetch("/stereo", { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("stereo " + response.status);
+        return response.arrayBuffer();
+      })
+      .then(function (buffer) {
+        var data = new Float32Array(buffer);
+        var points = data.length / 4;
+
+        if (points > 64) {
+          stereoScope.inputLeft = data.subarray(0, points);
+          stereoScope.inputRight = data.subarray(points, points * 2);
+          stereoScope.outputLeft = data.subarray(points * 2, points * 3);
+          stereoScope.outputRight = data.subarray(points * 3);
+          markDirty();
+        }
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollStereo, 50);
+      });
+  }
+
   // The level meter is tiny JSON, polled alongside the scope for the transfer
   // marker. A plug-in without one just answers 404.
   function pollMeter() {
@@ -1651,7 +1735,11 @@ var ENV_MAX = 512;
     wantsMeter = heroes.some(function (hero) {
       return hero.kind === "compressor";
     });
+    wantsStereo = heroes.some(function (hero) {
+      return hero.kind === "stereo";
+    });
     if (wantsMeter) setInterval(pollMeter, 100);
+    if (wantsStereo) setTimeout(pollStereo, 50);
 
     var shell = element("div", "face");
     shell.appendChild(header);

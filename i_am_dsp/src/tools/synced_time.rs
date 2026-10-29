@@ -64,7 +64,7 @@ use crate::ProcessInfos;
 #[derive(Debug, Clone, Copy, PartialEq, i_am_dsp_derive::Parameters)]
 pub struct SyncedTime {
 	/// Whether to follow the host's tempo instead of the effect's own free value.
-	#[default(false)]
+	#[default(true)]
 	#[id(display = "Sync")]
 	pub sync: bool,
 	/// The length of one cycle, in quarter-note beats: `0.5` is an eighth note, `1.0` a

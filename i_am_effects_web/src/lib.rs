@@ -83,7 +83,7 @@ web_plugin!(
 	|_| StereoController::new(),
 	"iamdsp.effects.width.web",
 	"I Am Width",
-	(360.0, 230.0),
+	(420.0, 340.0),
 	"#ff6fae"
 );
 
