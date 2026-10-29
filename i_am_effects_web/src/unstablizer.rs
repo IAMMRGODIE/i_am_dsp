@@ -117,9 +117,10 @@ impl Effect<2> for UnstablizerEffect {
 		self.inner.vocoder.mapper.shift = self.shift;
 		self.inner.follow_notes = self.follow_notes;
 
-		if !self.follow_notes {
-			self.inner.vocoder.mapper.anchor = self.anchor;
-		}
+		// Follow Notes only overrides the anchor when it actually has a note.
+		// Setting the manual anchor first makes it a fallback when no note has
+		// arrived, instead of leaving the mapper at a stale/default frequency.
+		self.inner.vocoder.mapper.anchor = self.anchor;
 
 		self.inner.process(samples, other, context);
 	}
