@@ -177,7 +177,7 @@ pub fn apply_command<P: Plugin>(processor: &P, body: &str) -> bool {
 /// ```
 #[macro_export]
 macro_rules! web_plugin {
-	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, curves = $curves:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, ports = $ports:expr)?) => {
+	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, curves = $curves:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)?) => {
 		#[doc = concat!("The ", $title, " plug-in, with a web faceplate.")]
 		pub struct $name {
 			processor: i_am_effects_core::processor::EffectProcessor<$effect>,
@@ -278,6 +278,7 @@ macro_rules! web_plugin {
 			const HAS_GUI: bool = true;
 
 			$(const INPUT_PORTS: &'static [i_am_plugin::AudioPort] = $ports;)?
+			$(const INPUT_MIDI_PORTS: &'static [i_am_plugin::MidiPort] = $midi;)?
 
 			fn new() -> Self {
 				Self::default()

@@ -268,7 +268,8 @@ web_plugin!(
 	"I Am Unstablizer",
 	(700.0, 340.0),
 	"#ff8f6b",
-	mode = "window_size"
+	mode = "window_size",
+	midi = &[i_am_plugin::MidiPort { name: "Notes" }]
 );
 
 web_plugin!(
@@ -685,6 +686,11 @@ mod tests {
 		assert!(face.contains("\"id\":\"follow_notes\""), "{face}");
 		assert!(face.contains("\"mode\":\"window_size\""), "{face}");
 		assert!(face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"), "{face}");
+		assert_eq!(
+			<UnstablizerWeb as i_am_plugin::Plugin>::INPUT_MIDI_PORTS.len(),
+			1,
+			"the note follower needs a MIDI input"
+		);
 	}
 
 	/// The IR reverb exposes the room, the T60, and a wet-only convolver.
