@@ -23,6 +23,7 @@ mod ir_reverb;
 mod particle_wider;
 mod reverb;
 mod schroeder;
+mod unstablizer;
 
 use allpass::AllpassEffect;
 use comb::CombEffect;
@@ -32,6 +33,7 @@ use ir_reverb::IrReverbEffect;
 use particle_wider::ParticleWiderEffect;
 use reverb::ReverbEffect;
 use schroeder::SchroederEffect;
+use unstablizer::UnstablizerEffect;
 use filter::Multimode;
 pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_dsp::prelude::{
@@ -259,6 +261,17 @@ web_plugin!(
 );
 
 web_plugin!(
+	UnstablizerWeb,
+	UnstablizerEffect,
+	UnstablizerEffect::new,
+	"iamdsp.effects.unstablizer.web",
+	"I Am Unstablizer",
+	(700.0, 340.0),
+	"#ff8f6b",
+	mode = "window_size"
+);
+
+web_plugin!(
 	ParticleWiderWeb,
 	ParticleWiderEffect,
 	ParticleWiderEffect::new,
@@ -363,6 +376,7 @@ export_clap!(
 	ReverbWeb,
 	SchroederWeb,
 	ParticleWiderWeb,
+	UnstablizerWeb,
 	IrReverbWeb,
 	ChorusWeb,
 	FlangerWeb,
@@ -479,6 +493,7 @@ mod tests {
 		assert!(ReverbWeb::new().editor().is_some());
 		assert!(SchroederWeb::new().editor().is_some());
 		assert!(ParticleWiderWeb::new().editor().is_some());
+		assert!(UnstablizerWeb::new().editor().is_some());
 		assert!(IrReverbWeb::new().editor().is_some());
 		assert!(ChorusWeb::new().editor().is_some());
 		assert!(FlangerWeb::new().editor().is_some());
@@ -653,6 +668,25 @@ mod tests {
 		assert!(face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"), "{face}");
 	}
 
+	/// The Unstablizer uses the spectra hero and a header window size.
+	#[test]
+	fn the_unstablizer_has_before_and_after_spectra() {
+		let face = i_am_web_gui::face_json(
+			&UnstablizerWeb::new(),
+			&Faceplate::new("I Am Unstablizer", "#ff8f6b", (700.0, 340.0))
+				.with_mode("window_size"),
+		);
+
+		assert!(face.contains("\"hero\":\"spectra\""), "{face}");
+		assert!(face.contains("\"id\":\"reference_pitch\""), "{face}");
+		assert!(face.contains("\"id\":\"transpose\""), "{face}");
+		assert!(face.contains("\"id\":\"anchor\""), "{face}");
+		assert!(face.contains("\"id\":\"window_size\""), "{face}");
+		assert!(face.contains("\"id\":\"follow_notes\""), "{face}");
+		assert!(face.contains("\"mode\":\"window_size\""), "{face}");
+		assert!(face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"), "{face}");
+	}
+
 	/// The IR reverb exposes the room, the T60, and a wet-only convolver.
 	#[test]
 	fn the_ir_reverb_has_a_tail_and_a_room() {
@@ -823,6 +857,7 @@ mod tests {
 			ReverbWeb::window_options(),
 			SchroederWeb::window_options(),
 			ParticleWiderWeb::window_options(),
+			UnstablizerWeb::window_options(),
 			IrReverbWeb::window_options(),
 			ChorusWeb::window_options(),
 			FlangerWeb::window_options(),
