@@ -18,7 +18,7 @@ use i_am_effects_web::{
 	ParticleWiderWeb, PitchWeb, ReverbWeb, SchroederWeb, ShifterWeb, UnstablizerWeb, WidthWeb,
 	CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
-	SHIFTER_CURVES,
+	PITCH_VISIBLE, SHIFTER_CURVES, SHIFTER_VISIBLE,
 };
 use i_am_effects_web::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -138,7 +138,10 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Pitch", "#c8e04a", (360.0, 230.0)),
+					&Faceplate::new("I Am Pitch", "#c8e04a", (360.0, 230.0))
+						.with_mode("algorithm")
+						.with_visible(PITCH_VISIBLE)
+						.with_header(&["window_size"]),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -149,7 +152,10 @@ fn main() {
 				i_am_web_gui::face_json(
 					&plugin,
 					&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0))
-						.with_curves(SHIFTER_CURVES),
+						.with_mode("algorithm")
+						.with_visible(SHIFTER_VISIBLE)
+						.with_curves(SHIFTER_CURVES)
+						.with_header(&["window_size"]),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

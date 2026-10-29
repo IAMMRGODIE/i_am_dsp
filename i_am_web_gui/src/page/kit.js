@@ -22,6 +22,7 @@
 var wantsMeter = false;
 var wantsStereo = false;
 var wantsParticles = false;
+var noteBadge = null;
 var stereoScope = {
   inputLeft: null,
   inputRight: null,
@@ -1528,6 +1529,37 @@ var ENV_MAX = 512;
       });
   }
 
+  /// The note the host last sent, shown beside the title. A product without
+  /// note input answers with -1 and the badge stays hidden.
+  function pollNote() {
+    if (document.hidden || !noteBadge) {
+      setTimeout(pollNote, 250);
+      return;
+    }
+
+    fetch("/note", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (data) {
+        if (data && data.note >= 0) {
+          var names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+          var index = ((Math.round(data.note) % 12) + 12) % 12;
+          var octave = Math.floor(Math.round(data.note) / 12) - 1;
+          noteBadge.textContent = names[index] + octave;
+          noteBadge.style.display = "";
+        } else {
+          noteBadge.style.display = "none";
+        }
+      })
+      .catch(function () {
+        noteBadge.style.display = "none";
+      })
+      .then(function () {
+        setTimeout(pollNote, 100);
+      });
+  }
+
   // The goniometer needs L/R before and after the effect; the mono /scope is not
   // enough for it, so it has its own small poll.
   function pollStereo() {
@@ -1665,6 +1697,7 @@ var ENV_MAX = 512;
       select.addEventListener("change", function () {
         control.value = parseInt(select.value, 10);
         control.paint();
+        if (spec.id === face.mode) applyVisibility(control.value);
         markDirty();
         if (window.ipc) window.ipc.postMessage(spec.id + "=" + control.value);
       });
@@ -1699,6 +1732,7 @@ var ENV_MAX = 512;
       button.addEventListener("click", function () {
         control.value = index;
         control.paint();
+        if (spec.id === face.mode) applyVisibility(index);
         markDirty();
         if (window.ipc) window.ipc.postMessage(spec.id + "=" + index);
       });
@@ -1781,6 +1815,11 @@ var ENV_MAX = 512;
 
     header.appendChild(powerButton);
     header.appendChild(title);
+
+    noteBadge = element("span", "note-badge");
+    noteBadge.style.display = "none";
+    header.appendChild(noteBadge);
+
     header.appendChild(element("span", "spacer"));
 
     var tools = element("div", "header-tools");
@@ -1789,7 +1828,8 @@ var ENV_MAX = 512;
     if (modeEl) tools.appendChild(modeEl);
 
     headerSpecs.forEach(function (spec) {
-      tools.appendChild(makeControl(spec, true));
+      if (spec.widget === "choice") tools.appendChild(buildMode(spec));
+      else tools.appendChild(makeControl(spec, true));
     });
 
     if (modeEl || headerSpecs.length) header.appendChild(tools);
@@ -1842,8 +1882,30 @@ var ENV_MAX = 512;
       body.appendChild(el);
     });
 
-    if (modeSpec) applyVisibility(Math.round(controls[modeSpec.id].value));
+    if (modeSpec) {
+      var initialMode = Math.round(controls[modeSpec.id].value);
+      applyVisibility(initialMode);
+
+      // applyVisibility also covers the header, but re-apply it directly here so
+      // a header choice built just before the body is hidden on the first paint.
+      if (face.visible) {
+        var initialIds = null;
+        face.visible.forEach(function (row) {
+          if (row[0] === initialMode) initialIds = row[1];
+        });
+        headerSpecs.forEach(function (spec) {
+          var control = controls[spec.id];
+          if (control && control.el && initialIds && initialIds.indexOf(spec.id) < 0) {
+            control.el.style.display = "none";
+          }
+        });
+      }
+    }
     applySwitches();
+    setTimeout(function () {
+      if (modeSpec) applyVisibility(Math.round(controls[modeSpec.id].value));
+    }, 0);
+    setTimeout(pollNote, 100);
 
     // Every hero the page draws is live: a waveform, a transfer with its RMS
     // bands, or a response with the input and output spectra on it.

@@ -123,6 +123,7 @@ pub fn editor<P: Plugin>(
 				content_type: "application/octet-stream",
 				body: scope.stereo_snapshot(),
 			},
+			"/note" => ProtocolResponse::json(format!("{{\"note\":{}}}", scope.note())),
 			"/meter" => {
 				let (input, sidechain) = scope.meter();
 				ProtocolResponse::json(format!(
@@ -244,6 +245,22 @@ macro_rules! web_plugin {
 				// The scope keeps the last 4096 frames at the host's rate: about
 				// 85 ms at 48 kHz, long enough to read a waveform and full-rate
 				// enough for the page to run an FFT over it.
+				for event in process_context.events() {
+					match event {
+						i_am_dsp::NoteEvent::NoteOn { note, .. } => {
+							self.scope.set_note(*note as i32)
+						}
+						i_am_dsp::NoteEvent::NoteOff { note, .. }
+						| i_am_dsp::NoteEvent::Stop { note, .. } => {
+							if self.scope.note() == *note as i32 {
+								self.scope.set_note(-1);
+							}
+						}
+						i_am_dsp::NoteEvent::ImmediateStop => self.scope.set_note(-1),
+						_ => {}
+					}
+				}
+
 				let input = *samples;
 				let input_mono = (input[0] + input[1]) * 0.5;
 				// A compressor with a sidechain port reads other[1]; without one the

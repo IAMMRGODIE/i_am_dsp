@@ -26,6 +26,8 @@ pub struct Scope {
 	input_right: Box<[AtomicU32]>,
 	output_left: Box<[AtomicU32]>,
 	output_right: Box<[AtomicU32]>,
+	/// The last held MIDI note, or -1.
+	note: std::sync::atomic::AtomicI32,
 	write: AtomicUsize,
 }
 
@@ -53,8 +55,19 @@ impl Scope {
 			input_right: empty(),
 			output_left: empty(),
 			output_right: empty(),
+			note: std::sync::atomic::AtomicI32::new(-1),
 			write: AtomicUsize::new(0),
 		}
+	}
+
+	/// The last held note, or -1.
+	pub fn note(&self) -> i32 {
+		self.note.load(Ordering::Relaxed)
+	}
+
+	/// Records the last held note.
+	pub fn set_note(&self, note: i32) {
+		self.note.store(note, Ordering::Relaxed);
 	}
 
 	/// Records one mono frame. Called from the audio thread. Without a separate

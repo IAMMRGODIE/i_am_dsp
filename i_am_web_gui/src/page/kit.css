@@ -252,3 +252,14 @@ body.preview #app{
   background:var(--text1); box-shadow:0 0 0 3px var(--card);
 }
 .slider .track:focus-visible{outline:1px solid var(--accent);outline-offset:3px}
+
+.note-badge {
+  margin-left: 10px;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}

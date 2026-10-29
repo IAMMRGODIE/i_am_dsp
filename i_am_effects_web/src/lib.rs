@@ -21,8 +21,10 @@ mod disperser;
 mod filter;
 mod ir_reverb;
 mod particle_wider;
+mod pitch;
 mod reverb;
 mod schroeder;
+mod shifter;
 mod unstablizer;
 
 use allpass::AllpassEffect;
@@ -31,14 +33,18 @@ use compressor::CompressorEffect;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 use particle_wider::ParticleWiderEffect;
+use pitch::PitchEffect;
 use reverb::ReverbEffect;
 use schroeder::SchroederEffect;
+use shifter::ShifterEffect;
 use unstablizer::UnstablizerEffect;
+pub use shifter::{SHIFTER_CURVES, SHIFTER_VISIBLE};
+pub use pitch::PITCH_VISIBLE;
 use filter::Multimode;
 pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_dsp::prelude::{
-	Chorus, Crusher, Delay, Distortion, Flanger, Gain as GainDsp, IIRFreqShifter, LrControl,
-	Phaser, PitchShifter, SineWave, StereoController,
+	Chorus, Crusher, Delay, Distortion, Flanger, Gain as GainDsp, LrControl, Phaser,
+	SineWave, StereoController,
 };
 use i_am_web_gui::Switch;
 use i_am_plugin::export_clap;
@@ -121,27 +127,29 @@ web_plugin!(
 
 web_plugin!(
 	PitchWeb,
-	PitchShifter<2>,
-	|_| PitchShifter::<2>::new(1_024),
+	PitchEffect,
+	PitchEffect::new,
 	"iamdsp.effects.pitch.web",
 	"I Am Pitch",
 	(360.0, 230.0),
-	"#c8e04a"
+	"#c8e04a",
+	mode = "algorithm",
+	visible = PITCH_VISIBLE,
+	header = &["window_size"]
 );
-
-/// A shift in hertz crosses zero, so the knob edits it through atan: fine near
-/// zero, quick at the ends.
-pub const SHIFTER_CURVES: &[(&str, &str)] = &[("shift_freq", "atan")];
 
 web_plugin!(
 	ShifterWeb,
-	IIRFreqShifter<8, 2>,
-	|rate| IIRFreqShifter::<8, 2>::new(rate, 0.0),
+	ShifterEffect,
+	ShifterEffect::new,
 	"iamdsp.effects.shifter.web",
 	"I Am Shifter",
 	(360.0, 230.0),
 	"#7aa2ff",
-	curves = SHIFTER_CURVES
+	mode = "algorithm",
+	visible = SHIFTER_VISIBLE,
+	curves = SHIFTER_CURVES,
+	header = &["window_size"]
 );
 
 web_plugin!(
@@ -667,6 +675,32 @@ mod tests {
 		assert!(face.contains("\"id\":\"fft_size\""), "{face}");
 		assert!(face.contains("\"mode\":\"fft_size\""), "{face}");
 		assert!(face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"), "{face}");
+	}
+
+	/// Pitch and Shifter both offer the time-domain engine and the phase vocoder.
+	#[test]
+	fn the_pitch_and_shifter_have_algorithm_modes() {
+		let pitch = i_am_web_gui::face_json(
+			&PitchWeb::new(),
+			&Faceplate::new("I Am Pitch", "#c8e04a", (360.0, 230.0))
+				.with_mode("algorithm")
+				.with_visible(PITCH_VISIBLE)
+				.with_header(&["window_size"]),
+		);
+		let shifter = i_am_web_gui::face_json(
+			&ShifterWeb::new(),
+			&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0))
+				.with_mode("algorithm")
+				.with_visible(SHIFTER_VISIBLE)
+				.with_header(&["window_size"]),
+		);
+
+		for face in [pitch, shifter] {
+			assert!(face.contains("\"mode\":\"algorithm\""), "{face}");
+			assert!(face.contains("\"header\":[\"window_size\"]"), "{face}");
+			assert!(face.contains("\"id\":\"window_size\""), "{face}");
+			assert!(face.contains("[1,[\"pitch_shift_factor\",\"window_size\"]]") || face.contains("[1,[\"shift_freq\",\"window_size\"]]"), "{face}");
+		}
 	}
 
 	/// The Unstablizer uses the spectra hero and a header window size.

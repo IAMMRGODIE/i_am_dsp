@@ -16,7 +16,7 @@
 use i_am_dsp_derive::Parameters;
 
 use crate::{
-	effects::phase_vocoder::{NoteAnchoredShift, PhaseVocoder},
+	effects::phase_vocoder::{NoteAnchoredShift, PhaseVocoder, overlap_add_gain},
 	Effect, NoteEvent, ProcessContext,
 };
 
@@ -127,6 +127,9 @@ impl<const CHANNELS: usize> Unstablizer<CHANNELS> {
 			sample_rate,
 		);
 		vocoder.window_factor = DEFAULT_WINDOW_FACTOR;
+		// A window overlap of four adds gain; undo it so the effect is unity at
+		// pitch ratio 1 instead of a few dB louder than its input.
+		vocoder.gain = 1.0 / overlap_add_gain(vocoder.window_factor);
 
 		Self {
 			reference_pitch: 440.0,
