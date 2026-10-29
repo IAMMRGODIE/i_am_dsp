@@ -75,7 +75,7 @@ pub struct RayTracing {
 /// How many initial rays are traced. The directions are evenly spaced on the
 /// sphere (Fibonacci), so a low count still covers the room without the clumps
 /// of random sampling.
-const TRACE_POINTS: usize = 1000;
+const TRACE_POINTS: usize = 2500;
 
 /// One evenly spaced direction on the sphere, in the theta/phi convention the
 /// tracer uses.

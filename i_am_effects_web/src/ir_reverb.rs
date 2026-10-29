@@ -22,6 +22,7 @@ struct IrRequest {
 /// The background IR builder and its result channel.
 struct IrWorker {
 	requests: Sender<IrRequest>,
+	garbage: Sender<FftConvolver<2>>,
 	results: Receiver<FftConvolver<2>>,
 }
 
@@ -29,6 +30,7 @@ impl IrWorker {
 	fn new() -> Self {
 		let (requests, request_rx) = unbounded::<IrRequest>();
 		let (result_tx, results) = unbounded::<FftConvolver<2>>();
+		let (garbage, garbage_rx) = unbounded::<FftConvolver<2>>();
 
 		std::thread::spawn(move || {
 			while let Ok(mut request) = request_rx.recv() {
@@ -44,7 +46,17 @@ impl IrWorker {
 			}
 		});
 
-		Self { requests, results }
+		// Dropping the old FFT partitions on the audio thread is what makes the
+		// swap stutter; release them here instead.
+		std::thread::spawn(move || {
+			while garbage_rx.recv().is_ok() {}
+		});
+
+		Self {
+			requests,
+			garbage,
+			results,
+		}
 	}
 }
 
@@ -180,7 +192,8 @@ impl Effect<2> for IrReverbEffect {
 		context: &mut Box<dyn ProcessContext>,
 	) {
 		while let Ok(convolver) = self.worker.results.try_recv() {
-			self.convolver = convolver;
+			let old = core::mem::replace(&mut self.convolver, convolver);
+			let _ = self.worker.garbage.send(old);
 		}
 
 		if (self.size - self.last_size).abs() > 1e-4
