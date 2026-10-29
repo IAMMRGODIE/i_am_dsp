@@ -72,6 +72,13 @@ pub struct RayTracing {
 	pub decay_factor: f32,
 }
 
+/// The longest half-window used for the listener passage. The ray-capture
+/// tolerance (hearable_distance) is not a physical head size: using it as the
+/// aperture smeared every echo over tens of milliseconds and low-passed the
+/// whole impulse response. Keep only a point-like interval so the highs survive;
+/// the span is still wider than one sample.
+const MAX_APERTURE_SECONDS: f32 = 0.00005;
+
 /// One traced reflection: when it reaches the listener, how loud it is, and
 /// which side of the listener it arrives from.
 struct Echo {
@@ -707,7 +714,7 @@ impl RayTracing {
 					- distance_to_listener * distance_to_listener)
 					.max(0.0)
 					.sqrt();
-				let half_time = half_chord / self.sound_velocity;
+				let half_time = (half_chord / self.sound_velocity).min(MAX_APERTURE_SECONDS);
 				let weights = aperture_window(half_time, self.sample_rate);
 				let samples = weights.len();
 				let step = if samples == 1 {
