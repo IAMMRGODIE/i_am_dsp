@@ -190,7 +190,7 @@ web_plugin!(
 	|rate| Phaser::<SineWave, 2>::new(SineWave, 6, rate),
 	"iamdsp.effects.phaser.web",
 	"I Am Phaser",
-	(560.0, 300.0),
+	(620.0, 300.0),
 	"#b48cff",
 	header = PHASER_HEADER,
 	switches = PHASER_SWITCHES
@@ -487,6 +487,8 @@ mod tests {
 
 		assert!(phaser.contains("\"name\":\"Phaser\""), "{phaser}");
 		assert!(phaser.contains("\"id\":\"lfo_freq\""), "{phaser}");
+		assert!(phaser.contains("\"id\":\"dry_gain\""), "{phaser}");
+		assert!(phaser.contains("\"id\":\"wet_gain\""), "{phaser}");
 		assert!(phaser.contains("\"off\":[\"lfo_freq\"]"), "{phaser}");
 	}
 

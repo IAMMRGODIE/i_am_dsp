@@ -561,12 +561,19 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	pub lfo_amplitude: f32,
 	#[skip]
 	phase: SyncedPhase,
-	/// The dry/wet mix of the effect.
+	/// The dry gain of the effect.
 	#[range(min = 0.0, max = 1.0)]
 	#[unit(percent)]
 	#[default(0.5)]
-	#[id(display = "Mix")]
+	#[id(display = "Dry")]
 	#[layout(group = "Flanger", order = 4, widget = knob)]
+	pub dry_gain: f32,
+	/// The wet gain of the effect.
+	#[range(min = 0.0, max = 1.0)]
+	#[unit(percent)]
+	#[default(0.5)]
+	#[id(display = "Wet")]
+	#[layout(group = "Flanger", order = 5, widget = knob)]
 	pub wet_gain: f32,
 	#[range(min = 0.0, max = 0.95)]
 	#[unit(percent)]
@@ -602,6 +609,7 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Flanger<Lfo, CHANNELS> {
 			tempo: SyncedTime::default(),
 			lfo_amplitude: 2.0,
 			phase: SyncedPhase::new(),
+			dry_gain: 0.5,
 			wet_gain: 0.5,
 			feed_back_gain: 0.3,
 		}
@@ -651,7 +659,6 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for F
 		let sample_pos = lfo_sample + delay_time;
 
 		let dry = *samples;
-		let mix = self.wet_gain.clamp(0.0, 1.0);
 
 		for (i, sample) in samples.iter_mut().enumerate() {
 			let sampled = read_delayed(&self.history[i], sample_pos);
@@ -662,7 +669,7 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for F
 			// The processed line is what the feedback reads; it used to stay empty,
 			// so the feedback knob did nothing at all.
 			self.processed_history[i].push(wet);
-			*sample = dry[i] * (1.0 - mix) + wet * mix;
+			*sample = dry[i] * self.dry_gain + wet * self.wet_gain;
 		}
 
 		if ctx.should_stop() {
@@ -719,12 +726,19 @@ pub struct Chorus<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[id(display = "Depth")]
 	#[layout(group = "Chorus", order = 2, widget = knob)]
 	pub lfo_amplitude: f32,
-	/// The dry/wet mix of the effect.
+	/// The dry gain of the effect.
 	#[range(min = 0.0, max = 1.0)]
 	#[unit(percent)]
 	#[default(0.5)]
-	#[id(display = "Mix")]
+	#[id(display = "Dry")]
 	#[layout(group = "Chorus", order = 3, widget = knob)]
+	pub dry_gain: f32,
+	/// The wet gain of the effect.
+	#[range(min = 0.0, max = 1.0)]
+	#[unit(percent)]
+	#[default(0.5)]
+	#[id(display = "Wet")]
+	#[layout(group = "Chorus", order = 4, widget = knob)]
 	pub wet_gain: f32,
 	#[skip]
 	delay_lines: usize,
@@ -754,6 +768,7 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Chorus<Lfo, CHANNELS> {
 			lfo_frequency: 1.0,
 			tempo: SyncedTime::default(),
 			lfo_amplitude: 5.0,
+			dry_gain: 0.5,
 			wet_gain: 0.5,
 			phase: SyncedPhase::new(),
 			delay_lines,
@@ -793,7 +808,6 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for C
 			.advance_rate(&self.tempo, ctx.infos(), self.lfo_frequency, self.sample_rate) as f32;
 
 		let dry = *samples;
-		let mix = self.wet_gain.clamp(0.0, 1.0);
 		let mut wet = [0.0; CHANNELS];
 
 		for i in 0..self.delay_lines {
@@ -808,10 +822,10 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for C
 
 		samples.iter_mut().enumerate().for_each(|(i, sample)| {
 			self.history[i].push(dry[i]);
-			// Average the taps, then crossfade with the dry signal. The dry used to
-			// be divided by the number of lines as well, which made the bypass path
-			// quieter the more lines the chorus used.
-			*sample = dry[i] * (1.0 - mix) + wet[i] / self.delay_lines as f32 * mix;
+			// Average the taps, then apply the two gains independently. The dry used
+			// to be divided by the number of lines as well, which made the bypass
+			// path quieter the more lines the chorus used.
+			*sample = dry[i] * self.dry_gain + wet[i] / self.delay_lines as f32 * self.wet_gain;
 		});
 
 
@@ -1167,6 +1181,7 @@ mod tests {
 		use crate::generators::wavetable::SineWave;
 
 		let mut chorus = Chorus::<SineWave, 2>::new(1 << 12, 4, 48_000, SineWave);
+		chorus.dry_gain = 1.0;
 		chorus.wet_gain = 0.0;
 
 		let mut ctx: Box<dyn ProcessContext> = Box::new(());
@@ -1188,6 +1203,7 @@ mod tests {
 		flanger.center_delay_time = 2.0;
 		flanger.lfo_amplitude = 0.0;
 		flanger.feed_back_gain = 0.8;
+		flanger.dry_gain = 0.0;
 		flanger.wet_gain = 1.0;
 
 		let mut ctx: Box<dyn ProcessContext> = Box::new(());

@@ -68,13 +68,20 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[id(display = "Spread")]
 	#[layout(group = "Phaser", order = 4, widget = knob)]
 	pub phase_delta: f32,
-	/// The dry/wet mix of the effect.
+	/// The dry gain of the effect.
 	#[range(min = 0.0, max = 1.0)]
 	#[unit(percent)]
 	#[default(0.5)]
-	#[id(display = "Mix")]
+	#[id(display = "Dry")]
 	#[layout(group = "Phaser", order = 5, widget = knob)]
-	pub mix: f32,
+	pub dry_gain: f32,
+	/// The wet gain of the effect.
+	#[range(min = 0.0, max = 1.0)]
+	#[unit(percent)]
+	#[default(0.5)]
+	#[id(display = "Wet")]
+	#[layout(group = "Phaser", order = 6, widget = knob)]
+	pub wet_gain: f32,
 }
 
 impl<Lfo: WaveTable, const CHANNELS: usize> Phaser<Lfo, CHANNELS> {
@@ -97,7 +104,8 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Phaser<Lfo, CHANNELS> {
 			phase: SyncedPhase::new(),
 			feedback_gain: 0.2,
 			phase_delta: 0.1,
-			mix: 0.5,
+			dry_gain: 0.5,
+			wet_gain: 0.5,
 		}
 	}
 
@@ -161,11 +169,10 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 		self.feedback_history = output;
 		// println!("{:?}", output);
 
-		let mix = self.mix.clamp(0.0, 1.0);
 		samples.iter_mut().enumerate().for_each(|(i, sample)| {
 			// An allpass alone changes phase but not level; the notches come from
 			// summing it with the dry signal, which this used to skip entirely.
-			*sample = (dry[i] * (1.0 - mix) + output[i] * mix).clamp(-1.0, 1.0);
+			*sample = (dry[i] * self.dry_gain + output[i] * self.wet_gain).clamp(-1.0, 1.0);
 		});
 
 	}
@@ -200,7 +207,8 @@ mod tests {
 	#[test]
 	fn a_fully_dry_phaser_is_the_input() {
 		let mut phaser = Phaser::<SineWave, 2>::new(SineWave, 6, 48_000);
-		phaser.mix = 0.0;
+		phaser.dry_gain = 1.0;
+		phaser.wet_gain = 0.0;
 
 		let mut ctx: Box<dyn ProcessContext> = Box::new(());
 

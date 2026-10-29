@@ -149,7 +149,7 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Phaser", "#b48cff", (560.0, 300.0))
+					&Faceplate::new("I Am Phaser", "#b48cff", (620.0, 300.0))
 						.with_header(PHASER_HEADER)
 						.with_switches(PHASER_SWITCHES),
 				),
