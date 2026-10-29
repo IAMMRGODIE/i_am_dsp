@@ -75,7 +75,7 @@ pub fn editor<P: Plugin>(
 		return None;
 	}
 
-	let page_face = face::face_json_with_rate(&face, &sections, Some(rate));
+	let page_face = face::face_json_with_rate(&face, &sections, Some(rate), true);
 	let map = processor.param_map();
 
 	let state_sections = sections.clone();

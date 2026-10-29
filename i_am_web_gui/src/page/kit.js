@@ -2,7 +2,10 @@
   "use strict";
 
   var app = document.getElementById("app");
-  var isPreview = location.protocol !== "webgui:";
+  // Whether the page is a browser preview or lives in a host. The custom
+  // protocol WebView2 actually exposes is an http:// origin, so the protocol
+  // cannot tell the difference; the server says so in /face instead.
+  var isPreview = false;
   var face = null;
   var accent = "#8a6aff";
   var negative = "#9a8fbf";
@@ -876,6 +879,7 @@
 
   function buildFace() {
     knobs = [];
+    isPreview = !face.hosted;
     accent = face.accent || accent;
     negative = mixHex(accent, "#9a9a9a", 0.5);
 

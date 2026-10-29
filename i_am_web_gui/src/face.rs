@@ -246,7 +246,7 @@ fn unit_name(unit: Unit) -> &'static str {
 
 /// The whole faceplate as the page sees it.
 pub fn face_json(face: &Faceplate, sections: &[Section]) -> String {
-	face_json_with_rate(face, sections, None)
+	face_json_with_rate(face, sections, None, false)
 }
 
 /// The faceplate, with the rate the plug-in is running at.
@@ -258,6 +258,7 @@ pub fn face_json_with_rate(
 	face: &Faceplate,
 	sections: &[Section],
 	rate: Option<usize>,
+	hosted: bool,
 ) -> String {
 	let mut out = String::new();
 
@@ -283,6 +284,7 @@ pub fn face_json_with_rate(
 		},
 		None => out.push_str("null"),
 	}
+	let _ = write!(out, ",\"hosted\":{hosted}");
 	out.push_str(",\"sections\":[");
 
 	for (index, section) in sections.iter().enumerate() {
@@ -645,10 +647,12 @@ mod tests {
 	#[test]
 	fn the_rate_is_written_when_the_host_has_one() {
 		let face = Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0));
-		let hosted = face_json_with_rate(&face, &[], Some(48_000));
+		let hosted = face_json_with_rate(&face, &[], Some(48_000), true);
 		let preview = face_json(&face, &[]);
 
 		assert!(hosted.contains("\"rate\":48000"), "{hosted}");
+		assert!(hosted.contains("\"hosted\":true"), "{hosted}");
 		assert!(preview.contains("\"rate\":null"), "{preview}");
+		assert!(preview.contains("\"hosted\":false"), "{preview}");
 	}
 }
