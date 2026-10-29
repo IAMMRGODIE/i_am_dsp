@@ -1033,6 +1033,13 @@ pub struct FftConvolver<
 	#[skip]
 	sample_rate: usize,
 
+	/// The summed L2 energy of the IR, for [normalize_energy](Self::normalize_energy).
+	#[skip]
+	ir_energy: f32,
+	/// The wet scale chosen by [normalize_energy](Self::normalize_energy).
+	#[skip]
+	normalization: f32,
+
 	// #[cfg(feature = "real_time_demo")]
 	// #[skip]
 	// other_way: bool,
@@ -1046,6 +1053,11 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 	/// Panics if `CHANNELS` is 0.
 	pub fn new(ir: [Vec<f32>; CHANNELS], sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
+		let ir_energy = ir
+			.iter()
+			.flatten()
+			.map(|sample| sample * sample)
+			.sum::<f32>();
 		Self {
 			#[cfg(feature = "real_time_demo")]
 			ir: ir.clone(),
@@ -1067,14 +1079,34 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 			#[cfg(feature = "real_time_demo")]
 			dialog: None,
 			sample_rate,
+			ir_energy,
+			normalization: 1.0,
 
 			// #[cfg(feature = "real_time_demo")]
 			// other_way: false,
 		}
 	}
 
+	/// Scale the wet path by the IR's L2 energy, so an IR normalised to peak 1
+	/// does not make the convolution louder as the room or tail grows. The
+	/// dry/wet gains remain the mix controls.
+	pub fn normalize_energy(&mut self) {
+		self.normalization = if self.ir_energy > 0.0 {
+			1.0 / self.ir_energy.sqrt()
+		} else {
+			1.0
+		};
+	}
+
 	/// Replace the IR.
 	pub fn replace_ir(&mut self, ir: [Vec<f32>; CHANNELS]) {
+		self.ir_energy = ir
+			.iter()
+			.flatten()
+			.map(|sample| sample * sample)
+			.sum::<f32>();
+		self.normalization = 1.0;
+
 		#[cfg(feature = "real_time_demo")]
 		{
 			self.ir = ir.clone();
@@ -1107,7 +1139,7 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 		let wet = self.buffer.frame(dry);
 
 		for (i, sample) in samples.iter_mut().enumerate() {
-			*sample = dry[i] * self.dry_gain + wet[i] * self.wet_gain;
+			*sample = dry[i] * self.dry_gain + wet[i] * self.wet_gain * self.normalization;
 		}
 	}
 
@@ -1229,6 +1261,23 @@ pub fn convolve_identity<const CHANNELS: usize>(len: usize) -> [Vec<f32>; CHANNE
 #[cfg(test)]
 mod fft_convolver_tests {
 	use super::*;
+
+	/// The IR energy scale keeps the wet path from growing with a peak-normalised
+	/// IR: this four-sample IR has L2 2, so the first wet sample is halved.
+	#[test]
+	fn the_energy_normalization_scales_the_wet() {
+		let mut convolver =
+			FftConvolver::<2>::new([vec![1.0, -1.0], vec![1.0, -1.0]], 48_000);
+		convolver.normalize_energy();
+		convolver.dry_gain = 0.0;
+		convolver.wet_gain = 1.0;
+
+		let mut samples = [1.0, 1.0];
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		convolver.process(&mut samples, &[], &mut context);
+
+		assert!((samples[0] - 0.5).abs() < 1e-4, "{samples:?}");
+	}
 
 	fn direct_conv(x: &[f32], h: &[f32]) -> Vec<f32> {
 		let mut y = vec![0.0; x.len()];

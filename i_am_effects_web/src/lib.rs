@@ -549,6 +549,7 @@ mod tests {
 
 		assert!(face.contains("\"hero\":\"tail\""), "{face}");
 		assert!(face.contains("\"id\":\"size\""), "{face}");
+		assert!(face.contains("\"id\":\"sound_velocity\""), "{face}");
 		assert!(face.contains("\"id\":\"decay_time\""), "{face}");
 		assert!(face.contains("\"id\":\"dry_gain\""), "{face}");
 		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");

@@ -72,6 +72,22 @@ pub struct RayTracing {
 	pub decay_factor: f32,
 }
 
+/// How many initial rays are traced. The directions are evenly spaced on the
+/// sphere (Fibonacci), so a low count still covers the room without the clumps
+/// of random sampling.
+const TRACE_POINTS: usize = 1000;
+
+/// One evenly spaced direction on the sphere, in the theta/phi convention the
+/// tracer uses.
+fn fibonacci_direction(index: usize, count: usize) -> (f32, f32) {
+	let i = index as f32 + 0.5;
+	let z = 1.0 - 2.0 * i / count as f32;
+	let phi = z.clamp(-1.0, 1.0).acos();
+	let theta = PI * (1.0 + 5.0_f32.sqrt()) * i;
+
+	(theta, phi)
+}
+
 /// The longest half-window used for the listener passage. The ray-capture
 /// tolerance (hearable_distance) is not a physical head size: using it as the
 /// aperture smeared every echo over tens of milliseconds and low-passed the
@@ -437,8 +453,6 @@ impl RayTracing {
 
 	/// Generate the reverb impulse response.
 	pub fn generate_ir(&self, maxium_ir_len: Option<usize>) -> Vec<f32> {
-		const NUM_POINTS: usize = 10000;
-
 		if let Some(max_ir_len) = maxium_ir_len && max_ir_len <= 1 {
 			return vec![0.0; max_ir_len];
 		}
@@ -446,9 +460,8 @@ impl RayTracing {
 		let max_ir_len = maxium_ir_len.map(|len| len as f32 / self.sample_rate as f32);
 
 		let mut output = vec![];
-		for _ in 0..NUM_POINTS {
-			let theta = rand::random_range(-PI..=PI);
-			let phi = rand::random_range(0.0..=PI);
+		for index in 0..TRACE_POINTS {
+			let (theta, phi) = fibonacci_direction(index, TRACE_POINTS);
 			let ir = self.generate_single_point(theta, phi, 1.0, max_ir_len);
 			for echo in ir {
 				let index_f32 = echo.time * self.sample_rate as f32;
@@ -512,9 +525,8 @@ impl RayTracing {
 		let mut left = vec![];
 		let mut right_channel = vec![];
 
-		for _ in 0..10000 {
-			let theta = rand::random_range(-PI..=PI);
-			let phi = rand::random_range(0.0..=PI);
+		for index in 0..TRACE_POINTS {
+			let (theta, phi) = fibonacci_direction(index, TRACE_POINTS);
 			for echo in self.generate_single_point(theta, phi, 1.0, max_ir_len) {
 				let pan = dot(echo.direction, right).clamp(-1.0, 1.0);
 				let (left_gain, right_gain) = stereo_gains(echo.direction);
@@ -828,6 +840,7 @@ impl<T: GenIr, const CHANNELS: usize> IrBasedReverb<T, CHANNELS> {
 		// original and barely any reverb. The IR-based reverb is a wet effect.
 		convolver.dry_gain = 0.0;
 		convolver.wet_gain = 1.0;
+		convolver.normalize_energy();
 		Self { 
 			ir_gen, 
 			convolver
@@ -867,6 +880,7 @@ impl<T: GenIr + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for IrBased
 					ir
 				})
 			);
+			self.convolver.normalize_energy();
 		};
 		gain_ui(ui, &mut self.convolver.dry_gain, Some("Dry gain".to_string()), false);
 		gain_ui(ui, &mut self.convolver.wet_gain, Some("Wet gain".to_string()), true);
