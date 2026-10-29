@@ -482,6 +482,17 @@ impl<
 		self.resize_delay_lines();
 	}
 
+	/// Get the pre delay in front of the network, in milliseconds.
+	pub fn pre_delay(&self) -> f32 {
+		self.pure_delay.delay_time
+	}
+
+	/// Set the pre delay in front of the network, in milliseconds. The pure
+	/// delay's buffer is a fixed size, so the value is clamped to a second.
+	pub fn set_pre_delay(&mut self, pre_delay: f32) {
+		self.pure_delay.delay_time = pre_delay.clamp(0.0, 1000.0);
+	}
+
 	/// Set the delay time of the reverb using the prime numbers.
 	pub fn set_delay_use_prime(&mut self, start: usize) {
 		self.delay_time = prime(start);

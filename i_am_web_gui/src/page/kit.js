@@ -1057,6 +1057,61 @@ var ENV_MAX = 512;
     );
   }
 
+  /// The FDN tail: a pre-delay gap, a few early reflections, then a T60 decay
+  /// with a lighter high-frequency trace. Decay and damping drive the shape.
+  function tailSvg() {
+    var decay = clamp(valueOf("decay_time", 2200), 100, 10000);
+    var pre = clamp(valueOf("pre_delay", 20), 0, 200);
+    var size = clamp(valueOf("size", 10), 1, 50);
+    var damping = clamp(valueOf("damping", 8000), 200, 20000);
+    var diffusion = clamp(valueOf("diffusion", 0.7), 0, 1);
+    var total = Math.max(pre + decay * 1.15, 100) * 1.02;
+    var xAt = function (ms) { return 20 + ms / total * 480; };
+    var yAt = function (level) { return 150 - level * 140; };
+    var preX = xAt(pre);
+    var ticks = "";
+    var tail = "";
+    var high = "";
+
+    for (var k = 0; k < 5; k++) {
+      var at = pre + size * (0.35 + k * 0.55);
+      if (at >= total) break;
+      var height = (0.55 - k * 0.08) * (0.65 + diffusion * 0.35);
+      ticks += '<line x1="' + xAt(at).toFixed(1) + '" y1="150" x2="' + xAt(at).toFixed(1) +
+        '" y2="' + yAt(height).toFixed(1) + '" stroke="' + accent +
+        '" stroke-width="2" opacity="' + (0.35 + k * 0.1).toFixed(2) + '"/>';
+    }
+
+    for (var i = 0; i <= 180; i++) {
+      var t = pre + (total - pre) * i / 180;
+      var level = Math.exp(-6.9 * (t - pre) / decay);
+      tail += (i ? " L " : "M ") + xAt(t).toFixed(1) + " " + yAt(level).toFixed(1);
+    }
+
+    var hfDecay = decay * (0.35 + 0.65 * clamp(damping / 20000, 0.1, 1));
+
+    for (var j = 0; j <= 180; j++) {
+      var ht = pre + (total - pre) * j / 180;
+      var hlevel = Math.exp(-6.9 * (ht - pre) / hfDecay);
+      high += (j ? " L " : "M ") + xAt(ht).toFixed(1) + " " + yAt(hlevel).toFixed(1);
+    }
+
+    return heroSvg(
+      '<line x1="20" y1="150" x2="500" y2="150" stroke="#3a3a3a"/>' +
+      (pre > 0
+        ? '<line x1="20" y1="150" x2="' + preX.toFixed(1) + '" y2="150" stroke="#343434"/>' +
+          '<text x="24" y="143" fill="#8a8a8a" font-size="7">pre</text>'
+        : "") +
+      '<path d="' + tail + ' L ' + xAt(total).toFixed(1) + ' 150 L ' + xAt(pre).toFixed(1) +
+        ' 150 Z" fill="' + accent + '" fill-opacity=".07"/>' +
+      '<path d="' + tail + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
+        'vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + high + '" fill="none" stroke="#ffffff" stroke-opacity=".22" ' +
+        'stroke-width="1" vector-effect="non-scaling-stroke"/>' +
+      ticks
+    );
+  }
+
   /// Left: the transfer curve on a square that stays left. Right: a scrolling
   /// before/after level envelope that fills the rest. The wheel over the right
   /// panel changes the visible time window, which changes how fast it moves.
@@ -1153,6 +1208,11 @@ var ENV_MAX = 512;
   function updateHeroes() {
     heroes.forEach(function (hero) {
       if (hero.kind === "compressor") hero.el.innerHTML = compressorSvg();
+      else if (hero.kind === "tail") {
+        var seconds = clamp(valueOf("decay_time", 2200), 100, 10000) / 1000;
+        hero.el.innerHTML = tailSvg() +
+          '<div class="hero-badge">T60 ' + seconds.toFixed(1) + ' s</div>';
+      }
       else if (hero.kind === "lfo") {
         hero.el.innerHTML = lfoSvg() +
           (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");

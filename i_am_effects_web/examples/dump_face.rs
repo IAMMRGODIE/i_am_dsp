@@ -14,9 +14,10 @@ use std::path::Path;
 
 use i_am_effects_web::{
 	BalanceWeb, ChorusWeb, CompressorWeb, CrusherWeb, DelayWeb, DisperserWeb, DistortionWeb,
-	FilterWeb, FlangerWeb, GainWeb, PhaserWeb, PitchWeb, ShifterWeb, WidthWeb, CHORUS_HEADER,
-	CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE,
-	FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES, SHIFTER_CURVES,
+	FilterWeb, FlangerWeb, GainWeb, PhaserWeb, PitchWeb, ReverbWeb, ShifterWeb, WidthWeb,
+	CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
+	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
+	SHIFTER_CURVES,
 };
 use i_am_effects_web::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -120,6 +121,16 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		},
+		"reverb" => {
+			let plugin = ReverbWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Reverb", "#6c8cff", (700.0, 340.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
 		"compressor" => {
 			let plugin = CompressorWeb::new();
 			(
@@ -192,7 +203,7 @@ fn main() {
 		},
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance, compressor, chorus, flanger, phaser, delay or crusher"
+				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance, compressor, reverb, chorus, flanger, phaser, delay or crusher"
 			);
 			std::process::exit(2);
 		},

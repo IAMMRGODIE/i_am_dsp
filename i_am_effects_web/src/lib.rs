@@ -17,9 +17,11 @@
 mod compressor;
 mod disperser;
 mod filter;
+mod reverb;
 
 use compressor::CompressorEffect;
 use disperser::Dispersion;
+use reverb::ReverbEffect;
 use filter::Multimode;
 pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_dsp::prelude::{
@@ -217,6 +219,16 @@ web_plugin!(
 );
 
 web_plugin!(
+	ReverbWeb,
+	ReverbEffect,
+	ReverbEffect::new,
+	"iamdsp.effects.reverb.web",
+	"I Am Reverb",
+	(700.0, 340.0),
+	"#6c8cff"
+);
+
+web_plugin!(
 	ChorusWeb,
 	Chorus<SineWave, 2>,
 	|rate| Chorus::<SineWave, 2>::new(1 << 14, 4, rate, SineWave),
@@ -285,6 +297,7 @@ export_clap!(
 	BalanceWeb,
 	DelayWeb,
 	CompressorWeb,
+	ReverbWeb,
 	ChorusWeb,
 	FlangerWeb,
 	PhaserWeb,
@@ -395,6 +408,7 @@ mod tests {
 		assert!(BalanceWeb::new().editor().is_some());
 		assert!(DelayWeb::new().editor().is_some());
 		assert!(CompressorWeb::new().editor().is_some());
+		assert!(ReverbWeb::new().editor().is_some());
 		assert!(ChorusWeb::new().editor().is_some());
 		assert!(FlangerWeb::new().editor().is_some());
 		assert!(PhaserWeb::new().editor().is_some());
@@ -540,6 +554,21 @@ mod tests {
 		);
 	}
 
+	/// The reverb's tail hero reads Decay, Damping and Pre-delay.
+	#[test]
+	fn the_reverb_has_a_tail_hero() {
+		let face = i_am_web_gui::face_json(
+			&ReverbWeb::new(),
+			&Faceplate::new("I Am Reverb", "#6c8cff", (700.0, 340.0)),
+		);
+
+		assert!(face.contains("\"hero\":\"tail\""), "{face}");
+		assert!(face.contains("\"id\":\"decay_time\""), "{face}");
+		assert!(face.contains("\"id\":\"pre_delay\""), "{face}");
+		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");
+		assert!(face.contains("\"name\":\"Reverb\""), "{face}");
+	}
+
 	/// Chorus, flanger and phaser share the sync dot; only the free parameter's id
 	/// changes, and phaser calls it lfo_freq.
 	#[test]
@@ -644,6 +673,7 @@ mod tests {
 			BalanceWeb::window_options(),
 			DelayWeb::window_options(),
 			CompressorWeb::window_options(),
+			ReverbWeb::window_options(),
 			ChorusWeb::window_options(),
 			FlangerWeb::window_options(),
 			PhaserWeb::window_options(),
