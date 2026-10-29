@@ -17,10 +17,12 @@
 mod compressor;
 mod disperser;
 mod filter;
+mod ir_reverb;
 mod reverb;
 
 use compressor::CompressorEffect;
 use disperser::Dispersion;
+use ir_reverb::IrReverbEffect;
 use reverb::ReverbEffect;
 use filter::Multimode;
 pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
@@ -229,6 +231,16 @@ web_plugin!(
 );
 
 web_plugin!(
+	IrReverbWeb,
+	IrReverbEffect,
+	IrReverbEffect::new,
+	"iamdsp.effects.ir_reverb.web",
+	"I Am IR Reverb",
+	(700.0, 340.0),
+	"#7bd3ff"
+);
+
+web_plugin!(
 	ChorusWeb,
 	Chorus<SineWave, 2>,
 	|rate| Chorus::<SineWave, 2>::new(1 << 14, 4, rate, SineWave),
@@ -298,6 +310,7 @@ export_clap!(
 	DelayWeb,
 	CompressorWeb,
 	ReverbWeb,
+	IrReverbWeb,
 	ChorusWeb,
 	FlangerWeb,
 	PhaserWeb,
@@ -409,6 +422,7 @@ mod tests {
 		assert!(DelayWeb::new().editor().is_some());
 		assert!(CompressorWeb::new().editor().is_some());
 		assert!(ReverbWeb::new().editor().is_some());
+		assert!(IrReverbWeb::new().editor().is_some());
 		assert!(ChorusWeb::new().editor().is_some());
 		assert!(FlangerWeb::new().editor().is_some());
 		assert!(PhaserWeb::new().editor().is_some());
@@ -523,6 +537,22 @@ mod tests {
 		assert!(face.contains("\"id\":\"dry_gain\""), "{face}");
 		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");
 		assert!(face.contains("\"name\":\"Delay\""), "{face}");
+	}
+
+	/// The IR reverb exposes the room, the T60, and a wet-only convolver.
+	#[test]
+	fn the_ir_reverb_has_a_tail_and_a_room() {
+		let face = i_am_web_gui::face_json(
+			&IrReverbWeb::new(),
+			&Faceplate::new("I Am IR Reverb", "#7bd3ff", (700.0, 340.0)),
+		);
+
+		assert!(face.contains("\"hero\":\"tail\""), "{face}");
+		assert!(face.contains("\"id\":\"size\""), "{face}");
+		assert!(face.contains("\"id\":\"decay_time\""), "{face}");
+		assert!(face.contains("\"id\":\"dry_gain\""), "{face}");
+		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");
+		assert!(face.contains("\"name\":\"IR Reverb\""), "{face}");
 	}
 
 	/// The compressor's envelope choice is a header drop-down, and its sidechain
@@ -674,6 +704,7 @@ mod tests {
 			DelayWeb::window_options(),
 			CompressorWeb::window_options(),
 			ReverbWeb::window_options(),
+			IrReverbWeb::window_options(),
 			ChorusWeb::window_options(),
 			FlangerWeb::window_options(),
 			PhaserWeb::window_options(),

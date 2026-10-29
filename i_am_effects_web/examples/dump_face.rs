@@ -14,7 +14,8 @@ use std::path::Path;
 
 use i_am_effects_web::{
 	BalanceWeb, ChorusWeb, CompressorWeb, CrusherWeb, DelayWeb, DisperserWeb, DistortionWeb,
-	FilterWeb, FlangerWeb, GainWeb, PhaserWeb, PitchWeb, ReverbWeb, ShifterWeb, WidthWeb,
+	FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb, PitchWeb, ReverbWeb, ShifterWeb,
+	WidthWeb,
 	CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
 	SHIFTER_CURVES,
@@ -121,6 +122,16 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		},
+		"ir_reverb" => {
+			let plugin = IrReverbWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am IR Reverb", "#7bd3ff", (700.0, 340.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
 		"reverb" => {
 			let plugin = ReverbWeb::new();
 			(
@@ -203,7 +214,7 @@ fn main() {
 		},
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance, compressor, reverb, chorus, flanger, phaser, delay or crusher"
+				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance, compressor, reverb, ir_reverb, chorus, flanger, phaser, delay or crusher"
 			);
 			std::process::exit(2);
 		},

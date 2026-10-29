@@ -121,6 +121,19 @@ fn aperture_window(half_time: f32, sample_rate: usize) -> Vec<f32> {
 	weights
 }
 
+/// Remove the zero-lag Dirac from a normalised IR. The peak of the generated
+/// response can land on sample zero; without this the wet convolver would pass
+/// the dry signal at zero latency.
+fn fade_in(ir: &mut [f32], sample_rate: usize) {
+	let samples = ((0.002 * sample_rate as f32) as usize).clamp(1, 512);
+	let count = samples.min(ir.len());
+
+	for (index, sample) in ir.iter_mut().take(count).enumerate() {
+		let window = 0.5 - 0.5 * (PI * index as f32 / count as f32).cos();
+		*sample *= window;
+	}
+}
+
 /// Add a sample at a fractional sample index.
 fn add_sample(output: &mut Vec<f32>, index_f32: f32, sample: f32) {
 	let index = index_f32.max(0.0).floor() as usize;
@@ -462,12 +475,13 @@ impl RayTracing {
 		let output = output.into_iter().map(|inner| inner / output_max).collect::<Vec<_>>();
 
 		if let Some(max_ir_len) = maxium_ir_len {
-			let output = output.into_iter().take(max_ir_len).collect::<Vec<_>>();
-			return output.into_iter().enumerate().map(|(i, inner)| {
+			let mut output = output.into_iter().take(max_ir_len).enumerate().map(|(i, inner)| {
 				let t = i as f32 / (max_ir_len - 1) as f32;
 				let window = (t * PI).cos() * 0.5 + 0.5;
 				inner * window
-			}).collect()
+			}).collect::<Vec<_>>();
+			fade_in(&mut output, self.sample_rate);
+			return output;
 		}
 
 		let mut trim_start = 0;
@@ -478,7 +492,9 @@ impl RayTracing {
 		while trim_end > 0 && output[trim_end] <= 0.005 {
 			trim_end -= 1;
 		}
-		output.into_iter().skip(trim_start).take(trim_end - trim_start + 1).collect()
+		let mut output = output.into_iter().skip(trim_start).take(trim_end - trim_start + 1).collect::<Vec<_>>();
+		fade_in(&mut output, self.sample_rate);
+		output
 	}
 
 	/// Generate a stereo impulse response from the same reflections. Every echo
@@ -548,6 +564,8 @@ impl RayTracing {
 				}
 			}
 
+			fade_in(&mut left, self.sample_rate);
+			fade_in(&mut right_channel, self.sample_rate);
 			return [left, right_channel];
 		}
 
@@ -573,6 +591,8 @@ impl RayTracing {
 			.collect::<Vec<_>>();
 		left.resize(length, 0.0);
 		right_channel.resize(length, 0.0);
+		fade_in(&mut left, self.sample_rate);
+		fade_in(&mut right_channel, self.sample_rate);
 		[left, right_channel]
 	}
 
@@ -796,7 +816,7 @@ impl<T: GenIr, const CHANNELS: usize> IrBasedReverb<T, CHANNELS> {
 	/// Create a new `IrBasedReverb` with the given reverb impulse response generator.
 	pub fn new(ir_gen: T, sample_rate: usize) -> Self {
 		let stereo = ir_gen.gen_stereo_ir(None);
-		let convolver = FftConvolver::new(
+		let mut convolver = FftConvolver::new(
 			core::array::from_fn(|channel| {
 				let mut ir = stereo[channel % 2].clone();
 				ir.truncate(48000);
@@ -804,6 +824,10 @@ impl<T: GenIr, const CHANNELS: usize> IrBasedReverb<T, CHANNELS> {
 			}),
 			sample_rate
 		);
+		// The convolver's own default is dry 1 / wet 0.0125, which passes the
+		// original and barely any reverb. The IR-based reverb is a wet effect.
+		convolver.dry_gain = 0.0;
+		convolver.wet_gain = 1.0;
 		Self { 
 			ir_gen, 
 			convolver
@@ -916,6 +940,21 @@ mod tests {
 			let energy: f32 = window.iter().map(|weight| weight * weight).sum();
 			assert!((energy - 1.0).abs() < 1e-4, "energy {energy}");
 		}
+	}
+
+	/// The normalised response must not start with a unit Dirac: that would turn
+	/// the wet convolver into a zero-latency dry path.
+	#[test]
+	fn the_ir_does_not_start_with_a_dirac() {
+		use super::*;
+
+		let rt = RayTracing::rectangular_room(10.0, 10.0, 10.0, 0.001, 6.0, 48000);
+		let ir = rt.generate_ir(Some(4_800));
+		let stereo = rt.generate_stereo_ir(Some(4_800));
+
+		assert!(ir[0].abs() < 0.01, "mono first sample {}", ir[0]);
+		assert!(stereo[0][0].abs() < 0.01, "left first sample {}", stereo[0][0]);
+		assert!(stereo[1][0].abs() < 0.01, "right first sample {}", stereo[1][0]);
 	}
 
 	#[test]
