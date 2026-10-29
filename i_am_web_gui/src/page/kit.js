@@ -21,6 +21,11 @@
   var wantsScope = false;
 var wantsMeter = false;
 var meter = { input: null, sidechain: null };
+// A short level history so the right-hand envelope can scroll; the wheel
+// changes how much of it is visible, which changes how fast it appears to move.
+var envHistory = { input: [], output: [] };
+var envWindow = 128;
+var ENV_MAX = 512;
   var scope = { input: null, output: null };
   var knobs = [];
   var scale = 1;
@@ -1052,121 +1057,97 @@ var meter = { input: null, sidechain: null };
     );
   }
 
-  /// Left: the static transfer curve on a square plot. Right: the measured
-  /// before/after level envelope. A dot on the curve marks the current input
-  /// level, or the sidechain level when the detector is listening to it.
+  /// Left: the transfer curve on a square that stays left. Right: a scrolling
+  /// before/after level envelope that fills the rest. The wheel over the right
+  /// panel changes the visible time window, which changes how fast it moves.
   function compressorSvg() {
     var threshold = clamp(valueOf("threshold", -24), -60, 0);
     var ratio = Math.max(valueOf("ratio", 4), 1);
     var makeup = valueOf("makeup_db", 0);
+    var sidechainOn = !!valueOf("sidechain", 0);
+    var level = sidechainOn ? meter.sidechain : meter.input;
     var path = "";
 
     for (var i = 0; i <= 120; i++) {
       var input = -60 + i / 120 * 60;
-      var output = input <= threshold
-        ? input
-        : threshold + (input - threshold) / ratio;
+      var output = input <= threshold ? input : threshold + (input - threshold) / ratio;
       output = clamp(output + makeup, -60, 0);
-
-      var x = 30 + i / 120 * 140;
-      var y = 150 - (output + 60) / 60 * 140;
+      var x = 8 + i / 120 * 124;
+      var y = 132 - (output + 60) / 60 * 124;
       path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
     }
 
-    var knee = 30 + (threshold + 60) / 60 * 140;
-    var sidechainOn = !!valueOf("sidechain", 0);
-    var level = sidechainOn ? meter.sidechain : meter.input;
+    var knee = 8 + (threshold + 60) / 60 * 124;
     var marker = "";
 
     if (level !== null && level !== undefined && isFinite(level)) {
       var db = clamp(level, -60, 0);
-      var mx = 30 + (db + 60) / 60 * 140;
-      var markerOut = db <= threshold ? db : threshold + (db - threshold) / ratio;
-      markerOut = clamp(markerOut + makeup, -60, 0);
-      var my = 150 - (markerOut + 60) / 60 * 140;
+      var mx = 8 + (db + 60) / 60 * 124;
+      var out = db <= threshold ? db : threshold + (db - threshold) / ratio;
+      out = clamp(out + makeup, -60, 0);
+      var my = 132 - (out + 60) / 60 * 124;
       var tag = sidechainOn ? "SC " : "IN ";
-      var textX = mx > 120 ? mx - 4 : mx + 4;
-      var anchor = mx > 120 ? "end" : "start";
+      var textX = mx > 92 ? mx - 4 : mx + 4;
+      var anchor = mx > 92 ? "end" : "start";
 
       marker =
-        '<line x1="' + mx.toFixed(1) + '" y1="10" x2="' + mx.toFixed(1) +
-          '" y2="150" stroke="' + accent + '" stroke-opacity=".22" stroke-dasharray="2 4"/>' +
-        '<line x1="30" y1="' + my.toFixed(1) + '" x2="170" y2="' + my.toFixed(1) +
-          '" stroke="' + accent + '" stroke-opacity=".12" stroke-dasharray="2 4"/>' +
-        '<circle cx="' + mx.toFixed(1) + '" cy="' + my.toFixed(1) + '" r="2.6" fill="' +
-          accent + '"/>' +
-        '<text x="' + textX.toFixed(1) + '" y="19" fill="' + accent +
-          '" font-size="7" text-anchor="' + anchor + '">' + tag + db.toFixed(1) + ' dB</text>';
+        '<line x1="' + mx.toFixed(1) + '" y1="8" x2="' + mx.toFixed(1) + '" y2="132" stroke="' + accent + '" stroke-opacity=".22" stroke-dasharray="2 4"/>' +
+        '<line x1="8" y1="' + my.toFixed(1) + '" x2="132" y2="' + my.toFixed(1) + '" stroke="' + accent + '" stroke-opacity=".12" stroke-dasharray="2 4"/>' +
+        '<circle cx="' + mx.toFixed(1) + '" cy="' + my.toFixed(1) + '" r="2.4" fill="' + accent + '"/>' +
+        '<text x="' + textX.toFixed(1) + '" y="17" fill="' + accent + '" font-size="7" text-anchor="' + anchor + '">' + tag + db.toFixed(1) + ' dB</text>';
     }
 
     var left =
-      '<rect x="30" y="10" width="140" height="140" fill="none" stroke="#2a2a2a"/>' +
-      '<line x1="30" y1="150" x2="170" y2="10" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
-      '<line x1="' + knee.toFixed(1) + '" y1="10" x2="' + knee.toFixed(1) +
-        '" y2="150" stroke="#343434" stroke-dasharray="3 5"/>' +
-      '<line x1="30" y1="150" x2="170" y2="150" stroke="#3a3a3a"/>' +
-      '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
-        'vector-effect="non-scaling-stroke"/>' +
-      marker;
+      '<svg viewBox="0 0 140 140" preserveAspectRatio="xMidYMid meet">' +
+        '<rect x="8" y="8" width="124" height="124" fill="none" stroke="#2a2a2a"/>' +
+        '<line x1="8" y1="132" x2="132" y2="8" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+        '<line x1="' + knee.toFixed(1) + '" y1="8" x2="' + knee.toFixed(1) + '" y2="132" stroke="#343434" stroke-dasharray="3 5"/>' +
+        '<line x1="8" y1="132" x2="132" y2="132" stroke="#3a3a3a"/>' +
+        '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" vector-effect="non-scaling-stroke"/>' +
+        marker +
+      '</svg>';
 
     var right = "";
-    var legend = "";
+    var count = Math.min(envWindow, envHistory.input.length);
 
-    if (scope.input && scope.output) {
-      var segments = 64;
-      var step = Math.floor(Math.min(scope.input.length, scope.output.length) / segments);
-      var inputLevels = [];
-      var outputLevels = [];
+    if (count > 1) {
       var loudest = 1e-6;
 
-      for (var s = 0; s < segments; s++) {
-        var inSum = 0;
-        var outSum = 0;
-
-        for (var j = 0; j < step; j++) {
-          var index = s * step + j;
-          inSum += scope.input[index] * scope.input[index];
-          outSum += scope.output[index] * scope.output[index];
-        }
-
-        var inLevel = Math.sqrt(inSum / Math.max(step, 1));
-        var outLevel = Math.sqrt(outSum / Math.max(step, 1));
-        inputLevels.push(inLevel);
-        outputLevels.push(outLevel);
-        loudest = Math.max(loudest, inLevel, outLevel);
+      for (var k = 0; k < count; k++) {
+        var index = envHistory.input.length - count + k;
+        loudest = Math.max(loudest, envHistory.input[index], envHistory.output[index]);
       }
 
-      var inputPath = "";
-      var outputPath = "";
+      var inPath = "";
+      var outPath = "";
 
-      for (var k = 0; k < segments; k++) {
-        var px = 200 + k / (segments - 1) * 300;
-        var iy = 150 - inputLevels[k] / loudest * 140;
-        var oy = 150 - outputLevels[k] / loudest * 140;
-        inputPath += (k ? " L " : "M ") + px.toFixed(1) + " " + iy.toFixed(1);
-        outputPath += (k ? " L " : "M ") + px.toFixed(1) + " " + oy.toFixed(1);
+      for (var s = 0; s < count; s++) {
+        var idx = envHistory.input.length - count + s;
+        var px = 8 + s / (count - 1) * 384;
+        var iy = 132 - envHistory.input[idx] / loudest * 124;
+        var oy = 132 - envHistory.output[idx] / loudest * 124;
+        inPath += (s ? " L " : "M ") + px.toFixed(1) + " " + iy.toFixed(1);
+        outPath += (s ? " L " : "M ") + px.toFixed(1) + " " + oy.toFixed(1);
       }
 
       right =
-        '<path d="' + outputPath + ' L 500 150 L 200 150 Z" fill="' + accent +
-          '" fill-opacity=".06"/>' +
-        '<path d="' + inputPath + '" fill="none" stroke="#8a8a8a" stroke-width="1.1" ' +
-          'opacity=".65" vector-effect="non-scaling-stroke"/>' +
-        '<path d="' + outputPath + '" fill="none" stroke="' + accent + '" stroke-width="1.6" ' +
-          'vector-effect="non-scaling-stroke"/>';
-      legend =
-        '<text x="378" y="19" fill="#8a8a8a" font-size="7">IN</text>' +
-        '<text x="452" y="19" fill="' + accent + '" font-size="7">OUT</text>';
+        '<path d="' + outPath + ' L 392 132 L 8 132 Z" fill="' + accent + '" fill-opacity=".06"/>' +
+        '<path d="' + inPath + '" fill="none" stroke="#8a8a8a" stroke-width="1.1" opacity=".65" vector-effect="non-scaling-stroke"/>' +
+        '<path d="' + outPath + '" fill="none" stroke="' + accent + '" stroke-width="1.6" vector-effect="non-scaling-stroke"/>' +
+        '<text x="16" y="17" fill="#8a8a8a" font-size="7">IN</text>' +
+        '<text x="52" y="17" fill="' + accent + '" font-size="7">OUT</text>';
     } else {
-      right = '<line x1="200" y1="150" x2="500" y2="150" stroke="#3a3a3a"/>';
+      right = '<line x1="8" y1="132" x2="392" y2="132" stroke="#3a3a3a"/>';
     }
 
-    return heroSvgSquare(
-      left +
-      '<line x1="185" y1="10" x2="185" y2="150" stroke="#2f2f2f"/>' +
-      right +
-      legend
-    );
+    var seconds = (envWindow * 0.05).toFixed(1);
+
+    return '<div class="compressor-hero">' +
+      '<div class="transfer-box">' + left + '</div>' +
+      '<div class="env-box" title="Scroll to change the envelope time window">' +
+        '<svg viewBox="0 0 400 140" preserveAspectRatio="none">' + right + '</svg>' +
+        '<div class="hero-badge">' + seconds + ' s</div></div>' +
+      '</div>';
   }
 
   function updateHeroes() {
@@ -1242,6 +1223,47 @@ var meter = { input: null, sidechain: null };
       });
   }
 
+  function levelOf(samples, start, count) {
+    var energy = 0;
+
+    for (var i = 0; i < count; i++) {
+      var sample = samples[start + i];
+      energy += sample * sample;
+    }
+
+    return Math.sqrt(energy / Math.max(count, 1));
+  }
+
+  // Fill the history from the scope the first time, so the envelope has a
+  // complete picture before the first few live frames arrive.
+  function seedEnvelope(input, output) {
+    if (envHistory.input.length) return;
+
+    var segments = 128;
+    var step = Math.floor(input.length / segments);
+
+    if (step < 1) step = 1;
+
+    for (var s = 0; s < segments; s++) {
+      var start = Math.min(s * step, input.length - step);
+      envHistory.input.push(levelOf(input, start, step));
+      envHistory.output.push(levelOf(output, start, step));
+    }
+  }
+
+  function pushEnvelope(input, output) {
+    var step = Math.min(1024, input.length);
+    var start = input.length - step;
+
+    if (envHistory.input.length >= ENV_MAX) {
+      envHistory.input.shift();
+      envHistory.output.shift();
+    }
+
+    envHistory.input.push(levelOf(input, start, step));
+    envHistory.output.push(levelOf(output, start, step));
+  }
+
   // The scope is its own poll: it is a binary document, and a host with no audio
   // running still wants the rest of the page to keep working.
   function pollScope() {
@@ -1262,6 +1284,8 @@ var meter = { input: null, sidechain: null };
         if (half > 64) {
           scope.input = data.subarray(0, half);
           scope.output = data.subarray(half);
+          seedEnvelope(scope.input, scope.output);
+          pushEnvelope(scope.input, scope.output);
           markDirty();
         }
       })
@@ -1347,6 +1371,7 @@ var meter = { input: null, sidechain: null };
       });
     });
   }
+
 
   function buildMode(spec) {
     var el = element("div", "mode");
@@ -1525,6 +1550,20 @@ var meter = { input: null, sidechain: null };
         usedHeroes[section.hero] = true;
         var hero = element("div", "hero");
         hero.dataset.hero = section.hero;
+
+        if (section.hero === "compressor") {
+          hero.addEventListener("wheel", function (event) {
+            if (!event.target.closest(".env-box")) return;
+            event.preventDefault();
+            envWindow = clamp(
+              Math.round(envWindow * (event.deltaY > 0 ? 1.25 : 0.8)),
+              32,
+              ENV_MAX
+            );
+            markDirty();
+          }, { passive: false });
+        }
+
         heroes.push({ el: hero, kind: section.hero });
         el.appendChild(hero);
       } else {
