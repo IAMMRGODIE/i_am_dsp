@@ -20,6 +20,34 @@ fn glide_coefficient(sample_rate: usize) -> f32 {
 	1.0 - (-1.0 / (DELAY_GLIDE_SECONDS * sample_rate.max(1) as f32)).exp()
 }
 
+/// Equal-power gains for a pan position in [-1, 1]: +1 is left, -1 right.
+fn pan_gains(pan: f32) -> (f32, f32) {
+	let angle = (1.0 - pan.clamp(-1.0, 1.0)) * std::f32::consts::PI / 4.0;
+	(angle.cos(), angle.sin())
+}
+
+/// Reads a delayed sample from a ring buffer, with cubic interpolation.
+///
+/// RingBuffer::sample takes a position from the start of the buffer, but a delay
+/// wants a distance from the write head; the Chorus and Flanger used the wrong
+/// one and read near the oldest slot instead of their delay time.
+fn read_delayed(history: &RingBuffer<f32>, delay_samples: f32) -> f32 {
+	let capacity = history.capacity() as isize;
+	let delay = delay_samples.clamp(0.0, (capacity - 3) as f32);
+	let whole = delay.floor() as isize;
+	let fraction = delay.fract();
+
+	cubic_interpolate(
+		fraction,
+		[
+			history[capacity + 1 - whole],
+			history[capacity - whole],
+			history[capacity - 1 - whole],
+			history[capacity - 2 - whole],
+		],
+	)
+}
+
 /// A pure delay that delays the signal by a fixed amount of time.
 #[derive(Parameters)]
 pub struct PureDelay<const CHANNELS: usize = 2> {
@@ -262,6 +290,14 @@ pub struct Delay<
 	#[id(display = "Ping-Pong")]
 	#[layout(group = "Delay", order = 4, widget = toggle)]
 	pub pingpong: bool,
+	/// How far a ping-pong repeat is panned: +1 is full left then full right,
+	/// -1 starts on the right, and 0 centres both.
+	#[range(min = -1.0, max = 1.0)]
+	#[unit(percent)]
+	#[default(1.0)]
+	#[id(display = "Pan")]
+	#[layout(group = "Delay", order = 5, widget = knob, bipolar)]
+	pub pingpong_pan: f32,
 	/// The delay being read right now, in fractional samples.
 	#[skip]
 	smoothed_delay: f32,
@@ -304,6 +340,7 @@ impl<
 			wet_gain: 1.0,
 			decay_factor: 0.8,
 			pingpong: false,
+			pingpong_pan: 1.0,
 			smoothed_delay: delay,
 			target_delay: delay,
 		}
@@ -439,10 +476,24 @@ impl<
 		}
 
 		self.delayed_effect.process(&mut delayed_sample_output, &[], ctx);
-		delayed_sample_output.into_iter().enumerate().for_each(|(i, mut inner)| {
-			inner *= self.wet_gain;
-			samples[i] += inner;
-		});
+
+		if self.pingpong && CHANNELS == 2 {
+			// The chain still alternates the repeats internally; the pan decides how
+			// much of each repeat reaches each side. +1 keeps the old full left then
+			// full right, -1 starts on the right, 0 centres both.
+			let (left_left, left_right) = pan_gains(self.pingpong_pan);
+			let (right_left, right_right) = pan_gains(-self.pingpong_pan);
+			let left = delayed_sample_output[0] * self.wet_gain;
+			let right = delayed_sample_output[1] * self.wet_gain;
+
+			samples[0] += left * left_left + right * right_left;
+			samples[1] += left * left_right + right * right_right;
+		} else {
+			delayed_sample_output.into_iter().enumerate().for_each(|(i, mut inner)| {
+				inner *= self.wet_gain;
+				samples[i] += inner;
+			});
+		}
 
 		if ctx.should_stop() {
 			self.clear_history();	
@@ -476,7 +527,7 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	processed_history: [RingBuffer<f32>; CHANNELS],
 	// pub decay_factor: f32,
 	/// the center saves in milliseconds
-	#[range(min = 0.0, max = 4000.0)]
+	#[range(min = 0.1, max = 10.0)]
 	#[unit(milliseconds)]
 	#[id(display = "Delay")]
 	#[layout(group = "Flanger", order = 1, widget = knob)]
@@ -488,7 +539,7 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[sub_param]
 	pub lfo: Lfo,
 	/// The frequency of the LFO, saves in Hz, used when [`Self::tempo`] is not syncing.
-	#[range(min = 0.01, max = 20.0)]
+	#[range(min = 0.05, max = 10.0)]
 	#[unit(hertz)]
 	#[id(display = "Rate")]
 	#[layout(group = "Flanger", order = 0, widget = knob, hero = "lfo")]
@@ -503,23 +554,23 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[sub_param]
 	pub tempo: SyncedTime,
 	/// The amplitude of the LFO, saves in milliseconds
-	#[range(min = 0.01, max = 10.0)]
+	#[range(min = 0.1, max = 5.0)]
 	#[unit(milliseconds)]
 	#[id(display = "Depth")]
 	#[layout(group = "Flanger", order = 2, widget = knob)]
 	pub lfo_amplitude: f32,
 	#[skip]
 	phase: SyncedPhase,
-	/// The wet gain of the effect, saves in linear scale
-	#[range(min = 0.01, max = 4.0)]
-	#[logarithmic]
+	/// The dry/wet mix of the effect.
+	#[range(min = 0.0, max = 1.0)]
 	#[unit(percent)]
+	#[default(0.5)]
 	#[id(display = "Mix")]
 	#[layout(group = "Flanger", order = 4, widget = knob)]
 	pub wet_gain: f32,
-	#[range(min = 0.01, max = 1.0)]
-	#[logarithmic]
+	#[range(min = 0.0, max = 0.95)]
 	#[unit(percent)]
+	#[default(0.3)]
 	#[id(display = "Feedback")]
 	#[layout(group = "Flanger", order = 3, widget = knob)]
 	/// The feed back gain, saves in linear scale
@@ -545,14 +596,14 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Flanger<Lfo, CHANNELS> {
 			processed_history,
 			// decay_factor: 0.8,
 			sample_rate,
-			center_delay_time: 10.0,
+			center_delay_time: 2.0,
 			lfo,
-			lfo_frequency: 1.0,
+			lfo_frequency: 0.5,
 			tempo: SyncedTime::default(),
-			lfo_amplitude: 5.0,
+			lfo_amplitude: 2.0,
 			phase: SyncedPhase::new(),
-			wet_gain: 1.0,
-			feed_back_gain: 0.1,
+			wet_gain: 0.5,
+			feed_back_gain: 0.3,
 		}
 	}
 
@@ -598,13 +649,20 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for F
 		let lfo_sample = self.lfo.sample(phase, 0) * lfo_amp;
 
 		let sample_pos = lfo_sample + delay_time;
-		let uniformed_pos = sample_pos / self.history[0].capacity() as f32;
+
+		let dry = *samples;
+		let mix = self.wet_gain.clamp(0.0, 1.0);
 
 		for (i, sample) in samples.iter_mut().enumerate() {
-			let sampled = self.history[i].sample(uniformed_pos, 0);
-			let feed_back = self.processed_history[i].sample(uniformed_pos, 0) * self.feed_back_gain;
-			self.history[i].push(*sample);
-			*sample += (sampled + feed_back) * self.wet_gain;
+			let sampled = read_delayed(&self.history[i], sample_pos);
+			let feed_back = read_delayed(&self.processed_history[i], sample_pos) * self.feed_back_gain;
+			let wet = sampled + feed_back;
+
+			self.history[i].push(dry[i]);
+			// The processed line is what the feedback reads; it used to stay empty,
+			// so the feedback knob did nothing at all.
+			self.processed_history[i].push(wet);
+			*sample = dry[i] * (1.0 - mix) + wet * mix;
 		}
 
 		if ctx.should_stop() {
@@ -656,15 +714,15 @@ pub struct Chorus<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[sub_param]
 	pub tempo: SyncedTime,
 	/// The amplitude of the LFO, saves in milliseconds
-	#[range(min = 5.0, max = 20.0)]
+	#[range(min = 0.0, max = 10.0)]
 	#[unit(milliseconds)]
 	#[id(display = "Depth")]
 	#[layout(group = "Chorus", order = 2, widget = knob)]
 	pub lfo_amplitude: f32,
-	/// The wet_gain of the effect, saves in linear scale
-	#[range(min = 0.01, max = 4.0)]
-	#[logarithmic]
+	/// The dry/wet mix of the effect.
+	#[range(min = 0.0, max = 1.0)]
 	#[unit(percent)]
+	#[default(0.5)]
 	#[id(display = "Mix")]
 	#[layout(group = "Chorus", order = 3, widget = knob)]
 	pub wet_gain: f32,
@@ -695,8 +753,8 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Chorus<Lfo, CHANNELS> {
 			lfo,
 			lfo_frequency: 1.0,
 			tempo: SyncedTime::default(),
-			lfo_amplitude: 10.0,
-			wet_gain: 1.0,
+			lfo_amplitude: 5.0,
+			wet_gain: 0.5,
 			phase: SyncedPhase::new(),
 			delay_lines,
 		}
@@ -734,24 +792,26 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for C
 			.phase
 			.advance_rate(&self.tempo, ctx.infos(), self.lfo_frequency, self.sample_rate) as f32;
 
-		let mut output = [0.0; CHANNELS];
+		let dry = *samples;
+		let mix = self.wet_gain.clamp(0.0, 1.0);
+		let mut wet = [0.0; CHANNELS];
 
 		for i in 0..self.delay_lines {
-			for (j, output) in output.iter_mut().enumerate() {
+			for (j, wet) in wet.iter_mut().enumerate() {
 				let phase_delta = (i as f32 / (self.delay_lines + j) as f32).fract();
 				let lfo_sample = self.lfo.sample((phase + phase_delta).fract(), 0) * lfo_amp;
 				let sample_pos = lfo_sample + delay_time;
-				let uniformed_pos = sample_pos / self.history[0].capacity() as f32;
 
-				let sampled = self.history[j].sample(uniformed_pos, 0);
-				*output += sampled * self.wet_gain;
+				*wet += read_delayed(&self.history[j], sample_pos);
 			}
 		}
 
 		samples.iter_mut().enumerate().for_each(|(i, sample)| {
-			self.history[i].push(*sample);
-			*sample += output[i];
-			*sample /= self.delay_lines as f32;
+			self.history[i].push(dry[i]);
+			// Average the taps, then crossfade with the dry signal. The dry used to
+			// be divided by the number of lines as well, which made the bypass path
+			// quieter the more lines the chorus used.
+			*sample = dry[i] * (1.0 - mix) + wet[i] / self.delay_lines as f32 * mix;
 		});
 
 
@@ -1062,5 +1122,93 @@ mod tests {
 		// value asks for.
 		assert!((delay.smoothed_delay - 12_000.0).abs() < 1.0, "read {}", delay.smoothed_delay);
 		assert_eq!(delay.delay(), 12_000);
+	}
+
+	/// The pan decides where the first ping-pong repeat lands: +1 left, -1 right,
+	/// 0 centred at equal power.
+	#[test]
+	fn ping_pong_pan_moves_the_first_repeat() {
+		fn first_repeat(pan: f32) -> [f32; 2] {
+			let mut delay = Delay::<(), 2>::new((), 2048, 10.0, 48_000);
+			delay.pingpong = true;
+			delay.pingpong_pan = pan;
+			delay.decay_factor = 0.5;
+			delay.wet_gain = 1.0;
+
+			let mut ctx: Box<dyn ProcessContext> = Box::new(());
+			let mut at = [0.0; 2];
+
+			for i in 0..600 {
+				let mut frame = if i == 0 { [1.0, 1.0] } else { [0.0, 0.0] };
+				delay.process(&mut frame, &[], &mut ctx);
+				if i == 480 {
+					at = frame;
+				}
+			}
+
+			at
+		}
+
+		let left = first_repeat(1.0);
+		assert!(left[0] > 0.4 && left[1] < 0.01, "left repeat: {left:?}");
+
+		let right = first_repeat(-1.0);
+		assert!(right[0] < 0.01 && right[1] > 0.4, "right repeat: {right:?}");
+
+		let centre = first_repeat(0.0);
+		assert!((centre[0] - centre[1]).abs() < 1e-4, "centre repeat: {centre:?}");
+		assert!(centre[0] > 0.3, "centre repeat: {centre:?}");
+	}
+
+	/// A fully dry chorus has to be exactly the input; the old code divided the dry
+	/// path by the number of chorus lines as well.
+	#[test]
+	fn a_fully_dry_chorus_is_the_input() {
+		use crate::generators::wavetable::SineWave;
+
+		let mut chorus = Chorus::<SineWave, 2>::new(1 << 12, 4, 48_000, SineWave);
+		chorus.wet_gain = 0.0;
+
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+
+		for i in 0..512 {
+			let input = (core::f32::consts::TAU * 440.0 * i as f32 / 48_000.0).sin() * 0.5;
+			let mut frame = [input, input];
+			chorus.process(&mut frame, &[], &mut ctx);
+			assert!((frame[0] - input).abs() < 1e-6, "dry sample {i}: {}", frame[0]);
+		}
+	}
+
+	/// The flanger's feedback line has to be filled, or the feedback knob does nothing.
+	#[test]
+	fn the_flanger_feedback_repeats() {
+		use crate::generators::wavetable::SineWave;
+
+		let mut flanger = Flanger::<SineWave, 2>::new(1 << 12, 48_000, SineWave);
+		flanger.center_delay_time = 2.0;
+		flanger.lfo_amplitude = 0.0;
+		flanger.feed_back_gain = 0.8;
+		flanger.wet_gain = 1.0;
+
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+		let mut at = [0.0; 3];
+
+		for i in 0..400 {
+			let mut frame = if i == 0 { [1.0, 1.0] } else { [0.0, 0.0] };
+			flanger.process(&mut frame, &[], &mut ctx);
+			if i == 96 {
+				at[0] = frame[0];
+			}
+			if i == 192 {
+				at[1] = frame[0];
+			}
+			if i == 288 {
+				at[2] = frame[0];
+			}
+		}
+
+		assert!(at[0] > 0.5, "first repeat: {at:?}");
+		assert!((at[1] - 0.8).abs() < 0.1, "second repeat: {at:?}");
+		assert!((at[2] - 0.64).abs() < 0.1, "third repeat: {at:?}");
 	}
 }

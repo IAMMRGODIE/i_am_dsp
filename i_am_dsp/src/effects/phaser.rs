@@ -20,7 +20,7 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[layout(group = "Phaser", order = 0)]
 	pub lfo: Lfo,
 	/// LFO frequency in Hz, used when [`Self::tempo`] is not syncing.
-	#[range(min = 0.01, max = 20.0)]
+	#[range(min = 0.05, max = 10.0)]
 	#[unit(hertz)]
 	#[id(display = "Rate")]
 	#[layout(group = "Phaser", order = 0, widget = knob, hero = "lfo")]
@@ -34,15 +34,17 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[id(display = "Tempo")]
 	#[layout(group = "Phaser", order = 0)]
 	pub tempo: SyncedTime,
-	#[range(min = 10.0, max = 10000.0)]
+	#[range(min = 20.0, max = 2000.0)]
 	#[logarithmic]
+	#[default(200.0)]
 	/// Minimum frequency in Hz
 	#[unit(hertz)]
 	#[id(display = "Min")]
 	#[layout(group = "Phaser", order = 1, widget = knob)]
 	pub min_freq: f32,
-	#[range(min = 10.0, max = 10000.0)]
+	#[range(min = 200.0, max = 20000.0)]
 	#[logarithmic]
+	#[default(2000.0)]
 	/// Maximum frequency in Hz
 	#[unit(hertz)]
 	#[id(display = "Max")]
@@ -53,18 +55,26 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[skip]
 	phase: SyncedPhase,
 	/// The feedback gain, saves in linear scale
-	#[range(min = 0.01, max = 1.0)]
-	#[logarithmic]
+	#[range(min = 0.0, max = 0.95)]
 	#[unit(percent)]
+	#[default(0.2)]
 	#[id(display = "Feedback")]
 	#[layout(group = "Phaser", order = 3, widget = knob)]
 	pub feedback_gain: f32,
 	/// Add phase delta to each allpass
 	#[range(min = 0.0, max = 1.0)]
 	#[unit(percent)]
+	#[default(0.1)]
 	#[id(display = "Spread")]
 	#[layout(group = "Phaser", order = 4, widget = knob)]
 	pub phase_delta: f32,
+	/// The dry/wet mix of the effect.
+	#[range(min = 0.0, max = 1.0)]
+	#[unit(percent)]
+	#[default(0.5)]
+	#[id(display = "Mix")]
+	#[layout(group = "Phaser", order = 5, widget = knob)]
+	pub mix: f32,
 }
 
 impl<Lfo: WaveTable, const CHANNELS: usize> Phaser<Lfo, CHANNELS> {
@@ -81,13 +91,13 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Phaser<Lfo, CHANNELS> {
 			lfo,
 			lfo_freq: 0.5,
 			tempo: SyncedTime::default(),
-			min_freq: MIN_FREQUENCY,
-			max_freq: sample_rate as f32 / 2.0 - MIN_FREQUENCY,
+			min_freq: 200.0,
+			max_freq: 2000.0,
 			sample_rate,
 			phase: SyncedPhase::new(),
-			feedback_gain: 0.0,
-			phase_delta: 0.0,
-			// wet_gain: 1.0,
+			feedback_gain: 0.2,
+			phase_delta: 0.1,
+			mix: 0.5,
 		}
 	}
 
@@ -114,6 +124,7 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 	}
 
 	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+		let dry = *samples;
 		let base_phase = self
 			.phase
 			.advance_rate(&self.tempo, ctx.infos(), self.lfo_freq, self.sample_rate) as f32;
@@ -121,8 +132,11 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 			*sample += *feedback * self.feedback_gain;
 		});
 
-		let max_depth = self.max_freq.min(self.sample_rate as f32 / 2.0 - MIN_FREQUENCY) / self.sample_rate as f32;
-		let min_depth = self.min_freq.max(MIN_FREQUENCY) / self.sample_rate as f32;
+		let nyquist = self.sample_rate as f32 / 2.0 - MIN_FREQUENCY;
+		let low = self.min_freq.clamp(MIN_FREQUENCY, nyquist);
+		let high = self.max_freq.clamp(low, nyquist);
+		let max_depth = high / self.sample_rate as f32;
+		let min_depth = low / self.sample_rate as f32;
 
 		let mut output = *samples;
 
@@ -147,8 +161,11 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 		self.feedback_history = output;
 		// println!("{:?}", output);
 
+		let mix = self.mix.clamp(0.0, 1.0);
 		samples.iter_mut().enumerate().for_each(|(i, sample)| {
-			*sample = output[i].clamp(-1.0, 1.0);
+			// An allpass alone changes phase but not level; the notches come from
+			// summing it with the dry signal, which this used to skip entirely.
+			*sample = (dry[i] * (1.0 - mix) + output[i] * mix).clamp(-1.0, 1.0);
 		});
 
 	}
@@ -171,5 +188,44 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 		ui.add(egui::Slider::new(&mut self.phase_delta, 0.0..=1.0).text("Phase Delta"));
 		gain_ui(ui, &mut self.feedback_gain, Some("Feedback Gain".to_string()), true);
 		// ui.add(egui::Slider::new(&mut self.wet_gain, 0.0..=1.0).text("Wet Gain"));
+	}
+}
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::generators::wavetable::SineWave;
+
+	/// A fully dry phaser must pass the input unchanged; an allpass alone changes
+	/// phase, and the notches only appear once it is summed with the dry path.
+	#[test]
+	fn a_fully_dry_phaser_is_the_input() {
+		let mut phaser = Phaser::<SineWave, 2>::new(SineWave, 6, 48_000);
+		phaser.mix = 0.0;
+
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+
+		for i in 0..512 {
+			let input = (core::f32::consts::TAU * 440.0 * i as f32 / 48_000.0).sin() * 0.5;
+			let mut frame = [input, input];
+			phaser.process(&mut frame, &[], &mut ctx);
+			assert!((frame[0] - input).abs() < 1e-6, "dry sample {i}: {}", frame[0]);
+		}
+	}
+
+	/// A sweep whose maximum is below its minimum is clamped instead of running
+	/// backwards.
+	#[test]
+	fn a_reversed_sweep_is_clamped() {
+		let mut phaser = Phaser::<SineWave, 2>::new(SineWave, 6, 48_000);
+		phaser.min_freq = 2_000.0;
+		phaser.max_freq = 200.0;
+
+		let mut ctx: Box<dyn ProcessContext> = Box::new(());
+		let mut frame = [0.5, 0.5];
+
+		for _ in 0..128 {
+			phaser.process(&mut frame, &[], &mut ctx);
+			assert!(frame.iter().all(|sample| sample.is_finite()));
+		}
 	}
 }

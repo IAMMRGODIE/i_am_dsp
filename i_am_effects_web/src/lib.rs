@@ -132,11 +132,11 @@ web_plugin!(
 /// between milliseconds and beats in the same slot.
 pub const DELAY_HEADER: &[&str] = &["tempo.sync"];
 /// Free time when sync is off, musical time when it is on.
-pub const DELAY_SWITCHES: &[Switch] = &[Switch::new(
-	"tempo.sync",
-	&["tempo.beats"],
-	&["delay_time"],
-)];
+pub const DELAY_SWITCHES: &[Switch] = &[
+	Switch::new("tempo.sync", &["tempo.beats"], &["delay_time"]),
+	// The pan only means something while ping-pong is on.
+	Switch::new("pingpong", &["pingpong_pan"], &[]),
+];
 
 /// The chorus sync switch: free hertz or beats.
 pub const CHORUS_HEADER: &[&str] = &["tempo.sync"];
@@ -440,9 +440,14 @@ mod tests {
 		assert!(face.contains("\"id\":\"tempo.beats\""), "{face}");
 		assert!(face.contains("\"header\":[\"tempo.sync\"]"), "{face}");
 		assert!(
-			face.contains("\"switches\":[{\"control\":\"tempo.sync\",\"on\":[\"tempo.beats\"],\"off\":[\"delay_time\"]}]"),
+			face.contains("{\"control\":\"tempo.sync\",\"on\":[\"tempo.beats\"],\"off\":[\"delay_time\"]}"),
 			"{face}"
 		);
+		assert!(
+			face.contains("{\"control\":\"pingpong\",\"on\":[\"pingpong_pan\"],\"off\":[]}"),
+			"{face}"
+		);
+		assert!(face.contains("\"id\":\"pingpong_pan\""), "{face}");
 		assert!(face.contains("\"name\":\"Delay\""), "{face}");
 	}
 
