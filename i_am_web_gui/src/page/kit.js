@@ -742,6 +742,9 @@
     var mode = Math.round(valueOf("mode", 0));
     var gainDb = valueOf("gain_db", 0);
     var slope = Math.max(valueOf("slope", 1), 0.5);
+    var sections = mode < 4
+      ? clamp(Math.round(valueOf("stages", 0)) + 1, 1, 4)
+      : 1;
     var magnitudes = [];
 
     for (var i = 0; i < 80; i++) {
@@ -767,6 +770,8 @@
           ? 1 + (shelfGain - 1) * transition
           : 1 + (shelfGain - 1) * (1 - transition);
       } else magnitude = 1 / denominator;
+
+      if (mode < 4) magnitude = Math.pow(magnitude, sections);
 
       magnitudes.push(magnitude);
     }

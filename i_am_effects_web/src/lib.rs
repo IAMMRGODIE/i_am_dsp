@@ -308,6 +308,12 @@ mod tests {
 		);
 		assert!(face.contains("\"id\":\"gain_db\""), "{face}");
 		assert!(face.contains("\"id\":\"slope\""), "{face}");
+		assert!(face.contains("\"id\":\"stages\""), "{face}");
+		assert!(
+			face.contains("\"choices\":[\"12 dB/oct\",\"24 dB/oct\",\"36 dB/oct\",\"48 dB/oct\"]"),
+			"{face}"
+		);
+		assert!(face.contains("[0,[\"cutoff\",\"q\",\"stages\"]]"), "{face}");
 		assert!(face.contains("[5,[\"cutoff\",\"gain_db\",\"slope\"]]"), "{face}");
 	}
 

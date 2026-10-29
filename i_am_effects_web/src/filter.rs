@@ -1,9 +1,11 @@
-//! The filter the web product ships: seven algorithms behind one Biquad.
+//! The filter the web product ships: seven algorithms, each available as a
+//! cascade of up to four biquads.
 //!
 //! The DSP crate has a lowpass, a highpass and a bandpass, each with its own type;
 //! the RBJ setters on Biquad cover the rest. A plug-in that offers them all cannot
-//! swap its type at runtime, so this wraps one Biquad and changes what it is set
-//! to when the mode moves. The parameters are shared where they overlap and the
+//! swap its type at runtime, so this owns four Biquads, sets the first stages to
+//! the current mode and leaves the rest as pass-through. One biquad is 12 dB/oct;
+//! four in series are 48. The parameters are shared where they overlap and the
 //! faceplate hides the ones a mode does not read.
 
 use i_am_dsp::prelude::{Biquad, Effect, ProcessContext};
@@ -11,14 +13,17 @@ use i_am_dsp_derive::Parameters;
 
 /// The controls each mode reads; the page hides the rest.
 pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
-	(0, &["cutoff", "q"]),
-	(1, &["cutoff", "q"]),
-	(2, &["cutoff", "q"]),
-	(3, &["cutoff", "q"]),
+	(0, &["cutoff", "q", "stages"]),
+	(1, &["cutoff", "q", "stages"]),
+	(2, &["cutoff", "q", "stages"]),
+	(3, &["cutoff", "q", "stages"]),
 	(4, &["cutoff", "q", "gain_db"]),
 	(5, &["cutoff", "gain_db", "slope"]),
 	(6, &["cutoff", "gain_db", "slope"]),
 ];
+
+/// How many biquads a cascade can hold.
+const STAGES: usize = 4;
 
 /// A filter that is a lowpass, highpass, bandpass, notch, peak or a shelf.
 #[derive(Parameters)]
@@ -53,28 +58,38 @@ pub struct Multimode {
 	#[layout(group = "Filter", order = 2, widget = knob)]
 	pub q: f32,
 
+	/// How many 12 dB/oct sections are in series.
+	#[range(min = 0, max = 3)]
+	#[choices("12 dB/oct", "24 dB/oct", "36 dB/oct", "48 dB/oct")]
+	#[default(0)]
+	#[id(display = "Slope")]
+	#[layout(group = "Filter", order = 3, widget = choice)]
+	pub stages: i32,
+
 	/// How much a peak or a shelf lifts or cuts, in dB.
 	#[range(min = -24.0, max = 24.0)]
 	#[unit(db)]
 	#[default(0.0)]
 	#[id(display = "Gain")]
-	#[layout(group = "Filter", order = 3, widget = knob)]
+	#[layout(group = "Filter", order = 4, widget = knob)]
 	pub gain_db: f32,
 
 	/// How steep the shelf transition is.
 	#[range(min = 0.5, max = 2.0)]
 	#[default(1.0)]
-	#[id(display = "Slope")]
-	#[layout(group = "Filter", order = 4, widget = knob)]
+	#[id(display = "Shape")]
+	#[layout(group = "Filter", order = 5, widget = knob)]
 	pub slope: f32,
 
-	#[sub_param]
-	filter: Biquad<2>,
+	/// The sections; the first stages plus one carry the mode, the rest pass
+	/// through.
+	#[skip]
+	filters: [Biquad<2>; STAGES],
 
 	/// The values the coefficients were computed from, so a block that changed
 	/// nothing does not recompute them.
 	#[skip]
-	cached: Option<(i32, f32, f32, f32, f32)>,
+	cached: Option<(i32, f32, f32, i32, f32, f32)>,
 }
 
 impl Multimode {
@@ -84,10 +99,22 @@ impl Multimode {
 			mode: 0,
 			cutoff,
 			q,
+			stages: 0,
 			gain_db: 0.0,
 			slope: 1.0,
-			filter: Biquad::lowpass(sample_rate, cutoff, q),
+			filters: core::array::from_fn(|_| Biquad::lowpass(sample_rate, cutoff, q)),
 			cached: None,
+		}
+	}
+
+	/// The number of sections the current mode actually uses. Peak and shelves
+	/// are one section: repeating them would multiply the gain as well as the
+	/// slope.
+	fn section_count(&self) -> usize {
+		if self.mode >= 4 {
+			1
+		} else {
+			(self.stages.clamp(0, 3) + 1) as usize
 		}
 	}
 }
@@ -103,27 +130,47 @@ impl Effect<2> for Multimode {
 		other: &[&[f32; 2]],
 		context: &mut Box<dyn ProcessContext>,
 	) {
-		let key = (self.mode, self.cutoff, self.q, self.gain_db, self.slope);
+		let key = (
+			self.mode,
+			self.cutoff,
+			self.q,
+			self.stages,
+			self.gain_db,
+			self.slope,
+		);
+		let sections = self.section_count();
 
 		if self.cached != Some(key) {
 			// The RBJ band setters take a bandwidth in hertz, so Q has to be
 			// turned back into one: a high Q is a narrow band.
 			let bandwidth = (self.cutoff / self.q.max(0.05)).max(1.0);
 
-			match self.mode {
-				1 => self.filter.set_to_highpass(self.cutoff, self.q),
-				2 => self.filter.set_to_bandpass(self.cutoff, bandwidth),
-				3 => self.filter.set_to_bandstop(self.cutoff, bandwidth),
-				4 => self.filter.set_to_peak(self.cutoff, self.gain_db, bandwidth),
-				5 => self.filter.set_to_low_shelf(self.cutoff, self.gain_db, self.slope),
-				6 => self.filter.set_to_high_shelf(self.cutoff, self.gain_db, self.slope),
-				_ => self.filter.set_to_lowpass(self.cutoff, self.q),
+			for (index, filter) in self.filters.iter_mut().enumerate() {
+				if index >= sections {
+					// A pass-through section keeps the inactive slots harmless and
+					// their state fed with the current signal, so raising the slope
+					// does not start from silence.
+					filter.set_to_default_state();
+					continue;
+				}
+
+				match self.mode {
+					1 => filter.set_to_highpass(self.cutoff, self.q),
+					2 => filter.set_to_bandpass(self.cutoff, bandwidth),
+					3 => filter.set_to_bandstop(self.cutoff, bandwidth),
+					4 => filter.set_to_peak(self.cutoff, self.gain_db, bandwidth),
+					5 => filter.set_to_low_shelf(self.cutoff, self.gain_db, self.slope),
+					6 => filter.set_to_high_shelf(self.cutoff, self.gain_db, self.slope),
+					_ => filter.set_to_lowpass(self.cutoff, self.q),
+				}
 			}
 
 			self.cached = Some(key);
 		}
 
-		self.filter.process(samples, other, context);
+		for filter in self.filters.iter_mut() {
+			filter.process(samples, other, context);
+		}
 	}
 }
 
@@ -132,10 +179,11 @@ mod tests {
 	use super::*;
 
 	/// The level a mode leaves of a sine at a frequency, after the filter settles.
-	fn level_with_gain(mode: i32, frequency: f32, gain_db: f32) -> f32 {
+	fn level_with(mode: i32, frequency: f32, gain_db: f32, stages: i32) -> f32 {
 		let mut filter = Multimode::new(48_000, 1_000.0, 0.707);
 		filter.mode = mode;
 		filter.gain_db = gain_db;
+		filter.stages = stages;
 
 		let mut context: Box<dyn ProcessContext> = Box::new(());
 		let mut energy = 0.0_f32;
@@ -152,6 +200,10 @@ mod tests {
 		}
 
 		(energy / 2_048.0).sqrt()
+	}
+
+	fn level_with_gain(mode: i32, frequency: f32, gain_db: f32) -> f32 {
+		level_with(mode, frequency, gain_db, 0)
 	}
 
 	fn level(mode: i32, frequency: f32) -> f32 {
@@ -203,5 +255,15 @@ mod tests {
 		let high = level_with_gain(6, 10_000.0, 12.0);
 		let high_low = level_with_gain(6, 100.0, 12.0);
 		assert!(high > high_low * 1.5, "a high shelf lifts the high end");
+	}
+
+	/// Four sections really are steeper than one, and the passband stays there.
+	#[test]
+	fn the_slope_stacks_sections() {
+		let shallow = level_with(0, 8_000.0, 0.0, 0);
+		let steep = level_with(0, 8_000.0, 0.0, 3);
+
+		assert!(steep < shallow * 0.1, "48 dB/oct rejects far more than 12");
+		assert!(level_with(0, 100.0, 0.0, 3) > 0.3, "and still passes the band");
 	}
 }
