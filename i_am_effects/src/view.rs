@@ -73,16 +73,28 @@ fn value_of(map: &ParamMap, names: &[&str]) -> Option<f32> {
 /// section is laid out as controls -- a hero is an addition, never a requirement.
 fn hero<'a>(kind: &str, map: &ParamMap) -> Option<Element<'a, EffectMessage>> {
 	match kind {
-		// A shaper is its curve: the more it is driven, the harder it bends.
+		// A shaper is its curve: the mode, the amount and the output gain are the
+		// three things the picture depends on, so the picture reads them.
 		"transfer" => {
-			let drive = value_of(map, &["drive", "amount", "threshold"]).unwrap_or(0.5);
-			let gain = 1.0 + drive.clamp(0.0, 1.0) * 6.0;
+			let mode = value_of(map, &["mode"]).unwrap_or(0.0) as i32;
+			let amount = value_of(map, &["threshold", "amount", "drive"])
+				.unwrap_or(0.5)
+				.clamp(0.01, 4.0);
+			let output = value_of(map, &["gain"]).unwrap_or(1.0).clamp(0.01, 4.0);
 
 			Some(
-				canvas(transfer(move |input| (input * gain).tanh()))
-					.width(Length::Fill)
-					.height(styles::u(14.0))
-					.into(),
+				canvas(transfer(move |input| {
+					let shaped = if mode == 1 {
+						(input / amount).tanh()
+					} else {
+						input.clamp(-amount, amount)
+					};
+
+					(shaped * output).clamp(-1.0, 1.0)
+				}))
+				.width(Length::Fill)
+				.height(styles::u(14.0))
+				.into(),
 			)
 		},
 		// A filter is its response: where it is told to cut, and how much it rings.

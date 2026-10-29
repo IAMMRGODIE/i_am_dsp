@@ -15,6 +15,8 @@
   var bypassed = false;
   var powerButton = null;
   var modeSpec = null;
+  var wantsScope = false;
+  var scope = { input: null, output: null };
 
   var START = -135;
   var SWEEP = 270;
@@ -408,7 +410,29 @@
     return path;
   }
 
+  function trace(samples, middle, amplitude) {
+    var path = "";
+
+    for (var i = 0; i < samples.length; i++) {
+      var x = 20 + i / (samples.length - 1) * 480;
+      var y = middle - clamp(samples[i], -1.2, 1.2) / 1.2 * amplitude;
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    return path;
+  }
+
   function waveformSvg() {
+    if (scope.input && scope.output) {
+      return heroSvg(
+        '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>' +
+        '<path d="' + trace(scope.input, 80, 58) + '" fill="none" stroke="#6a6a6a" ' +
+          'stroke-width="1.5" vector-effect="non-scaling-stroke"/>' +
+        '<path d="' + trace(scope.output, 80, 58) + '" fill="none" stroke="' + accent + '" ' +
+          'stroke-width="2" vector-effect="non-scaling-stroke"/>'
+      );
+    }
+
     var gain = valueOf("gain", 1);
     var db = 20 * Math.log10(Math.max(gain, 1e-4));
     var output = clamp(20 * Math.pow(10, db / 20), 3, 58);
@@ -427,6 +451,7 @@
   }
 
   function transferSvg() {
+    var mode = Math.round(valueOf("mode", 0));
     var threshold = clamp(valueOf("threshold", 0.8), 0.01, 4);
     var gain = valueOf("gain", 1);
     var path = "";
@@ -435,7 +460,10 @@
     // only shows its knees when the flat part has somewhere to run.
     for (var i = 0; i <= 140; i++) {
       var x = -2 + i / 140 * 4;
-      var y = clamp(clamp(x, -threshold, threshold) * gain, -2, 2);
+      var shaped = mode === 1
+        ? Math.tanh(x / threshold)
+        : clamp(x, -threshold, threshold);
+      var y = clamp(shaped * gain, -2, 2);
       path += (i ? " L " : "M ") + (20 + (x + 2) / 4 * 480).toFixed(1) +
               " " + (80 - y / 2 * 66).toFixed(1);
     }
@@ -488,11 +516,28 @@
     );
   }
 
+  function scopeSvg() {
+    if (!scope.output) {
+      return heroSvg(
+        '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>'
+      );
+    }
+
+    return heroSvg(
+      '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>' +
+      '<path d="' + trace(scope.input, 80, 58) + '" fill="none" stroke="#6a6a6a" ' +
+        'stroke-width="1.2" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + trace(scope.output, 80, 58) + '" fill="none" stroke="' + accent + '" ' +
+        'stroke-width="1.8" vector-effect="non-scaling-stroke"/>'
+    );
+  }
+
   function updateHeroes() {
     heroes.forEach(function (hero) {
       if (hero.kind === "waveform") hero.el.innerHTML = waveformSvg();
       else if (hero.kind === "transfer") hero.el.innerHTML = transferSvg();
       else if (hero.kind === "spectrum") hero.el.innerHTML = spectrumSvg();
+      else if (hero.kind === "scope") hero.el.innerHTML = scopeSvg();
     });
   }
 
@@ -541,6 +586,34 @@
       .then(function () {
         polling = false;
         setTimeout(poll, 60);
+      });
+  }
+
+  // The scope is its own poll: it is a binary document, and a host with no audio
+  // running still wants the rest of the page to keep working.
+  function pollScope() {
+    if (document.hidden || !wantsScope) {
+      setTimeout(pollScope, 150);
+      return;
+    }
+
+    fetch("/scope", { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("scope " + response.status);
+        return response.arrayBuffer();
+      })
+      .then(function (buffer) {
+        var data = new Float32Array(buffer);
+
+        if (data.length >= 512) {
+          scope.input = data.subarray(0, 256);
+          scope.output = data.subarray(256, 512);
+          markDirty();
+        }
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollScope, 33);
       });
   }
 
@@ -665,6 +738,19 @@
       body.appendChild(el);
     });
 
+    wantsScope = !!face.scope || heroes.some(function (hero) {
+      return hero.kind === "waveform";
+    });
+
+    if (face.scope) {
+      var strip = element("section", "section strip");
+      var scopeHero = element("div", "hero");
+      scopeHero.dataset.hero = "scope";
+      heroes.push({ el: scopeHero, kind: "scope" });
+      strip.appendChild(scopeHero);
+      body.appendChild(strip);
+    }
+
     var shell = element("div", "face");
     shell.appendChild(header);
     shell.appendChild(body);
@@ -672,6 +758,7 @@
 
     markDirty();
     poll();
+    if (wantsScope) pollScope();
   }
 
   fetch("/face", { cache: "no-store" })

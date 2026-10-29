@@ -43,7 +43,7 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Drive", "#ff9a3d", (420.0, 310.0)),
+					&Faceplate::new("I Am Drive", "#ff9a3d", (420.0, 310.0)).with_mode("mode"),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -53,7 +53,9 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0)).with_mode("mode"),
+					&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 400.0))
+						.with_mode("mode")
+						.with_scope(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

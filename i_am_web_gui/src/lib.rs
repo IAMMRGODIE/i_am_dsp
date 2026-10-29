@@ -29,14 +29,17 @@
 //!             self,
 //!             i_am_web_gui::Faceplate::new("My Plugin", "#8a6aff", (360.0, 230.0)),
 //!             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+//!             std::sync::Arc::new(i_am_web_gui::Scope::new()),
 //!         )
 //!     }
 //! }
 //! ```
 
 mod face;
+mod scope;
 
 pub use face::{Control, Faceplate, Kind, Section};
+pub use scope::Scope;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,6 +65,7 @@ pub fn editor<P: Plugin>(
 	processor: &P,
 	face: Faceplate,
 	bypass: Arc<AtomicBool>,
+	scope: Arc<Scope>,
 ) -> Option<Box<dyn Editor<P>>> {
 	let sections = face::sections(&processor.get_parameters());
 
@@ -107,6 +111,11 @@ pub fn editor<P: Plugin>(
 				&state_sections,
 				state_bypass.load(Ordering::Relaxed),
 			)),
+			"/scope" => ProtocolResponse {
+				status: 200,
+				content_type: "application/octet-stream",
+				body: scope.snapshot(),
+			},
 			_ => ProtocolResponse::not_found(),
 		})
 		.with_url("webgui://localhost/"),
@@ -155,11 +164,13 @@ pub fn apply_command<P: Plugin>(processor: &P, body: &str) -> bool {
 /// ```
 #[macro_export]
 macro_rules! web_plugin {
-	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)?) => {
+	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, scope = $scope:literal)?) => {
 		#[doc = concat!("The ", $title, " plug-in, with a web faceplate.")]
 		pub struct $name {
 			processor: i_am_effects_core::processor::EffectProcessor<$effect>,
 			bypass: std::sync::Arc<std::sync::atomic::AtomicBool>,
+			scope: std::sync::Arc<$crate::Scope>,
+			scope_phase: u8,
 		}
 
 		impl Default for $name {
@@ -167,6 +178,8 @@ macro_rules! web_plugin {
 				Self {
 					processor: i_am_effects_core::processor::EffectProcessor::new($build),
 					bypass: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+					scope: std::sync::Arc::new($crate::Scope::new()),
+					scope_phase: 0,
 				}
 			}
 		}
@@ -217,12 +230,27 @@ macro_rules! web_plugin {
 				other: &[[f32; 2]],
 				process_context: &mut Box<dyn i_am_dsp::ProcessContext>,
 			) {
+				// The scope shows what came in and what went out. Eight frames
+				// between points covers about 43 ms at 48 kHz, which is a few
+				// cycles at musical frequencies without being a wall of ink.
+				let input = (samples[0] + samples[1]) * 0.5;
+				self.scope_phase = self.scope_phase.wrapping_add(1);
+				let record = self.scope_phase % 8 == 0;
+
 				// Bypassed is the input, untouched: an effect has nothing to add.
 				if self.bypass.load(std::sync::atomic::Ordering::Relaxed) {
+					if record {
+						self.scope.push(input, input);
+					}
 					return;
 				}
 
 				i_am_dsp::Processor::process(&mut self.processor, samples, other, process_context);
+
+				if record {
+					let output = (samples[0] + samples[1]) * 0.5;
+					self.scope.push(input, output);
+				}
 			}
 
 			fn on_message(&self, message: Self::Message) {
@@ -265,9 +293,9 @@ macro_rules! web_plugin {
 			}
 
 			fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
-				let face = $crate::Faceplate::new($title, $accent, $size) $(.with_mode($mode))?;
+				let face = $crate::Faceplate::new($title, $accent, $size) $(.with_mode($mode))? $(.with_scope_if($scope))?;
 
-				$crate::editor(self, face, self.bypass.clone())
+				$crate::editor(self, face, self.bypass.clone(), self.scope.clone())
 			}
 		}
 	};

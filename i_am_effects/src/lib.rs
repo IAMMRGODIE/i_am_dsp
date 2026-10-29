@@ -22,7 +22,7 @@ pub use i_am_effects_core::processor;
 
 mod products {
 	use i_am_dsp::prelude::{
-		Crusher as CrusherDsp, HardClipper as DriveDsp, Lowpass as FilterDsp,
+		Clipper as DriveDsp, Crusher as CrusherDsp, Lowpass as FilterDsp,
 	};
 	use i_am_plugin::export_clap;
 
@@ -47,7 +47,7 @@ mod products {
 	effect_plugin!(
 		Drive,
 		DriveDsp,
-		|_rate| DriveDsp::new(0.8, 1.0),
+		|_rate| DriveDsp::new(0, 0.8, 1.0),
 		"iamdsp.effects.drive",
 		"I Am Drive",
 		// One section: a curve over two controls.

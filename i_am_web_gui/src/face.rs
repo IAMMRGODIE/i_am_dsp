@@ -24,6 +24,8 @@ pub struct Faceplate {
 	/// control in the body. Filter and Drive have several algorithms and only one
 	/// of them is active at a time, which is a switch, not a knob.
 	pub mode: Option<&'static str>,
+	/// Whether the page shows a live scope strip under the faceplate.
+	pub scope: bool,
 }
 
 impl Faceplate {
@@ -34,12 +36,25 @@ impl Faceplate {
 			accent,
 			size,
 			mode: None,
+			scope: false,
 		}
 	}
 
 	/// Draw the named parameter as a mode switch in the header.
 	pub const fn with_mode(mut self, mode: &'static str) -> Self {
 		self.mode = Some(mode);
+		self
+	}
+
+	/// Add a live scope strip under the controls.
+	pub const fn with_scope(self) -> Self {
+		self.with_scope_if(true)
+	}
+
+	/// Add the scope strip when [show] is true, which is what the macro passes
+	/// along from its `scope = true` argument.
+	pub const fn with_scope_if(mut self, show: bool) -> Self {
+		self.scope = show;
 		self
 	}
 }
@@ -263,6 +278,7 @@ pub fn face_json(face: &Faceplate, sections: &[Section]) -> String {
 		Some(mode) => string(&mut out, mode),
 		None => out.push_str("null"),
 	}
+	let _ = write!(out, ",\"scope\":{}", face.scope);
 	out.push_str(",\"sections\":[");
 
 	for (index, section) in sections.iter().enumerate() {
@@ -619,5 +635,14 @@ mod tests {
 			state_json_with_bypass(&map, &[], false),
 			"{\"__bypass\":false}"
 		);
+	}
+
+	/// The scope strip is a faceplate choice, and the page is told about it.
+	#[test]
+	fn a_scope_can_be_asked_for() {
+		let face = Faceplate::new("I Am Filter", "#4c8dff", (520.0, 400.0)).with_scope();
+		let json = face_json(&face, &[]);
+
+		assert!(json.contains("\"scope\":true"), "{json}");
 	}
 }

@@ -69,6 +69,7 @@ body.preview #app{
   color:#8a8a8a; font-weight:500;
 }
 .section{flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:10px}
+.section.strip{flex:0 0 64px; min-height:56px}
 .caption{
   font-size:9px; letter-spacing:.09em; text-transform:uppercase;
   color:var(--text3); padding-left:1px;

@@ -100,6 +100,79 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for SoftClipper {
 	}			
 }
 
+/// A clipper with two shapes: a hard one and a soft one.
+///
+/// The two used to be separate effects with different controls, which made a
+/// "switch the algorithm" control impossible without changing the parameter set.
+/// Here the amount means the same thing in both modes -- how hard the signal is
+/// driven into the shaper -- so a mode switch can keep its knobs.
+#[derive(Parameters)]
+pub struct Clipper {
+	/// Hard or soft.
+	#[range(min = 0, max = 1)]
+	#[choices("Hard", "Soft")]
+	#[default(0)]
+	#[id(display = "Mode")]
+	#[layout(group = "Drive", order = 0, widget = choice)]
+	pub mode: i32,
+
+	/// How hard the signal is driven into the shaper.
+	#[range(min = 0.01, max = 1.0)]
+	#[unit(percent)]
+	#[id(display = "Amount")]
+	#[layout(group = "Drive", order = 1, widget = knob, hero = "transfer")]
+	pub threshold: f32,
+
+	/// The gain after the shaper.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
+	#[unit(percent)]
+	#[id(display = "Output")]
+	#[layout(group = "Drive", order = 2, widget = knob)]
+	pub gain: f32,
+}
+
+impl Clipper {
+	/// A clipper in the given mode, amount and output gain.
+	pub fn new(mode: i32, threshold: f32, gain: f32) -> Self {
+		Self {
+			mode,
+			threshold,
+			gain,
+		}
+	}
+
+	/// The shape one sample gets, before the output gain.
+	pub fn shape(&self, sample: f32) -> f32 {
+		match self.mode {
+			1 => (sample / self.threshold.max(0.01)).tanh(),
+			_ => sample.clamp(-self.threshold, self.threshold),
+		}
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for Clipper {
+	fn process(
+		&mut self,
+		input: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
+		for value in input.iter_mut() {
+			*value = self.shape(*value) * self.gain;
+		}
+	}
+
+	fn delay(&self) -> usize {
+		0
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn name(&self) -> &str {
+		"Clipper"
+	}
+}
+
 /// An overdrive effect.
 /// 
 /// The function is defined as: $f(x) := 2 / (1 + e^{-k x}) - 1$
@@ -355,3 +428,31 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Downsampler<CHANNELS> {
 		gain_ui(ui, &mut self.gain, None, false);
 	}
 }
+#[cfg(test)]
+mod clipper_tests {
+	use super::*;
+
+	/// The two modes are not the same curve with a different name.
+	#[test]
+	fn the_modes_shape_a_hot_sample_differently() {
+		let hard = Clipper::new(0, 0.5, 1.0);
+		let soft = Clipper::new(1, 0.5, 1.0);
+
+		assert_eq!(hard.shape(2.0), 0.5);
+		assert!((soft.shape(2.0) - (2.0_f32 / 0.5).tanh()).abs() < 1e-6);
+		assert!(soft.shape(2.0) > 0.5);
+	}
+
+	/// The output gain is applied after the shape, as its name says.
+	#[test]
+	fn the_output_gain_follows_the_shape() {
+		let mut clipper = Clipper::new(0, 0.5, 2.0);
+		let mut frame = [1.0_f32; 2];
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+
+		clipper.process(&mut frame, &[], &mut context);
+
+		assert_eq!(frame, [1.0, 1.0]);
+	}
+}
+

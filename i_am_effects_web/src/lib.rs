@@ -17,7 +17,7 @@
 mod filter;
 
 use filter::Multimode;
-use i_am_dsp::prelude::{Gain as GainDsp, HardClipper};
+use i_am_dsp::prelude::{Clipper, Gain as GainDsp};
 use i_am_plugin::export_clap;
 use i_am_web_gui::web_plugin;
 
@@ -33,12 +33,13 @@ web_plugin!(
 
 web_plugin!(
 	DriveWeb,
-	HardClipper,
-	|_| HardClipper::new(0.8, 1.0),
+	Clipper,
+	|_| Clipper::new(0, 0.8, 1.0),
 	"iamdsp.effects.drive.web",
 	"I Am Drive",
 	(420.0, 310.0),
-	"#ff9a3d"
+	"#ff9a3d",
+	mode = "mode"
 );
 
 web_plugin!(
@@ -47,9 +48,10 @@ web_plugin!(
 	|rate| Multimode::new(rate, 1_000.0, 0.707),
 	"iamdsp.effects.filter.web",
 	"I Am Filter",
-	(520.0, 330.0),
+	(520.0, 400.0),
 	"#4c8dff",
-	mode = "mode"
+	mode = "mode",
+	scope = true
 );
 
 export_clap!(GainWeb, DriveWeb, FilterWeb);
@@ -90,11 +92,11 @@ mod tests {
 	fn each_effect_names_its_own_picture() {
 		let drive = i_am_web_gui::face_json(
 			&DriveWeb::new(),
-			&Faceplate::new("I Am Drive", "#ff9a3d", (420.0, 310.0)),
+			&Faceplate::new("I Am Drive", "#ff9a3d", (420.0, 310.0)).with_mode("mode"),
 		);
 		let filter = i_am_web_gui::face_json(
 			&FilterWeb::new(),
-			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0)),
+			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 400.0)).with_scope(),
 		);
 
 		assert!(drive.contains("\"hero\":\"transfer\""), "{drive}");
@@ -158,15 +160,33 @@ mod tests {
 		let plugin = FilterWeb::new();
 		let face = i_am_web_gui::face_json(
 			&plugin,
-			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0)).with_mode("mode"),
+			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 400.0))
+				.with_mode("mode")
+				.with_scope(),
 		);
 
 		assert!(face.contains("\"mode\":\"mode\""), "{face}");
+		assert!(face.contains("\"scope\":true"), "{face}");
 		assert!(face.contains("\"id\":\"mode\""), "{face}");
 		assert!(
 			face.contains("\"choices\":[\"Lowpass\",\"Highpass\",\"Bandpass\"]"),
 			"{face}"
 		);
+	}
+
+	/// Drive's two algorithms share one parameter set, so a mode switch keeps
+	/// the knobs where they were.
+	#[test]
+	fn the_drive_has_a_mode_switch() {
+		let face = i_am_web_gui::face_json(
+			&DriveWeb::new(),
+			&Faceplate::new("I Am Drive", "#ff9a3d", (420.0, 310.0)).with_mode("mode"),
+		);
+
+		assert!(face.contains("\"mode\":\"mode\""), "{face}");
+		assert!(face.contains("\"choices\":[\"Hard\",\"Soft\"]"), "{face}");
+		assert!(face.contains("\"id\":\"threshold\""), "{face}");
+		assert!(face.contains("\"label\":\"Amount\""), "{face}");
 	}
 
 	/// Crusher Web asked for resizing with an aspect ratio; these lay themselves
