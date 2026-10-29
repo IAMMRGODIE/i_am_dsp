@@ -1,5 +1,6 @@
 //! The WebView2 implementation.
 
+use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
@@ -17,22 +18,44 @@ type IpcMapper<P> = Box<dyn Fn(&str) -> Option<<P as i_am_plugin::Processor>::Me
 /// One route of a page served over a custom protocol.
 type ProtocolHandler = Box<dyn Fn(&str) -> ProtocolResponse + Send + Sync>;
 
+thread_local! {
+	/// One WebView2 environment per UI thread. Creating a new environment for
+	/// every editor against the same user-data folder is what made the first
+	/// open of every plug-in risky: WebView2 does not like two environments on
+	/// one profile, and a host that swallows GUI errors can take the whole DAW
+	/// down with it. WebView2 supports many WebViews in one environment, so all
+	/// editors on this thread share it.
+	static WEB_CONTEXT: RefCell<Option<wry::WebContext>> = const { RefCell::new(None) };
+}
+
 /// Where WebView2 keeps its profile when the plug-in does not choose.
 ///
 /// It must be writable. WebView2's default is next to the executable, and a DAW's
 /// executable is usually under Program Files, where the browser cannot create its
 /// profile; a host that loads the plug-in from there gets a blank editor. A folder
 /// under the user's local application data always is writable, so that is the fallback.
+///
+/// The folder carries the process id: two DAW processes must never open the same
+/// WebView2 user-data folder at once, and a crashed DAW must not leave a profile
+/// lock that the next first open trips over.
 fn default_data_directory() -> Option<PathBuf> {
 	let mut candidates = Vec::with_capacity(2);
+	let process = std::process::id();
 
 	if let Some(base) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
-		candidates.push(base.join("i_am_plugin_wry").join("WebView2"));
+		candidates.push(
+			base.join("i_am_plugin_wry")
+				.join(format!("WebView2-{process}")),
+		);
 	}
 
 	// The temp directory is the fallback: it is writable even when a profile folder
 	// is locked down (or when the plug-in runs under a restrictive sandbox).
-	candidates.push(std::env::temp_dir().join("i_am_plugin_wry").join("WebView2"));
+	candidates.push(
+		std::env::temp_dir()
+			.join("i_am_plugin_wry")
+			.join(format!("WebView2-{process}")),
+	);
 
 	candidates
 		.into_iter()
@@ -137,9 +160,10 @@ impl<P: Plugin> WryEditor<P> {
 
 	/// Keep the WebView2 profile in `path` instead of the process default.
 	///
-	/// A host whose process directory is read-only, or one that wants each plug-in's
-	/// browser state under its own name, sets this. It also makes the smoke example
-	/// self-contained: the default lives under `%LOCALAPPDATA%`.
+	/// The first editor on a UI thread creates the shared WebView2 context with
+	/// this path; later editors reuse that context, so only the first path wins.
+	/// It also makes the smoke example self-contained: the default lives under
+	/// `%LOCALAPPDATA%`.
 	pub fn with_data_directory(mut self, path: impl Into<std::path::PathBuf>) -> Self {
 		self.data_directory = Some(path.into());
 		self
@@ -189,15 +213,24 @@ impl<P: Plugin> WryEditor<P> {
 
 /// Turn one of our protocol answers into what wry's protocol callback returns.
 fn to_wry(response: ProtocolResponse) -> wry::http::Response<std::borrow::Cow<'static, [u8]>> {
-	wry::http::Response::builder()
+	let built = wry::http::Response::builder()
 		.status(response.status)
 		.header(wry::http::header::CONTENT_TYPE, response.content_type)
 		// A plug-in's page is embedded in the binary, and a host that keeps the
 		// browser cache from an older version would run yesterday's script against
 		// today's routes. Nothing here is worth caching.
 		.header(wry::http::header::CACHE_CONTROL, "no-store")
-		.body(response.body.into())
-		.expect("a response we built ourselves is well formed")
+		.body(response.body.into());
+
+	// An invalid response used to panic inside the WebView2 protocol callback;
+	// a panic crossing that FFI boundary takes the host down. Fall back instead.
+	match built {
+		Ok(response) => response,
+		Err(_) => wry::http::Response::builder()
+			.status(500)
+			.body(std::borrow::Cow::Borrowed(&[][..]))
+			.expect("a fixed empty response is well formed"),
+	}
 }
 
 impl<P: Plugin> Editor<P> for WryEditor<P> {
@@ -234,40 +267,49 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 			.or_else(default_data_directory);
 		note(&format!("profile: {data_directory:?}"));
 
-		let mut web_context = data_directory
-			.as_ref()
-			.map(|path| wry::WebContext::new(Some(path.clone())));
-		let builder = match web_context.as_mut() {
-			Some(context) => wry::WebViewBuilder::new_with_web_context(context),
-			None => wry::WebViewBuilder::new(),
-		};
+		let protocols = std::mem::take(&mut self.protocols);
+		let url = self.url.take();
 
-		let mut builder = builder;
-		for (name, handler) in std::mem::take(&mut self.protocols) {
-			builder = builder.with_custom_protocol(name, move |_id, request| {
-				to_wry(handler(request.uri().path()))
-			});
-		}
+		let webview = WEB_CONTEXT
+			.with(move |shared| {
+				let mut shared = shared.borrow_mut();
 
-		// A page served from a custom protocol has to be loaded by URL: that is its
-		// origin, and a fetch of the same protocol is then same-origin.
-		let builder = match self.url.take() {
-			Some(url) => builder.with_url(url),
-			None => builder.with_html(html),
-		};
-
-		let webview = builder
-			// The page is the whole of the control, and the host owns the sizing:
-			// the title is only a suggestion, and WebView2 has no chrome of its own.
-			.with_bounds(Self::bounds(size))
-			.with_ipc_handler(move |request: wry::http::Request<String>| {
-				if let Some(message) = on_ipc(request.body()) {
-					// The receiver is drained on the host's main thread by the
-					// wrapper, just like a message an iced view produces.
-					let _ = sender.send(message);
+				if shared.is_none() {
+					*shared = Some(wry::WebContext::new(data_directory.clone()));
 				}
+
+				let context = shared
+					.as_mut()
+					.expect("the WebView2 context was just created");
+				let mut builder = wry::WebViewBuilder::new_with_web_context(context);
+
+				for (name, handler) in protocols {
+					builder = builder.with_custom_protocol(name, move |_id, request| {
+						to_wry(handler(request.uri().path()))
+					});
+				}
+
+				// A page served from a custom protocol has to be loaded by URL: that
+				// is its origin, and a fetch of the same protocol is then same-origin.
+				let builder = match url {
+					Some(url) => builder.with_url(url),
+					None => builder.with_html(html),
+				};
+
+				builder
+					// The page is the whole of the control, and the host owns the
+					// sizing: the title is only a suggestion, and WebView2 has no
+					// chrome of its own.
+					.with_bounds(Self::bounds(size))
+					.with_ipc_handler(move |request: wry::http::Request<String>| {
+						if let Some(message) = on_ipc(request.body()) {
+							// The receiver is drained on the host's main thread by the
+							// wrapper, just like a message an iced view produces.
+							let _ = sender.send(message);
+						}
+					})
+					.build_as_child(&parent)
 			})
-			.build_as_child(&parent)
 			.map_err(|error| {
 				let error = EditorError::new(error);
 				report_error(&error);
