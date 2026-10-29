@@ -19,6 +19,7 @@ mod filter;
 
 use disperser::Dispersion;
 use filter::Multimode;
+pub use filter::FILTER_VISIBLE;
 use i_am_dsp::prelude::{
 	Crusher, Distortion, Gain as GainDsp, IIRFreqShifter, LrControl, PitchShifter,
 	StereoController,
@@ -66,7 +67,8 @@ web_plugin!(
 	"I Am Filter",
 	(520.0, 330.0),
 	"#4c8dff",
-	mode = "mode"
+	mode = "mode",
+	visible = FILTER_VISIBLE
 );
 
 web_plugin!(
@@ -293,15 +295,20 @@ mod tests {
 		let plugin = FilterWeb::new();
 		let face = i_am_web_gui::face_json(
 			&plugin,
-			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0)).with_mode("mode"),
+			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0))
+				.with_mode("mode")
+				.with_visible(FILTER_VISIBLE),
 		);
 
 		assert!(face.contains("\"mode\":\"mode\""), "{face}");
 		assert!(face.contains("\"id\":\"mode\""), "{face}");
 		assert!(
-			face.contains("\"choices\":[\"Lowpass\",\"Highpass\",\"Bandpass\"]"),
+			face.contains("\"choices\":[\"Lowpass\",\"Highpass\",\"Bandpass\",\"Notch\",\"Peak\",\"Low Shelf\",\"High Shelf\"]"),
 			"{face}"
 		);
+		assert!(face.contains("\"id\":\"gain_db\""), "{face}");
+		assert!(face.contains("\"id\":\"slope\""), "{face}");
+		assert!(face.contains("[5,[\"cutoff\",\"gain_db\",\"slope\"]]"), "{face}");
 	}
 
 	/// Distortion has six algorithms, and each mode lists the controls it reads.

@@ -160,6 +160,10 @@ pub struct IIRFreqShifter<const ORDER: usize, const CHANNELS: usize = 2> {
 	step_c: f32,
 	#[skip]
 	step_s: f32,
+	/// The shift the carrier step was built from, so a parameter write that
+	/// bypasses the setter is noticed on the next block.
+	#[skip]
+	last_shift: f32,
 	#[range(min = -20000.0, max = 20000.0)]
 	#[unit(hertz)]
 	#[default(0.0)]
@@ -185,6 +189,7 @@ impl<const ORDER: usize, const CHANNELS: usize> IIRFreqShifter<ORDER, CHANNELS> 
 			phase_imag: 0.0,
 			step_c: phase_inc.cos(),
 			step_s: phase_inc.sin(),
+			last_shift: shift_freq,
 			shift_freq,
 			filter: Biquad::new(sample_rate)
 		}
@@ -196,6 +201,12 @@ impl<const ORDER: usize, const CHANNELS: usize> IIRFreqShifter<ORDER, CHANNELS> 
 		let shift_freq = shift_freq.clamp(- sample_rate / 2.0 + MIN_FREQUENCY, sample_rate / 2.0 - MIN_FREQUENCY);
 
 		self.shift_freq = shift_freq;
+		self.last_shift = shift_freq;
+
+		let phase_increment = 2.0 * PI * shift_freq / sample_rate;
+		self.step_c = phase_increment.cos();
+		self.step_s = phase_increment.sin();
+
 		if shift_freq > MIN_FREQUENCY {
 			self.filter.set_to_butterworth_lowpass(sample_rate / 2.0 - shift_freq);
 		}else if shift_freq <= MIN_FREQUENCY && shift_freq > -MIN_FREQUENCY {
@@ -217,6 +228,12 @@ impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for IIRFreqShif
 	}
 
 	fn process(&mut self, samples: &mut [f32; CHANNELS], other: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+		// A parameter write changes the field, not the cached step; the setter is
+		// what rebuilds the carrier and the image-rejection filter.
+		if self.shift_freq != self.last_shift {
+			self.set_shift_freq(self.shift_freq);
+		}
+
 		if self.shift_freq == 0.0 {
 			return;
 		}
@@ -250,5 +267,61 @@ impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for IIRFreqShif
 		if self.shift_freq != shift_freq {
 			self.set_shift_freq(shift_freq);
 		}
+	}
+}
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::f32::consts::TAU;
+
+	/// The amplitude of one frequency in a block, with a whole number of cycles
+	/// in the window when the caller picks the block length.
+	fn magnitude(samples: &[f32], frequency: f32, rate: f32) -> f32 {
+		let mut real = 0.0;
+		let mut imaginary = 0.0;
+
+		for (index, sample) in samples.iter().enumerate() {
+			let phase = TAU * frequency * index as f32 / rate;
+			real += sample * phase.cos();
+			imaginary += sample * phase.sin();
+		}
+
+		2.0 * (real * real + imaginary * imaginary).sqrt() / samples.len() as f32
+	}
+
+	/// The parameter map writes the field directly; the carrier has to notice and
+	/// rebuild its step, or the shifter stays at zero hertz forever.
+	#[test]
+	fn the_carrier_follows_a_parameter_write() {
+		let mut shifter = IIRFreqShifter::<8, 2>::new(48_000, 0.0);
+		shifter.shift_freq = 1_000.0;
+
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut analysed = Vec::new();
+
+		for index in 0..48_000 {
+			let phase = TAU * 1_000.0 * index as f32 / 48_000.0;
+			let value = 0.5 * phase.sin();
+			let mut frame = [value, value];
+
+			shifter.process(&mut frame, &[], &mut context);
+
+			// Let the Hilbert transform and the image filter settle first.
+			if index >= 24_000 {
+				analysed.push(frame[0]);
+			}
+		}
+
+		let at_input = magnitude(&analysed, 1_000.0, 48_000.0);
+		let shifted = magnitude(&analysed, 2_000.0, 48_000.0);
+
+		assert!(
+			shifted > 0.2,
+			"the 1 kHz tone should come out at 2 kHz, got {shifted} (input residue {at_input})"
+		);
+		assert!(
+			shifted > at_input * 2.0,
+			"the shifted tone should dominate the input residue: {shifted} vs {at_input}"
+		);
 	}
 }

@@ -740,6 +740,8 @@
     var cutoff = Math.max(valueOf("cutoff", 1000), 10);
     var q = Math.max(valueOf("q", 0.707), 0.05);
     var mode = Math.round(valueOf("mode", 0));
+    var gainDb = valueOf("gain_db", 0);
+    var slope = Math.max(valueOf("slope", 1), 0.5);
     var magnitudes = [];
 
     for (var i = 0; i < 80; i++) {
@@ -748,11 +750,23 @@
       var denominator = Math.sqrt(
         Math.pow(1 - ratio * ratio, 2) + Math.pow(ratio / q, 2)
       );
-      var magnitude = mode === 1
-        ? (ratio * ratio) / denominator
-        : mode === 2
-          ? (ratio / q) / denominator
-          : 1 / denominator;
+      var magnitude;
+
+      if (mode === 1) magnitude = (ratio * ratio) / denominator;
+      else if (mode === 2) magnitude = (ratio / q) / denominator;
+      else if (mode === 3) magnitude = Math.abs(1 - ratio * ratio) / denominator;
+      else if (mode === 4) {
+        var peakGain = Math.pow(10, gainDb / 20);
+        var octaves = Math.max(0.08, Math.log2(1 + 1 / q));
+        var bump = Math.exp(-0.5 * Math.pow(Math.log2(ratio) / octaves, 2));
+        magnitude = 1 + (peakGain - 1) * bump;
+      } else if (mode === 5 || mode === 6) {
+        var shelfGain = Math.pow(10, gainDb / 20);
+        var transition = 1 / (1 + Math.pow(ratio, 4 * slope));
+        magnitude = mode === 5
+          ? 1 + (shelfGain - 1) * transition
+          : 1 + (shelfGain - 1) * (1 - transition);
+      } else magnitude = 1 / denominator;
 
       magnitudes.push(magnitude);
     }
