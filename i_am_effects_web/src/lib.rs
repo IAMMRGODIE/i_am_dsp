@@ -18,7 +18,8 @@ mod filter;
 
 use filter::Multimode;
 use i_am_dsp::prelude::{
-	Clipper, Crusher, Gain as GainDsp, PitchShifter, StereoController,
+	Crusher, Disperser, Distortion, FIRFreqShifter, Gain as GainDsp, LrControl,
+	PitchShifter, StereoController,
 };
 use i_am_plugin::export_clap;
 use i_am_web_gui::web_plugin;
@@ -33,15 +34,26 @@ web_plugin!(
 	"#35c77a"
 );
 
+/// The controls each distortion mode reads; the page hides the rest.
+pub const DISTORTION_VISIBLE: &[(i32, &[&str])] = &[
+	(0, &["threshold", "gain"]),
+	(1, &["alpha", "gain"]),
+	(2, &["k", "gain"]),
+	(3, &["a", "p", "gain"]),
+	(4, &["bits", "gain"]),
+	(5, &["target_sample_rate", "gain"]),
+];
+
 web_plugin!(
-	DriveWeb,
-	Clipper,
-	|_| Clipper::new(0, 0.8, 1.0),
-	"iamdsp.effects.drive.web",
-	"I Am Drive",
+	DistortionWeb,
+	Distortion<2>,
+	Distortion::<2>::new,
+	"iamdsp.effects.distortion.web",
+	"I Am Distortion",
 	(420.0, 310.0),
 	"#ff9a3d",
-	mode = "mode"
+	mode = "mode",
+	visible = DISTORTION_VISIBLE
 );
 
 web_plugin!(
@@ -76,6 +88,40 @@ web_plugin!(
 );
 
 web_plugin!(
+	ShifterWeb,
+	FIRFreqShifter<2>,
+	|rate| FIRFreqShifter::<2>::new(rate, 0.0),
+	"iamdsp.effects.shifter.web",
+	"I Am Shifter",
+	(360.0, 230.0),
+	"#7aa2ff"
+);
+
+web_plugin!(
+	DisperserWeb,
+	Disperser<2>,
+	|rate| {
+		let mut disperser = Disperser::<2>::new(rate);
+		disperser.set_biquad_count(64);
+		disperser
+	},
+	"iamdsp.effects.disperser.web",
+	"I Am Disperser",
+	(380.0, 250.0),
+	"#2fc6c0"
+);
+
+web_plugin!(
+	BalanceWeb,
+	LrControl,
+	|_| LrControl::default(),
+	"iamdsp.effects.balance.web",
+	"I Am Balance",
+	(360.0, 230.0),
+	"#d96aff"
+);
+
+web_plugin!(
 	CrusherWeb,
 	Crusher<2>,
 	Crusher::<2>::new,
@@ -86,7 +132,15 @@ web_plugin!(
 );
 
 export_clap!(
-	GainWeb, DriveWeb, FilterWeb, WidthWeb, PitchWeb, CrusherWeb
+	GainWeb,
+	DistortionWeb,
+	FilterWeb,
+	WidthWeb,
+	PitchWeb,
+	ShifterWeb,
+	DisperserWeb,
+	BalanceWeb,
+	CrusherWeb
 );
 
 #[cfg(test)]
@@ -120,20 +174,22 @@ mod tests {
 		assert!(face.contains("\"size\":[360,230]"), "{face}");
 	}
 
-	/// Drive's picture is its transfer curve, and Filter's is its response.
+	/// Distortion's picture is its transfer curve, and Filter's is its response.
 	#[test]
 	fn each_effect_names_its_own_picture() {
-		let drive = i_am_web_gui::face_json(
-			&DriveWeb::new(),
-			&Faceplate::new("I Am Drive", "#ff9a3d", (420.0, 310.0)).with_mode("mode"),
+		let distortion = i_am_web_gui::face_json(
+			&DistortionWeb::new(),
+			&Faceplate::new("I Am Distortion", "#ff9a3d", (420.0, 310.0))
+				.with_mode("mode")
+				.with_visible(DISTORTION_VISIBLE),
 		);
 		let filter = i_am_web_gui::face_json(
 			&FilterWeb::new(),
 			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0)),
 		);
 
-		assert!(drive.contains("\"hero\":\"transfer\""), "{drive}");
-		assert!(drive.contains("\"id\":\"threshold\""), "{drive}");
+		assert!(distortion.contains("\"hero\":\"transfer\""), "{distortion}");
+		assert!(distortion.contains("\"id\":\"threshold\""), "{distortion}");
 		assert!(filter.contains("\"hero\":\"spectrum\""), "{filter}");
 		assert!(filter.contains("\"unit\":\"hz\""), "{filter}");
 	}
@@ -182,10 +238,13 @@ mod tests {
 	#[test]
 	fn each_product_has_a_web_editor() {
 		assert!(GainWeb::new().editor().is_some());
-		assert!(DriveWeb::new().editor().is_some());
+		assert!(DistortionWeb::new().editor().is_some());
 		assert!(FilterWeb::new().editor().is_some());
 		assert!(WidthWeb::new().editor().is_some());
 		assert!(PitchWeb::new().editor().is_some());
+		assert!(ShifterWeb::new().editor().is_some());
+		assert!(DisperserWeb::new().editor().is_some());
+		assert!(BalanceWeb::new().editor().is_some());
 		assert!(CrusherWeb::new().editor().is_some());
 	}
 
@@ -242,19 +301,49 @@ mod tests {
 		);
 	}
 
-	/// Drive's two algorithms share one parameter set, so a mode switch keeps
-	/// the knobs where they were.
+	/// Distortion has six algorithms, and each mode lists the controls it reads.
 	#[test]
-	fn the_drive_has_a_mode_switch() {
+	fn the_distortion_has_modes_and_visible_controls() {
 		let face = i_am_web_gui::face_json(
-			&DriveWeb::new(),
-			&Faceplate::new("I Am Drive", "#ff9a3d", (420.0, 310.0)).with_mode("mode"),
+			&DistortionWeb::new(),
+			&Faceplate::new("I Am Distortion", "#ff9a3d", (420.0, 310.0))
+				.with_mode("mode")
+				.with_visible(DISTORTION_VISIBLE),
 		);
 
 		assert!(face.contains("\"mode\":\"mode\""), "{face}");
-		assert!(face.contains("\"choices\":[\"Hard\",\"Soft\"]"), "{face}");
+		assert!(
+			face.contains("\"choices\":[\"Hard\",\"Soft\",\"Overdrive\",\"Saturator\",\"Bitcrush\",\"Downsample\"]"),
+			"{face}"
+		);
 		assert!(face.contains("\"id\":\"threshold\""), "{face}");
-		assert!(face.contains("\"label\":\"Amount\""), "{face}");
+		assert!(face.contains("\"id\":\"bits\""), "{face}");
+		assert!(face.contains("\"visible\":[[0,[\"threshold\",\"gain\"]]"), "{face}");
+		assert!(face.contains("[4,[\"bits\",\"gain\"]]"), "{face}");
+	}
+
+	/// The A group: shifter, disperser and balance, each with its picture.
+	#[test]
+	fn the_a_group_has_its_pictures() {
+		let shifter = i_am_web_gui::face_json(
+			&ShifterWeb::new(),
+			&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0)),
+		);
+		let disperser = i_am_web_gui::face_json(
+			&DisperserWeb::new(),
+			&Faceplate::new("I Am Disperser", "#2fc6c0", (380.0, 250.0)),
+		);
+		let balance = i_am_web_gui::face_json(
+			&BalanceWeb::new(),
+			&Faceplate::new("I Am Balance", "#d96aff", (360.0, 230.0)),
+		);
+
+		assert!(shifter.contains("\"hero\":\"spectra\""), "{shifter}");
+		assert!(shifter.contains("\"id\":\"shift_freq\""), "{shifter}");
+		assert!(disperser.contains("\"hero\":\"phase\""), "{disperser}");
+		assert!(disperser.contains("\"id\":\"cutoff\""), "{disperser}");
+		assert!(balance.contains("\"hero\":\"balance\""), "{balance}");
+		assert!(balance.contains("\"label\":\"Left\""), "{balance}");
 	}
 
 	/// Crusher Web asked for resizing with an aspect ratio; these lay themselves
@@ -263,10 +352,14 @@ mod tests {
 	fn the_windows_are_resizable() {
 		for options in [
 			GainWeb::window_options(),
-			DriveWeb::window_options(),
+			DistortionWeb::window_options(),
 			FilterWeb::window_options(),
 			WidthWeb::window_options(),
 			PitchWeb::window_options(),
+			ShifterWeb::window_options(),
+			DisperserWeb::window_options(),
+			BalanceWeb::window_options(),
+			CrusherWeb::window_options(),
 		] {
 			let hints = options.resize_hints.expect("the web windows are resizable");
 

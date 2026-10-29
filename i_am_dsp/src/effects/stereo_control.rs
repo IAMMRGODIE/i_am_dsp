@@ -120,9 +120,17 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Gain {
 #[default_float_range(min = 0.01, max = 4.0)]
 pub struct LrControl {
 	#[logarithmic]
+	#[default(1.0)]
+	#[unit(percent)]
+	#[id(display = "Left")]
+	#[layout(group = "Balance", order = 0, widget = knob, hero = "balance")]
 	/// saves in linear scale
 	pub left_gain: f32,
 	#[logarithmic]
+	#[default(1.0)]
+	#[unit(percent)]
+	#[id(display = "Right")]
+	#[layout(group = "Balance", order = 1, widget = knob)]
 	/// saves in linear scale
 	pub right_gain: f32,
 }

@@ -12,7 +12,10 @@
 
 use std::path::Path;
 
-use i_am_effects_web::{CrusherWeb, DriveWeb, FilterWeb, GainWeb, PitchWeb, WidthWeb};
+use i_am_effects_web::{
+	BalanceWeb, CrusherWeb, DisperserWeb, DistortionWeb, FilterWeb, GainWeb, PitchWeb,
+	ShifterWeb, WidthWeb, DISTORTION_VISIBLE,
+};
 use i_am_plugin::Plugin;
 use i_am_web_gui::Faceplate;
 
@@ -38,12 +41,14 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		},
-		"drive" => {
-			let plugin = DriveWeb::new();
+		"distortion" => {
+			let plugin = DistortionWeb::new();
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Drive", "#ff9a3d", (420.0, 310.0)).with_mode("mode"),
+					&Faceplate::new("I Am Distortion", "#ff9a3d", (420.0, 310.0))
+						.with_mode("mode")
+						.with_visible(DISTORTION_VISIBLE),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -78,6 +83,36 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		},
+		"shifter" => {
+			let plugin = ShifterWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"disperser" => {
+			let plugin = DisperserWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Disperser", "#2fc6c0", (380.0, 250.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"balance" => {
+			let plugin = BalanceWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Balance", "#d96aff", (360.0, 230.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
 		"crusher" => {
 			let plugin = CrusherWeb::new();
 			(
@@ -90,7 +125,7 @@ fn main() {
 		},
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, drive, filter, width, pitch or crusher"
+				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance or crusher"
 			);
 			std::process::exit(2);
 		},

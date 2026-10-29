@@ -24,6 +24,10 @@ pub struct Faceplate {
 	/// control in the body. Filter and Drive have several algorithms and only one
 	/// of them is active at a time, which is a switch, not a knob.
 	pub mode: Option<&'static str>,
+	/// For each mode, the parameters the page should show. A distortion with six
+	/// algorithms has one set of controls per algorithm; showing all of them at
+	/// once would be a wall of knobs that do nothing.
+	pub visible: Option<&'static [(i32, &'static [&'static str])]>,
 }
 
 impl Faceplate {
@@ -34,12 +38,22 @@ impl Faceplate {
 			accent,
 			size,
 			mode: None,
+			visible: None,
 		}
 	}
 
 	/// Draw the named parameter as a mode switch in the header.
 	pub const fn with_mode(mut self, mode: &'static str) -> Self {
 		self.mode = Some(mode);
+		self
+	}
+
+	/// Show only the listed parameters in each mode.
+	pub const fn with_visible(
+		mut self,
+		visible: &'static [(i32, &'static [&'static str])],
+	) -> Self {
+		self.visible = Some(visible);
 		self
 	}
 }
@@ -285,6 +299,27 @@ pub fn face_json_with_rate(
 		None => out.push_str("null"),
 	}
 	let _ = write!(out, ",\"hosted\":{hosted}");
+	out.push_str(",\"visible\":");
+	match face.visible {
+		Some(rows) => {
+			out.push('[');
+			for (index, (mode, ids)) in rows.iter().enumerate() {
+				if index > 0 {
+					out.push(',');
+				}
+				let _ = write!(out, "[{mode},[");
+				for (position, id) in ids.iter().enumerate() {
+					if position > 0 {
+						out.push(',');
+					}
+					string(&mut out, id);
+				}
+				out.push_str("]]");
+			}
+			out.push(']');
+		},
+		None => out.push_str("null"),
+	}
 	out.push_str(",\"sections\":[");
 
 	for (index, section) in sections.iter().enumerate() {

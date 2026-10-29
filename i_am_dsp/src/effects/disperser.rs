@@ -12,8 +12,16 @@ pub struct Disperser<const CHANNELS: usize = 2> {
 	#[skip]
 	sample_rate: usize,
 	#[range(min = 10.0, max = 30000.0)]
+	#[unit(hertz)]
+	#[default(440.0)]
+	#[id(display = "Cutoff")]
+	#[layout(group = "Dispersion", order = 0, widget = knob, hero = "phase")]
 	cutoff: f32,
 	#[range(min = 10.0, max = 10000.0)]
+	#[unit(hertz)]
+	#[default(1000.0)]
+	#[id(display = "Spread")]
+	#[layout(group = "Dispersion", order = 1, widget = knob)]
 	bandwidth: f32,
 	#[sub_param]
 	biquads: Vec<Biquad<CHANNELS>>,

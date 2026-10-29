@@ -428,6 +428,213 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Downsampler<CHANNELS> {
 		gain_ui(ui, &mut self.gain, None, false);
 	}
 }
+/// A distortion with every shaper from this module behind one mode switch.
+///
+/// The algorithms have different controls — a clipper has a threshold, a
+/// saturator has a curve, a bit crusher has a bit count — so the faceplate shows
+/// one set at a time. The DSP keeps them all: a parameter that the current mode
+/// does not read is simply ignored.
+#[derive(Parameters)]
+pub struct Distortion<const CHANNELS: usize = 2> {
+	/// Which shaper is active.
+	#[range(min = 0, max = 5)]
+	#[choices("Hard", "Soft", "Overdrive", "Saturator", "Bitcrush", "Downsample")]
+	#[default(0)]
+	#[id(display = "Mode")]
+	#[layout(group = "Shape", order = 0, widget = choice)]
+	pub mode: i32,
+
+	/// The clip level of the hard shaper, as a fraction of full scale.
+	#[range(min = 0.01, max = 1.0)]
+	#[unit(percent)]
+	#[default(0.8)]
+	#[id(display = "Threshold")]
+	#[layout(group = "Shape", order = 1, widget = knob, hero = "transfer")]
+	pub threshold: f32,
+
+	/// How soft the soft shaper is; smaller is harder.
+	#[range(min = 0.01, max = 1.0)]
+	#[unit(percent)]
+	#[default(0.5)]
+	#[id(display = "Softness")]
+	#[layout(group = "Shape", order = 2, widget = knob)]
+	pub alpha: f32,
+
+	/// The slope of the overdrive curve.
+	#[range(min = 0.01, max = 10.0)]
+	#[default(2.0)]
+	#[id(display = "Drive")]
+	#[layout(group = "Shape", order = 3, widget = knob)]
+	pub k: f32,
+
+	/// The knee of the saturator.
+	#[range(min = 0.01, max = 5.0)]
+	#[default(1.0)]
+	#[id(display = "Amount")]
+	#[layout(group = "Shape", order = 4, widget = knob)]
+	pub a: f32,
+
+	/// The power of the saturator curve.
+	#[range(min = 1.0, max = 10.0)]
+	#[default(2.0)]
+	#[id(display = "Curve")]
+	#[layout(group = "Shape", order = 5, widget = knob)]
+	pub p: f32,
+
+	/// How many steps the bit crusher keeps.
+	#[range(min = 1, max = 128)]
+	#[default(8)]
+	#[id(display = "Bits")]
+	#[layout(group = "Shape", order = 6, widget = knob)]
+	pub bits: usize,
+
+	/// The rate the downsampler holds its samples at.
+	#[range(min = 10.0, max = 192000.0)]
+	#[logarithmic]
+	#[unit(hertz)]
+	#[default(48000.0)]
+	#[id(display = "Rate")]
+	#[layout(group = "Shape", order = 7, widget = knob)]
+	pub target_sample_rate: f32,
+
+	/// The gain after the shaper.
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
+	#[unit(percent)]
+	#[default(1.0)]
+	#[id(display = "Output")]
+	#[layout(group = "Shape", order = 8, widget = knob)]
+	pub gain: f32,
+
+	#[skip]
+	sample_rate: usize,
+	#[skip]
+	history: [f32; CHANNELS],
+	#[skip]
+	hold: [f32; CHANNELS],
+	#[skip]
+	phase: f32,
+	#[skip]
+	empty_count: usize,
+	#[skip]
+	last_mode: i32,
+}
+
+impl<const CHANNELS: usize> Distortion<CHANNELS> {
+	/// A hard clipper at 80 %, which is where a fresh distortion starts.
+	pub fn new(sample_rate: usize) -> Self {
+		Self {
+			mode: 0,
+			threshold: 0.8,
+			alpha: 0.5,
+			k: 2.0,
+			a: 1.0,
+			p: 2.0,
+			bits: 8,
+			target_sample_rate: sample_rate as f32,
+			gain: 1.0,
+			sample_rate,
+			history: [0.0; CHANNELS],
+			hold: [0.0; CHANNELS],
+			phase: 2.0 * PI,
+			empty_count: 0,
+			last_mode: 0,
+		}
+	}
+
+	/// The downsampler keeps one sample until its fractional phase wraps.
+	fn downsample(&mut self, samples: &mut [f32; CHANNELS]) {
+		if samples.iter().all(|value| *value == 0.0) {
+			self.empty_count += 1;
+		} else {
+			self.empty_count = 0;
+		}
+
+		let increment = 2.0 * PI * self.target_sample_rate / self.sample_rate as f32;
+		self.phase += increment;
+
+		if self.phase > 2.0 * PI {
+			self.phase %= 2.0 * PI;
+			let fraction = self.phase / (2.0 * PI);
+
+			for (index, sample) in samples.iter().enumerate() {
+				self.hold[index] = (1.0 - fraction) * self.history[index] + fraction * *sample;
+			}
+		}
+
+		self.history = *samples;
+
+		if self.empty_count > EMPTY_COUNT_THRESHOLD {
+			self.hold = [0.0; CHANNELS];
+			self.phase = 2.0 * PI;
+		}
+
+		*samples = self.hold;
+	}
+}
+
+impl<const CHANNELS: usize> Effect<CHANNELS> for Distortion<CHANNELS> {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
+		if self.mode != self.last_mode {
+			// A mode change starts the sample-and-hold clean rather than with the
+			// last value of whatever mode came before.
+			self.last_mode = self.mode;
+			self.phase = 2.0 * PI;
+			self.hold = [0.0; CHANNELS];
+			self.empty_count = 0;
+		}
+
+		match self.mode {
+			1 => {
+				for value in samples.iter_mut() {
+					*value = (*value / self.alpha.max(0.01)).tanh();
+				}
+			},
+			2 => {
+				for value in samples.iter_mut() {
+					*value = 2.0 / (1.0 + (-*value * self.k).exp()) - 1.0;
+				}
+			},
+			3 => {
+				for value in samples.iter_mut() {
+					*value = saturate(*value, self.a.max(0.01), self.p);
+				}
+			},
+			4 => {
+				let steps = self.bits.max(1) as f32;
+
+				for value in samples.iter_mut() {
+					*value = (steps * *value).round() / steps;
+				}
+			},
+			5 => self.downsample(samples),
+			_ => {
+				for value in samples.iter_mut() {
+					*value = value.clamp(-self.threshold, self.threshold);
+				}
+			},
+		}
+
+		for value in samples.iter_mut() {
+			*value *= self.gain;
+		}
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn name(&self) -> &str {
+		"Distortion"
+	}
+}
+
 #[cfg(test)]
 mod clipper_tests {
 	use super::*;
@@ -456,3 +663,32 @@ mod clipper_tests {
 	}
 }
 
+#[cfg(test)]
+mod distortion_tests {
+	use super::*;
+
+	fn shaped(mode: i32, sample: f32) -> f32 {
+		let mut effect = Distortion::<1>::new(48_000);
+		effect.mode = mode;
+
+		let mut frame = [sample];
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		effect.process(&mut frame, &[], &mut context);
+
+		frame[0]
+	}
+
+	/// The six shapers are not six names for the same curve.
+	#[test]
+	fn each_mode_uses_its_own_shape() {
+		assert!((shaped(0, 2.0) - 0.8).abs() < 1e-6, "the hard clipper honours its threshold");
+		assert!(
+			(shaped(1, 2.0) - (2.0_f32 / 0.5).tanh()).abs() < 1e-5,
+			"the soft clipper uses its softness"
+		);
+		assert!(shaped(2, 2.0) > 0.9, "overdrive is a saturating curve");
+		assert!(shaped(3, 2.0) > 0.0, "saturator is finite and positive");
+		assert!((shaped(4, 0.33) - 0.375).abs() < 1e-6, "bitcrush quantises");
+		assert!(shaped(5, 0.5).is_finite(), "downsample starts from silence, not NaN");
+	}
+}

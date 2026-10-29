@@ -26,6 +26,10 @@ pub struct FIRFreqShifter<const CHANNELS: usize = 2> {
 	#[skip]
 	phase_state: f32,
 	#[range(min = -20000.0, max = 20000.0)]
+	#[unit(hertz)]
+	#[default(0.0)]
+	#[id(display = "Shift")]
+	#[layout(group = "Shift", order = 0, widget = knob, size = large, hero = "spectra", bipolar)]
 	shift_freq: f32,
 	#[sub_param]
 	filter: Biquad<CHANNELS>,

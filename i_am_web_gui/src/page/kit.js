@@ -109,15 +109,21 @@
     var control = {
       spec: spec,
       value: spec.default,
+      el: null,
       paint: function () {}
     };
 
     controls[spec.id] = control;
 
-    if (spec.widget === "toggle" || spec.kind === "bool") return buildToggle(control);
-    if (spec.widget === "choice") return buildChoice(control);
-    if (spec.widget === "slider") return buildSlider(control);
-    return buildKnob(control);
+    var el;
+
+    if (spec.widget === "toggle" || spec.kind === "bool") el = buildToggle(control);
+    else if (spec.widget === "choice") el = buildChoice(control);
+    else if (spec.widget === "slider") el = buildSlider(control);
+    else el = buildKnob(control);
+
+    control.el = el;
+    return el;
   }
 
   function knobGeometry(diameter) {
@@ -530,13 +536,28 @@
       }
     }
 
+    var alpha = Math.max(valueOf("alpha", 0.5), 0.01);
+    var k = valueOf("k", 2);
+    var a = Math.max(valueOf("a", 1), 0.01);
+    var p = valueOf("p", 2);
+    var bits = Math.max(1, valueOf("bits", 8));
+
     // The domain is wider than the clip point on purpose: a hard clipper's curve
     // only shows its knees when the flat part has somewhere to run.
     for (var i = 0; i <= 140; i++) {
       var x = -2 + i / 140 * 4;
-      var shaped = mode === 1
-        ? Math.tanh(x / threshold)
-        : clamp(x, -threshold, threshold);
+      var shaped;
+
+      if (mode === 1) shaped = Math.tanh(x / alpha);
+      else if (mode === 2) shaped = 2 / (1 + Math.exp(-x * k)) - 1;
+      else if (mode === 3) {
+        var factor = 1 + 1 / Math.pow(a, p);
+        var norm = Math.pow(Math.abs(x) / a, p);
+        shaped = (x / (1 + norm)) * factor;
+      } else if (mode === 4) shaped = Math.round(bits * x) / bits;
+      else if (mode === 5) shaped = x;
+      else shaped = clamp(x, -threshold, threshold);
+
       var y = clamp(shaped * gain, -2, 2);
       path += (i ? " L " : "M ") + (20 + (x + 2) / 4 * 480).toFixed(1) +
               " " + (80 - y / 2 * 66).toFixed(1);
@@ -682,7 +703,7 @@
 
     for (var i = 0; i < bands.length; i++) {
       var x = 20 + i / (BANDS - 1) * 480;
-      var y = clamp(10 + clamp(-bands[i] / 72, 0, 1) * 140, 10, 150);
+      var y = clamp(10 + clamp(-bands[i] / 60, 0, 1) * 140, 10, 150);
       path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
     }
 
@@ -814,11 +835,94 @@
     return '<div class="hero-badge">' + sign + semitones.toFixed(1) + ' st</div>';
   }
 
+  /// Before and after spectra only: a frequency shifter has no response curve to
+  /// draw, and the two traces are the whole story.
+  function spectraSvg() {
+    if (!scope.input || !scope.output) {
+      return heroSvg(
+        '<line x1="20" y1="140" x2="500" y2="140" stroke="#2c2c2c" stroke-width="1"/>'
+      );
+    }
+
+    var rate = face.rate || 48000;
+    var inputBands = bandsOf(scope.input, rate);
+    var outputBands = bandsOf(scope.output, rate);
+
+    if (!inputBands || !outputBands) return "";
+
+    spectra.input = smoothBands(spectra.input, inputBands);
+    spectra.output = smoothBands(spectra.output, outputBands);
+
+    return heroSvg(
+      '<path d="' + bandsPath(spectra.input) + '" fill="none" stroke="#8a8a8a" ' +
+        'stroke-width="1.2" opacity=".7" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + bandsPath(spectra.output) + '" fill="none" stroke="' + accent + '" ' +
+        'stroke-width="1.8" vector-effect="non-scaling-stroke"/>'
+    );
+  }
+
+  /// A group-delay bump around the disperser's cutoff: the wider the bandwidth,
+  /// the broader the region the allpass chain delays.
+  function phaseSvg() {
+    var cutoff = Math.max(valueOf("cutoff", 440), 10);
+    var bandwidth = Math.max(valueOf("bandwidth", 1000), 10);
+    var width = Math.max(0.15, Math.abs(Math.log2(bandwidth / cutoff)) * 0.35);
+    var path = "";
+
+    for (var i = 0; i <= 120; i++) {
+      var frequency = 20 * Math.pow(1000, i / 120);
+      var octaves = Math.log2(frequency / cutoff);
+      var delay = 1 / (1 + Math.pow(octaves / width, 2));
+      var x = 20 + i / 120 * 480;
+      var y = 150 - delay * 120;
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    return heroSvg(
+      '<line x1="20" y1="150" x2="500" y2="150" stroke="#2a2a2a"/>' +
+      '<path d="' + path + ' L 500 150 L 20 150 Z" fill="' + accent + '" fill-opacity=".08"/>' +
+      '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
+        'vector-effect="non-scaling-stroke"/>'
+    );
+  }
+
+  /// Two channel gains as meters; balance is independent left and right levels.
+  function balanceSvg() {
+    var left = clamp(valueOf("left_gain", 1), 0, 4);
+    var right = clamp(valueOf("right_gain", 1), 0, 4);
+    var base = 140;
+    var top = 20;
+    var full = base - top;
+    var height = function (gain) { return Math.max(4, clamp(gain / 2, 0, 1) * full); };
+    var lh = height(left);
+    var rh = height(right);
+    var unity = base - height(1);
+
+    var meter = function (x, value) {
+      return '<rect x="' + x + '" y="' + top + '" width="50" height="' + full +
+        '" rx="3" fill="#242424"/>' +
+        '<rect x="' + x + '" y="' + (base - value).toFixed(1) + '" width="50" height="' +
+        value.toFixed(1) + '" rx="3" fill="' + accent + '" fill-opacity=".22" stroke="' +
+        accent + '" stroke-width="1.4"/>';
+    };
+
+    return heroSvg(
+      '<line x1="20" y1="' + unity.toFixed(1) + '" x2="500" y2="' + unity.toFixed(1) +
+        '" stroke="#3a3a3a" stroke-dasharray="3 5"/>' +
+      '<line x1="20" y1="' + base + '" x2="500" y2="' + base + '" stroke="#3d3d3d"/>' +
+      meter(190, lh) +
+      meter(280, rh)
+    );
+  }
+
   function updateHeroes() {
     heroes.forEach(function (hero) {
       if (hero.kind === "waveform") hero.el.innerHTML = waveformSvg();
       else if (hero.kind === "transfer") hero.el.innerHTML = transferSvg() + rmsBadge();
       else if (hero.kind === "spectrum") hero.el.innerHTML = spectrumSvg();
+      else if (hero.kind === "spectra") hero.el.innerHTML = spectraSvg();
+      else if (hero.kind === "phase") hero.el.innerHTML = phaseSvg();
+      else if (hero.kind === "balance") hero.el.innerHTML = balanceSvg();
       else if (hero.kind === "stereo") hero.el.innerHTML = stereoSvg();
       else if (hero.kind === "pitch") hero.el.innerHTML = pitchSvg() + pitchBadge();
     });
@@ -913,6 +1017,28 @@
     if (window.ipc) window.ipc.postMessage("__bypass=" + (bypassed ? 1 : 0));
   }
 
+  /// Show the controls the current mode has. A mode with no entry shows all.
+  function applyVisibility(mode) {
+    if (!face || !face.visible) return;
+
+    var ids = null;
+
+    for (var i = 0; i < face.visible.length; i++) {
+      if (face.visible[i][0] === mode) {
+        ids = face.visible[i][1];
+        break;
+      }
+    }
+
+    Object.keys(controls).forEach(function (id) {
+      var control = controls[id];
+      if (!control.el || id === face.mode) return;
+
+      var show = !ids || ids.indexOf(id) >= 0;
+      control.el.style.display = show ? "" : "none";
+    });
+  }
+
   function buildMode(spec) {
     var el = element("div", "mode");
     var buttons = [];
@@ -927,6 +1053,8 @@
         button.classList.toggle("active", index === active);
         button.setAttribute("aria-pressed", index === active ? "true" : "false");
       });
+
+      applyVisibility(active);
     };
 
     (spec.choices || []).forEach(function (name, index) {
@@ -996,7 +1124,11 @@
     header.appendChild(title);
     header.appendChild(element("span", "spacer"));
 
-    if (modeSpec) header.appendChild(buildMode(modeSpec));
+    var modeEl = modeSpec ? buildMode(modeSpec) : null;
+    // Six segments do not fit beside a title; give a long switch its own bar.
+    var modesInBar = !!(modeSpec && modeSpec.choices && modeSpec.choices.length > 3);
+
+    if (modeEl && !modesInBar) header.appendChild(modeEl);
 
     var body = element("div", "body");
     var many = face.sections.length > 1;
@@ -1032,14 +1164,24 @@
       body.appendChild(el);
     });
 
+    if (modeSpec) applyVisibility(Math.round(controls[modeSpec.id].value));
+
     // Every hero the page draws is live: a waveform, a transfer with its RMS
     // bands, or a response with the input and output spectra on it.
     wantsScope = heroes.some(function (hero) {
-      return hero.kind === "waveform" || hero.kind === "transfer" || hero.kind === "spectrum";
+      return hero.kind === "waveform" || hero.kind === "transfer" ||
+        hero.kind === "spectrum" || hero.kind === "spectra";
     });
 
     var shell = element("div", "face");
     shell.appendChild(header);
+
+    if (modeEl && modesInBar) {
+      var modeBar = element("div", "mode-bar");
+      modeBar.appendChild(modeEl);
+      shell.appendChild(modeBar);
+    }
+
     shell.appendChild(body);
     app.appendChild(shell);
 
