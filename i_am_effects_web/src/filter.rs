@@ -16,6 +16,7 @@ pub struct Multimode {
 	#[range(min = 0, max = 2)]
 	#[choices("Lowpass", "Highpass", "Bandpass")]
 	#[default(0)]
+	#[id(display = "Mode")]
 	#[layout(group = "Filter", order = 0, widget = choice)]
 	pub mode: i32,
 
