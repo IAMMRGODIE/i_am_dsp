@@ -344,7 +344,8 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		let sample_rate = self.sample_rate as f32;
 		let w0 = 2.0 * PI * cutoff / sample_rate;
 		let alpha = w0.sin() * (PI * bandwidth / sample_rate).sinh();
-		let a = 10.0_f32.powf(gain_db / 20.0);
+		// RBJ uses A = 10^(dB/40); using 20 here doubled the shelf/peak gain.
+		let a = 10.0_f32.powf(gain_db / 40.0);
 
 		let b0 = 1.0 + alpha * a;
 		let b1 = -2.0 * w0.cos();
@@ -369,7 +370,11 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	) {
 		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 / 2.0);
 		let sample_rate = self.sample_rate as f32;
-		let a = 10.0_f32.powf(gain_db / 20.0);
+		// RBJ uses A = 10^(dB/40), and its slope S is at most 1: above that the
+		// square root below goes negative for a large gain and the coefficients
+		// become NaN.
+		let a = 10.0_f32.powf(gain_db / 40.0);
+		let slope_param = slope_param.clamp(0.1, 1.0);
 		let w0 = 2.0 * PI * cutoff / sample_rate;
 		let alpha = w0.sin() / 2.0 * ((a + 1.0 / a) * (1.0 / slope_param - 1.0) + 2.0).sqrt();
 
@@ -396,7 +401,9 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	) {
 		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 / 2.0);
 		let sample_rate = self.sample_rate as f32;
-		let a = 10.0_f32.powf(gain_db / 20.0);
+		// Same RBJ scaling and slope limit as the low shelf.
+		let a = 10.0_f32.powf(gain_db / 40.0);
+		let slope_param = slope_param.clamp(0.1, 1.0);
 		let w0 = 2.0 * PI * cutoff / sample_rate;
 		let alpha = w0.sin() / 2.0 * ((a + 1.0 / a) * (1.0 / slope_param - 1.0) + 2.0).sqrt();
 		

@@ -77,8 +77,8 @@ pub struct Multimode {
 	#[layout(group = "Filter", order = 4, widget = knob)]
 	pub gain_db: f32,
 
-	/// How steep the shelf transition is.
-	#[range(min = 0.5, max = 2.0)]
+	/// How steep the shelf transition is; RBJ's slope is at most 1.
+	#[range(min = 0.5, max = 1.0)]
 	#[default(1.0)]
 	#[id(display = "Shape")]
 	#[layout(group = "Filter", order = 5, widget = knob)]
@@ -269,4 +269,34 @@ mod tests {
 		assert!(steep < shallow * 0.1, "48 dB/oct rejects far more than 12");
 		assert!(level_with(0, 100.0, 0.0, 3) > 0.3, "and still passes the band");
 	}
+	/// A large shelf gain at the old slope limit used to take the square root of
+	/// a negative number; it has to stay finite for every shelf extreme.
+	#[test]
+	fn the_shelf_extremes_stay_finite() {
+		for mode in [5, 6] {
+			for gain in [-24.0_f32, 0.0, 24.0] {
+				for slope in [0.5_f32, 1.0, 2.0] {
+					let mut filter = Multimode::new(48_000, 1_000.0, 0.707);
+					filter.mode = mode;
+					filter.gain_db = gain;
+					filter.slope = slope;
+
+					let mut context: Box<dyn ProcessContext> = Box::new(());
+
+					for index in 0..512 {
+						let input = (std::f32::consts::TAU * 440.0 * index as f32 / 48_000.0).sin()
+							* 0.5;
+						let mut samples = [input, input];
+						filter.process(&mut samples, &[], &mut context);
+
+						assert!(
+							samples.iter().all(|sample| sample.is_finite()),
+							"mode {mode}, gain {gain}, slope {slope}: {samples:?}"
+						);
+					}
+				}
+			}
+		}
+	}
+
 }

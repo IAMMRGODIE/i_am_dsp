@@ -1104,7 +1104,9 @@
 
           var control = controls[id];
           if (control && control !== dragging) {
-            control.value = state[id];
+            control.value = control.spec.kind === "bool"
+              ? state[id]
+              : snap(control.spec, state[id]);
             control.paint();
           }
         });
@@ -1323,6 +1325,18 @@
 
       face.sections = face.sections.filter(function (section) {
         return section.params.length > 0 || section.hero;
+      });
+    }
+
+    // The downsampler cannot hold samples faster than the host is running; the
+    // DSP clamps it, so the knob must not offer a range the effect cannot use.
+    if (face.rate) {
+      face.sections.forEach(function (section) {
+        section.params.forEach(function (spec) {
+          if (spec.id === "target_sample_rate" && spec.max > face.rate) {
+            spec.max = face.rate;
+          }
+        });
       });
     }
 
