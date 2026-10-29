@@ -2,6 +2,11 @@
 
 use std::path::Path;
 
+use rubato::{
+	Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters, SincInterpolationType,
+	WindowFunction,
+	audioadapter_buffers::direct::{SequentialSliceOfSlices, SequentialSliceOfVecs},
+};
 use symphonia::core::{
 	codecs::{CodecParameters, audio::AudioDecoderOptions}, formats::{TrackType, probe::Hint}, io::{MediaSource, MediaSourceStream},
 };
@@ -85,6 +90,93 @@ pub fn load_from_binary<const CHANNELS: usize>(data: impl MediaSource) -> Result
 		sample_rate: audio_sample_rate,
 		pcm_data,
 	})
+}
+
+/// Load PCM data that is already in memory.
+pub fn load_from_bytes<const CHANNELS: usize>(data: Vec<u8>) -> Result<PcmOutput<CHANNELS>, ReadFileError> {
+	load_from_binary(std::io::Cursor::new(data))
+}
+
+/// Resample PCM data with a windowed-sinc filter.
+///
+/// An impulse response captured at one rate and convolved at another would change
+/// the size of the room, so a loaded IR is brought to the host's rate first.
+pub fn resample<const CHANNELS: usize>(
+	pcm_data: [Vec<f32>; CHANNELS],
+	from: usize,
+	to: usize,
+) -> Result<[Vec<f32>; CHANNELS], ReadFileError> {
+	if from == to || from == 0 || to == 0 {
+		return Ok(pcm_data);
+	}
+
+	let ratio = to as f64 / from as f64;
+	let parameters = SincInterpolationParameters {
+		sinc_len: 256,
+		f_cutoff: Some(0.95),
+		interpolation: SincInterpolationType::Linear,
+		oversampling_factor: 256,
+		window: WindowFunction::BlackmanHarris2,
+	};
+	let mut resampler = Async::<f32>::new_sinc(ratio, 1.1, &parameters, 4096, CHANNELS, FixedAsync::Input)?;
+
+	let mut output = [const { Vec::new() }; CHANNELS];
+	let mut scratch = [const { Vec::new() }; CHANNELS];
+	let mut input_frames_next = resampler.input_frames_next();
+	let max_output = resampler.output_frames_max();
+	let mut rest: Vec<&[f32]> = pcm_data.iter().map(Vec::as_slice).collect();
+
+	for buffer in &mut scratch {
+		*buffer = vec![0.0; max_output];
+	}
+
+	while rest[0].len() >= input_frames_next {
+		let frames_out = resampler.output_frames_next();
+		for buffer in &mut scratch {
+			if buffer.len() < frames_out {
+				*buffer = vec![0.0; frames_out];
+			}
+		}
+
+		let input = SequentialSliceOfSlices::new(&rest, CHANNELS, input_frames_next)
+			.expect("the rest buffers were sized correctly");
+		let mut out = SequentialSliceOfVecs::new_mut(&mut scratch[..], CHANNELS, frames_out)
+			.expect("the scratch buffers were sized correctly");
+
+		let (consumed, produced) = resampler.process_into_buffer(&input, &mut out, None)?;
+
+		for buffer in &mut rest {
+			*buffer = &buffer[consumed..];
+		}
+
+		for (channel, data) in scratch.iter().enumerate() {
+			output[channel].extend_from_slice(&data[..produced]);
+		}
+
+		input_frames_next = resampler.input_frames_next();
+	}
+
+	if !rest[0].is_empty() {
+		let frames_out = resampler.output_frames_next();
+		for buffer in &mut scratch {
+			if buffer.len() < frames_out {
+				*buffer = vec![0.0; frames_out];
+			}
+		}
+
+		let input = SequentialSliceOfSlices::new(&rest, CHANNELS, rest[0].len())
+			.expect("the rest buffers were sized correctly");
+		let mut out = SequentialSliceOfVecs::new_mut(&mut scratch[..], CHANNELS, frames_out)
+			.expect("the scratch buffers were sized correctly");
+		let indexing = Indexing::new().partial_len(rest[0].len());
+		let (_, produced) = resampler.process_into_buffer(&input, &mut out, Some(&indexing))?;
+
+		for (channel, data) in scratch.iter().enumerate() {
+			output[channel].extend_from_slice(&data[..produced]);
+		}
+	}
+
+	Ok(output)
 }
 
 /// Load PCM data from a WAV file.

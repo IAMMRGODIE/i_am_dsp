@@ -16,13 +16,13 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 use wry::dpi::{LogicalPosition, LogicalSize};
 
-use crate::ProtocolResponse;
+use crate::{ProtocolRequest, ProtocolResponse};
 
 /// What turns an IPC string from the page into a processor message.
 type IpcMapper<P> = Box<dyn Fn(&str) -> Option<<P as i_am_plugin::Processor>::Message>>;
 
 /// One route of a page served over a custom protocol.
-type ProtocolHandler = Box<dyn Fn(&str) -> ProtocolResponse + Send + Sync>;
+type ProtocolHandler = Box<dyn Fn(&ProtocolRequest<'_>) -> ProtocolResponse + Send + Sync>;
 
 /// The window class the WebView2 child lives in. The host's editor window only
 /// has to host one normal child; WebView2 creates its controller inside it.
@@ -299,9 +299,21 @@ impl<P: Plugin> WryEditor<P> {
 	/// self-contained: a parameter map (atomics) or a prebuilt page is fine, a
 	/// thread-bound widget is not.
 	pub fn with_custom_protocol(
-		mut self,
+		self,
 		name: impl Into<String>,
 		handler: impl Fn(&str) -> ProtocolResponse + Send + Sync + 'static,
+	) -> Self {
+		self.with_custom_protocol_request(name, move |request| handler(request.path))
+	}
+
+	/// Answer requests for `name` with the method, path and body the page sent.
+	///
+	/// This is what a route that takes an upload needs: the page can POST bytes to
+	/// its own origin, and the handler decodes them without going through IPC.
+	pub fn with_custom_protocol_request(
+		mut self,
+		name: impl Into<String>,
+		handler: impl Fn(&ProtocolRequest<'_>) -> ProtocolResponse + Send + Sync + 'static,
 	) -> Self {
 		self.protocols.push((name.into(), Box::new(handler)));
 		self
@@ -446,7 +458,14 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 
 				for (name, handler) in protocols {
 					builder = builder.with_custom_protocol(name, move |_id, request| {
-						to_wry(handler(request.uri().path()))
+						let request = ProtocolRequest {
+							method: request.method().as_str(),
+							path: request.uri().path(),
+							query: request.uri().query(),
+							body: request.body(),
+						};
+
+						to_wry(handler(&request))
 					});
 				}
 

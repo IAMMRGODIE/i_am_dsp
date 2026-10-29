@@ -40,6 +40,15 @@ impl<P: Plugin> WryEditor<P> {
 	) -> Self {
 		self
 	}
+
+	/// Ignored on this platform; see the Windows implementation.
+	pub fn with_custom_protocol_request(
+		self,
+		_name: impl Into<String>,
+		_handler: impl Fn(&crate::ProtocolRequest<'_>) -> ProtocolResponse + Send + Sync + 'static,
+	) -> Self {
+		self
+	}
 }
 
 impl<P: Plugin> Editor<P> for WryEditor<P> {

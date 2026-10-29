@@ -46,7 +46,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use i_am_plugin::{Editor, Plugin};
-use i_am_plugin_wry::{ProtocolResponse, WryEditor};
+pub use i_am_plugin_wry::{ProtocolRequest, ProtocolResponse};
+use i_am_plugin_wry::WryEditor;
 
 /// The page itself.
 const PAGE: &str = include_str!("page/index.html");
@@ -68,6 +69,22 @@ pub fn editor<P: Plugin>(
 	bypass: Arc<AtomicBool>,
 	scope: Arc<Scope>,
 	rate: usize,
+) -> Option<Box<dyn Editor<P>>> {
+	editor_with(processor, face, bypass, scope, rate, |_: &ProtocolRequest<'_>| None)
+}
+
+/// The editor for a plug-in that also serves routes of its own.
+///
+/// `extra` sees every request before the kit's routes do, and answers the ones
+/// the product owns: an upload route, or the state of a resource the page draws.
+/// Returning `None` passes the request on to the kit.
+pub fn editor_with<P: Plugin>(
+	processor: &P,
+	face: Faceplate,
+	bypass: Arc<AtomicBool>,
+	scope: Arc<Scope>,
+	rate: usize,
+	extra: impl Fn(&ProtocolRequest<'_>) -> Option<ProtocolResponse> + Send + Sync + 'static,
 ) -> Option<Box<dyn Editor<P>>> {
 	let sections = face::sections(&processor.get_parameters());
 
@@ -95,7 +112,12 @@ pub fn editor<P: Plugin>(
 			// the audio thread reads; there is no message to carry it.
 			None
 		})
-		.with_custom_protocol("webgui", move |path| match path {
+		.with_custom_protocol_request("webgui", move |request| {
+			if let Some(response) = extra(request) {
+				return response;
+			}
+
+			match request.path {
 			"/" | "/index.html" => ProtocolResponse::html(PAGE),
 			"/kit.css" => ProtocolResponse {
 				status: 200,
@@ -131,6 +153,7 @@ pub fn editor<P: Plugin>(
 				))
 			},
 			_ => ProtocolResponse::not_found(),
+			}
 		})
 		.with_url("webgui://localhost/"),
 	))

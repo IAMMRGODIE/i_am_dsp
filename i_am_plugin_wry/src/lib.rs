@@ -55,6 +55,21 @@ pub use stub::WryEditor;
 /// such as `crusher://localhost/`, and the handler answers `/` with the HTML and
 /// `/state` with a JSON snapshot of the parameters. It runs off the UI thread, so the
 /// handler must not touch anything thread-bound.
+/// One request the page made to a custom-protocol route.
+///
+/// A route that only serves state can look at [path](Self::path) alone; a route
+/// that takes an upload needs the method and the body as well.
+pub struct ProtocolRequest<'a> {
+	/// The HTTP method, such as `GET` or `POST`.
+	pub method: &'a str,
+	/// The path, without the query string.
+	pub path: &'a str,
+	/// The query string, without the leading `?`.
+	pub query: Option<&'a str>,
+	/// The request body, empty for a request that has none.
+	pub body: &'a [u8],
+}
+
 #[derive(Debug, Clone)]
 pub struct ProtocolResponse {
 	/// The HTTP status code.

@@ -22,6 +22,9 @@
 var wantsMeter = false;
 var wantsStereo = false;
 var wantsParticles = false;
+var wantsIr = false;
+var irState = null;
+var irInput = null;
 var noteBadge = null;
 var stereoScope = {
   inputLeft: null,
@@ -1089,6 +1092,53 @@ var ENV_MAX = 512;
     return '<div class="hero-badge">' + sign + semitones.toFixed(1) + ' st</div>';
   }
 
+  /// The loaded impulse response, as min/max columns. Before anything is loaded
+  /// the hero itself is the load button, so the picture says what to do.
+  function impulseSvg() {
+    if (!irState || !irState.peaks || !irState.peaks.length) {
+      var failed = irState && irState.error;
+      var message = failed ? irState.error : "Click to load an impulse response";
+      var color = failed ? "#ff7a6b" : "#8a8a8a";
+
+      return heroSvg(
+        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c"/>' +
+        '<text x="260" y="84" text-anchor="middle" fill="' + color + '" font-size="10">' +
+        escapeXml(message) + '</text>'
+      );
+    }
+
+    var peaks = irState.peaks;
+    var last = Math.max(peaks.length - 1, 1);
+    var top = "M 20 80";
+    var bottom = "";
+
+    for (var i = 0; i < peaks.length; i++) {
+      var x = 20 + i / last * 480;
+      var low = clamp(peaks[i][0], -1, 1);
+      var high = clamp(peaks[i][1], -1, 1);
+      top += " L " + x.toFixed(1) + " " + (80 - high * 62).toFixed(1);
+      bottom = " L " + x.toFixed(1) + " " + (80 - low * 62).toFixed(1) + bottom;
+    }
+
+    var seconds = irState.rate ? irState.samples / irState.rate : 0;
+    var label = (irState.name || "impulse") + "  -  " + seconds.toFixed(2) + " s";
+
+    return heroSvg(
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f"/>' +
+      '<path d="' + top + bottom + ' Z" fill="' + accent + '" fill-opacity=".14" stroke="' +
+        accent + '" stroke-width="1" vector-effect="non-scaling-stroke"/>' +
+      '<text x="20" y="16" fill="#9a9a9a" font-size="8">' + escapeXml(label) + '</text>'
+    );
+  }
+
+  function escapeXml(value) {
+    return String(value === null || value === undefined ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   /// Before and after spectra only: a frequency shifter has no response curve to
   /// draw, and the two traces are the whole story.
   function spectraSvg() {
@@ -1403,6 +1453,7 @@ var ENV_MAX = 512;
       else if (hero.kind === "stereo") hero.el.innerHTML = stereoSvg();
   else if (hero.kind === "particles") hero.el.innerHTML = particlesSvg();
       else if (hero.kind === "pitch") hero.el.innerHTML = pitchSvg() + pitchBadge();
+      else if (hero.kind === "impulse") hero.el.innerHTML = impulseSvg();
     });
   }
 
@@ -1558,6 +1609,57 @@ var ENV_MAX = 512;
       .then(function () {
         setTimeout(pollNote, 100);
       });
+  }
+
+  /// The loaded impulse response, with its picture. The product owns /ir; the
+  /// preview server does not, so a failed fetch just leaves the empty hero.
+  function pollIr() {
+    if (document.hidden || !wantsIr) {
+      setTimeout(pollIr, 500);
+      return;
+    }
+
+    fetch("/ir", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        if (!value) return;
+        var changed = JSON.stringify(value) !== JSON.stringify(irState);
+        irState = value;
+        if (changed) markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollIr, 500);
+      });
+  }
+
+  /// Hands the picked file to the product's upload route as it is. The Rust side
+  /// decodes and resamples it, so the page never has to parse an audio format.
+  function uploadIr() {
+    var file = irInput && irInput.files && irInput.files[0];
+    if (!file) return;
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      fetch("/ir?name=" + encodeURIComponent(file.name), {
+        method: "POST",
+        body: reader.result
+      })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (result) {
+          if (result && result.error) {
+            irState = { name: null, rate: 0, samples: 0, peaks: [], error: result.error };
+            markDirty();
+          }
+        })
+        .catch(function () {});
+    };
+    reader.readAsArrayBuffer(file);
+    irInput.value = "";
   }
 
   // The goniometer needs L/R before and after the effect; the mono /scope is not
@@ -1856,6 +1958,13 @@ var ENV_MAX = 512;
         var hero = element("div", "hero");
         hero.dataset.hero = section.hero;
 
+        if (section.hero === "impulse") {
+          hero.title = "Load an impulse response";
+          hero.addEventListener("click", function () {
+            if (irInput) irInput.click();
+          });
+        }
+
         if (section.hero === "compressor") {
           hero.addEventListener("wheel", function (event) {
             if (!event.target.closest(".env-box")) return;
@@ -1924,6 +2033,18 @@ var ENV_MAX = 512;
     wantsParticles = heroes.some(function (hero) {
       return hero.kind === "particles";
     });
+    wantsIr = heroes.some(function (hero) {
+      return hero.kind === "impulse";
+    });
+    if (wantsIr) {
+      irInput = document.createElement("input");
+      irInput.type = "file";
+      irInput.accept = ".wav,.flac,.mp3,.ogg,audio/*";
+      irInput.style.display = "none";
+      irInput.addEventListener("change", uploadIr);
+      document.body.appendChild(irInput);
+      setTimeout(pollIr, 50);
+    }
     if (wantsMeter) setInterval(pollMeter, 100);
     if (wantsStereo) setTimeout(pollStereo, 50);
     if (wantsParticles) {

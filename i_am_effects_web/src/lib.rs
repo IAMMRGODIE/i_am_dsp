@@ -17,6 +17,7 @@
 mod allpass;
 mod comb;
 mod compressor;
+mod convolver;
 mod disperser;
 mod filter;
 mod ir_reverb;
@@ -30,6 +31,7 @@ mod unstablizer;
 use allpass::AllpassEffect;
 use comb::CombEffect;
 use compressor::CompressorEffect;
+pub use convolver::{ConvolverWeb, IrData, IrSlot};
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 use particle_wider::ParticleWiderEffect;
@@ -390,7 +392,8 @@ export_clap!(
 	ChorusWeb,
 	FlangerWeb,
 	PhaserWeb,
-	CrusherWeb
+	CrusherWeb,
+	ConvolverWeb
 );
 
 #[cfg(test)]
@@ -726,6 +729,20 @@ mod tests {
 			1,
 			"the note follower needs a MIDI input"
 		);
+	}
+
+	/// The convolver's picture is the impulse response it has loaded.
+	#[test]
+	fn the_convolver_has_an_impulse_hero_and_a_mix() {
+		let face = i_am_web_gui::face_json(
+			&ConvolverWeb::new(),
+			&Faceplate::new("I Am Convolver", "#b08cff", (520.0, 330.0)),
+		);
+
+		assert!(face.contains("\"hero\":\"impulse\""), "{face}");
+		assert!(face.contains("\"id\":\"mix\""), "{face}");
+		assert!(face.contains("\"id\":\"gain\""), "{face}");
+		assert!(!face.contains("\"id\":\"ir\""), "the response is state, not a control: {face}");
 	}
 
 	/// The IR reverb exposes the room, the T60, and a wet-only convolver.

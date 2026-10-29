@@ -14,7 +14,7 @@ use std::path::Path;
 
 use i_am_effects_web::{
 	AllpassWeb, BalanceWeb, ChorusWeb, CombWeb, CompressorWeb, CrusherWeb, DelayWeb,
-	DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
+	ConvolverWeb, DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
 	ParticleWiderWeb, PitchWeb, ReverbWeb, SchroederWeb, ShifterWeb, UnstablizerWeb, WidthWeb,
 	CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
@@ -256,6 +256,16 @@ fn main() {
 					&Faceplate::new("I Am Delay", "#e8c35a", (560.0, 300.0))
 						.with_header(DELAY_HEADER)
 						.with_switches(DELAY_SWITCHES),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"convolver" => {
+			let plugin = ConvolverWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Convolver", "#b08cff", (520.0, 330.0)),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

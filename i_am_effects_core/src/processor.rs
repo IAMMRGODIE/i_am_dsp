@@ -50,7 +50,7 @@ pub struct EffectProcessor<E: Parameters> {
 	/// its map when the value inside it is replaced.
 	effect: Paramed<E>,
 	/// How to build the effect for a sample rate.
-	build: fn(usize) -> E,
+	build: Box<dyn Fn(usize) -> E + Send + Sync>,
 	sample_rate: usize,
 }
 
@@ -64,15 +64,26 @@ impl<E: Parameters> Parameters for EffectProcessor<E> {
 	}
 }
 
-impl<E: Parameters> EffectProcessor<E> {
+impl<E: Parameters + 'static> EffectProcessor<E> {
 	/// Wraps an effect, given how to build it for a sample rate.
 	///
 	/// It is built once for the placeholder rate, and rebuilt by
 	/// [`activate`](Self::activate) when the host says what it really runs at.
 	pub fn new(build: fn(usize) -> E) -> Self {
+		Self::with_build(build)
+	}
+
+	/// Wraps an effect whose builder captures the state it has to keep.
+	///
+	/// An effect that owns shared state -- a loaded impulse response, say -- has
+	/// to reconnect to it when [`activate`](Self::activate) replaces the effect for
+	/// the host's rate, and a plain function pointer cannot carry that state.
+	pub fn with_build(build: impl Fn(usize) -> E + Send + Sync + 'static) -> Self {
+		let effect = build(DEFAULT_SAMPLE_RATE);
+
 		Self {
-			effect: Paramed::new(build(DEFAULT_SAMPLE_RATE)),
-			build,
+			effect: Paramed::new(effect),
+			build: Box::new(build),
 			sample_rate: DEFAULT_SAMPLE_RATE,
 		}
 	}
