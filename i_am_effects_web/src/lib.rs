@@ -14,9 +14,11 @@
 //! cargo run -p i_am_effects_web --example dump_face -- target/web-preview gain
 //! ```
 
+mod compressor;
 mod disperser;
 mod filter;
 
+use compressor::CompressorEffect;
 use disperser::Dispersion;
 use filter::Multimode;
 pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
@@ -160,6 +162,28 @@ pub const PHASER_SWITCHES: &[Switch] = &[Switch::new(
 	&["lfo_freq"],
 )];
 
+/// The compressor's envelope choice is a header drop-down.
+pub const COMPRESSOR_HEADER: &[&str] = &["enveloper"];
+
+/// Main input plus a sidechain input. The compressor reads the sidechain as
+/// other[1]; port 0 is always the main input.
+pub const COMPRESSOR_PORTS: &[i_am_plugin::AudioPort] = &[
+	i_am_plugin::AudioPort { name: "Main" },
+	i_am_plugin::AudioPort { name: "Sidechain" },
+];
+
+web_plugin!(
+	CompressorWeb,
+	CompressorEffect,
+	CompressorEffect::new,
+	"iamdsp.effects.compressor.web",
+	"I Am Compressor",
+	(700.0, 300.0),
+	"#ff7a6b",
+	header = COMPRESSOR_HEADER,
+	ports = COMPRESSOR_PORTS
+);
+
 web_plugin!(
 	ChorusWeb,
 	Chorus<SineWave, 2>,
@@ -228,6 +252,7 @@ export_clap!(
 	DisperserWeb,
 	BalanceWeb,
 	DelayWeb,
+	CompressorWeb,
 	ChorusWeb,
 	FlangerWeb,
 	PhaserWeb,
@@ -337,6 +362,7 @@ mod tests {
 		assert!(DisperserWeb::new().editor().is_some());
 		assert!(BalanceWeb::new().editor().is_some());
 		assert!(DelayWeb::new().editor().is_some());
+		assert!(CompressorWeb::new().editor().is_some());
 		assert!(ChorusWeb::new().editor().is_some());
 		assert!(FlangerWeb::new().editor().is_some());
 		assert!(PhaserWeb::new().editor().is_some());
@@ -453,6 +479,32 @@ mod tests {
 		assert!(face.contains("\"name\":\"Delay\""), "{face}");
 	}
 
+	/// The compressor's envelope choice is a header drop-down, and its sidechain
+	/// is a second input port.
+	#[test]
+	fn the_compressor_has_an_enveloper_menu_and_a_sidechain() {
+		let face = i_am_web_gui::face_json(
+			&CompressorWeb::new(),
+			&Faceplate::new("I Am Compressor", "#ff7a6b", (700.0, 300.0))
+				.with_header(COMPRESSOR_HEADER),
+		);
+
+		assert!(face.contains("\"hero\":\"compressor\""), "{face}");
+		assert!(face.contains("\"id\":\"threshold\""), "{face}");
+		assert!(face.contains("\"id\":\"sidechain\""), "{face}");
+		assert!(face.contains("\"header\":[\"enveloper\"]"), "{face}");
+		assert!(
+			face.contains("\"choices\":[\"Peak\",\"RMS\",\"TKeo\",\"Hilbert\"]"),
+			"{face}"
+		);
+		assert!(face.contains("\"name\":\"Compressor\""), "{face}");
+		assert_eq!(
+			<CompressorWeb as i_am_plugin::Plugin>::INPUT_PORTS.len(),
+			2,
+			"main plus sidechain"
+		);
+	}
+
 	/// Chorus, flanger and phaser share the sync dot; only the free parameter's id
 	/// changes, and phaser calls it lfo_freq.
 	#[test]
@@ -556,6 +608,7 @@ mod tests {
 			DisperserWeb::window_options(),
 			BalanceWeb::window_options(),
 			DelayWeb::window_options(),
+			CompressorWeb::window_options(),
 			ChorusWeb::window_options(),
 			FlangerWeb::window_options(),
 			PhaserWeb::window_options(),

@@ -13,10 +13,10 @@
 use std::path::Path;
 
 use i_am_effects_web::{
-	BalanceWeb, ChorusWeb, CrusherWeb, DelayWeb, DisperserWeb, DistortionWeb, FilterWeb,
-	FlangerWeb, GainWeb, PhaserWeb, PitchWeb, ShifterWeb, WidthWeb, CHORUS_HEADER,
-	CHORUS_SWITCHES, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE, FLANGER_HEADER,
-	FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES, SHIFTER_CURVES,
+	BalanceWeb, ChorusWeb, CompressorWeb, CrusherWeb, DelayWeb, DisperserWeb, DistortionWeb,
+	FilterWeb, FlangerWeb, GainWeb, PhaserWeb, PitchWeb, ShifterWeb, WidthWeb, CHORUS_HEADER,
+	CHORUS_SWITCHES, COMPRESSOR_HEADER, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE,
+	FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES, SHIFTER_CURVES,
 };
 use i_am_effects_web::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -120,6 +120,17 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		},
+		"compressor" => {
+			let plugin = CompressorWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Compressor", "#ff7a6b", (700.0, 300.0))
+						.with_header(COMPRESSOR_HEADER),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
 		"chorus" => {
 			let plugin = ChorusWeb::new();
 			(
@@ -180,7 +191,7 @@ fn main() {
 		},
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance, chorus, flanger, phaser, delay or crusher"
+				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance, compressor, chorus, flanger, phaser, delay or crusher"
 			);
 			std::process::exit(2);
 		},

@@ -1050,9 +1050,42 @@
     );
   }
 
+  /// The static transfer curve: below the threshold the line is unity, above it
+  /// the ratio flattens it, and makeup lifts the whole thing.
+  function compressorSvg() {
+    var threshold = clamp(valueOf("threshold", -24), -60, 0);
+    var ratio = Math.max(valueOf("ratio", 4), 1);
+    var makeup = valueOf("makeup_db", 0);
+    var path = "";
+
+    for (var i = 0; i <= 120; i++) {
+      var input = -60 + i / 120 * 60;
+      var output = input <= threshold
+        ? input
+        : threshold + (input - threshold) / ratio;
+      output = clamp(output + makeup, -60, 0);
+
+      var x = 20 + i / 120 * 480;
+      var y = 150 - (output + 60) / 60 * 140;
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    var knee = 20 + (threshold + 60) / 60 * 480;
+
+    return heroSvg(
+      '<line x1="20" y1="150" x2="500" y2="10" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+      '<line x1="' + knee.toFixed(1) + '" y1="10" x2="' + knee.toFixed(1) +
+        '" y2="150" stroke="#343434" stroke-dasharray="3 5"/>' +
+      '<line x1="20" y1="150" x2="500" y2="150" stroke="#3a3a3a"/>' +
+      '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
+        'vector-effect="non-scaling-stroke"/>'
+    );
+  }
+
   function updateHeroes() {
     heroes.forEach(function (hero) {
-      if (hero.kind === "lfo") {
+      if (hero.kind === "compressor") hero.el.innerHTML = compressorSvg();
+      else if (hero.kind === "lfo") {
         hero.el.innerHTML = lfoSvg() +
           (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");
       }
