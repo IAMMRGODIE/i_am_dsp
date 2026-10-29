@@ -20,7 +20,7 @@ pub struct CombEffect {
 	pub delay_ms: f32,
 
 	/// The feedback amount.
-	#[range(min = 0.01, max = 1.0)]
+	#[range(min = 0.01, max = 0.99)]
 	#[default(0.8)]
 	#[id(display = "Feedback")]
 	#[layout(group = "Comb", order = 1, widget = knob)]
