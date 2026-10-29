@@ -97,6 +97,23 @@ body.preview #app{
 }
 .mode-select:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
 .mode.mode-drop{border:0; background:transparent; padding:0}
+.header-tools{
+  flex:0 0 auto; display:flex; align-items:center;
+  gap:calc(8px * var(--scale));
+}
+/* A choice in the header keeps its label on one line with its select. */
+.header .choice{
+  flex-direction:row; align-items:center; gap:calc(5px * var(--scale));
+  min-width:0; padding-top:0;
+}
+.header .choice .label{
+  font-size:calc(8px * var(--scale)); letter-spacing:.12em;
+  text-transform:uppercase; color:var(--text3);
+}
+.header .choice select{
+  height:calc(22px * var(--scale)); font-size:calc(10px * var(--scale));
+  border-radius:5px;
+}
 .title{
   font-size:calc(12px * var(--scale)); font-weight:600; letter-spacing:.1px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;

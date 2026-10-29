@@ -19,7 +19,7 @@ mod filter;
 
 use disperser::Dispersion;
 use filter::Multimode;
-pub use filter::FILTER_VISIBLE;
+pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_dsp::prelude::{
 	Crusher, Distortion, Gain as GainDsp, IIRFreqShifter, LrControl, PitchShifter,
 	StereoController,
@@ -68,7 +68,8 @@ web_plugin!(
 	(520.0, 330.0),
 	"#4c8dff",
 	mode = "mode",
-	visible = FILTER_VISIBLE
+	visible = FILTER_VISIBLE,
+	header = FILTER_HEADER
 );
 
 web_plugin!(
@@ -297,10 +298,12 @@ mod tests {
 			&plugin,
 			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0))
 				.with_mode("mode")
-				.with_visible(FILTER_VISIBLE),
+				.with_visible(FILTER_VISIBLE)
+				.with_header(FILTER_HEADER),
 		);
 
 		assert!(face.contains("\"mode\":\"mode\""), "{face}");
+		assert!(face.contains("\"header\":[\"stages\"]"), "{face}");
 		assert!(face.contains("\"id\":\"mode\""), "{face}");
 		assert!(
 			face.contains("\"choices\":[\"Lowpass\",\"Highpass\",\"Bandpass\",\"Notch\",\"Peak\",\"Low Shelf\",\"High Shelf\"]"),
@@ -315,6 +318,20 @@ mod tests {
 		);
 		assert!(face.contains("[0,[\"cutoff\",\"q\",\"stages\"]]"), "{face}");
 		assert!(face.contains("[5,[\"cutoff\",\"gain_db\",\"slope\"]]"), "{face}");
+	}
+
+	/// The mode is a normal parameter: it is in the map the host saves and in the
+	/// state the page reads back after a reload.
+	#[test]
+	fn the_mode_is_saved_with_the_other_parameters() {
+		let plugin = FilterWeb::new();
+		assert!(i_am_web_gui::apply_command(&plugin, "mode=5"));
+
+		assert_eq!(
+			plugin.param_map().get("mode").unwrap().load(Ordering::Relaxed),
+			SetValue::Int(5)
+		);
+		assert!(i_am_web_gui::state_json(&plugin).contains("\"mode\":5"));
 	}
 
 	/// Distortion has six algorithms, and each mode lists the controls it reads.

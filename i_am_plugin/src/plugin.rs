@@ -56,6 +56,13 @@ pub trait Plugin: Processor {
 	/// Get the plugin's parameter map.
 	fn param_map(&self) -> ParamMap;
 
+	/// Push interface-only parameter changes into the effect.
+	///
+	/// A GUI writes the shared map and the effect reads it on the next process
+	/// block, but a host can save between the two. The wrapper calls this before
+	/// collecting the state so the saved values are the ones the user sees.
+	fn sync_params(&mut self) {}
+
 	/// Build the editor for this plug-in, if it has one.
 	///
 	/// Called once each time the host opens the GUI, so a closed and reopened editor

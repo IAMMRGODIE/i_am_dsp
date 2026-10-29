@@ -11,6 +11,9 @@
 use i_am_dsp::prelude::{Biquad, Effect, ProcessContext};
 use i_am_dsp_derive::Parameters;
 
+/// The parameters the page draws in the header, beside the mode.
+pub const FILTER_HEADER: &[&str] = &["stages"];
+
 /// The controls each mode reads; the page hides the rest.
 pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
 	(0, &["cutoff", "q", "stages"]),

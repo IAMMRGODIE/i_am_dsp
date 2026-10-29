@@ -1177,13 +1177,25 @@
       app.style.height = face.size[1] + "px";
     }
 
-    // A mode switch is one parameter drawn in the header, not a knob in the body.
-    if (face.mode) {
+    // A mode switch and the header's extra choices are parameters drawn in the
+    // header, not knobs in the body.
+    var headerIds = face.header || [];
+    var headerSpecs = [];
+
+    if (face.mode || headerIds.length) {
       face.sections.forEach(function (section) {
         section.params = section.params.filter(function (spec) {
-          if (spec.id !== face.mode) return true;
-          modeSpec = spec;
-          return false;
+          if (face.mode && spec.id === face.mode) {
+            modeSpec = spec;
+            return false;
+          }
+
+          if (headerIds.indexOf(spec.id) >= 0) {
+            headerSpecs.push(spec);
+            return false;
+          }
+
+          return true;
         });
       });
 
@@ -1208,9 +1220,16 @@
     header.appendChild(title);
     header.appendChild(element("span", "spacer"));
 
+    var tools = element("div", "header-tools");
     var modeEl = modeSpec ? buildMode(modeSpec) : null;
 
-    if (modeEl) header.appendChild(modeEl);
+    if (modeEl) tools.appendChild(modeEl);
+
+    headerSpecs.forEach(function (spec) {
+      tools.appendChild(makeControl(spec));
+    });
+
+    if (modeEl || headerSpecs.length) header.appendChild(tools);
 
     var body = element("div", "body");
     var many = face.sections.length > 1;

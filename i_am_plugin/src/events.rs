@@ -69,7 +69,18 @@ impl<P: Plugin> PluginStateImpl for PluginMain<P> {
 	}
 	
 	fn save(&mut self, output: &mut clack_plugin::stream::OutputStream) -> Result<(), PluginError> {
-		let params = self.processor.get_parameters();
+		// SAFETY: the processor is pinned inside the PluginMain box for as long as
+		// the plugin lives, and we never move P out of it, so unwrapping the pin is
+		// sound.
+		let processor = unsafe {
+			self.processor.as_mut().get_unchecked_mut()
+		};
+
+		// A host can save between a knob move and the next process block; the map
+		// has the new value but the effect has not read it yet.
+		processor.sync_params();
+
+		let params = processor.get_parameters();
 		let binary = to_binary(&params)?;
 		output.write_all(&binary)?;
 		Ok(())

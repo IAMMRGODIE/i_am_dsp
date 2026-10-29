@@ -107,6 +107,13 @@ impl<E: Parameters> EffectProcessor<E> {
 		self.effect.param_map()
 	}
 
+	/// Pushes the map's latest values into the effect without waiting for an
+	/// audio block. Saving a project can happen between a knob move and the next
+	/// process call; without this the saved state would carry the old value.
+	pub fn sync_params(&mut self) {
+		self.effect.sync_params();
+	}
+
 	/// Sets a parameter directly, which is what a test does and what a host does
 	/// through the map.
 	pub fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {

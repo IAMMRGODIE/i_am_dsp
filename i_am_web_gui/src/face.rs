@@ -33,6 +33,9 @@ pub struct Faceplate {
 	/// parameter: atan spends most of the knob travel near zero and reaches the
 	/// ends quickly.
 	pub curves: Option<&'static [(&'static str, &'static str)]>,
+	/// Parameters the page draws in the header instead of the body. The filter's
+	/// slope is a mode-adjacent choice, not a knob in the row.
+	pub header: Option<&'static [&'static str]>,
 }
 
 impl Faceplate {
@@ -45,6 +48,7 @@ impl Faceplate {
 			mode: None,
 			visible: None,
 			curves: None,
+			header: None,
 		}
 	}
 
@@ -69,6 +73,12 @@ impl Faceplate {
 		curves: &'static [(&'static str, &'static str)],
 	) -> Self {
 		self.curves = Some(curves);
+		self
+	}
+
+	/// Draw these parameters in the header instead of the body.
+	pub const fn with_header(mut self, header: &'static [&'static str]) -> Self {
+		self.header = Some(header);
 		self
 	}
 }
@@ -330,6 +340,20 @@ pub fn face_json_with_rate(
 					string(&mut out, id);
 				}
 				out.push_str("]]");
+			}
+			out.push(']');
+		},
+		None => out.push_str("null"),
+	}
+	out.push_str(",\"header\":");
+	match face.header {
+		Some(ids) => {
+			out.push('[');
+			for (index, id) in ids.iter().enumerate() {
+				if index > 0 {
+					out.push(',');
+				}
+				string(&mut out, id);
 			}
 			out.push(']');
 		},

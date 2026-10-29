@@ -16,7 +16,7 @@ use i_am_effects_web::{
 	BalanceWeb, CrusherWeb, DisperserWeb, DistortionWeb, FilterWeb, GainWeb, PitchWeb,
 	ShifterWeb, WidthWeb, DISTORTION_VISIBLE, SHIFTER_CURVES,
 };
-use i_am_effects_web::FILTER_VISIBLE;
+use i_am_effects_web::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
 use i_am_web_gui::Faceplate;
 
@@ -61,7 +61,8 @@ fn main() {
 					&plugin,
 					&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0))
 						.with_mode("mode")
-						.with_visible(FILTER_VISIBLE),
+						.with_visible(FILTER_VISIBLE)
+						.with_header(FILTER_HEADER),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
