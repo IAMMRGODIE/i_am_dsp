@@ -20,33 +20,42 @@ pub struct UnstablizerEffect {
 	#[layout(group = "Unstablizer", order = 1, widget = knob, hero = "spectra")]
 	pub transpose: f32,
 
+	/// How far the partials move around the anchor, as a ratio.
+	#[range(min = 0.25, max = 4.0)]
+	#[logarithmic]
+	#[default(1.0)]
+	#[unit(percent)]
+	#[id(display = "Shift")]
+	#[layout(group = "Unstablizer", order = 2, widget = knob)]
+	pub shift: f32,
+
 	/// The manual anchor when Follow Notes is off.
 	#[range(min = 20.0, max = 20_000.0)]
 	#[logarithmic]
 	#[unit(hertz)]
 	#[default(440.0)]
 	#[id(display = "Anchor")]
-	#[layout(group = "Unstablizer", order = 2, widget = knob)]
+	#[layout(group = "Unstablizer", order = 3, widget = knob)]
 	pub anchor: f32,
 
 	/// The phase-vocoder window shape.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.6)]
 	#[id(display = "Window")]
-	#[layout(group = "Unstablizer", order = 3, widget = knob)]
+	#[layout(group = "Unstablizer", order = 4, widget = knob)]
 	pub window_factor: f32,
 
 	/// The window size, picked from the header.
 	#[choices("512", "1024", "2048", "4096")]
 	#[default(2)]
 	#[id(display = "Window Size")]
-	#[layout(group = "Unstablizer", order = 4, widget = choice)]
+	#[layout(group = "Unstablizer", order = 5, widget = choice)]
 	pub window_size: i32,
 
 	/// Whether played notes set the anchor.
 	#[default(true)]
 	#[id(display = "Follow")]
-	#[layout(group = "Unstablizer", order = 5, widget = toggle)]
+	#[layout(group = "Unstablizer", order = 6, widget = toggle)]
 	pub follow_notes: bool,
 
 	#[skip]
@@ -62,6 +71,7 @@ impl UnstablizerEffect {
 		Self {
 			reference_pitch: 440.0,
 			transpose: 0.0,
+			shift: 1.0,
 			anchor: 440.0,
 			window_factor: 0.6,
 			window_size: 2,
@@ -104,6 +114,7 @@ impl Effect<2> for UnstablizerEffect {
 
 		self.inner.reference_pitch = self.reference_pitch;
 		self.inner.transpose = self.transpose;
+		self.inner.vocoder.mapper.shift = self.shift;
 		self.inner.follow_notes = self.follow_notes;
 
 		if !self.follow_notes {

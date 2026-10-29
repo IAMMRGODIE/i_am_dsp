@@ -715,6 +715,7 @@ mod tests {
 		assert!(face.contains("\"hero\":\"spectra\""), "{face}");
 		assert!(face.contains("\"id\":\"reference_pitch\""), "{face}");
 		assert!(face.contains("\"id\":\"transpose\""), "{face}");
+		assert!(face.contains("\"id\":\"shift\""), "{face}");
 		assert!(face.contains("\"id\":\"anchor\""), "{face}");
 		assert!(face.contains("\"id\":\"window_size\""), "{face}");
 		assert!(face.contains("\"id\":\"follow_notes\""), "{face}");
