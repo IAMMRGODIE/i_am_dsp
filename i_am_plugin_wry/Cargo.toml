@@ -1,0 +1,29 @@
+[package]
+name = "i_am_plugin_wry"
+version = "0.1.0"
+edition = "2024"
+
+# A web-view editor for `i_am_plugin`, as a test of the Editor seam: the
+# plug-in wrapper stays free of the toolkit, and this crate is the whole of what
+# "a WebView2 GUI" costs it. Windows only for now; the rest of the crate is a
+# stub, so the workspace still builds everywhere.
+[dependencies]
+i_am_plugin = { workspace = true }
+crossbeam-channel = "0.5.16"
+
+[target.'cfg(windows)'.dependencies]
+# No default features: the Windows WebView2 backend is compiled by `cfg` and
+# needs none of the Linux feature set.
+wry = { version = "0.57.1", default-features = false }
+
+[target.'cfg(windows)'.dev-dependencies]
+# The smoke example defines a processor to put behind the page.
+i_am_dsp = { workspace = true }
+# It also creates the host's parent window itself, so it needs the Win32 calls
+# baseview would otherwise hide.
+windows-sys = { version = "0.61", features = [
+	"Win32_Foundation",
+	"Win32_Graphics_Gdi",
+	"Win32_System_LibraryLoader",
+	"Win32_UI_WindowsAndMessaging",
+] }

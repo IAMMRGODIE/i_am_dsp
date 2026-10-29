@@ -340,9 +340,8 @@ impl Message for WavetableSynthMessage {
 	}
 }
 
-impl Processor for WavetableSynth {
+impl i_am_dsp::Processor for WavetableSynth {
 	type Message = WavetableSynthMessage;
-	type SyncedView = WavetableSynthView;
 
 	fn process(&mut self, samples: &mut [f32; 2], _: &[[f32; 2]], process_context: &mut Box<dyn i_am_dsp::ProcessContext>) {
 		*samples = self.table.generate(process_context);
@@ -377,6 +376,11 @@ impl Processor for WavetableSynth {
 		// self.table.pitch_factor = self.pitch_factor.load(Ordering::Relaxed);
 		// self.table.gain = self.gain.load(Ordering::Relaxed);
 	}
+
+}
+
+impl Processor for WavetableSynth {
+	type SyncedView = WavetableSynthView;
 
 	fn synced_view(&self) -> Self::SyncedView {
 		// Bounded, so a stalled interface costs dropped samples rather than an

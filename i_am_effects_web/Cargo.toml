@@ -1,0 +1,26 @@
+[package]
+name = "i_am_effects_web"
+version = "0.1.0"
+edition = "2024"
+
+# The first web-faceplate products: the same DSP and metadata as the iced bundle,
+# with a page instead of a widget tree.
+#
+# The .web suffix keeps these apart from the released plug-in ids, so a host can
+# hold both while the web front end is being tried out.
+[lib]
+# A plug-in library, and an rlib so the tests and examples here can link it.
+crate-type = ["cdylib", "rlib"]
+
+# Read by "cargo bundle" (the i_am_bundler tool) when naming the .clap bundle.
+[package.metadata.i_am_dsp]
+name = "I Am Effects Web"
+vendor = "iamplugins"
+id = "iamdsp.effects.web"
+
+[dependencies]
+i_am_dsp = { workspace = true }
+i_am_dsp_derive = { workspace = true }
+i_am_plugin = { workspace = true }
+i_am_web_gui = { workspace = true }
+i_am_effects_core = { workspace = true }

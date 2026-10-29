@@ -135,9 +135,8 @@ mod demo {
 		}
 	}
 
-	impl<P: Processor> Processor for Source<P> {
+	impl<P: Processor> i_am_dsp::Processor for Source<P> {
 		type Message = P::Message;
-		type SyncedView = P::SyncedView;
 
 		fn delay(&self) -> usize {
 			self.effect.delay()
@@ -176,6 +175,10 @@ mod demo {
 		fn on_message(&self, message: Self::Message) {
 			self.effect.on_message(message);
 		}
+	}
+
+	impl<P: Processor> Processor for Source<P> {
+		type SyncedView = P::SyncedView;
 
 		fn synced_view(&self) -> Self::SyncedView {
 			self.effect.synced_view()

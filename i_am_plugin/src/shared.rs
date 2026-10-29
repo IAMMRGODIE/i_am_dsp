@@ -26,15 +26,8 @@ pub(crate) use clack_plugin::{
 };
 pub(crate) use crossbeam_channel::{Receiver, Sender};
 pub(crate) use i_am_dsp::{ProcessContext, ProcessInfos, prelude::{AtomicValue, BeatClock, ParamMap, SetValue, from_binary, to_binary}};
-pub(crate) use i_am_dsp_iced::{Message, Processor, SyncedView, timer};
-pub(crate) use iced_baseview::{
-	Element, IcedWindowSettings, PollSubNotifier, Program, Size, Subscription, Task, Theme,
-	baseview::{ParentWindowHandle, Window, dpi::{LogicalSize, PhysicalSize}},
-	create_window, executor,
-};
 
 extern crate self as i_am_plugin;
 
 #[doc(hidden)]
 pub(crate) use xxhash_rust::const_xxh3::xxh3_128;
-

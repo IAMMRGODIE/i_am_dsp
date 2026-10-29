@@ -1,0 +1,16 @@
+[package]
+name = "i_am_plugin_iced"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# The plug-in wrapper: the Editor seam this crate plugs into.
+i_am_plugin = { workspace = true }
+# The iced side: the views (SyncedView), the widgets and the theme.
+#
+# No default features: a backend needs the toolkit and the styles, not the
+# standalone player (which would pull an audio device into every plug-in that
+# merely draws one). A product that also wants the player asks for it itself.
+i_am_dsp_iced = { path = "../i_am_dsp_iced", default-features = false }
+crossbeam-channel = "0.5.16"
+iced_baseview = "0.5.2"

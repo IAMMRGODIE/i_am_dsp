@@ -1,0 +1,14 @@
+[package]
+name = "i_am_web_gui"
+version = "0.1.0"
+edition = "2024"
+
+# A faceplate for i_am_plugin drawn by a web view: parameters become JSON, the
+# page draws the controls, and a custom protocol serves the state the host owns.
+#
+# No toolkit is linked here. The page is plain HTML/CSS/JS, embedded in the binary,
+# and WebView2 comes from i_am_plugin_wry.
+[dependencies]
+i_am_dsp = { workspace = true }
+i_am_plugin = { workspace = true }
+i_am_plugin_wry = { workspace = true }

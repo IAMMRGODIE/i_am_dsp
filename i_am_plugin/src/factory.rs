@@ -37,7 +37,6 @@ impl SetEntry {
 	pub fn of<P>() -> Self
 	where
 		P: Plugin,
-		<P as i_am_dsp_iced::Processor>::Message: std::fmt::Debug,
 	{
 		Self {
 			descriptor: ClapPlugin::<P>::get_descriptor(),

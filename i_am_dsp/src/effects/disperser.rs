@@ -147,3 +147,37 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Disperser<CHANNELS> {
 		});
 	}
 }
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// A cutoff at the top of the range used to make a single allpass section
+	/// diverge: 30 kHz is above Nyquist at 44.1 kHz, the coefficients land on the
+	/// unit circle, and the time-domain output becomes NaN even though the frequency
+	/// response still reads as unity.
+	#[test]
+	fn a_high_cutoff_allpass_stays_finite_and_passes_a_signal() {
+		let mut disperser = Disperser::<2>::new(44_100);
+		disperser.set_biquad_count(100);
+		disperser.set_filter_parameters(30_000.0, 10_000.0);
+
+		let mut context: Box<dyn crate::ProcessContext> = Box::new(());
+		let samples = 44_100 * 2;
+		let mut sum = 0.0f64;
+
+		for index in 0..samples {
+			let x = (2.0 * PI * 1_000.0 * index as f32 / 44_100.0).sin() * 0.5;
+			let mut frame = [x, x];
+			disperser.process(&mut frame, &[], &mut context);
+
+			assert!(frame[0].is_finite(), "non-finite sample at {index}");
+
+			if index > samples / 2 {
+				sum += (frame[0] as f64) * (frame[0] as f64);
+			}
+		}
+
+		let rms = (sum / (samples / 2) as f64).sqrt();
+		assert!(rms > 0.2, "the allpass chain attenuated to {rms}");
+	}
+}

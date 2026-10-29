@@ -25,5 +25,6 @@ id = "iamdsp.example.wavetable.synth"
 
 crossbeam-channel = "0.5.16"
 i_am_plugin = { workspace = true }
+i_am_plugin_iced = { workspace = true }
 i_am_dsp_iced = { workspace = true }
 i_am_dsp = { workspace = true }

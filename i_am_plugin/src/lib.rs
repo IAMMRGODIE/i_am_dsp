@@ -1,19 +1,44 @@
-//! helper library for `i_am_dsp_iced` crate to export CLAP plugin based on `clack`
+//! A plug-in wrapper, with the GUI kept at arm's length.
 //! 
+//! This crate turns a processor from `i_am_dsp` into a CLAP plug-in (and, with the
+//! `vst3` feature, a VST3 one) using `clack`. It knows what a host asks a plug-in:
+//! descriptors, ports, parameters, state, latency, and how to run the audio thread.
+//! It does not know what draws the editor.
+//!
+//! A GUI is connected through the [Editor] trait. A plug-in says which editor it
+//! uses in [Plugin::editor], and the editor is handed the host's window as a raw
+//! handle plus a channel for its messages; everything else is the backend's business.
+//! This crate's tests use the default: no editor at all. The iced backend lives in
+//! `i_am_plugin_iced` and a WebView2 one in `i_am_plugin_wry`; an egui one would be
+//! a crate of its own, and all of them plug into the same seam.
+//!
 //! # Minimal Example
 //! 
 //! ```ignore
-//! // first, build a `Processor` based on `i_am_dsp_iced`
+//! use i_am_dsp_iced::{Processor as IcedProcessor, SyncedView};
+//! use i_am_plugin::{Descriptor, Plugin, WindowOptions, export_clap};
+//! 
+//! // first, build a processor from `i_am_dsp`
 //! struct MyProcessor;
 //! 
-//! impl Processor for MyProcessor {
-//!     // see more in `i_am_dsp_iced` crate
+//! impl i_am_dsp::Processor for MyProcessor {
+//!     type Message = ();
+//!     // see more in `i_am_dsp::Processor`
 //!     //...
 //! }
+//!
+//! // then add the iced view, so a backend can draw it
+//! impl IcedProcessor for MyProcessor {
+//!     type SyncedView = MyView;
+//!
+//!     fn synced_view(&self) -> Self::SyncedView {
+//!         MyView
+//!     }
+//! }
 //! 
-//! // The imply `Plugin` trait for the `Processor`
 //! impl Plugin for MyProcessor {
 //!     const DESCRIPTOR: Descriptor = Descriptor::new("i.am.example.processor", "My Processor");
+//!     const HAS_GUI: bool = true;
 //!     
 //!     fn new() -> Self {
 //!         MyProcessor
@@ -25,6 +50,11 @@
 //! 
 //!     fn param_map(&self) -> ParamMap {
 //!         ParamMap::default()
+//!     }
+//!
+//!     // the only line that names the toolkit
+//!     fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
+//!         Some(Box::new(i_am_plugin_iced::IcedEditor::new(self.synced_view())))
 //!     }
 //! }
 //! 
@@ -38,10 +68,46 @@
 //!     const AU_TYPE: [u8; 4] = *b"aufx";
 //!     const AU_SUBTYPE: [u8; 4] = *b"mypr";
 //! }
+//! ```
+//! 
+//! A plug-in with no GUI simply leaves [Plugin::editor] and `HAS_GUI` alone:
+//!
+//! ```ignore
+//! impl Plugin for MyHeadlessProcessor {
+//!     const DESCRIPTOR: Descriptor = Descriptor::new("i.am.example.headless", "My Headless");
+//!
+//!     fn new() -> Self { MyHeadlessProcessor }
+//!     fn param_map(&self) -> ParamMap { self.param_map.clone() }
+//! }
+//! ```
+//! 
+//! # Writing another backend
+//!
+//! An editor is a type that implements [Editor] for one plug-in type:
+//!
+//! ```ignore
+//! struct MyEditor { /* the toolkit's window */ }
+//!
+//! impl<P: Plugin> Editor<P> for MyEditor {
+//!     fn open(&mut self, context: EditorContext<P>) -> Result<(), EditorError> {
+//!         // build the window inside context.parent, size it with context.size and
+//!         // context.scale_factor, and keep context.messages for what the user does
+//!         Ok(())
+//!     }
+//!
+//!     fn show(&mut self) -> Result<(), EditorError> { /* ... */ }
+//!     fn hide(&mut self) -> Result<(), EditorError> { /* ... */ }
+//!     fn close(&mut self) { /* ... */ }
+//! }
+//! ```
+//!
+//! The backend moves the view to its own thread if it has one, sends
+//! [Message](i_am_dsp::Message) values over the channel, and is otherwise free: the
+//! wrapper never calls into it except through the trait.
 //! 
 //! # Exporting a VST3 plug-in
 //! 
-//! [`export_clap`] always exports the CLAP entry point (`clap_entry`). It also exports the
+//! [export_clap] always exports the CLAP entry point (`clap_entry`). It also exports the
 //! VST3 entry points (`GetPluginFactory`, `InitDll`, `ExitDll`) when the `vst3` feature of
 //! this crate is enabled, which links `clap-wrapper` and the VST3 SDK into your library.
 //! Turn it on from your plug-in crate:
@@ -92,6 +158,7 @@ mod audio;
 mod clap_plugin;
 mod context;
 mod descriptor;
+mod editor;
 mod entry;
 mod events;
 mod factory;
@@ -108,8 +175,17 @@ pub use factory::{PluginSetSource, SetEntry, SetEntryPoint};
 pub use clap_plugin::ClapPlugin;
 pub use context::ClapContext;
 pub use descriptor::{AudioPort, Descriptor, MidiPort, Tag};
-pub use main_thread::{GuiProgram, PluginMain};
-pub use plugin::{Plugin, PluginAuExt, WindowOptions};
+pub use editor::{Editor, EditorContext, EditorError, ParentWindow};
+pub use main_thread::PluginMain;
+pub use plugin::{Plugin, PluginAuExt, WindowOptions, WindowSize};
+
+/// The resize hints a [WindowOptions] carries, re-exported so a plug-in can describe
+/// a resizable window without also depending on `clack-extensions`.
+pub use clack_extensions::gui::{AspectRatioStrategy, GuiResizeHints};
+
+/// The processor and message traits of `i_am_dsp`, re-exported so a plug-in crate
+/// can name them without also depending on that crate.
+pub use i_am_dsp::{Message, Processor};
 
 /// The names the export macros need to be able to reach.
 ///

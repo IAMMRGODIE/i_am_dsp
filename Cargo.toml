@@ -5,9 +5,12 @@ members = [
 	"i_am_string", 
 	"i_am_dsp", 
 	"i_am_dsp_iced", 
-	"i_am_plugin", "plugin_example", 
+	"i_am_plugin", "i_am_plugin_iced", "i_am_plugin_wry", "i_am_crusher_wry", "plugin_example", 
 	"i_am_bundler",
 	"i_am_effects",
+	"i_am_effects_core",
+	"i_am_web_gui",
+	"i_am_effects_web",
 ]
 
 [workspace.dependencies]
@@ -16,4 +19,10 @@ i_am_string = { path = "i_am_string" }
 i_am_dsp = { path = "i_am_dsp" }
 i_am_dsp_iced = { path = "i_am_dsp_iced" }
 i_am_plugin = { path = "i_am_plugin" }
+i_am_plugin_iced = { path = "i_am_plugin_iced" }
+i_am_plugin_wry = { path = "i_am_plugin_wry" }
+i_am_crusher_wry = { path = "i_am_crusher_wry" }
 i_am_effects = { path = "i_am_effects" }
+i_am_effects_core = { path = "i_am_effects_core" }
+i_am_web_gui = { path = "i_am_web_gui" }
+i_am_effects_web = { path = "i_am_effects_web" }

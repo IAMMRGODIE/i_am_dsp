@@ -10,10 +10,7 @@ use crate::audio::{AudioProcessor};
 #[derive(Default)]
 pub struct ClapPlugin<P: Plugin>(std::marker::PhantomData<P>);
 
-impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> 
-where 
-	<P as i_am_dsp_iced::Processor>::Message: std::fmt::Debug
-{
+impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> {
 	fn get_descriptor() -> clack_plugin::prelude::PluginDescriptor {
 		let descriptor = P::DESCRIPTOR;
 		let mut out = clack_plugin::prelude::PluginDescriptor::new(descriptor.id, descriptor.name);
@@ -75,8 +72,7 @@ where
 			host: Some(host),
 			latency,
 			parent: None,
-			handle: None,
-			zoom: None,
+			editor: None,
 			message_receivers: vec![],
 		})
 	}
@@ -118,10 +114,7 @@ impl<P: Plugin> PluginNotePortsImpl for PluginMain<P> {
 	}
 }
 
-impl<P: Plugin> clack_plugin::plugin::Plugin for ClapPlugin<P> 
-where 
-	<P as i_am_dsp_iced::Processor>::Message: std::fmt::Debug
-{
+impl<P: Plugin> clack_plugin::plugin::Plugin for ClapPlugin<P> {
 	type Shared<'a> = ();
 	type AudioProcessor<'a> = AudioProcessor<'a, P>;
 	type MainThread<'a> = PluginMain<P>;
@@ -133,8 +126,13 @@ where
 			.register::<PluginState>()
 			.register::<PluginAsVST3>()
 			.register::<PluginLatency>()
-			.register::<PluginNotePorts>()
-			.register::<PluginGui>();
+			.register::<PluginNotePorts>();
+
+		// A plug-in with no GUI must not advertise the GUI extension: a host uses
+		// its presence to decide whether to offer an editor at all.
+		if P::HAS_GUI {
+			builder.register::<PluginGui>();
+		}
 	}
 }
 

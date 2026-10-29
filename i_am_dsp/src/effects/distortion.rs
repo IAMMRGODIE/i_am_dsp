@@ -10,10 +10,14 @@ use crate::{prelude::MIN_FREQUENCY, Effect, ProcessContext};
 #[derive(Parameters)]
 pub struct HardClipper {
 	/// saves in linear scale
+	#[unit(percent)]
+	#[id(display = "Threshold")]
 	#[layout(group = "Drive", order = 0, widget = knob, hero = "transfer")]
 	pub threshold: f32,
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
+	#[unit(percent)]
+	#[id(display = "Output")]
 	/// saves in linear scale
 	#[layout(group = "Drive", order = 1, widget = knob)]
 	pub gain: f32,

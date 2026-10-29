@@ -5,50 +5,67 @@
 //! a control or places one -- each effect says what its parameters are and where they
 //! belong, and the faceplate builds the rest.
 //!
+//! The iced interface and the products are all this crate is. The plumbing an effect
+//! needs regardless of what draws it is `i_am_effects_core`, re-exported here as
+//! [processor]; a product with another GUI (see `i_am_crusher_wry`) depends on that
+//! core instead, without pulling in iced.
+//!
 //! ```text
 //! cargo build -p i_am_effects
 //! cargo bundle -p i_am_effects --features vst3
 //! ```
 
-use i_am_dsp::prelude::{Crusher as CrusherDsp, HardClipper as DriveDsp, Lowpass as FilterDsp};
-use i_am_plugin::export_clap;
+mod view;
+pub use view::{EffectView, view_for};
 
-pub mod processor;
+pub use i_am_effects_core::processor;
 
-// The three plug-ins this library exports.
-//
-// Each line is the whole of what the product knows about itself: which effect, how
-// to build it for a sample rate, what the host should call it, and how big its
-// window wants to be.
-effect_plugin!(
-	Crusher,
-	CrusherDsp<2>,
-	CrusherDsp::<2>::new,
-	"iamdsp.effects.crusher",
-	"I Am Crusher",
-	// Three sections stacked, and the tallest row in them is two knobs.
-	(400.0, 640.0)
-);
+mod products {
+	use i_am_dsp::prelude::{
+		Crusher as CrusherDsp, HardClipper as DriveDsp, Lowpass as FilterDsp,
+	};
+	use i_am_plugin::export_clap;
 
-effect_plugin!(
-	Drive,
-	DriveDsp,
-	|_rate| DriveDsp::new(0.8, 1.0),
-	"iamdsp.effects.drive",
-	"I Am Drive",
-	// One section: a curve over two controls.
-	(420.0, 250.0)
-);
+	// `#[macro_export]` puts the macro at the crate root; a module has to name it.
+	use crate::effect_plugin;
 
-effect_plugin!(
-	Filter,
-	FilterDsp<2>,
-	|rate| FilterDsp::<2>::new(rate, 1_000.0, 0.707),
-	"iamdsp.effects.filter",
-	"I Am Filter",
-	// One section: a response curve over two controls.
-	(460.0, 250.0)
-);
+	// The three plug-ins this library exports.
+	//
+	// Each line is the whole of what the product knows about itself: which effect, how
+	// to build it for a sample rate, what the host should call it, and how big its
+	// window wants to be.
+	effect_plugin!(
+		Crusher,
+		CrusherDsp<2>,
+		CrusherDsp::<2>::new,
+		"iamdsp.effects.crusher",
+		"I Am Crusher",
+		// Three sections stacked, and the tallest row in them is two knobs.
+		(400.0, 640.0)
+	);
 
-// One call, one library, three plug-ins.
-export_clap!(Crusher, Drive, Filter);
+	effect_plugin!(
+		Drive,
+		DriveDsp,
+		|_rate| DriveDsp::new(0.8, 1.0),
+		"iamdsp.effects.drive",
+		"I Am Drive",
+		// One section: a curve over two controls.
+		(420.0, 250.0)
+	);
+
+	effect_plugin!(
+		Filter,
+		FilterDsp<2>,
+		|rate| FilterDsp::<2>::new(rate, 1_000.0, 0.707),
+		"iamdsp.effects.filter",
+		"I Am Filter",
+		// One section: a response curve over two controls.
+		(460.0, 250.0)
+	);
+
+	// One call, one library, three plug-ins.
+	export_clap!(Crusher, Drive, Filter);
+}
+
+pub use products::{Crusher, Drive, Filter};

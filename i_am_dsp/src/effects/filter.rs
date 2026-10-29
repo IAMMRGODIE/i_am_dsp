@@ -4,6 +4,14 @@ use std::f32::consts::PI;
 
 pub(crate) const MIN_FREQUENCY: f32 = 10.0;
 
+/// The highest cutoff a filter may be designed for, as a fraction of the sample rate.
+///
+/// At exactly Nyquist the coefficients land on the unit circle and the filter stops
+/// being stable: a single allpass section then diverges to NaN in the time domain even
+/// though its frequency response still reads as unity. Keeping the cutoff a little
+/// below Nyquist is what an allpass stack of a hundred sections needs.
+pub(crate) const MAX_FREQUENCY_RATIO: f32 = 0.49;
+
 /// Feedback values below this are flushed to zero.
 ///
 /// Every feedback loop walks through the subnormal range as it decays, and on
@@ -412,6 +420,10 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		cutoff: f32, 
 		bandwidth: f32,
 	) {
+		let cutoff = cutoff.clamp(
+			MIN_FREQUENCY,
+			self.sample_rate as f32 * MAX_FREQUENCY_RATIO,
+		);
 		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
 		let q = cutoff / bandwidth;
 		let alpha = omega_0.sin() / (2.0 * q);
@@ -433,6 +445,10 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		cutoff: f32, 
 		bandwidth: f32,
 	) {
+		let cutoff = cutoff.clamp(
+			MIN_FREQUENCY,
+			self.sample_rate as f32 * MAX_FREQUENCY_RATIO,
+		);
 		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
 		let q = cutoff / bandwidth;
 		let alpha = omega_0.sin() / (2.0 * q);
@@ -1139,10 +1155,12 @@ pub struct Lowpass<const CHANNELS: usize> {
 	#[logarithmic]
 	/// The cutoff of the lowpass filter
 	#[unit(hertz)]
+	#[id(display = "Cutoff")]
 	#[layout(group = "Filter", order = 0, widget = knob, size = large, hero = "spectrum")]
 	pub cutoff: f32,
 	#[range(min = 0.01, max = 10.0)]
 	/// The Q value of the lowpass filter
+	#[id(display = "Resonance")]
 	#[layout(group = "Filter", order = 1, widget = knob)]
 	pub q: f32,
 	#[sub_param]

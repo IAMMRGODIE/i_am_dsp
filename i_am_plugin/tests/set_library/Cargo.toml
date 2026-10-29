@@ -13,4 +13,3 @@ crate-type = ["cdylib"]
 [dependencies]
 i_am_plugin = { path = "../.." }
 i_am_dsp = { path = "../../../i_am_dsp", default-features = false }
-i_am_dsp_iced = { path = "../../../i_am_dsp_iced", default-features = false }

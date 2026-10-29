@@ -19,9 +19,10 @@ clack-plugin = "0.1.1"
 # The raw CLAP C API: the host side of the latency extension is not wrapped for plugins
 # yet, so telling a host that the latency changed goes through it directly.
 clap-sys = "0.5.0"
-iced_baseview = "0.5.2"
 i_am_dsp = { workspace = true }
-i_am_dsp_iced = { workspace = true }
+# The parent window a host hands us is copied as a raw handle; that is the whole of
+# what this crate knows about a windowing system.
+raw-window-handle = "0.6.0"
 crossbeam-channel = "0.5.16"
 xxhash-rust = { version = "0.8.18", features = ["const_xxh3"] }
 clap-wrapper = { version = "0.3.1", optional = true, default-features = false }

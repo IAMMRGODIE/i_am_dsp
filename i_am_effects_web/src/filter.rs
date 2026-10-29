@@ -1,0 +1,128 @@
+//! The filter the web product ships: three algorithms behind one set of controls.
+//!
+//! The DSP crate has a lowpass, a highpass and a bandpass, each with its own type.
+//! A plug-in that offers all three cannot swap its type at runtime, so this wraps
+//! one Biquad and changes what it is set to when the mode moves. The parameters
+//! are the same for every mode, which is what lets the mode be a switch rather
+//! than three separate plug-ins.
+
+use i_am_dsp::prelude::{Biquad, Effect, ProcessContext};
+use i_am_dsp_derive::Parameters;
+
+/// A filter that is a lowpass, a highpass or a bandpass.
+#[derive(Parameters)]
+pub struct Multimode {
+	/// Which of the three the filter is.
+	#[choices("Lowpass", "Highpass", "Bandpass")]
+	#[default(0)]
+	#[layout(group = "Filter", order = 0, widget = choice)]
+	pub mode: i32,
+
+	/// The cutoff of the filter.
+	#[range(min = 10.0, max = 21000.0)]
+	#[logarithmic]
+	#[unit(hertz)]
+	#[id(display = "Cutoff")]
+	#[layout(group = "Filter", order = 1, widget = knob, size = large, hero = "spectrum")]
+	pub cutoff: f32,
+
+	/// How much the filter rings at its cutoff.
+	#[range(min = 0.01, max = 10.0)]
+	#[id(display = "Resonance")]
+	#[layout(group = "Filter", order = 2, widget = knob)]
+	pub q: f32,
+
+	#[sub_param]
+	filter: Biquad<2>,
+
+	/// The values the coefficients were computed from, so a block that changed
+	/// nothing does not recompute them.
+	#[skip]
+	cached: Option<(i32, f32, f32)>,
+}
+
+impl Multimode {
+	/// A lowpass at the given cutoff, which is where a fresh filter starts.
+	pub fn new(sample_rate: usize, cutoff: f32, q: f32) -> Self {
+		Self {
+			mode: 0,
+			cutoff,
+			q,
+			filter: Biquad::lowpass(sample_rate, cutoff, q),
+			cached: None,
+		}
+	}
+}
+
+impl Effect<2> for Multimode {
+	fn delay(&self) -> usize {
+		0
+	}
+
+	fn process(
+		&mut self,
+		samples: &mut [f32; 2],
+		other: &[&[f32; 2]],
+		context: &mut Box<dyn ProcessContext>,
+	) {
+		let key = (self.mode, self.cutoff, self.q);
+
+		if self.cached != Some(key) {
+			match self.mode {
+				1 => self.filter.set_to_highpass(self.cutoff, self.q),
+				// The bandpass setter takes a bandwidth in hertz, so Q has to be
+				// turned back into one: a high Q is a narrow band.
+				2 => self.filter.set_to_bandpass(
+					self.cutoff,
+					(self.cutoff / self.q.max(0.05)).max(1.0),
+				),
+				_ => self.filter.set_to_lowpass(self.cutoff, self.q),
+			}
+
+			self.cached = Some(key);
+		}
+
+		self.filter.process(samples, other, context);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// The level a mode leaves of a sine at a frequency, after the filter settles.
+	fn level(mode: i32, frequency: f32) -> f32 {
+		let mut filter = Multimode::new(48_000, 1_000.0, 0.707);
+		filter.mode = mode;
+
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut energy = 0.0_f32;
+
+		for index in 0..4_096 {
+			let value = (std::f32::consts::TAU * frequency * index as f32 / 48_000.0).sin() * 0.5;
+			let mut samples = [value, value];
+
+			filter.process(&mut samples, &[], &mut context);
+
+			if index >= 2_048 {
+				energy += samples[0] * samples[0];
+			}
+		}
+
+		(energy / 2_048.0).sqrt()
+	}
+
+	/// A mode is not a label: each one has to pass its own band and reject the other.
+	#[test]
+	fn the_three_modes_pass_different_bands() {
+		assert!(level(0, 100.0) > 0.3, "the lowpass passes what is below it");
+		assert!(level(0, 10_000.0) < 0.05, "and rejects what is above it");
+
+		assert!(level(1, 100.0) < 0.05, "the highpass rejects what is below it");
+		assert!(level(1, 10_000.0) > 0.3, "and passes what is above it");
+
+		assert!(level(2, 1_000.0) > 0.2, "the bandpass passes its centre");
+		assert!(level(2, 100.0) < 0.1, "and rejects both sides of it");
+		assert!(level(2, 10_000.0) < 0.1);
+	}
+}

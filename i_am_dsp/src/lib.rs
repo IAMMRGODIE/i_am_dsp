@@ -24,6 +24,9 @@ pub mod generators;
 pub mod effects;
 pub mod tools;
 pub mod prelude;
+pub mod processor;
+
+pub use processor::{Message, Processor};
 
 #[doc(hidden)]
 pub use phf;

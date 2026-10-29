@@ -63,6 +63,9 @@ impl Effect<2> for StereoController {
 #[default_float_range(min = 0.01, max = 4.0)]
 pub struct Gain {
 	#[logarithmic]
+	#[unit(percent)]
+	#[id(display = "Gain")]
+	#[layout(group = "Gain", order = 0, widget = knob, size = large, hero = "waveform")]
 	/// saves in linear scale
 	pub gain: f32,
 }

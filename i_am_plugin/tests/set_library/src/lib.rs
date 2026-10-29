@@ -1,22 +1,13 @@
 //! One library that exports two plug-ins, for the host probe to load.
+//!
+//! Both are headless: the probe scans and processes audio, and a GUI is not part of
+//! that. Keeping them free of a toolkit is also what makes this fixture a check that
+//! `i_am_plugin` needs no GUI crate at all.
 
+use i_am_dsp::Processor;
 use i_am_dsp::prelude::{Parameter, Parameters, SetValue};
 use i_am_dsp::ProcessContext;
-use i_am_dsp_iced::iced::widget::text;
-use i_am_dsp_iced::{Processor, SyncedView};
 use i_am_plugin::{Descriptor, Plugin, export_clap};
-
-struct View;
-
-impl SyncedView for View {
-	type Message = ();
-
-	fn update(&mut self, _: &()) {}
-
-	fn view(&self) -> i_am_dsp_iced::iced::Element<'_, ()> {
-		text("").into()
-	}
-}
 
 macro_rules! test_plugin {
 	($name:ident, $id:literal, $title:literal) => {
@@ -34,7 +25,6 @@ macro_rules! test_plugin {
 
 		impl Processor for $name {
 			type Message = ();
-			type SyncedView = View;
 
 			fn delay(&self) -> usize {
 				0
@@ -43,10 +33,6 @@ macro_rules! test_plugin {
 			fn process(&mut self, _: &mut [f32; 2], _: &[[f32; 2]], _: &mut Box<dyn ProcessContext>) {}
 
 			fn on_message(&self, _: ()) {}
-
-			fn synced_view(&self) -> Self::SyncedView {
-				View
-			}
 		}
 
 		impl Plugin for $name {
@@ -54,10 +40,6 @@ macro_rules! test_plugin {
 
 			fn new() -> Self {
 				Self
-			}
-
-			fn window_options() -> i_am_plugin::WindowOptions {
-				i_am_plugin::WindowOptions::default()
 			}
 
 			fn param_map(&self) -> i_am_dsp::prelude::ParamMap {

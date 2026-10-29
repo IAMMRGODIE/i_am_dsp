@@ -17,6 +17,7 @@ use crate::{
 	effects::{
 		disperser::Disperser,
 		distortion::saturate,
+		filter::MAX_FREQUENCY_RATIO,
 		stereo_control::Gain,
 	},
 	Effect, ProcessContext,
@@ -152,7 +153,11 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Crusher<CHANNELS> {
 
 		if count > 0 {
 			let bandwidth = amount * MAX_BANDWIDTH;
-			let cutoff = amount * (lfo * 0.5 + 0.5) * (MAX_CUTOFF - MIN_CUTOFF) + MIN_CUTOFF;
+			// The sweep must stop below Nyquist: a biquad designed at or above it has
+			// poles on (or outside) the unit circle, and a hundred allpass sections
+			// take the whole signal to NaN in the time domain.
+			let max_cutoff = MAX_CUTOFF.min(sample_rate * MAX_FREQUENCY_RATIO);
+			let cutoff = amount * (lfo * 0.5 + 0.5) * (max_cutoff - MIN_CUTOFF) + MIN_CUTOFF;
 			self.disperser.set_filter_parameters(cutoff, bandwidth);
 			self.disperser.process(samples, other, process_context);
 		}
@@ -162,7 +167,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Crusher<CHANNELS> {
 		let am_gain = 1.0 - self.am_amount + self.am_amount * am_lfo;
 
 		for sample in samples.iter_mut() {
-			*sample = saturate(*sample, a, 2.0) * am_gain;
+			let value = saturate(*sample, a, 2.0) * am_gain;
+			// A non-finite sample would poison the host's whole mixer; never let one
+			// out of the effect, even if a future filter change produces one.
+			*sample = if value.is_finite() { value } else { 0.0 };
 		}
 
 		self.output_gain.process(samples, other, process_context);
@@ -255,6 +263,52 @@ mod tests {
 		assert_eq!(crusher.amount, 0.5);
 		assert!(crusher.set_parameter("output_gain.gain", SetValue::Float(2.0)));
 		assert_eq!(crusher.output_gain.gain, 2.0);
+	}
+
+	/// A large amount must not swallow the signal. The disperser's cutoff sweep
+	/// reaches 30 kHz at the top of the range, above Nyquist at every common rate;
+	/// if the allpass prototype is designed from an aliased cutoff, the stack can
+	/// become unstable or attenuate everything after a few sections.
+	/// A large amount must not swallow the signal. The disperser's cutoff sweep used
+	/// to reach 30 kHz at the top of the range, above Nyquist at 44.1 and 48 kHz; the
+	/// allpass chain then diverged and the effect went silent (or NaN).
+	#[test]
+	fn a_large_amount_still_passes_a_signal() {
+		for rate in [44_100usize, 48_000] {
+			for amount in [0.9f32, 1.0] {
+				let mut crusher = Crusher::<2>::new(rate);
+				crusher.amount = amount;
+				crusher.am_amount = 0.0;
+
+				let mut context: Box<dyn crate::ProcessContext> = Box::new(());
+				let samples = rate * 2;
+				let mut sum = 0.0f64;
+				let mut peak = 0.0f32;
+
+				for index in 0..samples {
+					let x = (2.0 * PI * 1_000.0 * index as f32 / rate as f32).sin() * 0.5;
+					let mut frame = [x, x];
+					crusher.process(&mut frame, &[], &mut context);
+
+					assert!(
+						frame[0].is_finite() && frame[1].is_finite(),
+						"rate {rate} amount {amount} produced a non-finite sample at {index}"
+					);
+
+					if index > samples / 2 {
+						sum += (frame[0] as f64) * (frame[0] as f64);
+						peak = peak.max(frame[0].abs());
+					}
+				}
+
+				let rms = (sum / (samples / 2) as f64).sqrt() as f32;
+
+				assert!(
+					rms > 0.05,
+					"rate {rate} amount {amount} left a steady rms of {rms} (peak {peak})"
+				);
+			}
+		}
 	}
 
 	#[test]

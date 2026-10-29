@@ -23,5 +23,8 @@ id = "iamdsp.effects"
 
 [dependencies]
 i_am_dsp = { workspace = true }
+# The processor and its message, with no interface and no plug-in export.
+i_am_effects_core = { workspace = true }
 i_am_dsp_iced = { workspace = true }
 i_am_plugin = { workspace = true }
+i_am_plugin_iced = { workspace = true }

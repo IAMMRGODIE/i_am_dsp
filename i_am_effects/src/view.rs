@@ -1,159 +1,28 @@
-//! What every effect in this bundle has in common.
+//! The iced faceplate, and the macro that turns an effect into a plug-in.
 //!
-//! An effect here is three things: the DSP that does the work, the parameters it
-//! declares, and the interface those parameters describe. Only the first is written
-//! once per effect -- the other two are this module, and that is the whole point of
-//! the metadata the DSP carries.
+//! The processor itself lives in `i_am_effects_core`; this module adds the view the
+//! parameters describe, and the product macro every plug-in in the bundle shares.
 
 use std::sync::atomic::Ordering;
-use std::time::Instant;
 
-use i_am_dsp::prelude::{Effect, ParamMap, Parameter, Paramed, Parameters, SetValue};
-use i_am_dsp::{NoteEvent, ProcessContext};
+use i_am_dsp::prelude::{ParamMap, Parameter, Parameters};
 use i_am_dsp_iced::iced::widget::canvas;
 use i_am_dsp_iced::iced::{Element, Length};
 use i_am_dsp_iced::tools::{spectrum::Spectrum, transfer::transfer};
-use i_am_dsp_iced::{Message as IcedMessage, Processor, SyncedView, faceplate, styles};
+use i_am_dsp_iced::{SyncedView, faceplate, styles};
 
-/// The rate an effect is built for before the host has said what it runs at.
+use crate::processor::{EffectMessage, EffectProcessor};
+
+/// The iced view of a processor: one faceplate, built from the parameters it was given.
 ///
-/// The effects take their rate when they are built, and the ones whose coefficients
-/// depend on it -- a filter, a reverb, a shaped drive -- are built wrong when it is
-/// wrong. Rebuilding them once the host has said would be the fix, and it cannot be
-/// done here: the parameter map a host reads is made together with the effect, and
-/// has to stay the same map for the plug-in's life, or the host's automation ends up
-/// in a map nothing is reading.
-pub const DEFAULT_SAMPLE_RATE: usize = 44_100;
-
-/// A message from the interface.
-#[derive(Debug, Clone)]
-pub enum EffectMessage {
-	/// A parameter moved.
-	///
-	/// The interface writes the new value into the shared map itself, which is what
-	/// the audio thread reads, so the message carries nothing: a faceplate is built
-	/// from parameters, and the parameters are the interface.
-	Changed,
-}
-
-impl IcedMessage for EffectMessage {
-	fn from_note_event(_: NoteEvent) -> Self {
-		Self::Changed
-	}
-
-	fn note_event(&self) -> Option<NoteEvent> {
-		None
-	}
-
-	fn tick(_: Instant) -> Self {
-		Self::Changed
-	}
-}
-
-/// An effect, with the interface its metadata describes.
-pub struct EffectProcessor<E: Parameters> {
-	/// The effect, kept inside a `Paramed` because that is what holds the parameter
-	/// map the host and the interface both write into.
-	///
-	/// The map is made with the effect and has to stay the same map for the plug-in's
-	/// whole life, so the effect is what moves when the rate changes: `Paramed` keeps
-	/// its map when the value inside it is replaced.
-	effect: Paramed<E>,
-	/// How to build the effect for a sample rate.
-	build: fn(usize) -> E,
-	sample_rate: usize,
-}
-
-impl<E: Parameters> Parameters for EffectProcessor<E> {
-	fn get_parameters(&self) -> Vec<Parameter> {
-		self.effect.get_parameters()
-	}
-
-	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		self.effect.set_parameter(identifier, value)
-	}
-}
-
-impl<E: Parameters> EffectProcessor<E> {
-	/// Wraps an effect, given how to build it for a sample rate.
-	///
-	/// It is built once for the placeholder rate, and rebuilt by
-	/// [`activate`](Self::activate) when the host says what it really runs at.
-	pub fn new(build: fn(usize) -> E) -> Self {
-		Self {
-			effect: Paramed::new(build(DEFAULT_SAMPLE_RATE)),
-			build,
-			sample_rate: DEFAULT_SAMPLE_RATE,
-		}
-	}
-
-	/// The rate the effect is currently built for.
-	pub fn sample_rate(&self) -> usize {
-		self.sample_rate
-	}
-
-	/// Rebuilds the effect for the rate the host just announced.
-	///
-	/// The parameter map is deliberately left alone: it is the one the host is
-	/// holding, and swapping the effect inside it is the whole trick. The values are
-	/// pushed into the new effect so nothing the interface moved is lost.
-	pub fn activate(&mut self, sample_rate: usize) {
-		if sample_rate == self.sample_rate || sample_rate == 0 {
-			return;
-		}
-
-		self.effect.value = (self.build)(sample_rate);
-		self.effect.sync_params();
-		self.sample_rate = sample_rate;
-	}
-
-	/// The parameters, as a host presents them.
-	pub fn parameters(&self) -> Vec<Parameter> {
-		self.effect.get_parameters()
-	}
-
-	/// Where the interface writes and the audio thread reads.
-	pub fn param_map(&self) -> ParamMap {
-		self.effect.param_map()
-	}
-
-	/// Sets a parameter directly, which is what a test does and what a host does
-	/// through the map.
-	pub fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		self.effect.set_parameter(identifier, value)
-	}
-}
-
-impl<E: Effect<2> + Parameters + Send + Sync + 'static> Processor for EffectProcessor<E> {
-	type Message = EffectMessage;
-	type SyncedView = EffectView;
-
-	fn delay(&self) -> usize {
-		self.effect.delay()
-	}
-
-	fn process(
-		&mut self,
-		samples: &mut [f32; 2],
-		other: &[[f32; 2]],
-		process_context: &mut Box<dyn ProcessContext>,
-	) {
-		// An effect takes its side-chains as slices of slices, which is the shape a
-		// generator's output has; the processor is handed plain frames.
-		let sides: Vec<&[f32; 2]> = other.iter().collect();
-
-		// Paramed reads the shared map into the effect before this runs, which is how
-		// a value the interface moved reaches the audio thread.
-		self.effect.process(samples, &sides, process_context);
-	}
-
-	fn on_message(&self, _: EffectMessage) {}
-
-	fn synced_view(&self) -> EffectView {
-		EffectView {
-			parameters: self.parameters(),
-			param_map: self.param_map(),
-		}
+/// This is a free function rather than an `i_am_dsp_iced::Processor` implementation
+/// on the processor: the processor lives in another crate, and only the product type
+/// (which is local) may implement a foreign trait for it.
+#[doc(hidden)]
+pub fn view_for<E: Parameters>(processor: &EffectProcessor<E>) -> EffectView {
+	EffectView {
+		parameters: processor.parameters(),
+		param_map: processor.param_map(),
 	}
 }
 
@@ -323,12 +192,12 @@ macro_rules! effect_plugin {
 			}
 		}
 
-		impl i_am_dsp_iced::Processor for $name {
+		// The audio side: no view, no toolkit.
+		impl i_am_dsp::Processor for $name {
 			type Message = $crate::processor::EffectMessage;
-			type SyncedView = $crate::processor::EffectView;
 
 			fn delay(&self) -> usize {
-				i_am_dsp_iced::Processor::delay(&self.0)
+				i_am_dsp::Processor::delay(&self.0)
 			}
 
 			fn process(
@@ -337,20 +206,27 @@ macro_rules! effect_plugin {
 				other: &[[f32; 2]],
 				process_context: &mut ::std::boxed::Box<dyn i_am_dsp::ProcessContext>,
 			) {
-				i_am_dsp_iced::Processor::process(&mut self.0, samples, other, process_context)
+				i_am_dsp::Processor::process(&mut self.0, samples, other, process_context)
 			}
 
 			fn on_message(&self, message: Self::Message) {
-				i_am_dsp_iced::Processor::on_message(&self.0, message)
+				i_am_dsp::Processor::on_message(&self.0, message)
 			}
+		}
+
+		// The view, for the iced toolkit.
+		impl i_am_dsp_iced::Processor for $name {
+			type SyncedView = $crate::EffectView;
 
 			fn synced_view(&self) -> Self::SyncedView {
-				i_am_dsp_iced::Processor::synced_view(&self.0)
+				$crate::view_for(&self.0)
 			}
 		}
 
 		impl i_am_plugin::Plugin for $name {
 			const DESCRIPTOR: i_am_plugin::Descriptor = i_am_plugin::Descriptor::new($id, $title);
+
+			const HAS_GUI: bool = true;
 
 			fn on_activate(&mut self, sample_rate: usize) {
 				self.0.activate(sample_rate);
@@ -369,6 +245,14 @@ macro_rules! effect_plugin {
 			fn param_map(&self) -> i_am_dsp::prelude::ParamMap {
 				self.0.param_map()
 			}
+
+			fn editor(&self) -> ::std::option::Option<::std::boxed::Box<dyn i_am_plugin::Editor<Self>>> {
+				::std::option::Option::Some(::std::boxed::Box::new(
+					i_am_plugin_iced::IcedEditor::new(
+						i_am_dsp_iced::Processor::synced_view(self),
+					),
+				))
+			}
 		}
 	};
 }
@@ -376,7 +260,7 @@ macro_rules! effect_plugin {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use i_am_dsp::prelude::Value;
+	use i_am_dsp::prelude::{SetValue, Value};
 
 	/// A lowpass is flat below its corner and falls away above it. This is the shape the
 	/// picture has to have: drawing it from the distance to the corner falls away on both
@@ -407,7 +291,7 @@ mod tests {
 	#[test]
 	fn a_view_follows_the_values_in_the_map() {
 		let effect = EffectProcessor::new(|_rate| i_am_dsp::prelude::HardClipper::new(0.8, 1.0));
-		let mut view = effect.synced_view();
+		let mut view = view_for(&effect);
 		let map = effect.param_map();
 
 		let drawn = |view: &EffectView| match view.parameters[0].value {
