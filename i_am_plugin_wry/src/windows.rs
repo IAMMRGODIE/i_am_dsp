@@ -10,12 +10,11 @@ use windows_sys::Win32::Foundation::{GetLastError, HWND};
 use windows_sys::Win32::Graphics::Gdi::COLOR_WINDOW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-	CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, SetParent, SetWindowPos,
-	ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, WNDCLASSW, WS_CHILD,
-	WS_CLIPCHILDREN, WS_VISIBLE,
+	CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, RegisterClassW, SetParent,
+	SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, WNDCLASSW,
+	WS_CHILD, WS_CLIPCHILDREN, WS_VISIBLE,
 };
 use wry::dpi::{LogicalPosition, LogicalSize};
-use wry::WebViewExtWindows;
 
 use crate::ProtocolResponse;
 
@@ -59,9 +58,15 @@ fn register_host_class() {
 	});
 }
 
-fn create_host_window(parent: *mut std::ffi::c_void, size: WindowSize) -> Result<HWND, EditorError> {
+fn create_host_window(
+	parent: *mut std::ffi::c_void,
+	size: WindowSize,
+	scale: f64,
+) -> Result<HWND, EditorError> {
 	register_host_class();
 
+	let width = (size.width as f64 * scale).round() as i32;
+	let height = (size.height as f64 * scale).round() as i32;
 	let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
 	let window = unsafe {
 		CreateWindowExW(
@@ -71,8 +76,8 @@ fn create_host_window(parent: *mut std::ffi::c_void, size: WindowSize) -> Result
 			WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
 			0,
 			0,
-			size.width as i32,
-			size.height as i32,
+			width,
+			height,
 			parent,
 			std::ptr::null_mut(),
 			instance,
@@ -180,6 +185,35 @@ fn clear_error_log() {
 	let _ = std::fs::remove_file(error_log_path());
 }
 
+/// Record panic messages (including ones that happen on WebView2 threads) in
+/// the same log the open path writes. A host cannot show a Rust panic, and a
+/// panic crossing the host's FFI boundary is a crash.
+fn install_panic_hook() {
+	static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+	ONCE.get_or_init(|| {
+		let previous = std::panic::take_hook();
+		std::panic::set_hook(Box::new(move |info| {
+			let location = info
+				.location()
+				.map(|location| format!("{}:{}", location.file(), location.line()))
+				.unwrap_or_default();
+			note(&format!("panic: {info} at {location}"));
+			previous(info);
+		}));
+	});
+}
+
+fn panic_payload(payload: &(dyn std::any::Any + Send)) -> String {
+	if let Some(message) = payload.downcast_ref::<&str>() {
+		(*message).to_string()
+	} else if let Some(message) = payload.downcast_ref::<String>() {
+		message.clone()
+	} else {
+		"non-string panic".to_string()
+	}
+}
+
 /// A GUI that draws a plug-in's editor as an HTML page in a WebView2 control.
 ///
 /// The page sends strings to the processor with:
@@ -203,6 +237,8 @@ pub struct WryEditor<P: Plugin> {
 	window: Option<HWND>,
 	/// The logical size the page is laid out for.
 	size: WindowSize,
+	/// The host's scale factor, used to turn logical sizes into Win32 pixels.
+	scale: f64,
 	/// Where WebView2 keeps its profile and caches, if the plug-in picks a place.
 	data_directory: Option<std::path::PathBuf>,
 	/// A URL to load instead of [html](Self::html), for pages served over a
@@ -219,12 +255,15 @@ impl<P: Plugin> WryEditor<P> {
 		html: impl Into<String>,
 		on_ipc: impl Fn(&str) -> Option<P::Message> + 'static,
 	) -> Self {
+		install_panic_hook();
+
 		Self {
 			html: html.into(),
 			on_ipc: Some(Box::new(on_ipc)),
 			webview: None,
 			window: None,
 			size: WindowSize::default(),
+			scale: 1.0,
 			data_directory: None,
 			url: None,
 			protocols: Vec::new(),
@@ -319,6 +358,7 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		} = context;
 
 		self.size = size;
+		self.scale = scale_factor.unwrap_or(1.0).max(0.1);
 
 		note(&format!(
 			"open: {}x{} scale={:?}",
@@ -358,8 +398,26 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		let parent_hwnd = parent
 			.as_win32_hwnd()
 			.ok_or_else(|| "the wry editor needs a Win32 parent window")?;
-		let window = create_host_window(parent_hwnd, size)?;
-		note("window: created");
+
+		// The host's window is the truth for the visible area: a DAW may size the
+		// plug-in window differently from the design size the wrapper reports.
+		// The child and the WebView2 fill that client rectangle.
+		let mut client = unsafe { std::mem::zeroed() };
+		let size = if unsafe { GetClientRect(parent_hwnd, &mut client) } != 0
+			&& client.right > client.left
+			&& client.bottom > client.top
+		{
+			WindowSize::new(
+				(client.right - client.left) as f32 / self.scale as f32,
+				(client.bottom - client.top) as f32 / self.scale as f32,
+			)
+		} else {
+			size
+		};
+		self.size = size;
+
+		let window = create_host_window(parent_hwnd, size, self.scale)?;
+		note(&format!("window: created {}x{} logical", size.width, size.height));
 		let outer_parent = ParentWindow::from_win32_hwnd(window)
 			.ok_or_else(|| "the host window handle was invalid")?;
 
@@ -424,11 +482,13 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 				report_error(&error);
 				return Err(error);
 			}
-			Err(_) => {
+			Err(payload) => {
 				unsafe {
 					DestroyWindow(window);
 				}
-				let error = EditorError::from("WebView2 panicked while opening");
+				let message = panic_payload(payload.as_ref());
+				note(&format!("panic in open: {message}"));
+				let error = EditorError::from(format!("WebView2 panicked while opening: {message}"));
 				report_error(&error);
 				return Err(error);
 			}
@@ -493,10 +553,33 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		Ok(())
 	}
 
-	fn set_scale_factor(&mut self, _scale_factor: f64) -> Result<(), EditorError> {
-		// The page is a child control: it takes the DPI of the window it lives in,
-		// and wry converts the logical bounds with that DPI. The host's separate
-		// scale factor is already reflected in the size the wrapper hands us.
+	fn set_scale_factor(&mut self, scale_factor: f64) -> Result<(), EditorError> {
+		self.scale = scale_factor.max(0.1);
+
+		// The WebView2 parent is a Win32 window, so its pixel size has to follow
+		// the DPI; the WebView2 itself keeps taking logical bounds.
+		if let Some(window) = self.window {
+			let width = (self.size.width as f64 * self.scale).round() as i32;
+			let height = (self.size.height as f64 * self.scale).round() as i32;
+			unsafe {
+				SetWindowPos(
+					window,
+					std::ptr::null_mut(),
+					0,
+					0,
+					width,
+					height,
+					SWP_NOZORDER | SWP_NOACTIVATE,
+				);
+			}
+		}
+
+		if self.webview.is_some() {
+			self.webview()?
+				.set_bounds(Self::bounds(self.size))
+				.map_err(EditorError::new)?;
+		}
+
 		Ok(())
 	}
 
@@ -504,14 +587,16 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		self.size = size;
 
 		if let Some(window) = self.window {
+			let width = (size.width as f64 * self.scale).round() as i32;
+			let height = (size.height as f64 * self.scale).round() as i32;
 			unsafe {
 				SetWindowPos(
 					window,
 					std::ptr::null_mut(),
 					0,
 					0,
-					size.width as i32,
-					size.height as i32,
+					width,
+					height,
 					SWP_NOZORDER | SWP_NOACTIVATE,
 				);
 			}
