@@ -1702,11 +1702,11 @@ var ENV_MAX = 512;
         if (window.ipc) window.ipc.postMessage(spec.id + "=" + control.value);
       });
 
-      control.el = select;
+      control.el = el;
       control.paint = function () {
         var active = Math.round(control.value);
         select.value = String(active);
-        applyVisibility(active);
+        if (spec.id === face.mode) applyVisibility(active);
       };
 
       el.appendChild(select);
@@ -1722,7 +1722,7 @@ var ENV_MAX = 512;
         button.setAttribute("aria-pressed", index === active ? "true" : "false");
       });
 
-      applyVisibility(active);
+      if (spec.id === face.mode) applyVisibility(active);
     };
 
     (spec.choices || []).forEach(function (name, index) {
@@ -1740,6 +1740,7 @@ var ENV_MAX = 512;
       el.appendChild(button);
     });
 
+    control.el = el;
     control.paint();
     return el;
   }
