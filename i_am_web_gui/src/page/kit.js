@@ -880,6 +880,7 @@
   function buildFace() {
     knobs = [];
     isPreview = !face.hosted;
+    app.classList.toggle("hosted", !isPreview);
     accent = face.accent || accent;
     negative = mixHex(accent, "#9a9a9a", 0.5);
 
@@ -976,8 +977,11 @@
   function applyScale() {
     if (!face) return;
 
-    var width = app.clientWidth || face.size[0];
-    var height = app.clientHeight || face.size[1];
+    // The card, not the window: in a host the faceplate is inset, and the
+    // controls have to fit the card they sit on.
+    var card = app.querySelector(".face");
+    var width = (card ? card.clientWidth : app.clientWidth) || face.size[0];
+    var height = (card ? card.clientHeight : app.clientHeight) || face.size[1];
     scale = clamp(Math.min(width / face.size[0], height / face.size[1]), 0.8, 1.9);
     document.documentElement.style.setProperty("--scale", scale);
     knobs.forEach(function (resize) { resize(scale); });

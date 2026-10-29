@@ -266,8 +266,16 @@ macro_rules! web_plugin {
 			fn window_options() -> i_am_plugin::WindowOptions {
 				let (width, height) = $size;
 
+				// The page draws the faceplate at 85% of the window, so the window
+				// asks for the design size over that: the first open has the same
+				// faceplate as before, with a frame around it.
+				const FACE_FRACTION: f64 = 0.85;
+
 				i_am_plugin::WindowOptions::new()
-					.with_size((width as f64, height as f64))
+					.with_size((
+						width as f64 / FACE_FRACTION,
+						height as f64 / FACE_FRACTION,
+					))
 					.with_title($title)
 					// The page is a flex layout, not a picture of one: any size
 					// it is given is a size it can lay itself out in.

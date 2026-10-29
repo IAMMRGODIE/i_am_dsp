@@ -25,6 +25,20 @@ body.preview #app{
 #app{
   height:100%; display:flex; padding:7px; background:#181818;
 }
+/* In a host the faceplate is a card in the window, not the window: 85% of each
+   side leaves a frame of the shell colour around it, and the scale is computed
+   from the card so the controls never outgrow it. */
+#app.hosted{
+  align-items:center; justify-content:center; padding:0;
+  background:radial-gradient(120% 100% at 50% 0%, #1c1c1c 0%, #141414 100%);
+}
+#app.hosted .face{
+  flex:0 0 auto; width:85%; height:85%;
+  border-color:#3a3a3a;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.05) inset,
+    0 24px 60px rgba(0,0,0,.45);
+}
 .face{
   flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
   background:var(--card); border:1px solid #353535; border-radius:8px;
