@@ -13,9 +13,9 @@
 use std::path::Path;
 
 use i_am_effects_web::{
-	BalanceWeb, ChorusWeb, CompressorWeb, CrusherWeb, DelayWeb, DisperserWeb, DistortionWeb,
-	FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb, PitchWeb, ReverbWeb, ShifterWeb,
-	WidthWeb,
+	AllpassWeb, BalanceWeb, ChorusWeb, CombWeb, CompressorWeb, CrusherWeb, DelayWeb,
+	DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
+	PitchWeb, ReverbWeb, SchroederWeb, ShifterWeb, WidthWeb,
 	CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
 	SHIFTER_CURVES,
@@ -67,6 +67,36 @@ fn main() {
 						.with_mode("mode")
 						.with_visible(FILTER_VISIBLE)
 						.with_header(FILTER_HEADER),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"comb" => {
+			let plugin = CombWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Comb", "#f0b35e", (360.0, 230.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"allpass" => {
+			let plugin = AllpassWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Allpass", "#b18cff", (360.0, 230.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"schroeder" => {
+			let plugin = SchroederWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Schroeder", "#e0b36a", (700.0, 340.0)),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -214,7 +244,7 @@ fn main() {
 		},
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance, compressor, reverb, ir_reverb, chorus, flanger, phaser, delay or crusher"
+				"unknown product {other}; expected gain, distortion, filter, comb, allpass, width, pitch, shifter, disperser, balance, compressor, reverb, schroeder, ir_reverb, chorus, flanger, phaser, delay or crusher"
 			);
 			std::process::exit(2);
 		},

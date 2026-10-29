@@ -14,16 +14,22 @@
 //! cargo run -p i_am_effects_web --example dump_face -- target/web-preview gain
 //! ```
 
+mod allpass;
+mod comb;
 mod compressor;
 mod disperser;
 mod filter;
 mod ir_reverb;
 mod reverb;
+mod schroeder;
 
+use allpass::AllpassEffect;
+use comb::CombEffect;
 use compressor::CompressorEffect;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 use reverb::ReverbEffect;
+use schroeder::SchroederEffect;
 use filter::Multimode;
 pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_dsp::prelude::{
@@ -77,6 +83,26 @@ web_plugin!(
 	mode = "mode",
 	visible = FILTER_VISIBLE,
 	header = FILTER_HEADER
+);
+
+web_plugin!(
+	CombWeb,
+	CombEffect,
+	CombEffect::new,
+	"iamdsp.effects.comb.web",
+	"I Am Comb",
+	(360.0, 230.0),
+	"#f0b35e"
+);
+
+web_plugin!(
+	AllpassWeb,
+	AllpassEffect,
+	AllpassEffect::new,
+	"iamdsp.effects.allpass.web",
+	"I Am Allpass",
+	(360.0, 230.0),
+	"#b18cff"
 );
 
 web_plugin!(
@@ -231,6 +257,16 @@ web_plugin!(
 );
 
 web_plugin!(
+	SchroederWeb,
+	SchroederEffect,
+	SchroederEffect::new,
+	"iamdsp.effects.schroeder.web",
+	"I Am Schroeder",
+	(700.0, 340.0),
+	"#e0b36a"
+);
+
+web_plugin!(
 	IrReverbWeb,
 	IrReverbEffect,
 	IrReverbEffect::new,
@@ -302,6 +338,8 @@ export_clap!(
 	GainWeb,
 	DistortionWeb,
 	FilterWeb,
+	CombWeb,
+	AllpassWeb,
 	WidthWeb,
 	PitchWeb,
 	ShifterWeb,
@@ -310,6 +348,7 @@ export_clap!(
 	DelayWeb,
 	CompressorWeb,
 	ReverbWeb,
+	SchroederWeb,
 	IrReverbWeb,
 	ChorusWeb,
 	FlangerWeb,
@@ -414,6 +453,8 @@ mod tests {
 		assert!(GainWeb::new().editor().is_some());
 		assert!(DistortionWeb::new().editor().is_some());
 		assert!(FilterWeb::new().editor().is_some());
+		assert!(CombWeb::new().editor().is_some());
+		assert!(AllpassWeb::new().editor().is_some());
 		assert!(WidthWeb::new().editor().is_some());
 		assert!(PitchWeb::new().editor().is_some());
 		assert!(ShifterWeb::new().editor().is_some());
@@ -422,6 +463,7 @@ mod tests {
 		assert!(DelayWeb::new().editor().is_some());
 		assert!(CompressorWeb::new().editor().is_some());
 		assert!(ReverbWeb::new().editor().is_some());
+		assert!(SchroederWeb::new().editor().is_some());
 		assert!(IrReverbWeb::new().editor().is_some());
 		assert!(ChorusWeb::new().editor().is_some());
 		assert!(FlangerWeb::new().editor().is_some());
@@ -537,6 +579,41 @@ mod tests {
 		assert!(face.contains("\"id\":\"dry_gain\""), "{face}");
 		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");
 		assert!(face.contains("\"name\":\"Delay\""), "{face}");
+	}
+
+	/// The comb/allpass filters get their own small faces.
+	#[test]
+	fn the_comb_and_allpass_have_simple_faces() {
+		let comb = i_am_web_gui::face_json(
+			&CombWeb::new(),
+			&Faceplate::new("I Am Comb", "#f0b35e", (360.0, 230.0)),
+		);
+		let allpass = i_am_web_gui::face_json(
+			&AllpassWeb::new(),
+			&Faceplate::new("I Am Allpass", "#b18cff", (360.0, 230.0)),
+		);
+
+		for face in [comb, allpass] {
+			assert!(face.contains("\"hero\":\"waveform\""), "{face}");
+			assert!(face.contains("\"id\":\"delay_ms\""), "{face}");
+			assert!(face.contains("\"id\":\"feedback\""), "{face}");
+		}
+	}
+
+	/// The Schroeder reverb is the classic comb/allpass construction.
+	#[test]
+	fn the_schroeder_has_a_tail_and_the_classic_controls() {
+		let face = i_am_web_gui::face_json(
+			&SchroederWeb::new(),
+			&Faceplate::new("I Am Schroeder", "#e0b36a", (700.0, 340.0)),
+		);
+
+		assert!(face.contains("\"hero\":\"tail\""), "{face}");
+		assert!(face.contains("\"id\":\"size\""), "{face}");
+		assert!(face.contains("\"id\":\"decay_time\""), "{face}");
+		assert!(face.contains("\"id\":\"damping\""), "{face}");
+		assert!(face.contains("\"id\":\"dry_gain\""), "{face}");
+		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");
 	}
 
 	/// The IR reverb exposes the room, the T60, and a wet-only convolver.
@@ -697,6 +774,8 @@ mod tests {
 			GainWeb::window_options(),
 			DistortionWeb::window_options(),
 			FilterWeb::window_options(),
+			CombWeb::window_options(),
+			AllpassWeb::window_options(),
 			WidthWeb::window_options(),
 			PitchWeb::window_options(),
 			ShifterWeb::window_options(),
@@ -705,6 +784,7 @@ mod tests {
 			DelayWeb::window_options(),
 			CompressorWeb::window_options(),
 			ReverbWeb::window_options(),
+			SchroederWeb::window_options(),
 			IrReverbWeb::window_options(),
 			ChorusWeb::window_options(),
 			FlangerWeb::window_options(),
