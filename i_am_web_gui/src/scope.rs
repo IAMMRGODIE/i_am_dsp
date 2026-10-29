@@ -7,11 +7,11 @@
 
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
-/// How many frames the page draws.
-pub const POINTS: usize = 256;
+/// How many frames the page reads. Full rate, so a spectrum can use them too.
+pub const POINTS: usize = 4096;
 
 /// How many frames the ring keeps. A power of two, so the wrap is a mask.
-const CAPACITY: usize = 4096;
+const CAPACITY: usize = 8192;
 
 /// The recent input and output of one plug-in, for a scope.
 pub struct Scope {
@@ -84,8 +84,9 @@ mod tests {
 	#[test]
 	fn a_snapshot_holds_the_newest_frames() {
 		let scope = Scope::new();
+		let count = POINTS + 100;
 
-		for frame in 0..600 {
+		for frame in 0..count {
 			scope.push(frame as f32, -(frame as f32));
 		}
 
@@ -96,10 +97,10 @@ mod tests {
 			f32::from_le_bytes(bytes[offset * 4..offset * 4 + 4].try_into().unwrap())
 		};
 
-		assert_eq!(read(0), 344.0, "the first of the last 256 frames");
-		assert_eq!(read(POINTS - 1), 599.0);
-		assert_eq!(read(POINTS), -344.0, "the output follows the input");
-		assert_eq!(read(POINTS * 2 - 1), -599.0);
+		assert_eq!(read(0), 100.0, "the first of the newest frames");
+		assert_eq!(read(POINTS - 1), (count - 1) as f32);
+		assert_eq!(read(POINTS), -100.0, "the output follows the input");
+		assert_eq!(read(POINTS * 2 - 1), -((count - 1) as f32));
 	}
 
 	/// Before any audio arrives, a scope is silence rather than garbage.

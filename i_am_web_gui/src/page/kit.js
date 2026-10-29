@@ -17,6 +17,9 @@
   var modeSpec = null;
   var wantsScope = false;
   var scope = { input: null, output: null };
+  var knobs = [];
+  var scale = 1;
+  var spectra = { input: null, output: null };
 
   var START = -135;
   var SWEEP = 270;
@@ -157,6 +160,15 @@
     svg.setAttribute("tabindex", "0");
     svg.setAttribute("role", "slider");
     svg.setAttribute("aria-label", spec.label);
+
+    // The ring is drawn in a viewBox of its design size; the CSS size follows
+    // the window, so a bigger window gets a bigger knob rather than a hole.
+    var resize = function (factor) {
+      svg.style.width = (diameter * factor) + "px";
+      svg.style.height = (diameter * factor) + "px";
+    };
+    resize(scale);
+    knobs.push(resize);
 
     var track = document.createElementNS(ns, "path");
     track.setAttribute("d", arcPath(radius, radius, geometry.arc, START, START + SWEEP));
@@ -410,14 +422,22 @@
     return path;
   }
 
-  function trace(samples, middle, amplitude) {
-    var path = "";
+  function trace(samples, middle, amplitude, stride) {
+    stride = stride || 1;
 
-    for (var i = 0; i < samples.length; i++) {
-      var x = 20 + i / (samples.length - 1) * 480;
-      var y = middle - clamp(samples[i], -1.2, 1.2) / 1.2 * amplitude;
-      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    var last = samples.length - 1;
+    var path = "";
+    var point = function (index) {
+      var x = 20 + index / last * 480;
+      var y = middle - clamp(samples[index], -1.2, 1.2) / 1.2 * amplitude;
+      return (path ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    };
+
+    for (var i = 0; i <= last; i += stride) {
+      path += point(i);
     }
+
+    if (last % stride !== 0) path += point(last);
 
     return path;
   }
@@ -426,9 +446,9 @@
     if (scope.input && scope.output) {
       return heroSvg(
         '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>' +
-        '<path d="' + trace(scope.input, 80, 58) + '" fill="none" stroke="#6a6a6a" ' +
+        '<path d="' + trace(scope.input, 80, 58, 8) + '" fill="none" stroke="#6a6a6a" ' +
           'stroke-width="1.5" vector-effect="non-scaling-stroke"/>' +
-        '<path d="' + trace(scope.output, 80, 58) + '" fill="none" stroke="' + accent + '" ' +
+        '<path d="' + trace(scope.output, 80, 58, 8) + '" fill="none" stroke="' + accent + '" ' +
           'stroke-width="2" vector-effect="non-scaling-stroke"/>'
       );
     }
@@ -450,11 +470,56 @@
     );
   }
 
+  function rmsOf(samples) {
+    if (!samples || samples.length === 0) return 0;
+
+    var sum = 0;
+    for (var i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+
+    return Math.sqrt(sum / samples.length);
+  }
+
+  function dbText(rms) {
+    if (!(rms > 1e-6)) return "-inf";
+    return (20 * Math.log10(rms)).toFixed(1);
+  }
+
+  function rmsBadge() {
+    if (!scope.input || !scope.output) {
+      return '<div class="hero-badge">RMS --</div>';
+    }
+
+    return '<div class="hero-badge">RMS ' + dbText(rmsOf(scope.input)) +
+      ' \u2192 ' + dbText(rmsOf(scope.output)) + ' dB</div>';
+  }
+
   function transferSvg() {
     var mode = Math.round(valueOf("mode", 0));
     var threshold = clamp(valueOf("threshold", 0.8), 0.01, 4);
     var gain = valueOf("gain", 1);
     var path = "";
+    var bands = "";
+
+    // Where the signal actually lives: a vertical band for how far the input
+    // swings, a horizontal one for the output, both behind the curve.
+    if (scope.input && scope.output) {
+      var inputRms = Math.min(rmsOf(scope.input), 2);
+      var outputRms = Math.min(rmsOf(scope.output), 2);
+
+      if (inputRms > 0.0005) {
+        var left = 20 + (-inputRms + 2) / 4 * 480;
+        var right = 20 + (inputRms + 2) / 4 * 480;
+        bands += '<rect x="' + left.toFixed(1) + '" y="0" width="' +
+          (right - left).toFixed(1) + '" height="160" fill="#9a9a9a" fill-opacity=".10"/>';
+      }
+
+      if (outputRms > 0.0005) {
+        var top = 80 - outputRms / 2 * 66;
+        var bottom = 80 + outputRms / 2 * 66;
+        bands += '<rect x="0" y="' + top.toFixed(1) + '" width="520" height="' +
+          (bottom - top).toFixed(1) + '" fill="' + accent + '" fill-opacity=".08"/>';
+      }
+    }
 
     // The domain is wider than the clip point on purpose: a hard clipper's curve
     // only shows its knees when the flat part has somewhere to run.
@@ -469,6 +534,7 @@
     }
 
     return heroSvg(
+      bands +
       '<path d="M 20 146 L 500 14" stroke="#333" stroke-width="1" stroke-dasharray="3 5" ' +
         'vector-effect="non-scaling-stroke"/>' +
       '<line x1="260" y1="12" x2="260" y2="148" stroke="#2b2b2b"/>' +
@@ -476,6 +542,106 @@
       '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2.4" ' +
         'vector-effect="non-scaling-stroke"/>'
     );
+  }
+
+  var BANDS = 96;
+
+  function fft(real, imag) {
+    var n = real.length;
+
+    for (var i = 1, j = 0; i < n; i++) {
+      var bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+
+      if (i < j) {
+        var tr = real[i]; real[i] = real[j]; real[j] = tr;
+        var ti = imag[i]; imag[i] = imag[j]; imag[j] = ti;
+      }
+    }
+
+    for (var length = 2; length <= n; length <<= 1) {
+      var angle = -2 * Math.PI / length;
+      var stepR = Math.cos(angle);
+      var stepI = Math.sin(angle);
+      var half = length >> 1;
+
+      for (var start = 0; start < n; start += length) {
+        var wr = 1, wi = 0;
+
+        for (var k = 0; k < half; k++) {
+          var ar = real[start + k], ai = imag[start + k];
+          var br = real[start + k + half], bi = imag[start + k + half];
+          var vr = br * wr - bi * wi;
+          var vi = br * wi + bi * wr;
+
+          real[start + k] = ar + vr;
+          imag[start + k] = ai + vi;
+          real[start + k + half] = ar - vr;
+          imag[start + k + half] = ai - vi;
+
+          var nextR = wr * stepR - wi * stepI;
+          wi = wr * stepI + wi * stepR;
+          wr = nextR;
+        }
+      }
+    }
+  }
+
+  /// Log-spaced bands in dBFS, so a spectrum can share the response's x axis.
+  function bandsOf(samples, rate) {
+    var n = samples.length;
+    if (!n || (n & (n - 1)) !== 0) return null;
+
+    var real = new Float32Array(n);
+    var imag = new Float32Array(n);
+
+    for (var i = 0; i < n; i++) {
+      var window = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
+      real[i] = samples[i] * window;
+    }
+
+    fft(real, imag);
+
+    var bands = new Float32Array(BANDS);
+    bands.fill(-120);
+
+    for (var k = 1; k < n / 2; k++) {
+      var frequency = k * rate / n;
+      if (frequency < 20 || frequency > 20000) continue;
+
+      var magnitude = 4 * Math.sqrt(real[k] * real[k] + imag[k] * imag[k]) / n;
+      var decibels = 20 * Math.log10(Math.max(magnitude, 1e-7));
+      var band = Math.floor(Math.log(frequency / 20) / Math.log(1000) * BANDS);
+
+      if (band < 0) band = 0;
+      if (band >= BANDS) band = BANDS - 1;
+      if (decibels > bands[band]) bands[band] = decibels;
+    }
+
+    return bands;
+  }
+
+  function smoothBands(previous, next) {
+    if (!previous || previous.length !== next.length) return next;
+
+    for (var i = 0; i < next.length; i++) {
+      previous[i] += (next[i] - previous[i]) * 0.35;
+    }
+
+    return previous;
+  }
+
+  function bandsPath(bands) {
+    var path = "";
+
+    for (var i = 0; i < bands.length; i++) {
+      var x = 20 + i / (BANDS - 1) * 480;
+      var y = clamp(10 + clamp(-bands[i] / 72, 0, 1) * 140, 10, 150);
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    return path;
   }
 
   function spectrumSvg() {
@@ -500,44 +666,52 @@
     }
 
     var loudest = Math.max.apply(null, magnitudes);
-    var path = "";
+    var response = "";
 
     for (var j = 0; j < magnitudes.length; j++) {
       var decibels = 20 * Math.log10(Math.max(magnitudes[j] / loudest, 1e-6));
       var x = 20 + j / 79 * 480;
       var y = clamp(10 + (1 - (1 + decibels / 40)) * 140, 10, 150);
-      path += (j ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+      response += (j ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    var inputPath = "";
+    var outputPath = "";
+    var rate = face.rate || 48000;
+
+    if (scope.input && scope.output) {
+      var inputBands = bandsOf(scope.input, rate);
+      var outputBands = bandsOf(scope.output, rate);
+
+      if (inputBands && outputBands) {
+        spectra.input = smoothBands(spectra.input, inputBands);
+        spectra.output = smoothBands(spectra.output, outputBands);
+        inputPath = bandsPath(spectra.input);
+        outputPath = bandsPath(spectra.output);
+      }
     }
 
     return heroSvg(
-      '<path d="' + path + ' L 500 150 L 20 150 Z" fill="' + accent + '" fill-opacity=".07"/>' +
-      '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
-        'vector-effect="non-scaling-stroke"/>'
-    );
-  }
-
-  function scopeSvg() {
-    if (!scope.output) {
-      return heroSvg(
-        '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>'
-      );
-    }
-
-    return heroSvg(
-      '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>' +
-      '<path d="' + trace(scope.input, 80, 58) + '" fill="none" stroke="#6a6a6a" ' +
-        'stroke-width="1.2" vector-effect="non-scaling-stroke"/>' +
-      '<path d="' + trace(scope.output, 80, 58) + '" fill="none" stroke="' + accent + '" ' +
-        'stroke-width="1.8" vector-effect="non-scaling-stroke"/>'
+      (inputPath
+        ? '<path d="' + inputPath + '" fill="none" stroke="#8a8a8a" stroke-width="1.2" ' +
+          'opacity=".7" vector-effect="non-scaling-stroke"/>'
+        : "") +
+      (outputPath
+        ? '<path d="' + outputPath + ' L 500 150 L 20 150 Z" fill="' + accent + '" ' +
+            'fill-opacity=".06"/>' +
+          '<path d="' + outputPath + '" fill="none" stroke="' + accent + '" stroke-width="1.5" ' +
+            'opacity=".9" vector-effect="non-scaling-stroke"/>'
+        : "") +
+      '<path d="' + response + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
+        'opacity=".95" vector-effect="non-scaling-stroke"/>'
     );
   }
 
   function updateHeroes() {
     heroes.forEach(function (hero) {
       if (hero.kind === "waveform") hero.el.innerHTML = waveformSvg();
-      else if (hero.kind === "transfer") hero.el.innerHTML = transferSvg();
+      else if (hero.kind === "transfer") hero.el.innerHTML = transferSvg() + rmsBadge();
       else if (hero.kind === "spectrum") hero.el.innerHTML = spectrumSvg();
-      else if (hero.kind === "scope") hero.el.innerHTML = scopeSvg();
     });
   }
 
@@ -604,16 +778,17 @@
       })
       .then(function (buffer) {
         var data = new Float32Array(buffer);
+        var half = data.length / 2;
 
-        if (data.length >= 512) {
-          scope.input = data.subarray(0, 256);
-          scope.output = data.subarray(256, 512);
+        if (half > 64) {
+          scope.input = data.subarray(0, half);
+          scope.output = data.subarray(half);
           markDirty();
         }
       })
       .catch(function () {})
       .then(function () {
-        setTimeout(pollScope, 33);
+        setTimeout(pollScope, 50);
       });
   }
 
@@ -664,6 +839,7 @@
   }
 
   function buildFace() {
+    knobs = [];
     accent = face.accent || accent;
     negative = mixHex(accent, "#9a9a9a", 0.5);
 
@@ -738,28 +914,38 @@
       body.appendChild(el);
     });
 
-    wantsScope = !!face.scope || heroes.some(function (hero) {
-      return hero.kind === "waveform";
+    // Every hero the page draws is live: a waveform, a transfer with its RMS
+    // bands, or a response with the input and output spectra on it.
+    wantsScope = heroes.some(function (hero) {
+      return hero.kind === "waveform" || hero.kind === "transfer" || hero.kind === "spectrum";
     });
-
-    if (face.scope) {
-      var strip = element("section", "section strip");
-      var scopeHero = element("div", "hero");
-      scopeHero.dataset.hero = "scope";
-      heroes.push({ el: scopeHero, kind: "scope" });
-      strip.appendChild(scopeHero);
-      body.appendChild(strip);
-    }
 
     var shell = element("div", "face");
     shell.appendChild(header);
     shell.appendChild(body);
     app.appendChild(shell);
 
+    applyScale();
     markDirty();
     poll();
     if (wantsScope) pollScope();
   }
+
+  /// Size the faceplate to the window: a bigger host window gets bigger knobs,
+  /// labels and margins, not just a bigger picture area.
+  function applyScale() {
+    if (!face) return;
+
+    var width = app.clientWidth || face.size[0];
+    var height = app.clientHeight || face.size[1];
+    scale = clamp(Math.min(width / face.size[0], height / face.size[1]), 0.8, 1.9);
+    document.documentElement.style.setProperty("--scale", scale);
+    knobs.forEach(function (resize) { resize(scale); });
+  }
+
+  window.addEventListener("resize", function () {
+    requestAnimationFrame(applyScale);
+  });
 
   fetch("/face", { cache: "no-store" })
     .then(function (response) {

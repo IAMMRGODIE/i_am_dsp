@@ -48,10 +48,9 @@ web_plugin!(
 	|rate| Multimode::new(rate, 1_000.0, 0.707),
 	"iamdsp.effects.filter.web",
 	"I Am Filter",
-	(520.0, 400.0),
+	(520.0, 330.0),
 	"#4c8dff",
-	mode = "mode",
-	scope = true
+	mode = "mode"
 );
 
 export_clap!(GainWeb, DriveWeb, FilterWeb);
@@ -96,7 +95,7 @@ mod tests {
 		);
 		let filter = i_am_web_gui::face_json(
 			&FilterWeb::new(),
-			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 400.0)).with_scope(),
+			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0)),
 		);
 
 		assert!(drive.contains("\"hero\":\"transfer\""), "{drive}");
@@ -160,13 +159,10 @@ mod tests {
 		let plugin = FilterWeb::new();
 		let face = i_am_web_gui::face_json(
 			&plugin,
-			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 400.0))
-				.with_mode("mode")
-				.with_scope(),
+			&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0)).with_mode("mode"),
 		);
 
 		assert!(face.contains("\"mode\":\"mode\""), "{face}");
-		assert!(face.contains("\"scope\":true"), "{face}");
 		assert!(face.contains("\"id\":\"mode\""), "{face}");
 		assert!(
 			face.contains("\"choices\":[\"Lowpass\",\"Highpass\",\"Bandpass\"]"),

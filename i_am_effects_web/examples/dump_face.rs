@@ -53,9 +53,7 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 400.0))
-						.with_mode("mode")
-						.with_scope(),
+					&Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0)).with_mode("mode"),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

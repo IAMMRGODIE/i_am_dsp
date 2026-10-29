@@ -24,8 +24,6 @@ pub struct Faceplate {
 	/// control in the body. Filter and Drive have several algorithms and only one
 	/// of them is active at a time, which is a switch, not a knob.
 	pub mode: Option<&'static str>,
-	/// Whether the page shows a live scope strip under the faceplate.
-	pub scope: bool,
 }
 
 impl Faceplate {
@@ -36,25 +34,12 @@ impl Faceplate {
 			accent,
 			size,
 			mode: None,
-			scope: false,
 		}
 	}
 
 	/// Draw the named parameter as a mode switch in the header.
 	pub const fn with_mode(mut self, mode: &'static str) -> Self {
 		self.mode = Some(mode);
-		self
-	}
-
-	/// Add a live scope strip under the controls.
-	pub const fn with_scope(self) -> Self {
-		self.with_scope_if(true)
-	}
-
-	/// Add the scope strip when [show] is true, which is what the macro passes
-	/// along from its `scope = true` argument.
-	pub const fn with_scope_if(mut self, show: bool) -> Self {
-		self.scope = show;
 		self
 	}
 }
@@ -261,6 +246,19 @@ fn unit_name(unit: Unit) -> &'static str {
 
 /// The whole faceplate as the page sees it.
 pub fn face_json(face: &Faceplate, sections: &[Section]) -> String {
+	face_json_with_rate(face, sections, None)
+}
+
+/// The faceplate, with the rate the plug-in is running at.
+///
+/// The page needs the rate to place a spectrum on the same frequency axis as the
+/// response curve; a faceplate looked at outside a host has none, and the page
+/// assumes 48 kHz for a preview.
+pub fn face_json_with_rate(
+	face: &Faceplate,
+	sections: &[Section],
+	rate: Option<usize>,
+) -> String {
 	let mut out = String::new();
 
 	out.push_str("{\"title\":");
@@ -278,7 +276,13 @@ pub fn face_json(face: &Faceplate, sections: &[Section]) -> String {
 		Some(mode) => string(&mut out, mode),
 		None => out.push_str("null"),
 	}
-	let _ = write!(out, ",\"scope\":{}", face.scope);
+	out.push_str(",\"rate\":");
+	match rate {
+		Some(rate) => {
+			let _ = write!(out, "{rate}");
+		},
+		None => out.push_str("null"),
+	}
 	out.push_str(",\"sections\":[");
 
 	for (index, section) in sections.iter().enumerate() {
@@ -637,12 +641,14 @@ mod tests {
 		);
 	}
 
-	/// The scope strip is a faceplate choice, and the page is told about it.
+	/// The page needs the rate to place a spectrum on the response's axis.
 	#[test]
-	fn a_scope_can_be_asked_for() {
-		let face = Faceplate::new("I Am Filter", "#4c8dff", (520.0, 400.0)).with_scope();
-		let json = face_json(&face, &[]);
+	fn the_rate_is_written_when_the_host_has_one() {
+		let face = Faceplate::new("I Am Filter", "#4c8dff", (520.0, 330.0));
+		let hosted = face_json_with_rate(&face, &[], Some(48_000));
+		let preview = face_json(&face, &[]);
 
-		assert!(json.contains("\"scope\":true"), "{json}");
+		assert!(hosted.contains("\"rate\":48000"), "{hosted}");
+		assert!(preview.contains("\"rate\":null"), "{preview}");
 	}
 }
