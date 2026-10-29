@@ -82,6 +82,38 @@ struct Echo {
 	direction: (f32, f32, f32),
 }
 
+/// The equal-power gains for a reflection on the listener's right (+z).
+fn stereo_gains(direction: (f32, f32, f32)) -> (f32, f32) {
+	let pan = dot(direction, (0.0, 0.0, 1.0)).clamp(-1.0, 1.0);
+	let angle = (pan + 1.0) * PI / 4.0;
+
+	(angle.cos(), angle.sin())
+}
+
+/// A unit-energy Hann window for the time the ray spends inside the listener
+/// sphere. A shorter chord gets fewer taps; a longer chord gets more.
+fn aperture_window(half_time: f32, sample_rate: usize) -> Vec<f32> {
+	let samples = ((2.0 * half_time * sample_rate as f32).round() as usize).clamp(1, 1024);
+	let mut weights = Vec::with_capacity(samples);
+	let mut energy = 0.0;
+
+	for sample in 0..samples {
+		let t = (sample as f32 + 0.5) / samples as f32;
+		let weight = 0.5 - 0.5 * (t * 2.0 * PI).cos();
+		energy += weight * weight;
+		weights.push(weight);
+	}
+
+	if energy > 0.0 {
+		let scale = 1.0 / energy.sqrt();
+		for weight in weights.iter_mut() {
+			*weight *= scale;
+		}
+	}
+
+	weights
+}
+
 /// Add a sample at a fractional sample index.
 fn add_sample(output: &mut Vec<f32>, index_f32: f32, sample: f32) {
 	let index = index_f32.max(0.0).floor() as usize;
@@ -462,7 +494,7 @@ impl RayTracing {
 			let phi = rand::random_range(0.0..=PI);
 			for echo in self.generate_single_point(theta, phi, 1.0, max_ir_len) {
 				let pan = dot(echo.direction, right).clamp(-1.0, 1.0);
-				let angle = (pan + 1.0) * PI / 4.0;
+				let (left_gain, right_gain) = stereo_gains(echo.direction);
 				let itd = MAX_ITD * pan.abs();
 				let left_time = echo.time + if pan > 0.0 { itd } else { 0.0 };
 				let right_time = echo.time + if pan < 0.0 { itd } else { 0.0 };
@@ -470,12 +502,12 @@ impl RayTracing {
 				add_sample(
 					&mut left,
 					left_time * self.sample_rate as f32,
-					echo.amplitude * angle.cos(),
+					echo.amplitude * left_gain,
 				);
 				add_sample(
 					&mut right_channel,
 					right_time * self.sample_rate as f32,
-					echo.amplitude * angle.sin(),
+					echo.amplitude * right_gain,
 				);
 			}
 		}
@@ -667,11 +699,36 @@ impl RayTracing {
 					current_pos.1 - self.listener.1,
 					current_pos.2 - self.listener.2,
 				));
-				output.push(Echo {
-					time,
-					amplitude: decayed_amp * current_phase.cos(),
-					direction,
-				});
+				// The ray spends a whole chord inside the listener sphere, not
+				// an instant at its closest point. Spread the same total energy
+				// over that span with a Hann window so a finite aperture does not
+				// collapse into a single Dirac tap.
+				let half_chord = (self.hearable_distance * self.hearable_distance
+					- distance_to_listener * distance_to_listener)
+					.max(0.0)
+					.sqrt();
+				let half_time = half_chord / self.sound_velocity;
+				let weights = aperture_window(half_time, self.sample_rate);
+				let samples = weights.len();
+				let step = if samples == 1 {
+					0.0
+				} else {
+					2.0 * half_time / samples as f32
+				};
+				let amplitude = decayed_amp * current_phase.cos();
+
+				for (sample, weight) in weights.into_iter().enumerate() {
+					let offset = if samples == 1 {
+						0.0
+					} else {
+						-half_time + (sample as f32 + 0.5) * step
+					};
+					output.push(Echo {
+						time: time + offset,
+						amplitude: amplitude * weight,
+						direction,
+					});
+				}
 			}
 
 			if decayed_amp < THRESHOLD {
@@ -821,21 +878,37 @@ mod tests {
 		let nonzero = ir.iter().filter(|&&x| x.abs() > 1e-4).count();
 		assert!(nonzero > 10, "IR has too few nonzero taps: {nonzero}");
 	}
-	/// A source on the right must produce more energy in the right IR channel.
+	/// The pan is positional: a reflection on the right goes right, on the left
+	/// goes left, straight ahead is centred.
 	#[test]
-	fn the_stereo_ir_pans_reflections_by_side() {
+	fn the_stereo_pan_follows_the_reflection_side() {
 		use super::*;
 
-		let mut rt = RayTracing::rectangular_room(10.0, 10.0, 10.0, 0.001, 6.0, 48000);
-		rt.listener = (5.0, 5.0, 5.0);
-		rt.sound_source = (5.0, 5.0, 8.0);
+		let (left, right) = stereo_gains((0.0, 0.0, 1.0));
+		assert!(right > left * 10.0, "right {right} left {left}");
 
-		let irs = rt.generate_stereo_ir(Some(4_800));
-		let energy = |ir: &[f32]| ir.iter().map(|sample| sample * sample).sum::<f32>();
-		let left = energy(&irs[0]);
-		let right = energy(&irs[1]);
+		let (left, right) = stereo_gains((0.0, 0.0, -1.0));
+		assert!(left > right * 10.0, "right {right} left {left}");
 
-		assert!(right > left * 1.05, "right {right} should lead left {left}");
+		let (left, right) = stereo_gains((1.0, 0.0, 0.0));
+		assert!((left - right).abs() < 1e-4, "right {right} left {left}");
+	}
+
+	/// A longer chord through the listener gets more taps, and each window
+	/// keeps its energy at one instead of turning into a louder hit.
+	#[test]
+	fn the_aperture_window_covers_the_chord() {
+		use super::*;
+
+		let short = aperture_window(0.001, 48_000);
+		let long = aperture_window(0.010, 48_000);
+
+		assert!(long.len() > short.len());
+
+		for window in [&short, &long] {
+			let energy: f32 = window.iter().map(|weight| weight * weight).sum();
+			assert!((energy - 1.0).abs() < 1e-4, "energy {energy}");
+		}
 	}
 
 	#[test]
