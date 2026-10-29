@@ -550,7 +550,10 @@ impl<const CHANNELS: usize> Distortion<CHANNELS> {
 			self.empty_count = 0;
 		}
 
-		let increment = 2.0 * PI * self.target_sample_rate / self.sample_rate as f32;
+		// The parameter is a rate in hertz and may be set above what the host is
+		// actually running; above the host rate there is nothing to hold.
+		let target = self.target_sample_rate.clamp(10.0, self.sample_rate as f32);
+		let increment = 2.0 * PI * target / self.sample_rate as f32;
 		self.phase += increment;
 
 		if self.phase > 2.0 * PI {
@@ -690,5 +693,30 @@ mod distortion_tests {
 		assert!(shaped(3, 2.0) > 0.0, "saturator is finite and positive");
 		assert!((shaped(4, 0.33) - 0.375).abs() < 1e-6, "bitcrush quantises");
 		assert!(shaped(5, 0.5).is_finite(), "downsample starts from silence, not NaN");
+	}
+
+	/// A downsample rate above the host rate has nothing to hold, so it is clamped
+	/// to the host rate instead of running the hold phase backwards.
+	#[test]
+	fn a_downsample_rate_above_the_host_is_clamped() {
+		fn render(target: f32) -> Vec<f32> {
+			let mut effect = Distortion::<1>::new(48_000);
+			effect.mode = 5;
+			effect.target_sample_rate = target;
+
+			let mut context: Box<dyn ProcessContext> = Box::new(());
+			let mut output = Vec::with_capacity(512);
+
+			for index in 0..512 {
+				let input = (core::f32::consts::TAU * 440.0 * index as f32 / 48_000.0).sin();
+				let mut frame = [input];
+				effect.process(&mut frame, &[], &mut context);
+				output.push(frame[0]);
+			}
+
+			output
+		}
+
+		assert_eq!(render(48_000.0), render(192_000.0));
 	}
 }

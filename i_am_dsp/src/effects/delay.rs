@@ -275,7 +275,7 @@ pub struct Delay<
 	#[logarithmic]
 	#[unit(percent)]
 	#[default(1.0)]
-	#[id(display = "Mix")]
+	#[id(display = "Wet")]
 	#[layout(group = "Delay", order = 3, widget = knob, bipolar)]
 	pub wet_gain: f32,
 	/// Whether the repeats walk around the channels instead of staying where they started.
