@@ -501,7 +501,7 @@ var ENV_MAX = 512;
   }
 
   function heroSvgMeter(content) {
-    return '<svg viewBox="0 0 320 160" preserveAspectRatio="xMidYMid meet">' + content + '</svg>';
+    return '<svg viewBox="0 0 320 200" preserveAspectRatio="xMidYMid meet">' + content + '</svg>';
   }
 
   function wavePath(amplitude, middle, cycles) {
@@ -868,23 +868,55 @@ var ENV_MAX = 512;
   /// A stereo meter: input and output L/R plotted on one goniometer. The x axis
   /// is the side field (L - R) and y is the mid field (L + R); a wider Width
   /// opens the accent cloud horizontally. Grey is before, accent is after.
+  function correlation(left, right) {
+    if (!left || !right || left.length < 2) return 0;
+
+    var n = Math.min(left.length, right.length);
+    var sumLeft = 0;
+    var sumRight = 0;
+
+    for (var i = 0; i < n; i++) {
+      sumLeft += left[i];
+      sumRight += right[i];
+    }
+
+    var meanLeft = sumLeft / n;
+    var meanRight = sumRight / n;
+    var covariance = 0;
+    var leftEnergy = 0;
+    var rightEnergy = 0;
+
+    for (var j = 0; j < n; j++) {
+      var dl = left[j] - meanLeft;
+      var dr = right[j] - meanRight;
+      covariance += dl * dr;
+      leftEnergy += dl * dl;
+      rightEnergy += dr * dr;
+    }
+
+    var denominator = Math.sqrt(leftEnergy * rightEnergy);
+    return denominator > 1e-12
+      ? Math.max(-1, Math.min(1, covariance / denominator))
+      : 0;
+  }
+
   function stereoSvg() {
     var cx = 160;
-    var cy = 80;
-    var radius = 70;
+    var cy = 72;
+    var radius = 62;
     var grid = "";
 
-    for (var r = 23; r <= 70; r += 23) {
+    for (var r = 20; r <= 60; r += 20) {
       grid += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
         '" fill="none" stroke="#3a3a3a" stroke-width="1"/>';
     }
 
-    grid += '<line x1="' + (cx - 70) + '" y1="' + cy + '" x2="' + (cx + 70) + '" y2="' +
+    grid += '<line x1="' + (cx - 62) + '" y1="' + cy + '" x2="' + (cx + 62) + '" y2="' +
       cy + '" stroke="#2f2f2f"/>' +
-      '<line x1="' + cx + '" y1="' + (cy - 70) + '" x2="' + cx + '" y2="' + (cy + 70) +
+      '<line x1="' + cx + '" y1="' + (cy - 62) + '" x2="' + cx + '" y2="' + (cy + 62) +
       '" stroke="#2f2f2f"/>';
 
-    var diagonal = 70 / Math.SQRT2;
+    var diagonal = 62 / Math.SQRT2;
     grid += '<line x1="' + (cx - diagonal).toFixed(1) + '" y1="' + (cy - diagonal).toFixed(1) +
       '" x2="' + (cx + diagonal).toFixed(1) + '" y2="' + (cy + diagonal).toFixed(1) +
       '" stroke="#2a2a2a"/>' +
@@ -933,7 +965,39 @@ var ENV_MAX = 512;
         '<text x="278" y="24" fill="' + accent + '" font-size="8">OUT</text>';
     }
 
-    return heroSvgMeter(grid + input + output + labels);
+    var corrInput = correlation(stereoScope.inputLeft, stereoScope.inputRight);
+    var corrOutput = correlation(stereoScope.outputLeft, stereoScope.outputRight);
+    var barX = 60;
+    var barY = 164;
+    var barWidth = 200;
+    var barHeight = 8;
+    var bar =
+      '<text x="' + barX + '" y="' + (barY - 6) +
+        '" fill="#8a8a8a" font-size="7">CORR</text>' +
+      '<text x="' + (barX + 42) + '" y="' + (barY - 6) +
+        '" fill="#a8a8a8" font-size="7">IN ' + corrInput.toFixed(2) + '</text>' +
+      '<text x="' + (barX + 126) + '" y="' + (barY - 6) +
+        '" fill="' + accent + '" font-size="7">OUT ' + corrOutput.toFixed(2) + '</text>' +
+      '<rect x="' + barX + '" y="' + barY + '" width="' + barWidth + '" height="' + barHeight +
+        '" rx="4" fill="#0b0b0b" stroke="#3a3a3a"/>' +
+      '<rect x="' + (barX + 1) + '" y="' + (barY + 1) + '" width="' + (barWidth - 2) +
+        '" height="' + (barHeight - 2) + '" rx="3" fill="#050505"/>' +
+      '<line x1="' + (barX + barWidth / 2) + '" y1="' + barY + '" x2="' + (barX + barWidth / 2) +
+        '" y2="' + (barY + barHeight) + '" stroke="#3a3a3a"/>';
+
+    bar +=
+      '<circle cx="' + (barX + (corrInput + 1) * 0.5 * barWidth).toFixed(1) + '" cy="' +
+        (barY + barHeight / 2) + '" r="2.2" fill="#a8a8a8"/>' +
+      '<circle cx="' + (barX + (corrOutput + 1) * 0.5 * barWidth).toFixed(1) + '" cy="' +
+        (barY + barHeight / 2) + '" r="2.2" fill="' + accent + '"/>' +
+      '<text x="' + barX + '" y="' + (barY + 20) +
+        '" fill="#6a6a6a" font-size="7">-1</text>' +
+      '<text x="' + (barX + barWidth / 2 - 3) + '" y="' + (barY + 20) +
+        '" fill="#6a6a6a" font-size="7">0</text>' +
+      '<text x="' + (barX + barWidth - 8) + '" y="' + (barY + 20) +
+        '" fill="#6a6a6a" font-size="7">+1</text>';
+
+    return heroSvgMeter(grid + input + output + labels + bar);
   }
 
   /// A semitone ruler: the pitch factor is a ratio, so the picture reads it as
