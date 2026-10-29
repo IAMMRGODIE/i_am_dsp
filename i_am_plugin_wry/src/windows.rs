@@ -192,6 +192,10 @@ fn to_wry(response: ProtocolResponse) -> wry::http::Response<std::borrow::Cow<'s
 	wry::http::Response::builder()
 		.status(response.status)
 		.header(wry::http::header::CONTENT_TYPE, response.content_type)
+		// A plug-in's page is embedded in the binary, and a host that keeps the
+		// browser cache from an older version would run yesterday's script against
+		// today's routes. Nothing here is worth caching.
+		.header(wry::http::header::CACHE_CONTROL, "no-store")
 		.body(response.body.into())
 		.expect("a response we built ourselves is well formed")
 }

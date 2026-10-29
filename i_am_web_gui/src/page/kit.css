@@ -63,6 +63,7 @@ body.preview #app{
   transition:opacity .16s ease, filter .16s ease;
 }
 .bypassed .body{opacity:.38; filter:grayscale(.75)}
+.bypassed .mode{opacity:.4; filter:grayscale(1)}
 .bypassed .title::after{
   content:"BYPASS"; margin-left:10px; font-size:9px; letter-spacing:.13em;
   color:#8a8a8a; font-weight:500;

@@ -13,6 +13,7 @@ use i_am_dsp_derive::Parameters;
 #[derive(Parameters)]
 pub struct Multimode {
 	/// Which of the three the filter is.
+	#[range(min = 0, max = 2)]
 	#[choices("Lowpass", "Highpass", "Bandpass")]
 	#[default(0)]
 	#[layout(group = "Filter", order = 0, widget = choice)]
