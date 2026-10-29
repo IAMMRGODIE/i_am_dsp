@@ -534,7 +534,7 @@ fn a_display_name_reaches_the_host_without_touching_the_identifier() {
 
 	// A nested parameter is named by the level that contains it.
 	assert_eq!(parameters[0].meta.display_name.as_deref(), Some("Tempo Sync"));
-	assert_eq!(parameters[1].meta.display_name.as_deref(), Some("Tempo Beats"));
+	assert_eq!(parameters[1].meta.display_name.as_deref(), Some("Tempo Time"));
 	assert_eq!(parameters[2].meta.display_name.as_deref(), Some("BPM Sync"));
 
 	// A display name on its own leaves everything else alone, including the default
