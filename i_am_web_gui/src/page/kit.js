@@ -589,12 +589,18 @@
   }
 
   /// Log-spaced bands in dBFS, so a spectrum can share the response's x axis.
+  ///
+  /// Four times zero padding puts several bins in the lowest bands, and a band
+  /// takes the average power of the bins it covers instead of the loudest one:
+  /// a maximum turns every leaky bin into a spike, which is what a spectrum of
+  /// real audio must not look like.
   function bandsOf(samples, rate) {
     var n = samples.length;
     if (!n || (n & (n - 1)) !== 0) return null;
 
-    var real = new Float32Array(n);
-    var imag = new Float32Array(n);
+    var fftLength = n * 4;
+    var real = new Float32Array(fftLength);
+    var imag = new Float32Array(fftLength);
 
     for (var i = 0; i < n; i++) {
       var window = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
@@ -603,30 +609,60 @@
 
     fft(real, imag);
 
-    var bands = new Float32Array(BANDS);
-    bands.fill(-120);
+    var power = new Float64Array(BANDS);
+    var counts = new Uint16Array(BANDS);
 
-    for (var k = 1; k < n / 2; k++) {
-      var frequency = k * rate / n;
+    for (var k = 1; k < fftLength / 2; k++) {
+      var frequency = k * rate / fftLength;
       if (frequency < 20 || frequency > 20000) continue;
 
       var magnitude = 4 * Math.sqrt(real[k] * real[k] + imag[k] * imag[k]) / n;
-      var decibels = 20 * Math.log10(Math.max(magnitude, 1e-7));
       var band = Math.floor(Math.log(frequency / 20) / Math.log(1000) * BANDS);
 
       if (band < 0) band = 0;
       if (band >= BANDS) band = BANDS - 1;
-      if (decibels > bands[band]) bands[band] = decibels;
+
+      power[band] += magnitude * magnitude;
+      counts[band] += 1;
     }
 
-    return bands;
+    var raw = new Float32Array(BANDS);
+    raw.fill(-120);
+
+    for (var b = 0; b < BANDS; b++) {
+      if (counts[b] > 0) {
+        raw[b] = 10 * Math.log10(Math.max(power[b] / counts[b], 1e-14));
+      }
+    }
+
+    // A short triangular filter across neighbouring bands. The response curve
+    // is analytic; the spectrum is measured, and a few pixels of smoothing make
+    // the two readable together without hiding the shape of either.
+    var smooth = new Float32Array(BANDS);
+    var weights = [1, 2, 3, 2, 1];
+
+    for (var c = 0; c < BANDS; c++) {
+      var sum = 0;
+      var weight = 0;
+
+      for (var w = -2; w <= 2; w++) {
+        var index = clamp(c + w, 0, BANDS - 1);
+        var factor = weights[w + 2];
+        sum += raw[index] * factor;
+        weight += factor;
+      }
+
+      smooth[c] = sum / weight;
+    }
+
+    return smooth;
   }
 
   function smoothBands(previous, next) {
     if (!previous || previous.length !== next.length) return next;
 
     for (var i = 0; i < next.length; i++) {
-      previous[i] += (next[i] - previous[i]) * 0.35;
+      previous[i] += (next[i] - previous[i]) * 0.28;
     }
 
     return previous;
@@ -946,6 +982,14 @@
   window.addEventListener("resize", function () {
     requestAnimationFrame(applyScale);
   });
+
+  // A host resizes the WebView2 child, not the browser window: the window event
+  // is not guaranteed there, but the app's own box always changes.
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () {
+      requestAnimationFrame(applyScale);
+    }).observe(app);
+  }
 
   fetch("/face", { cache: "no-store" })
     .then(function (response) {
