@@ -18,7 +18,7 @@ mod filter;
 
 use filter::Multimode;
 use i_am_dsp::prelude::{
-	Clipper, Gain as GainDsp, PitchShifter, StereoController,
+	Clipper, Crusher, Gain as GainDsp, PitchShifter, StereoController,
 };
 use i_am_plugin::export_clap;
 use i_am_web_gui::web_plugin;
@@ -75,7 +75,19 @@ web_plugin!(
 	"#c8e04a"
 );
 
-export_clap!(GainWeb, DriveWeb, FilterWeb, WidthWeb, PitchWeb);
+web_plugin!(
+	CrusherWeb,
+	Crusher<2>,
+	Crusher::<2>::new,
+	"iamdsp.effects.crusher.web",
+	"I Am Crusher Web",
+	(400.0, 640.0),
+	"#8a6aff"
+);
+
+export_clap!(
+	GainWeb, DriveWeb, FilterWeb, WidthWeb, PitchWeb, CrusherWeb
+);
 
 #[cfg(test)]
 mod tests {
@@ -174,6 +186,22 @@ mod tests {
 		assert!(FilterWeb::new().editor().is_some());
 		assert!(WidthWeb::new().editor().is_some());
 		assert!(PitchWeb::new().editor().is_some());
+		assert!(CrusherWeb::new().editor().is_some());
+	}
+
+	/// The crusher has three named sections, and the Drive one shows the scope.
+	#[test]
+	fn the_crusher_has_its_sections_and_a_scope() {
+		let face = i_am_web_gui::face_json(
+			&CrusherWeb::new(),
+			&Faceplate::new("I Am Crusher Web", "#8a6aff", (400.0, 640.0)),
+		);
+
+		assert!(face.contains("\"hero\":\"waveform\""), "{face}");
+		assert!(face.contains("\"id\":\"amount\""), "{face}");
+		assert!(face.contains("\"name\":\"Drive\""), "{face}");
+		assert!(face.contains("\"name\":\"Amplitude\""), "{face}");
+		assert!(face.contains("\"name\":\"Gain\""), "{face}");
 	}
 
 	/// Two more modules, each with the picture its section asked for.

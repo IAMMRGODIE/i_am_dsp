@@ -10,6 +10,7 @@ pub struct PitchShifter<const CHANNELS: usize = 2> {
 	/// The pitch shift factor, saves in ratio.
 	#[range(min = 0.25, max = 4.0)]
 	#[logarithmic]
+	#[default(1.0)]
 	#[unit(percent)]
 	#[id(display = "Shift")]
 	#[layout(group = "Pitch", order = 0, widget = knob, size = large, hero = "pitch")]

@@ -415,6 +415,12 @@
     return '<svg viewBox="0 0 520 160" preserveAspectRatio="none">' + content + '</svg>';
   }
 
+  /// A hero that keeps its proportions: a circle stays a circle whatever shape
+  /// the hero box is.
+  function heroSvgSquare(content) {
+    return '<svg viewBox="0 0 520 160" preserveAspectRatio="xMidYMid meet">' + content + '</svg>';
+  }
+
   function wavePath(amplitude, middle, cycles) {
     var path = "";
     for (var i = 0; i <= 180; i++) {
@@ -746,22 +752,32 @@
     );
   }
 
-  /// A stereo field: the ellipse is as wide as the side gain and as tall as the
-  /// mid gain, so a mono setting is a line and a wide one is a circle.
+  /// A goniometer: the circle is fixed and a fan opens upward, its angle being
+  /// how wide the side gain is against the mid gain. A circle cannot become an
+  /// ellipse here, so the shape reads the same at every window size.
   function stereoSvg() {
     var mid = clamp(valueOf("mid_gain", 1), 0.01, 4);
     var side = clamp(valueOf("side_gain", 1), 0.01, 4);
-    var rx = 18 + 58 * clamp(side / 2, 0, 1);
-    var ry = 18 + 58 * clamp(mid / 2, 0, 1);
+    var radius = 62;
+    var spread = clamp(Math.atan2(side, mid), 0.03, 1.35);
+    var top = -Math.PI / 2;
+    var a0 = top - spread;
+    var a1 = top + spread;
+    var p0 = [260 + Math.cos(a0) * radius, 80 + Math.sin(a0) * radius];
+    var p1 = [260 + Math.cos(a1) * radius, 80 + Math.sin(a1) * radius];
+    var fan = "M 260 80 L " + p0[0].toFixed(1) + " " + p0[1].toFixed(1) +
+      " A " + radius + " " + radius + " 0 0 1 " + p1[0].toFixed(1) + " " + p1[1].toFixed(1) + " Z";
 
-    return heroSvg(
-      '<circle cx="260" cy="80" r="70" fill="none" stroke="#2c2c2c" stroke-width="1" ' +
-        'stroke-dasharray="3 5"/>' +
-      '<line x1="176" y1="80" x2="344" y2="80" stroke="#2b2b2b"/>' +
-      '<line x1="260" y1="4" x2="260" y2="156" stroke="#2b2b2b"/>' +
-      '<ellipse cx="260" cy="80" rx="' + rx.toFixed(1) + '" ry="' + ry.toFixed(1) + '" ' +
-        'fill="' + accent + '" fill-opacity=".10" stroke="' + accent + '" stroke-width="1.8"/>' +
-      '<circle cx="260" cy="80" r="2.2" fill="' + accent + '"/>'
+    return heroSvgSquare(
+      '<circle cx="260" cy="80" r="' + radius + '" fill="#ffffff" fill-opacity=".015" ' +
+        'stroke="#464646" stroke-width="1.2"/>' +
+      '<line x1="198" y1="80" x2="322" y2="80" stroke="#343434"/>' +
+      '<line x1="260" y1="18" x2="260" y2="142" stroke="#343434"/>' +
+      '<path d="' + fan + '" fill="' + accent + '" fill-opacity=".12" stroke="' +
+        accent + '" stroke-width="1.4"/>' +
+      '<line x1="260" y1="80" x2="260" y2="18" stroke="' + accent + '" stroke-width="1" ' +
+        'opacity=".5"/>' +
+      '<circle cx="260" cy="80" r="2.4" fill="' + accent + '"/>'
     );
   }
 
@@ -984,6 +1000,7 @@
 
     var body = element("div", "body");
     var many = face.sections.length > 1;
+    var usedHeroes = {};
 
     face.sections.forEach(function (section) {
       var el = element("section", "section");
@@ -994,11 +1011,17 @@
         el.appendChild(caption);
       }
 
-      if (section.hero) {
+      // One scope per page is enough: a nested effect can ask for the same hero
+      // in a second section (the crusher's gain stage embeds Gain), and drawing
+      // the same live trace twice only costs space.
+      if (section.hero && !usedHeroes[section.hero]) {
+        usedHeroes[section.hero] = true;
         var hero = element("div", "hero");
         hero.dataset.hero = section.hero;
         heroes.push({ el: hero, kind: section.hero });
         el.appendChild(hero);
+      } else {
+        el.classList.add("plain");
       }
 
       var row = element("div", "controls");

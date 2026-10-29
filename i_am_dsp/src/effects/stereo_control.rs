@@ -9,12 +9,14 @@ use crate::{Effect, ProcessContext};
 #[default_float_range(min = 0.01, max = 4.0)]
 pub struct StereoController {
 	#[logarithmic]
+	#[default(1.0)]
 	#[unit(percent)]
 	#[id(display = "Mid")]
 	#[layout(group = "Width", order = 0, widget = knob, hero = "stereo")]
 	/// saves in linear scale
 	pub mid_gain: f32,
 	#[logarithmic]
+	#[default(1.0)]
 	#[unit(percent)]
 	#[id(display = "Side")]
 	#[layout(group = "Width", order = 1, widget = knob)]

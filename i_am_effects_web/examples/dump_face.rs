@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use i_am_effects_web::{DriveWeb, FilterWeb, GainWeb, PitchWeb, WidthWeb};
+use i_am_effects_web::{CrusherWeb, DriveWeb, FilterWeb, GainWeb, PitchWeb, WidthWeb};
 use i_am_plugin::Plugin;
 use i_am_web_gui::Faceplate;
 
@@ -78,8 +78,20 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		},
+		"crusher" => {
+			let plugin = CrusherWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Crusher Web", "#8a6aff", (400.0, 640.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
 		other => {
-			eprintln!("unknown product {other}; expected gain, drive, filter, width or pitch");
+			eprintln!(
+				"unknown product {other}; expected gain, drive, filter, width, pitch or crusher"
+			);
 			std::process::exit(2);
 		},
 	};
