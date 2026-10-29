@@ -10,6 +10,9 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use i_am_dsp::prelude::{Effect, FftConvolver, ProcessContext, RayTracing};
 use i_am_dsp_derive::Parameters;
 
+/// How long a new convolver takes over, in samples. At 48 kHz this is 43 ms.
+const FADE_SAMPLES: usize = 2_048;
+
 /// One IR request; the worker generates the newest one and discards the rest.
 #[derive(Clone, Copy)]
 struct IrRequest {
@@ -141,6 +144,11 @@ pub struct IrReverbEffect {
 
 	#[skip]
 	convolver: FftConvolver<2>,
+	/// The outgoing convolver during a fade; its history keeps the tail alive.
+	#[skip]
+	previous: Option<FftConvolver<2>>,
+	#[skip]
+	fade_remaining: usize,
 	#[skip]
 	worker: IrWorker,
 	#[skip]
@@ -171,6 +179,8 @@ impl IrReverbEffect {
 			dry_gain: 0.0,
 			wet_gain: 1.0,
 			convolver,
+			previous: None,
+			fade_remaining: 0,
 			worker: IrWorker::new(),
 			sample_rate,
 			last_size: request.size,
@@ -193,7 +203,10 @@ impl Effect<2> for IrReverbEffect {
 	) {
 		while let Ok(convolver) = self.worker.results.try_recv() {
 			let old = core::mem::replace(&mut self.convolver, convolver);
-			let _ = self.worker.garbage.send(old);
+			if let Some(stale) = self.previous.replace(old) {
+				let _ = self.worker.garbage.send(stale);
+			}
+			self.fade_remaining = FADE_SAMPLES;
 		}
 
 		if (self.size - self.last_size).abs() > 1e-4
@@ -213,10 +226,35 @@ impl Effect<2> for IrReverbEffect {
 		}
 
 		let dry = *samples;
-		self.convolver.process(samples, other, context);
+		let mut wet = dry;
+		self.convolver.process(&mut wet, other, context);
+
+		// A new convolver starts with an empty history. Fade from the old one,
+		// whose history still holds the tail, over a few tens of milliseconds.
+		if self.fade_remaining > 0 {
+			if let Some(previous) = &mut self.previous {
+				let mut old = dry;
+				previous.process(&mut old, other, context);
+				let progress = 1.0 - self.fade_remaining as f32 / FADE_SAMPLES as f32;
+
+				for (index, sample) in wet.iter_mut().enumerate() {
+					*sample = old[index] * (1.0 - progress) + *sample * progress;
+				}
+
+				self.fade_remaining -= 1;
+			} else {
+				self.fade_remaining = 0;
+			}
+		}
+
+		if self.fade_remaining == 0
+			&& let Some(previous) = self.previous.take()
+		{
+			let _ = self.worker.garbage.send(previous);
+		}
 
 		for (index, sample) in samples.iter_mut().enumerate() {
-			*sample = dry[index] * self.dry_gain + *sample * self.wet_gain;
+			*sample = dry[index] * self.dry_gain + wet[index] * self.wet_gain;
 		}
 	}
 }
