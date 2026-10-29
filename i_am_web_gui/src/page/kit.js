@@ -902,31 +902,54 @@ var ENV_MAX = 512;
   }
 
   /// The particle wider's schematic: one pair of L/R lines per bin, each
-  /// scattered by a fresh random factor. Depth and Width set how far they jump.
+  /// scattered by a fresh random factor inside the Low/High band. Depth and
+  /// Side set how far they jump, and Negative lets a line cross the axis.
   function particlesSvg() {
     var depth = clamp(valueOf("depth", 0.5), 0, 1);
-    var width = clamp(valueOf("width", 1), 0, 2);
-    var count = 64;
+    var low = clamp(valueOf("low_frequency", 200), 20, 20000);
+    var high = clamp(valueOf("high_frequency", 8000), 20, 20000);
+    var side = clamp(valueOf("side_gain", 1), 0, 2);
+    var allowNegative = !!valueOf("allow_negative", false);
+    var fftIndex = clamp(Math.round(valueOf("fft_size", 2)), 0, 3);
+    var windowSize = [512, 1024, 2048, 4096][fftIndex];
+    var count = Math.max(16, Math.min(128, windowSize / 32));
     var left = "";
     var right = "";
+    var lower = Math.min(low, high);
+    var upper = Math.max(low, high);
+    var frequencyToX = function (frequency) {
+      return 30 + Math.log(frequency / 20) / Math.log(1000) * 460;
+    };
+    var bandLeft = frequencyToX(lower);
+    var bandRight = frequencyToX(upper);
     var grid =
       '<line x1="18" y1="80" x2="502" y2="80" stroke="#343434"/>' +
       '<line x1="260" y1="14" x2="260" y2="146" stroke="#2a2a2a"/>' +
-      '<text x="22" y="20" fill="#8a8a8a" font-size="8">L</text>' +
-      '<text x="490" y="20" fill="#8a8a8a" font-size="8">R</text>';
+      '<rect x="' + bandLeft.toFixed(1) + '" y="22" width="' +
+        (bandRight - bandLeft).toFixed(1) + '" height="116" fill="' +
+        accent + '" fill-opacity=".05"/>' +
+      '<line x1="' + bandLeft.toFixed(1) + '" y1="22" x2="' + bandLeft.toFixed(1) +
+        '" y2="138" stroke="' + accent + '" stroke-opacity=".25"/>' +
+      '<line x1="' + bandRight.toFixed(1) + '" y1="22" x2="' + bandRight.toFixed(1) +
+        '" y2="138" stroke="' + accent + '" stroke-opacity=".25"/>';
 
     for (var index = 0; index < count; index++) {
       var x = 30 + index / (count - 1) * 460;
-      var range = (0.12 + 0.88 * depth) * (0.25 + 0.75 * Math.min(width, 2) / 2);
-      var jumpLeft = (Math.random() * 2 - 1) * range * 60;
-      var jumpRight = (Math.random() * 2 - 1) * range * 60;
+      var frequency = 20 * Math.pow(1000, index / (count - 1));
+      var active = frequency >= lower && frequency <= upper;
+      var range = (0.12 + 0.88 * depth) * (0.25 + 0.75 * Math.min(side, 2) / 2);
+      var signLeft = allowNegative ? Math.random() * 2 - 1 : Math.random();
+      var signRight = allowNegative ? Math.random() * 2 - 1 : Math.random();
+      var jumpLeft = active ? signLeft * range * 60 : 0;
+      var jumpRight = active ? signRight * range * 60 : 0;
 
       left += '<line x1="' + x.toFixed(1) + '" y1="80" x2="' + x.toFixed(1) +
         '" y2="' + (80 - jumpLeft).toFixed(1) + '" stroke="' + accent +
-        '" stroke-width="1.4" opacity=".7"/>';
+        '" stroke-width="1.4" opacity="' + (active ? 0.7 : 0.18) + '"/>';
       right += '<line x1="' + (x + 1.5).toFixed(1) + '" y1="80" x2="' +
         (x + 1.5).toFixed(1) + '" y2="' + (80 - jumpRight).toFixed(1) +
-        '" stroke="#b7f0e2" stroke-width="1.1" opacity=".5"/>';
+        '" stroke="#b7f0e2" stroke-width="1.1" opacity="' + (active ? 0.5 : 0.12) +
+        '"/>';
     }
 
     return heroSvgSquare(grid + left + right);

@@ -32,32 +32,40 @@ pub struct ParticleWiderEffect {
 	#[layout(group = "Particle", order = 2, widget = knob)]
 	pub high_frequency: f32,
 
-	/// The mid/side width after the widener; 1 is neutral.
+	/// The mid gain after the widener; 1 is neutral.
 	#[range(min = 0.0, max = 2.0)]
 	#[unit(percent)]
 	#[default(1.0)]
-	#[id(display = "Width")]
+	#[id(display = "Mid")]
 	#[layout(group = "Particle", order = 3, widget = knob)]
-	pub width: f32,
+	pub mid_gain: f32,
+
+	/// The side gain after the widener; 1 is neutral.
+	#[range(min = 0.0, max = 2.0)]
+	#[unit(percent)]
+	#[default(1.0)]
+	#[id(display = "Side")]
+	#[layout(group = "Particle", order = 4, widget = knob)]
+	pub side_gain: f32,
 
 	/// The phase-vocoder window shape.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.54)]
 	#[id(display = "Window")]
-	#[layout(group = "Particle", order = 4, widget = knob)]
+	#[layout(group = "Particle", order = 5, widget = knob)]
 	pub window_factor: f32,
 
 	/// The FFT size, picked from the header.
 	#[choices("512", "1024", "2048", "4096")]
 	#[default(2)]
 	#[id(display = "FFT")]
-	#[layout(group = "Particle", order = 5, widget = choice)]
+	#[layout(group = "Particle", order = 6, widget = choice)]
 	pub fft_size: i32,
 
 	/// Whether a scattered magnitude may be inverted as well.
 	#[default(false)]
 	#[id(display = "Negative")]
-	#[layout(group = "Particle", order = 6, widget = toggle)]
+	#[layout(group = "Particle", order = 7, widget = toggle)]
 	pub allow_negative: bool,
 
 	#[skip]
@@ -74,7 +82,8 @@ impl ParticleWiderEffect {
 			depth: 0.5,
 			low_frequency: 200.0,
 			high_frequency: 8_000.0,
-			width: 1.0,
+			mid_gain: 1.0,
+			side_gain: 1.0,
 			window_factor: 0.54,
 			fft_size: 2,
 			allow_negative: false,
@@ -115,7 +124,8 @@ impl Effect<2> for ParticleWiderEffect {
 		mapper.low_frequency = self.low_frequency;
 		mapper.high_frequency = self.high_frequency;
 		mapper.allow_negative = self.allow_negative;
-		self.inner.stereo_control.side_gain = self.width;
+		self.inner.stereo_control.mid_gain = self.mid_gain;
+		self.inner.stereo_control.side_gain = self.side_gain;
 		self.inner.process(samples, other, context);
 	}
 }

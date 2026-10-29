@@ -644,7 +644,8 @@ mod tests {
 		assert!(face.contains("\"id\":\"depth\""), "{face}");
 		assert!(face.contains("\"id\":\"low_frequency\""), "{face}");
 		assert!(face.contains("\"id\":\"high_frequency\""), "{face}");
-		assert!(face.contains("\"id\":\"width\""), "{face}");
+		assert!(face.contains("\"id\":\"mid_gain\""), "{face}");
+		assert!(face.contains("\"id\":\"side_gain\""), "{face}");
 		assert!(face.contains("\"id\":\"allow_negative\""), "{face}");
 		assert!(face.contains("\"id\":\"window_factor\""), "{face}");
 		assert!(face.contains("\"id\":\"fft_size\""), "{face}");
