@@ -13,8 +13,8 @@
 use std::path::Path;
 
 use i_am_effects_web::{
-	BalanceWeb, CrusherWeb, DisperserWeb, DistortionWeb, FilterWeb, GainWeb, PitchWeb,
-	ShifterWeb, WidthWeb, DISTORTION_VISIBLE, SHIFTER_CURVES,
+	BalanceWeb, CrusherWeb, DelayWeb, DisperserWeb, DistortionWeb, FilterWeb, GainWeb, PitchWeb,
+	ShifterWeb, WidthWeb, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE, SHIFTER_CURVES,
 };
 use i_am_effects_web::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -118,6 +118,18 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		},
+		"delay" => {
+			let plugin = DelayWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Delay", "#e8c35a", (560.0, 450.0))
+						.with_header(DELAY_HEADER)
+						.with_switches(DELAY_SWITCHES),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
 		"crusher" => {
 			let plugin = CrusherWeb::new();
 			(
@@ -130,7 +142,7 @@ fn main() {
 		},
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance or crusher"
+				"unknown product {other}; expected gain, distortion, filter, width, pitch, shifter, disperser, balance, delay or crusher"
 			);
 			std::process::exit(2);
 		},

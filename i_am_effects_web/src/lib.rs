@@ -21,9 +21,10 @@ use disperser::Dispersion;
 use filter::Multimode;
 pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_dsp::prelude::{
-	Crusher, Distortion, Gain as GainDsp, IIRFreqShifter, LrControl, PitchShifter,
+	Crusher, Delay, Distortion, Gain as GainDsp, IIRFreqShifter, LrControl, PitchShifter,
 	StereoController,
 };
+use i_am_web_gui::Switch;
 use i_am_plugin::export_clap;
 use i_am_web_gui::web_plugin;
 
@@ -127,6 +128,28 @@ web_plugin!(
 	"#d96aff"
 );
 
+/// The delay's sync switch lives in the header as a dot; its time control trades
+/// between milliseconds and beats in the same slot.
+pub const DELAY_HEADER: &[&str] = &["tempo.sync"];
+/// Free time when sync is off, musical time when it is on.
+pub const DELAY_SWITCHES: &[Switch] = &[Switch::new(
+	"tempo.sync",
+	&["tempo.beats"],
+	&["delay_time"],
+)];
+
+web_plugin!(
+	DelayWeb,
+	Delay<(), 2>,
+	|rate| Delay::<(), 2>::new((), 1 << 16, 250.0, rate),
+	"iamdsp.effects.delay.web",
+	"I Am Delay",
+	(560.0, 450.0),
+	"#e8c35a",
+	header = DELAY_HEADER,
+	switches = DELAY_SWITCHES
+);
+
 web_plugin!(
 	CrusherWeb,
 	Crusher<2>,
@@ -146,6 +169,7 @@ export_clap!(
 	ShifterWeb,
 	DisperserWeb,
 	BalanceWeb,
+	DelayWeb,
 	CrusherWeb
 );
 
@@ -251,6 +275,7 @@ mod tests {
 		assert!(ShifterWeb::new().editor().is_some());
 		assert!(DisperserWeb::new().editor().is_some());
 		assert!(BalanceWeb::new().editor().is_some());
+		assert!(DelayWeb::new().editor().is_some());
 		assert!(CrusherWeb::new().editor().is_some());
 	}
 
@@ -334,6 +359,29 @@ mod tests {
 		assert!(i_am_web_gui::state_json(&plugin).contains("\"mode\":5"));
 	}
 
+	/// The delay's sync dot is a parameter in the header, and the time knob is the
+	/// free milliseconds or the same length in beats.
+	#[test]
+	fn the_delay_swaps_free_and_synced_time() {
+		let face = i_am_web_gui::face_json(
+			&DelayWeb::new(),
+			&Faceplate::new("I Am Delay", "#e8c35a", (560.0, 450.0))
+				.with_header(DELAY_HEADER)
+				.with_switches(DELAY_SWITCHES),
+		);
+
+		assert!(face.contains("\"hero\":\"taps\""), "{face}");
+		assert!(face.contains("\"id\":\"delay_time\""), "{face}");
+		assert!(face.contains("\"id\":\"tempo.sync\""), "{face}");
+		assert!(face.contains("\"id\":\"tempo.beats\""), "{face}");
+		assert!(face.contains("\"header\":[\"tempo.sync\"]"), "{face}");
+		assert!(
+			face.contains("\"switches\":[{\"control\":\"tempo.sync\",\"on\":[\"tempo.beats\"],\"off\":[\"delay_time\"]}]"),
+			"{face}"
+		);
+		assert!(face.contains("\"name\":\"Time\""), "{face}");
+	}
+
 	/// Distortion has six algorithms, and each mode lists the controls it reads.
 	#[test]
 	fn the_distortion_has_modes_and_visible_controls() {
@@ -395,6 +443,7 @@ mod tests {
 			ShifterWeb::window_options(),
 			DisperserWeb::window_options(),
 			BalanceWeb::window_options(),
+			DelayWeb::window_options(),
 			CrusherWeb::window_options(),
 		] {
 			let hints = options.resize_hints.expect("the web windows are resizable");

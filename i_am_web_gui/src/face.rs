@@ -36,6 +36,31 @@ pub struct Faceplate {
 	/// Parameters the page draws in the header instead of the body. The filter's
 	/// slope is a mode-adjacent choice, not a knob in the row.
 	pub header: Option<&'static [&'static str]>,
+	/// Pairs of controls that trade places when a switch moves: the delay's free
+	/// time in milliseconds and the same length in beats.
+	pub switches: Option<&'static [Switch]>,
+}
+
+/// One either-or pair of parameters, selected by a boolean parameter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Switch {
+	/// The boolean parameter that chooses the branch.
+	pub control: &'static str,
+	/// The parameters shown while it is on.
+	pub on: &'static [&'static str],
+	/// The parameters shown while it is off.
+	pub off: &'static [&'static str],
+}
+
+impl Switch {
+	/// A switch between two sets of parameters.
+	pub const fn new(
+		control: &'static str,
+		on: &'static [&'static str],
+		off: &'static [&'static str],
+	) -> Self {
+		Self { control, on, off }
+	}
 }
 
 impl Faceplate {
@@ -49,6 +74,7 @@ impl Faceplate {
 			visible: None,
 			curves: None,
 			header: None,
+			switches: None,
 		}
 	}
 
@@ -79,6 +105,12 @@ impl Faceplate {
 	/// Draw these parameters in the header instead of the body.
 	pub const fn with_header(mut self, header: &'static [&'static str]) -> Self {
 		self.header = Some(header);
+		self
+	}
+
+	/// Let a boolean parameter choose between two sets of controls.
+	pub const fn with_switches(mut self, switches: &'static [Switch]) -> Self {
+		self.switches = Some(switches);
 		self
 	}
 }
@@ -354,6 +386,36 @@ pub fn face_json_with_rate(
 					out.push(',');
 				}
 				string(&mut out, id);
+			}
+			out.push(']');
+		},
+		None => out.push_str("null"),
+	}
+	out.push_str(",\"switches\":");
+	match face.switches {
+		Some(rows) => {
+			out.push('[');
+			for (index, row) in rows.iter().enumerate() {
+				if index > 0 {
+					out.push(',');
+				}
+				out.push_str("{\"control\":");
+				string(&mut out, row.control);
+				out.push_str(",\"on\":[");
+				for (position, id) in row.on.iter().enumerate() {
+					if position > 0 {
+						out.push(',');
+					}
+					string(&mut out, id);
+				}
+				out.push_str("],\"off\":[");
+				for (position, id) in row.off.iter().enumerate() {
+					if position > 0 {
+						out.push(',');
+					}
+					string(&mut out, id);
+				}
+				out.push_str("]}");
 			}
 			out.push(']');
 		},

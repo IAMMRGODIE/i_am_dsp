@@ -39,7 +39,7 @@
 mod face;
 mod scope;
 
-pub use face::{Control, Faceplate, Kind, Section};
+pub use face::{Control, Faceplate, Kind, Section, Switch};
 pub use scope::Scope;
 
 use std::sync::Arc;
@@ -166,7 +166,7 @@ pub fn apply_command<P: Plugin>(processor: &P, body: &str) -> bool {
 /// ```
 #[macro_export]
 macro_rules! web_plugin {
-	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, curves = $curves:expr)? $(, header = $header:expr)?) => {
+	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, curves = $curves:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)?) => {
 		#[doc = concat!("The ", $title, " plug-in, with a web faceplate.")]
 		pub struct $name {
 			processor: i_am_effects_core::processor::EffectProcessor<$effect>,
@@ -299,7 +299,7 @@ macro_rules! web_plugin {
 			}
 
 			fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
-				let face = $crate::Faceplate::new($title, $accent, $size) $(.with_mode($mode))? $(.with_visible($visible))? $(.with_curves($curves))? $(.with_header($header))?;
+				let face = $crate::Faceplate::new($title, $accent, $size) $(.with_mode($mode))? $(.with_visible($visible))? $(.with_curves($curves))? $(.with_header($header))? $(.with_switches($switches))?;
 
 				$crate::editor(
 					self,

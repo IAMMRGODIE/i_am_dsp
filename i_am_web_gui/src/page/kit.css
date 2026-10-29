@@ -114,6 +114,20 @@ body.preview #app{
   height:calc(22px * var(--scale)); font-size:calc(10px * var(--scale));
   border-radius:5px;
 }
+.header-dot{
+  width:calc(20px * var(--scale)); height:calc(20px * var(--scale));
+  padding:0; border:0; border-radius:50%; background:transparent;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+}
+.header-dot:hover{background:rgba(255,255,255,.06)}
+.header-dot:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+.header-dot .dot{
+  width:calc(8px * var(--scale)); height:calc(8px * var(--scale));
+  border-radius:50%; background:#555; transition:background .12s ease, box-shadow .12s ease;
+}
+.header-dot[aria-pressed="true"] .dot{
+  background:var(--accent); box-shadow:0 0 8px var(--accent);
+}
 .title{
   font-size:calc(12px * var(--scale)); font-weight:600; letter-spacing:.1px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;

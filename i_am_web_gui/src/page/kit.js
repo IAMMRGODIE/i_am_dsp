@@ -127,6 +127,7 @@
     control.value = value;
     control.paint();
     markDirty();
+    applySwitches();
 
     if (send && window.ipc) {
       var wire = control.spec.kind === "int" ? Math.round(value) : value;
@@ -135,7 +136,7 @@
   }
 
   // --------------------------------------------------------------- controls
-  function makeControl(spec) {
+  function makeControl(spec, header) {
     var control = {
       spec: spec,
       value: spec.default,
@@ -147,12 +148,37 @@
 
     var el;
 
-    if (spec.widget === "toggle" || spec.kind === "bool") el = buildToggle(control);
+    if (header && spec.kind === "bool") el = buildHeaderDot(control);
+    else if (spec.widget === "toggle" || spec.kind === "bool") el = buildToggle(control);
     else if (spec.widget === "choice") el = buildChoice(control);
     else if (spec.widget === "slider") el = buildSlider(control);
     else el = buildKnob(control);
 
     control.el = el;
+    return el;
+  }
+
+  /// A boolean in the header is a dot, like the bypass one: no label and no row
+  /// taken from the faceplate.
+  function buildHeaderDot(control) {
+    var spec = control.spec;
+    var el = element("button", "header-dot");
+    el.type = "button";
+    el.title = spec.label;
+    el.setAttribute("aria-label", spec.label);
+    el.appendChild(element("span", "dot"));
+
+    control.paint = function () {
+      var on = !!control.value;
+      el.classList.toggle("on", on);
+      el.setAttribute("aria-pressed", on ? "true" : "false");
+    };
+
+    el.addEventListener("click", function () {
+      setValue(control, control.value ? 0 : 1, true);
+    });
+
+    control.paint();
     return el;
   }
 
@@ -962,9 +988,46 @@
     );
   }
 
+  /// The delay's repeats as a short time line. Synced repeats follow the beats at
+  /// 120 BPM for the picture; the audio, of course, follows the host's tempo.
+  function tapsSvg() {
+    var sync = !!valueOf("tempo.sync", 0);
+    var beats = Math.max(valueOf("tempo.beats", 1), 0.03125);
+    var free = Math.max(valueOf("delay_time", 250), 0);
+    var time = sync ? beats * 500 : free;
+    var feedback = clamp(valueOf("decay_factor", 0.8), 0, 0.95);
+    var mix = clamp(valueOf("wet_gain", 1), 0, 2);
+    var base = 140;
+    var taps = "";
+
+    for (var tap = 0; tap < 8; tap++) {
+      var at = time * (tap + 1);
+      if (at <= 0 || at > 2000) break;
+
+      var x = 20 + at / 2000 * 480;
+      var level = Math.pow(feedback, tap) * Math.min(mix, 1);
+      var height = 16 + 100 * level;
+
+      taps += '<line x1="' + x.toFixed(1) + '" y1="' + base + '" x2="' + x.toFixed(1) +
+        '" y2="' + (base - height).toFixed(1) + '" stroke="' + accent + '" stroke-width="2" ' +
+        'opacity="' + (0.3 + 0.7 * level).toFixed(2) + '"/>' +
+        '<circle cx="' + x.toFixed(1) + '" cy="' + (base - height).toFixed(1) +
+        '" r="2" fill="' + accent + '"/>';
+    }
+
+    return heroSvg(
+      '<line x1="20" y1="' + base + '" x2="500" y2="' + base + '" stroke="#3a3a3a"/>' +
+      taps
+    );
+  }
+
   function updateHeroes() {
     heroes.forEach(function (hero) {
-      if (hero.kind === "waveform") hero.el.innerHTML = waveformSvg();
+      if (hero.kind === "taps") {
+        hero.el.innerHTML = tapsSvg() +
+          (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");
+      }
+      else if (hero.kind === "waveform") hero.el.innerHTML = waveformSvg();
       else if (hero.kind === "transfer") hero.el.innerHTML = transferSvg() + rmsBadge();
       else if (hero.kind === "spectrum") hero.el.innerHTML = spectrumSvg();
       else if (hero.kind === "spectra") hero.el.innerHTML = spectraSvg();
@@ -1012,6 +1075,7 @@
             control.paint();
           }
         });
+        applySwitches();
         markDirty();
       })
       .catch(function (error) {
@@ -1083,6 +1147,31 @@
 
       var show = !ids || ids.indexOf(id) >= 0;
       control.el.style.display = show ? "" : "none";
+    });
+  }
+
+  /// Show the branch the current switch selects. Only the listed controls move;
+  /// everything else is left to the mode's visibility.
+  function applySwitches() {
+    if (!face || !face.switches) return;
+
+    face.switches.forEach(function (row) {
+      var control = controls[row.control];
+      if (!control) return;
+
+      var on = !!control.value;
+      var show = on ? row.on : row.off;
+      var hide = on ? row.off : row.on;
+
+      hide.forEach(function (id) {
+        var target = controls[id];
+        if (target && target.el) target.el.style.display = "none";
+      });
+
+      show.forEach(function (id) {
+        var target = controls[id];
+        if (target && target.el) target.el.style.display = "";
+      });
     });
   }
 
@@ -1226,7 +1315,7 @@
     if (modeEl) tools.appendChild(modeEl);
 
     headerSpecs.forEach(function (spec) {
-      tools.appendChild(makeControl(spec));
+      tools.appendChild(makeControl(spec, true));
     });
 
     if (modeEl || headerSpecs.length) header.appendChild(tools);
@@ -1266,6 +1355,7 @@
     });
 
     if (modeSpec) applyVisibility(Math.round(controls[modeSpec.id].value));
+    applySwitches();
 
     // Every hero the page draws is live: a waveform, a transfer with its RMS
     // bands, or a response with the input and output spectra on it.

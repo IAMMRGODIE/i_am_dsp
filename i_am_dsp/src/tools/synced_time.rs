@@ -78,7 +78,7 @@ pub struct SyncedTime {
 	#[logarithmic]
 	#[default(1.0)]
 	#[unit(beats)]
-	#[id(display = "Beats")]
+	#[id(display = "Time")]
 	pub beats: f32,
 }
 
