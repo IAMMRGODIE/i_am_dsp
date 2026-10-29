@@ -15,6 +15,9 @@ crossbeam-channel = "0.5.16"
 # No default features: the Windows WebView2 backend is compiled by `cfg` and
 # needs none of the Linux feature set.
 wry = { version = "0.57.1", default-features = false }
+# COM apartment of the host's UI thread, for diagnosing WebView2 creation
+# failures in a DAW.
+windows-sys = { version = "0.61", features = ["Win32_System_Com"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The smoke example defines a processor to put behind the page.

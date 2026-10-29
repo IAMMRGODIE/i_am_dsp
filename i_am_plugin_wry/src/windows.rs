@@ -267,20 +267,37 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 			.or_else(default_data_directory);
 		note(&format!("profile: {data_directory:?}"));
 
+		// WebView2 wants a COM apartment on the thread it is created from. The
+		// host usually owns this thread's COM mode; logging it tells a crash in
+		// CreateCoreWebView2Environment apart from one in the WebView itself.
+		#[cfg(windows)]
+		{
+			use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+			// SAFETY: a null reserved pointer is what CoInitializeEx expects; the
+			// host's existing apartment, if any, is left in place.
+			let result = unsafe {
+				CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32)
+			};
+			note(&format!("com: {result:#x}"));
+		}
+
 		let protocols = std::mem::take(&mut self.protocols);
 		let url = self.url.take();
 
-		let webview = WEB_CONTEXT
-			.with(move |shared| {
+		let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+			WEB_CONTEXT.with(move |shared| {
 				let mut shared = shared.borrow_mut();
 
 				if shared.is_none() {
+					note("context: creating");
 					*shared = Some(wry::WebContext::new(data_directory.clone()));
+					note("context: created");
 				}
 
 				let context = shared
 					.as_mut()
 					.expect("the WebView2 context was just created");
+				note("build: creating");
 				let mut builder = wry::WebViewBuilder::new_with_web_context(context);
 
 				for (name, handler) in protocols {
@@ -310,11 +327,23 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 					})
 					.build_as_child(&parent)
 			})
-			.map_err(|error| {
+		}));
+
+		let webview = match opened {
+			Ok(Ok(webview)) => webview,
+			Ok(Err(error)) => {
 				let error = EditorError::new(error);
 				report_error(&error);
-				error
-			})?;
+				return Err(error);
+			}
+			Err(_) => {
+				let error = EditorError::from("WebView2 panicked while opening");
+				report_error(&error);
+				return Err(error);
+			}
+		};
+
+		note("build: created");
 
 		webview.set_visible(true).map_err(|error| {
 			let error = EditorError::new(error);
