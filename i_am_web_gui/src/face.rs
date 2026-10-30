@@ -135,7 +135,8 @@ impl Faceplate {
 }
 
 /// What a control holds, which decides how a value is read and written.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Kind {
 	/// A floating-point parameter.
 	Float,
@@ -146,7 +147,7 @@ pub enum Kind {
 }
 
 /// One control, as the page draws it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Control {
 	/// The parameter identifier, which is also the key in /state.
 	pub id: String,

@@ -8,6 +8,7 @@ members = [
 	"i_am_bundler",
 	"i_am_effects",
 	"i_am_web_gui",
+	"i_am_rack",
 ]
 
 [workspace.dependencies]
@@ -17,3 +18,4 @@ i_am_dsp = { path = "i_am_dsp" }
 i_am_plugin = { path = "i_am_plugin" }
 i_am_effects = { path = "i_am_effects" }
 i_am_web_gui = { path = "i_am_web_gui" }
+i_am_rack = { path = "i_am_rack" }

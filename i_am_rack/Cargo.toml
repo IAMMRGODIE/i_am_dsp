@@ -1,0 +1,24 @@
+[package]
+name = "i_am_rack"
+version = "0.1.0"
+edition = "2024"
+
+# M0 of the Multipass rack: a serial module chain, a rack state of its own, and
+# a page that draws module cards the effect metadata describes.
+[features]
+vst3 = ["i_am_plugin/vst3"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.i_am_dsp]
+name = "I Am Multipass"
+vendor = "iamplugins"
+id = "iamdsp.multipass"
+
+[dependencies]
+i_am_dsp = { workspace = true }
+i_am_plugin = { workspace = true }
+i_am_web_gui = { workspace = true }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"

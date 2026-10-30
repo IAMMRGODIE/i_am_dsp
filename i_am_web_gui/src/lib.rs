@@ -56,6 +56,31 @@ const STYLE: &str = include_str!("page/kit.css");
 /// The page's script.
 const SCRIPT: &str = include_str!("page/kit.js");
 
+/// The three assets a page is made of.
+///
+/// A product that draws something the metadata cannot describe -- a rack, a
+/// curve editor, a browser of its own -- hands its own assets here. The routes
+/// stay the same (`/`, `/kit.css`, `/kit.js`), so the page can be embedded
+/// without adding another protocol or another editor backend.
+#[derive(Debug, Clone, Copy)]
+pub struct PageAssets {
+	/// The HTML the editor loads.
+	pub html: &'static str,
+	/// The stylesheet served at `/kit.css`.
+	pub css: &'static str,
+	/// The script served at `/kit.js`.
+	pub js: &'static str,
+}
+
+impl PageAssets {
+	/// The faceplate page: controls generated from parameter metadata.
+	pub const FACEPLATE: Self = Self {
+		html: PAGE,
+		css: STYLE,
+		js: SCRIPT,
+	};
+}
+
 /// The editor for a plug-in whose controls the metadata describes.
 ///
 /// Returns nothing when the plug-in has no controls a person can move: a page with
@@ -99,12 +124,45 @@ pub fn editor_with<P: Plugin>(
 	extra: impl Fn(&ProtocolRequest<'_>) -> Option<ProtocolResponse> + Send + Sync + 'static,
 	command: impl Fn(&str) -> bool + Send + Sync + 'static,
 ) -> Option<Box<dyn Editor<P>>> {
-	let sections = face::sections(&processor.get_parameters());
-
-	if sections.is_empty() {
+	if face::sections(&processor.get_parameters()).is_empty() {
 		return None;
 	}
 
+	editor_with_page(
+		processor,
+		face,
+		PageAssets::FACEPLATE,
+		bypass,
+		scope,
+		rate,
+		extra,
+		command,
+	)
+}
+
+/// The editor for a plug-in with a page of its own.
+///
+/// This is [editor_with] with the three embedded assets replaced. The routes the
+/// kit serves -- `/face`, `/state`, `/scope`, `/stereo`, `/note`, `/meter` --
+/// are still there, and `extra` still answers first, so a page that draws its own
+/// state can add `/rack` and keep the scope if it wants one.
+///
+/// Unlike [editor_with], a page with no metadata controls is not refused: a rack
+/// may take all of its controls from its own route.
+// The argument list matches editor_with, plus the page: splitting it into a
+// builder would make the one call site that matters longer, not shorter.
+#[allow(clippy::too_many_arguments)]
+pub fn editor_with_page<P: Plugin>(
+	processor: &P,
+	face: Faceplate,
+	page: PageAssets,
+	bypass: Arc<AtomicBool>,
+	scope: Arc<Scope>,
+	rate: usize,
+	extra: impl Fn(&ProtocolRequest<'_>) -> Option<ProtocolResponse> + Send + Sync + 'static,
+	command: impl Fn(&str) -> bool + Send + Sync + 'static,
+) -> Option<Box<dyn Editor<P>>> {
+	let sections = face::sections(&processor.get_parameters());
 	let page_face = face::face_json_with_rate(&face, &sections, Some(rate), true);
 	let map = processor.param_map();
 
@@ -116,7 +174,7 @@ pub fn editor_with<P: Plugin>(
 	let command_bypass = bypass;
 
 	Some(Box::new(
-		WryEditor::<P>::new(PAGE, move |body| {
+		WryEditor::<P>::new(page.html, move |body| {
 			if command(body) {
 				return None;
 			}
@@ -135,16 +193,16 @@ pub fn editor_with<P: Plugin>(
 			}
 
 			match request.path {
-			"/" | "/index.html" => ProtocolResponse::html(PAGE),
+			"/" | "/index.html" => ProtocolResponse::html(page.html),
 			"/kit.css" => ProtocolResponse {
 				status: 200,
 				content_type: "text/css; charset=utf-8",
-				body: STYLE.as_bytes().to_vec(),
+				body: page.css.as_bytes().to_vec(),
 			},
 			"/kit.js" => ProtocolResponse {
 				status: 200,
 				content_type: "text/javascript; charset=utf-8",
-				body: SCRIPT.as_bytes().to_vec(),
+				body: page.js.as_bytes().to_vec(),
 			},
 			"/face" => ProtocolResponse::json(page_face.clone()),
 			"/state" => ProtocolResponse::json(face::state_json_with_bypass(
@@ -174,6 +232,17 @@ pub fn editor_with<P: Plugin>(
 		})
 		.with_url("webgui://localhost/"),
 	))
+}
+
+/// The controls a parameter list describes, flattened across sections.
+///
+/// A rack shows one card per module and gives each card the controls its effect
+/// already declares; the conversion is the same one the faceplate page uses.
+pub fn controls(parameters: &[i_am_dsp::prelude::Parameter]) -> Vec<Control> {
+	face::sections(parameters)
+		.into_iter()
+		.flat_map(|section| section.controls)
+		.collect()
 }
 
 /// The faceplate JSON for a plug-in, for a test or a preview.
