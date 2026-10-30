@@ -56,8 +56,9 @@ pub use pitch::PITCH_VISIBLE;
 use filter::Multimode;
 pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_dsp::prelude::{
-	Chorus, Crusher, Delay, Distortion, Flanger, Gain as GainDsp, LrControl, Phaser,
-	SineWave, StereoController,
+	Chorus, Crusher, Delay, Distortion, Expander, Flanger, Gain as GainDsp, Gate, Limiter,
+	LrControl, Phaser, SineWave, StereoController, StereoRouter, TapeStopEffect,
+	TransientShaper,
 };
 use i_am_web_gui::Switch;
 use i_am_plugin::export_clap;
@@ -224,6 +225,12 @@ pub const COMPRESSOR_PORTS: &[i_am_plugin::AudioPort] = &[
 	i_am_plugin::AudioPort { name: "Sidechain" },
 ];
 
+/// Main input plus a sidechain input, for the gate and the expander.
+pub const SIDECHAIN_PORTS: &[i_am_plugin::AudioPort] = &[
+	i_am_plugin::AudioPort { name: "Main" },
+	i_am_plugin::AudioPort { name: "Sidechain" },
+];
+
 /// The compressor's controls by envelope. The gain controls repeat in every
 /// mode; the detection controls that belong to the selected detector ride with
 /// it.
@@ -376,6 +383,69 @@ web_plugin!(
 	clear = true
 );
 
+
+web_plugin!(
+	TapeStopWeb,
+	TapeStopEffect<2>,
+	TapeStopEffect::<2>::new,
+	"iamdsp.effects.tape_stop.web",
+	"I Am Tape Stop",
+	(420.0, 260.0),
+	"#7ad1e0"
+);
+
+web_plugin!(
+	GateWeb,
+	Gate<2>,
+	Gate::<2>::new,
+	"iamdsp.effects.gate.web",
+	"I Am Gate",
+	(700.0, 340.0),
+	"#6fd3a3",
+	ports = SIDECHAIN_PORTS
+);
+
+web_plugin!(
+	ExpanderWeb,
+	Expander<2>,
+	Expander::<2>::new,
+	"iamdsp.effects.expander.web",
+	"I Am Expander",
+	(700.0, 340.0),
+	"#79b8ff",
+	ports = SIDECHAIN_PORTS
+);
+
+web_plugin!(
+	LimiterWeb,
+	Limiter<2>,
+	Limiter::<2>::new,
+	"iamdsp.effects.limiter.web",
+	"I Am Limiter",
+	(700.0, 320.0),
+	"#ffc45a"
+);
+
+web_plugin!(
+	TransientWeb,
+	TransientShaper<2>,
+	TransientShaper::<2>::new,
+	"iamdsp.effects.transient_shaper.web",
+	"I Am Transient Shaper",
+	(520.0, 320.0),
+	"#ff7ad9"
+);
+
+web_plugin!(
+	RouterWeb,
+	StereoRouter,
+	StereoRouter::new,
+	"iamdsp.effects.router.web",
+	"I Am Router",
+	(520.0, 320.0),
+	"#8ad3ff"
+);
+
 web_plugin!(
 	CrusherWeb,
 	Crusher<2>,
@@ -413,7 +483,13 @@ export_clap!(
 	ScriptMapperWeb,
 	OttWeb,
 	VocoderWeb,
-	StftVocoderWeb
+	StftVocoderWeb,
+	TapeStopWeb,
+	GateWeb,
+	ExpanderWeb,
+	LimiterWeb,
+	TransientWeb,
+	RouterWeb
 );
 
 #[cfg(test)]
@@ -531,6 +607,12 @@ mod tests {
 		assert!(FlangerWeb::new().editor().is_some());
 		assert!(PhaserWeb::new().editor().is_some());
 		assert!(CrusherWeb::new().editor().is_some());
+		assert!(TapeStopWeb::new().editor().is_some());
+		assert!(GateWeb::new().editor().is_some());
+		assert!(ExpanderWeb::new().editor().is_some());
+		assert!(LimiterWeb::new().editor().is_some());
+		assert!(TransientWeb::new().editor().is_some());
+		assert!(RouterWeb::new().editor().is_some());
 	}
 
 	/// The crusher has three named sections, and the Drive one shows the scope.
@@ -868,6 +950,65 @@ mod tests {
 		);
 	}
 
+
+	/// The new utility products: a tape stop, the three downward dynamics, a
+	/// transient shaper and the stereo router.
+	#[test]
+	fn the_utility_products_have_their_controls() {
+		let tape_stop = i_am_web_gui::face_json(
+			&TapeStopWeb::new(),
+			&Faceplate::new("I Am Tape Stop", "#7ad1e0", (420.0, 260.0)),
+		);
+		let gate = i_am_web_gui::face_json(
+			&GateWeb::new(),
+			&Faceplate::new("I Am Gate", "#6fd3a3", (700.0, 340.0)),
+		);
+		let expander = i_am_web_gui::face_json(
+			&ExpanderWeb::new(),
+			&Faceplate::new("I Am Expander", "#79b8ff", (700.0, 340.0)),
+		);
+		let limiter = i_am_web_gui::face_json(
+			&LimiterWeb::new(),
+			&Faceplate::new("I Am Limiter", "#ffc45a", (700.0, 320.0)),
+		);
+		let transient = i_am_web_gui::face_json(
+			&TransientWeb::new(),
+			&Faceplate::new("I Am Transient Shaper", "#ff7ad9", (520.0, 320.0)),
+		);
+		let router = i_am_web_gui::face_json(
+			&RouterWeb::new(),
+			&Faceplate::new("I Am Router", "#8ad3ff", (520.0, 320.0)),
+		);
+
+		assert!(tape_stop.contains("\"hero\":\"waveform\""), "{tape_stop}");
+		assert!(tape_stop.contains("\"id\":\"stop\""), "{tape_stop}");
+		assert!(tape_stop.contains("\"id\":\"time\""), "{tape_stop}");
+
+		assert!(gate.contains("\"hero\":\"gate\""), "{gate}");
+		for id in ["threshold", "range", "attack", "hold", "release", "hysteresis", "sidechain"] {
+			assert!(gate.contains(&format!("\"id\":\"{id}\"")), "{gate}");
+		}
+		assert_eq!(<GateWeb as i_am_plugin::Plugin>::INPUT_PORTS.len(), 2);
+
+		assert!(expander.contains("\"hero\":\"expander\""), "{expander}");
+		assert!(expander.contains("\"id\":\"ratio\""), "{expander}");
+		assert_eq!(<ExpanderWeb as i_am_plugin::Plugin>::INPUT_PORTS.len(), 2);
+
+		assert!(limiter.contains("\"hero\":\"limiter\""), "{limiter}");
+		for id in ["ceiling", "release", "lookahead", "output"] {
+			assert!(limiter.contains(&format!("\"id\":\"{id}\"")), "{limiter}");
+		}
+
+		assert!(transient.contains("\"hero\":\"waveform\""), "{transient}");
+		assert!(transient.contains("\"id\":\"attack\""), "{transient}");
+		assert!(transient.contains("\"id\":\"sustain\""), "{transient}");
+
+		assert!(router.contains("\"hero\":\"stereo\""), "{router}");
+		for id in ["l_to_l", "l_to_r", "r_to_l", "r_to_r"] {
+			assert!(router.contains(&format!("\"id\":\"{id}\"")), "{router}");
+		}
+	}
+
 	/// The OTT is a three-band meter and a second section for the bands.
 	#[test]
 	fn the_ott_has_band_meters_and_a_bands_section() {
@@ -1074,6 +1215,12 @@ mod tests {
 			FlangerWeb::window_options(),
 			PhaserWeb::window_options(),
 			CrusherWeb::window_options(),
+			TapeStopWeb::window_options(),
+			GateWeb::window_options(),
+			ExpanderWeb::window_options(),
+			LimiterWeb::window_options(),
+			TransientWeb::window_options(),
+			RouterWeb::window_options(),
 		] {
 			let hints = options.resize_hints.expect("the web windows are resizable");
 

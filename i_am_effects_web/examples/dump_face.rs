@@ -16,6 +16,7 @@ use i_am_effects_web::{
 	AllpassWeb, BalanceWeb, ChorusWeb, CombWeb, CompressorWeb, CrusherWeb, DelayWeb,
 	ConvolverWeb, DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
 	OttWeb, ScriptDistortionWeb, ScriptMapperWeb, VocoderWeb, StftVocoderWeb,
+	TapeStopWeb, GateWeb, ExpanderWeb, LimiterWeb, TransientWeb, RouterWeb,
 	ParticleWiderWeb, PitchWeb, ReverbWeb, SchroederWeb, ShifterWeb, UnstablizerWeb, WidthWeb,
 	CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
@@ -272,6 +273,67 @@ fn main() {
 					&plugin,
 					&Faceplate::new("I Am STFT Vocoder", "#7bb8ff", (700.0, 340.0))
 						.with_header(&["window_size"]),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+
+		"tape_stop" => {
+			let plugin = TapeStopWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Tape Stop", "#7ad1e0", (420.0, 260.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"gate" => {
+			let plugin = GateWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Gate", "#6fd3a3", (700.0, 340.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"expander" => {
+			let plugin = ExpanderWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Expander", "#79b8ff", (700.0, 340.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"limiter" => {
+			let plugin = LimiterWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Limiter", "#ffc45a", (700.0, 320.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"transient" => {
+			let plugin = TransientWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Transient Shaper", "#ff7ad9", (520.0, 320.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"router" => {
+			let plugin = RouterWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Router", "#8ad3ff", (520.0, 320.0)),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

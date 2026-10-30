@@ -23,3 +23,6 @@ pub mod unstablizer;
 pub mod reverb_ir_gen;
 pub mod hybrid_reverb;
 pub mod vocoder;
+pub mod dynamics;
+pub mod tape_stop;
+pub mod router;

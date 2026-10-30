@@ -23,3 +23,6 @@ pub use super::reverb_ir_gen::*;
 pub use super::hybrid_reverb::*;
 
 pub use super::vocoder::*;
+pub use super::dynamics::*;
+pub use super::tape_stop::*;
+pub use super::router::*;
