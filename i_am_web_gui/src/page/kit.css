@@ -106,6 +106,32 @@ body.preview #app{
   font-size:calc(8px * var(--scale)); letter-spacing:.12em; text-transform:uppercase;
   color:var(--text3); white-space:nowrap;
 }
+.clear-tail{
+  appearance:none; border:1px solid var(--border); border-radius:5px;
+  background:#222; color:var(--text3); font:inherit; cursor:pointer;
+  font-size:calc(8px * var(--scale)); letter-spacing:.12em;
+  height:calc(20px * var(--scale)); padding:0 calc(7px * var(--scale));
+  text-transform:uppercase;
+}
+.clear-tail:hover{color:var(--text1); border-color:#4a4a4a}
+.clear-tail:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+.clear-tail.cleared{
+  background:color-mix(in srgb,var(--accent) 30%,#222); color:var(--text1);
+}
+.knob-edit{
+  position:fixed; z-index:100; display:flex; align-items:center;
+  gap:calc(4px * var(--scale)); padding:calc(3px * var(--scale)) calc(5px * var(--scale));
+  background:#1b1b1b; border:1px solid #4a4a4a; border-radius:5px;
+  box-shadow:0 6px 18px rgba(0,0,0,.5);
+}
+.knob-edit input{
+  width:calc(64px * var(--scale)); height:calc(20px * var(--scale));
+  background:#0b0b0b; border:1px solid #3a3a3a; border-radius:3px;
+  color:var(--text1); font:inherit; font-size:calc(11px * var(--scale));
+  padding:0 calc(4px * var(--scale)); outline:none;
+}
+.knob-edit input:focus{border-color:var(--accent)}
+.knob-edit .unit{font-size:calc(9px * var(--scale)); color:var(--text3)}
 /* A choice in the header keeps its label on one line with its select. */
 .header .choice{
   flex-direction:row; align-items:center; gap:calc(5px * var(--scale));

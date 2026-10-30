@@ -121,6 +121,10 @@ impl Effect<2> for ReverbEffect {
 		self.inner.delay()
 	}
 
+	fn clear_tail(&mut self) {
+		self.inner.clear_delay_lines();
+	}
+
 	fn process(
 		&mut self,
 		samples: &mut [f32; 2],
@@ -186,5 +190,29 @@ mod tests {
 
 		assert!(early > 0.0, "the network should produce a tail");
 		assert!(late < early * 1e-3, "the tail did not decay: {early:e} -> {late:e}");
+	}
+
+	/// The clear-tail action empties the network before the next sample.
+	#[test]
+	fn clear_tail_silences_the_reverb() {
+		let mut effect = ReverbEffect::new(48_000);
+		effect.dry_gain = 0.0;
+		effect.wet_gain = 1.0;
+
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+
+		for index in 0..4_800 {
+			let input = if index == 0 { 0.5 } else { 0.0 };
+			let mut samples = [input, input];
+			effect.process(&mut samples, &[], &mut context);
+		}
+
+		effect.clear_tail();
+
+		for _ in 0..2_000 {
+			let mut samples = [0.0; 2];
+			effect.process(&mut samples, &[], &mut context);
+			assert!(samples.iter().all(|sample| sample.abs() < 1e-6), "{samples:?}");
+		}
 	}
 }

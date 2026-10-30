@@ -218,12 +218,13 @@ pub fn apply_command<P: Plugin>(processor: &P, body: &str) -> bool {
 /// ```
 #[macro_export]
 macro_rules! web_plugin {
-	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, curves = $curves:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)?) => {
+	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, curves = $curves:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)? $(, clear = $clear:literal)?) => {
 		#[doc = concat!("The ", $title, " plug-in, with a web faceplate.")]
 		pub struct $name {
 			processor: i_am_effects_core::processor::EffectProcessor<$effect>,
 			bypass: std::sync::Arc<std::sync::atomic::AtomicBool>,
 			scope: std::sync::Arc<$crate::Scope>,
+			clear: std::sync::Arc<std::sync::atomic::AtomicBool>,
 		}
 
 		impl Default for $name {
@@ -232,6 +233,7 @@ macro_rules! web_plugin {
 					processor: i_am_effects_core::processor::EffectProcessor::new($build),
 					bypass: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
 					scope: std::sync::Arc::new($crate::Scope::new()),
+					clear: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
 				}
 			}
 		}
@@ -299,6 +301,10 @@ macro_rules! web_plugin {
 						i_am_dsp::NoteEvent::ImmediateStop => self.scope.set_note(-1),
 						_ => {}
 					}
+				}
+
+				if self.clear.swap(false, std::sync::atomic::Ordering::Relaxed) {
+					self.processor.clear_tail();
 				}
 
 				let input = *samples;
@@ -378,13 +384,25 @@ macro_rules! web_plugin {
 
 			fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
 				let face = $crate::Faceplate::new($title, $accent, $size) $(.with_mode($mode))? $(.with_visible($visible))? $(.with_curves($curves))? $(.with_header($header))? $(.with_switches($switches))?;
+				$(let face = if $clear { face.with_clear() } else { face };)?
 
-				$crate::editor(
+				let clear = self.clear.clone();
+
+				$crate::editor_with(
 					self,
 					face,
 					self.bypass.clone(),
 					self.scope.clone(),
 					self.processor.sample_rate(),
+					move |request: &$crate::ProtocolRequest<'_>| {
+						if request.method == "POST" && request.path == "/clear" {
+							clear.store(true, std::sync::atomic::Ordering::Relaxed);
+							return Some($crate::ProtocolResponse::json("{\"ok\":true}"));
+						}
+
+						None
+					},
+					|_: &str| false,
 				)
 			}
 		}

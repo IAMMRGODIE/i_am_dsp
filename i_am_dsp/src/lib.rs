@@ -119,6 +119,12 @@ pub trait Effect<const CHANNELS: usize = 2>: Send + Sync + Parameters {
 
 	/// Returns the delay of the effect in samples.
 	fn delay(&self) -> usize;
+
+	/// Drops the effect's stored history, so a reverb or delay tail stops now.
+	///
+	/// Most effects have no tail; the ones that do override this. It runs on the
+	/// audio thread, so it must only clear state that is already allocated.
+	fn clear_tail(&mut self) {}
 	
 
 	/// Returns the name of the effect.

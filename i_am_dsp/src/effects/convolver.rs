@@ -831,6 +831,29 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE>
 		}
 	}
 
+	/// Clears every running buffer, including the direct head's window and the
+	/// partition accumulator, without touching the impulse response or the FFT
+	/// partitions. The next sample starts from silence.
+	fn clear_state(&mut self) {
+		for window in &mut self.head_window {
+			window.fill(0.0);
+		}
+		for history in &mut self.history {
+			history.fill(0.0);
+		}
+		for block in &mut self.current_block {
+			block.fill(0.0);
+		}
+		for accumulator in &mut self.out_acc {
+			accumulator.fill(0.0);
+		}
+
+		self.history_pos = 0;
+		self.pos = 0;
+		self.emit_pos = 0;
+		self.blocks_completed = 0;
+	}
+
 	fn frame(&mut self, input: [f32; CHANNELS]) -> [f32; CHANNELS] {
 		// Subnormals are flushed to zero up front, so that a signal that has
 		// decayed into the subnormal range cannot make the transforms an order of
@@ -1096,6 +1119,11 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 		} else {
 			1.0
 		};
+	}
+
+	/// Clear the convolution history, so a tail stops immediately.
+	pub fn clear(&mut self) {
+		self.buffer.clear_state();
 	}
 
 	/// Replace the IR.

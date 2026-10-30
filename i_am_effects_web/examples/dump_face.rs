@@ -119,7 +119,8 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Schroeder", "#e0b36a", (700.0, 340.0)),
+					&Faceplate::new("I Am Schroeder", "#e0b36a", (700.0, 340.0))
+						.with_clear(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -186,7 +187,8 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am IR Reverb", "#7bd3ff", (700.0, 340.0)),
+					&Faceplate::new("I Am IR Reverb", "#7bd3ff", (700.0, 340.0))
+						.with_clear(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -196,7 +198,8 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Reverb", "#6c8cff", (700.0, 340.0)),
+					&Faceplate::new("I Am Reverb", "#6c8cff", (700.0, 340.0))
+						.with_clear(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -256,7 +259,8 @@ fn main() {
 					&plugin,
 					&Faceplate::new("I Am Delay", "#e8c35a", (560.0, 300.0))
 						.with_header(DELAY_HEADER)
-						.with_switches(DELAY_SWITCHES),
+						.with_switches(DELAY_SWITCHES)
+						.with_clear(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -300,7 +304,8 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Convolver", "#b08cff", (520.0, 330.0)),
+					&Faceplate::new("I Am Convolver", "#b08cff", (520.0, 330.0))
+						.with_clear(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

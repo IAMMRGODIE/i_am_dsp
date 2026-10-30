@@ -15,6 +15,13 @@ use i_am_dsp::{NoteEvent, ProcessContext};
 /// in a map nothing is reading.
 pub const DEFAULT_SAMPLE_RATE: usize = 44_100;
 
+impl<E: Effect<2> + Parameters> EffectProcessor<E> {
+	/// Drops the effect's history, for a clear-tail button.
+	pub fn clear_tail(&mut self) {
+		self.effect.value.clear_tail();
+	}
+}
+
 /// A message from the interface.
 #[derive(Debug, Clone)]
 pub enum EffectMessage {

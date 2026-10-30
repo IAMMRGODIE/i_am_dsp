@@ -42,6 +42,8 @@ pub struct Faceplate {
 	/// Whether the page shows the script panel: a text area that posts a Rhai
 	/// body to the product's `/script` route.
 	pub script: bool,
+	/// Whether the page shows a clear-tail button that posts to `/clear`.
+	pub clear: bool,
 }
 
 /// One either-or pair of parameters, selected by a boolean parameter.
@@ -79,6 +81,7 @@ impl Faceplate {
 			header: None,
 			switches: None,
 			script: false,
+			clear: false,
 		}
 	}
 
@@ -121,6 +124,12 @@ impl Faceplate {
 	/// Show the script panel, for a product whose curve is written in Rhai.
 	pub const fn with_script(mut self) -> Self {
 		self.script = true;
+		self
+	}
+
+	/// Show the header's clear-tail button.
+	pub const fn with_clear(mut self) -> Self {
+		self.clear = true;
 		self
 	}
 }
@@ -365,7 +374,12 @@ pub fn face_json_with_rate(
 		},
 		None => out.push_str("null"),
 	}
-	let _ = write!(out, ",\"hosted\":{hosted},\"script\":{script}", script = face.script);
+	let _ = write!(
+		out,
+		",\"hosted\":{hosted},\"script\":{script},\"clear\":{clear}",
+		script = face.script,
+		clear = face.clear
+	);
 	out.push_str(",\"visible\":");
 	match face.visible {
 		Some(rows) => {

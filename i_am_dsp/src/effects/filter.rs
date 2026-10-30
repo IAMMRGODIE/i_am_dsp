@@ -1189,11 +1189,20 @@ impl<const CHANNELS: usize> Lowpass<CHANNELS> {
 			cached: None,
 		}
 	}
+
+	/// Clears the filter's stored input and output samples.
+	pub fn clear_state(&mut self) {
+		self.filter.clear_state();
+	}
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for Lowpass<CHANNELS> {
 	fn delay(&self) -> usize {
 		0
+	}
+
+	fn clear_tail(&mut self) {
+		self.clear_state();
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -1735,6 +1744,13 @@ impl<const CHANNELS: usize> CombsFilter<CHANNELS> {
 			buffer.resize(new_size);
 		}
 	}
+
+	/// Clears the comb's delay line, stopping its tail.
+	pub fn clear_history(&mut self) {
+		for buffer in self.history.iter_mut() {
+			buffer.clear();
+		}
+	}
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for CombsFilter<CHANNELS> {
@@ -1816,6 +1832,16 @@ impl<const CHANNELS: usize> AllpassFilter<CHANNELS> {
 		}
 		for buffer in self.unprocessed_history.iter_mut() {
 			buffer.resize(new_size);
+		}
+	}
+
+	/// Clears both allpass delay lines, stopping its tail.
+	pub fn clear_history(&mut self) {
+		for buffer in self.processed_history.iter_mut() {
+			buffer.clear();
+		}
+		for buffer in self.unprocessed_history.iter_mut() {
+			buffer.clear();
 		}
 	}
 }

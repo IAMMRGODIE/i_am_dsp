@@ -521,6 +521,11 @@ impl<
 			}
 			self.damping_state[channel] = [0.0; DELAY_LINES];
 		}
+
+		// The pre-delay and the damping tail are separate states in front of and
+		// inside the network.
+		self.pure_delay.clear_history();
+		self.tail.clear_tail();
 	}
 
 	/// Recomputes the values the per sample loop derives from the parameters.

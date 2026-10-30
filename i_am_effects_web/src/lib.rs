@@ -274,7 +274,8 @@ web_plugin!(
 	"iamdsp.effects.reverb.web",
 	"I Am Reverb",
 	(700.0, 340.0),
-	"#6c8cff"
+	"#6c8cff",
+	clear = true
 );
 
 web_plugin!(
@@ -307,7 +308,8 @@ web_plugin!(
 	"iamdsp.effects.schroeder.web",
 	"I Am Schroeder",
 	(700.0, 340.0),
-	"#e0b36a"
+	"#e0b36a",
+	clear = true
 );
 
 web_plugin!(
@@ -317,7 +319,8 @@ web_plugin!(
 	"iamdsp.effects.ir_reverb.web",
 	"I Am IR Reverb",
 	(700.0, 340.0),
-	"#7bd3ff"
+	"#7bd3ff",
+	clear = true
 );
 
 web_plugin!(
@@ -365,7 +368,8 @@ web_plugin!(
 	(560.0, 300.0),
 	"#e8c35a",
 	header = DELAY_HEADER,
-	switches = DELAY_SWITCHES
+	switches = DELAY_SWITCHES,
+	clear = true
 );
 
 web_plugin!(

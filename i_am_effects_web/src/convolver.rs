@@ -306,6 +306,12 @@ impl Effect<2> for ConvolverEffect {
 		0
 	}
 
+	fn clear_tail(&mut self) {
+		if let Some(convolver) = &mut self.convolver {
+			convolver.clear();
+		}
+	}
+
 	fn process(
 		&mut self,
 		samples: &mut [f32; 2],
@@ -642,6 +648,7 @@ pub struct ConvolverWeb {
 	bypass: Arc<AtomicBool>,
 	scope: Arc<Scope>,
 	ir: Arc<IrSlot>,
+	clear: Arc<AtomicBool>,
 }
 
 impl Default for ConvolverWeb {
@@ -657,6 +664,7 @@ impl Default for ConvolverWeb {
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(Scope::new()),
 			ir,
+			clear: Arc::new(AtomicBool::new(false)),
 		}
 	}
 }
@@ -696,6 +704,10 @@ impl i_am_dsp::Processor for ConvolverWeb {
 		other: &[[f32; 2]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
+		if self.clear.swap(false, Ordering::Relaxed) {
+			self.processor.clear_tail();
+		}
+
 		for event in process_context.events() {
 			match event {
 				i_am_dsp::NoteEvent::NoteOn { note, .. } => self.scope.set_note(*note as i32),
@@ -774,8 +786,9 @@ impl Plugin for ConvolverWeb {
 	}
 
 	fn editor(&self) -> Option<Box<dyn Editor<Self>>> {
-		let face = i_am_web_gui::Faceplate::new("I Am Convolver", ACCENT, SIZE);
+		let face = i_am_web_gui::Faceplate::new("I Am Convolver", ACCENT, SIZE).with_clear();
 		let route_slot = self.ir.clone();
+		let clear_flag = self.clear.clone();
 		let command_slot = self.ir.clone();
 
 		i_am_web_gui::editor_with(
@@ -784,7 +797,14 @@ impl Plugin for ConvolverWeb {
 			self.bypass.clone(),
 			self.scope.clone(),
 			self.processor.sample_rate(),
-			move |request: &ProtocolRequest<'_>| ir_route(request, &route_slot),
+			move |request: &ProtocolRequest<'_>| {
+				if request.method == "POST" && request.path == "/clear" {
+					clear_flag.store(true, Ordering::Relaxed);
+					return Some(ProtocolResponse::json("{\"ok\":true}"));
+				}
+
+				ir_route(request, &route_slot)
+			},
 			move |command: &str| {
 				if command != "__load_ir" {
 					return false;

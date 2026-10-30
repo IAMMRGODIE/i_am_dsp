@@ -127,6 +127,16 @@ impl Effect<2> for SchroederEffect {
 		0
 	}
 
+	fn clear_tail(&mut self) {
+		for comb in &mut self.combs {
+			comb.clear_history();
+		}
+		for allpass in &mut self.allpasses {
+			allpass.clear_history();
+		}
+		self.damping_filter.clear_state();
+	}
+
 	fn process(
 		&mut self,
 		samples: &mut [f32; 2],

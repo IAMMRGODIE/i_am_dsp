@@ -195,6 +195,12 @@ impl Effect<2> for IrReverbEffect {
 		self.convolver.delay()
 	}
 
+	fn clear_tail(&mut self) {
+		self.convolver.clear();
+		self.previous = None;
+		self.fade_remaining = 0;
+	}
+
 	fn process(
 		&mut self,
 		samples: &mut [f32; 2],

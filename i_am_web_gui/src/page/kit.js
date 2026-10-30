@@ -111,6 +111,129 @@ var ENV_MAX = 512;
     }
   }
 
+  /// The number shown in a knob's editor, in the unit the readout uses.
+  function input_text(spec, value) {
+    switch (spec.unit) {
+      case "db": return value.toFixed(2);
+      case "hz": return value.toFixed(2);
+      case "percent": return (value * 100).toFixed(1);
+      case "ms": return value.toFixed(1);
+      case "s": return value.toFixed(3);
+      case "samples": return String(Math.round(value));
+      case "beats": return value.toFixed(3);
+      default: return spec.kind === "int" ? String(Math.round(value)) : value.toFixed(2);
+    }
+  }
+
+  function unit_label(spec) {
+    switch (spec.unit) {
+      case "db": return "dB";
+      case "hz": return "Hz";
+      case "percent": return "%";
+      case "ms": return "ms";
+      case "s": return "s";
+      case "samples": return "samples";
+      case "beats": return "beats";
+      default: return "";
+    }
+  }
+
+  /// Parses what a person typed into the raw parameter value. Units are
+  /// optional and the Hz field accepts k/kHz.
+  function parse_input(spec, text) {
+    var value = String(text).trim().toLowerCase().replace(/\s+/g, "");
+
+    if (!value) return null;
+
+    var multiplier = 1;
+
+    if (spec.unit === "hz") {
+      if (value.endsWith("khz")) { value = value.slice(0, -3); multiplier = 1000; }
+      else if (value.endsWith("hz")) { value = value.slice(0, -2); }
+      else if (value.endsWith("k")) { value = value.slice(0, -1); multiplier = 1000; }
+    } else if (spec.unit === "db") {
+      value = value.replace(/db$/, "");
+    } else if (spec.unit === "ms") {
+      value = value.replace(/ms$/, "");
+    } else if (spec.unit === "s") {
+      value = value.replace(/s$/, "");
+    } else if (spec.unit === "samples") {
+      value = value.replace(/samples$/, "");
+    } else if (spec.unit === "beats") {
+      value = value.replace(/beats$/, "");
+    } else if (spec.unit === "percent") {
+      value = value.replace(/%$/, "");
+    }
+
+    var number = parseFloat(value);
+
+    if (!isFinite(number)) return null;
+
+    number *= multiplier;
+
+    if (spec.unit === "percent") number /= 100;
+
+    return number;
+  }
+
+  var knob_editor = null;
+
+  function close_knob_editor() {
+    if (knob_editor) {
+      knob_editor.remove();
+      knob_editor = null;
+    }
+  }
+
+  /// A small text field over the control, for entering an exact value.
+  function open_knob_editor(control, anchor) {
+    close_knob_editor();
+
+    var spec = control.spec;
+    var box = element("div", "knob-edit");
+    var input = document.createElement("input");
+    input.type = "text";
+    input.value = input_text(spec, control.value);
+    input.spellcheck = false;
+    input.setAttribute("aria-label", spec.label + " value");
+
+    var unit = element("span", "unit");
+    unit.textContent = unit_label(spec);
+
+    box.appendChild(input);
+    box.appendChild(unit);
+    document.body.appendChild(box);
+
+    var rect = anchor.getBoundingClientRect();
+    var width = 118;
+    var top = rect.bottom + 4;
+
+    if (top + 30 > window.innerHeight) top = Math.max(4, rect.top - 30);
+
+    box.style.left = Math.min(window.innerWidth - width, Math.max(4, rect.left)) + "px";
+    box.style.top = top + "px";
+
+    input.focus();
+    input.select();
+
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        var parsed = parse_input(spec, input.value);
+        if (parsed !== null) setValue(control, parsed, true);
+        close_knob_editor();
+      } else if (event.key === "Escape") {
+        close_knob_editor();
+      }
+    });
+
+    input.addEventListener("blur", function () {
+      // Enter closes first; a click elsewhere just discards the edit.
+      setTimeout(close_knob_editor, 0);
+    });
+
+    knob_editor = box;
+  }
+
   // ------------------------------------------------------------ value space
   function curveOf(spec) {
     return face && face.curves ? face.curves[spec.id] : null;
@@ -353,6 +476,12 @@ var ENV_MAX = 512;
 
     svg.addEventListener("dblclick", function () {
       setValue(control, spec.default, true);
+    });
+
+    el.title = "Right-click to type a value";
+    el.addEventListener("contextmenu", function (event) {
+      event.preventDefault();
+      open_knob_editor(control, el);
     });
 
     svg.addEventListener("wheel", function (event) {
@@ -1259,6 +1388,19 @@ var ENV_MAX = 512;
     var width = Math.max(0.15, Math.abs(Math.log2(bandwidth / cutoff)) * 0.35);
     var strength = 0.35 + 0.65 * amount;
     var path = "";
+    var grid = "";
+    var labels = "";
+
+    // The frequency axis is logarithmic: the curve is sampled on
+    // logarithmically spaced frequencies and the grid marks the decades, so the
+    // picture and the control mean the same thing.
+    [20, 100, 1000, 10000].forEach(function (frequency) {
+      var x = 20 + Math.log(frequency / 20) / Math.log(1000) * 480;
+      grid += '<line x1="' + x.toFixed(1) + '" y1="20" x2="' + x.toFixed(1) +
+        '" y2="150" stroke="#242424"/>';
+      labels += '<div class="hero-label" style="left:' + (x / 520 * 100).toFixed(1) +
+        '%;top:90%">' + (frequency >= 1000 ? frequency / 1000 + "k" : frequency) + '</div>';
+    });
 
     for (var i = 0; i <= 120; i++) {
       var frequency = 20 * Math.pow(1000, i / 120);
@@ -1270,11 +1412,12 @@ var ENV_MAX = 512;
     }
 
     return heroSvg(
+      grid +
       '<line x1="20" y1="150" x2="500" y2="150" stroke="#2a2a2a"/>' +
       '<path d="' + path + ' L 500 150 L 20 150 Z" fill="' + accent + '" fill-opacity=".08"/>' +
       '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
         'vector-effect="non-scaling-stroke"/>'
-    );
+    ) + labels;
   }
 
   /// Two channel gains as meters; balance is independent left and right levels.
@@ -2242,7 +2385,22 @@ var ENV_MAX = 512;
       }
     });
 
-    if (modeEl || headerSpecs.length) header.appendChild(tools);
+    if (face.clear) {
+      var clearTail = element("button", "clear-tail");
+      clearTail.type = "button";
+      clearTail.textContent = "CLEAR";
+      clearTail.title = "Stop the tail immediately";
+      clearTail.addEventListener("click", function () {
+        fetch("/clear", { method: "POST" }).catch(function () {});
+        clearTail.classList.add("cleared");
+        setTimeout(function () {
+          clearTail.classList.remove("cleared");
+        }, 160);
+      });
+      tools.appendChild(clearTail);
+    }
+
+    if (modeEl || headerSpecs.length || face.clear) header.appendChild(tools);
 
     var body = element("div", "body");
     var many = face.sections.length > 1;

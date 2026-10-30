@@ -412,6 +412,10 @@ impl<
 		"Delay"
 	}
 
+	fn clear_tail(&mut self) {
+		self.clear_history();
+	}
+
 	fn delay(&self) -> usize {
 		// The dry signal passes through undelayed, so nothing has to be compensated for;
 		// the repeats are the effect, not latency.
@@ -904,6 +908,29 @@ mod tests {
 		assert_eq!(delay.delay(), 480);
 		delay.delay_time = 10.5;
 		assert_eq!(delay.delay(), 504);
+	}
+
+	/// The clear-tail action drops a feedback tail immediately.
+	#[test]
+	fn clear_tail_silences_the_delay() {
+		let mut delay = Delay::<(), 2>::new((), 48_000, 10.0, 48_000);
+		delay.dry_gain = 0.0;
+		delay.wet_gain = 1.0;
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+
+		for index in 0..4_000 {
+			let input = if index == 0 { 1.0 } else { 0.0 };
+			let mut frame = [input, input];
+			delay.process(&mut frame, &[], &mut context);
+		}
+
+		delay.clear_tail();
+
+		for _ in 0..1_000 {
+			let mut frame = [0.0; 2];
+			delay.process(&mut frame, &[], &mut context);
+			assert!(frame.iter().all(|sample| sample.abs() < 1e-6), "{frame:?}");
+		}
 	}
 
 	/// Resizing and clearing must not panic, and a cleared line is silent.
