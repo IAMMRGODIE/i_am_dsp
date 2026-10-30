@@ -31,7 +31,10 @@ pub trait FrequencyMapper: Parameters {
 
 	#[cfg(feature = "real_time_demo")]
 	/// UI for the frequency mapper.
-	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String);
+	///
+	/// A mapper that only exists in a non-iced front end has nothing to draw in
+	/// the demo window, so the default is a no-op.
+	fn demo_ui(&mut self, _ui: &mut egui::Ui, _id_prefix: String) {}
 }
 
 fn window(window_size: usize, index: usize, offset: usize, window_factor: f32) -> f32 {

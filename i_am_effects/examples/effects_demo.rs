@@ -94,7 +94,7 @@ mod demo {
 			Subscription::batch([Demo::<Source<P>>::subscriber(), space])
 		})
 		.theme(theme())
-		.window_size(iced::Size::new(size.width as f32, size.height as f32))
+		.window_size(iced::Size::new(size.width, size.height))
 		// Annotated because iced asks for a title for *any* borrow of the state, and an
 		// unannotated closure is only inferred for one of them.
 		.title(move |_: &Demo<Source<P>>| title.clone())
