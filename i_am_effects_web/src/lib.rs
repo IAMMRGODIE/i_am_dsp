@@ -31,6 +31,7 @@ mod script_distortion;
 mod script_mapper;
 mod shifter;
 mod unstablizer;
+mod vocoder;
 
 use allpass::AllpassEffect;
 use comb::CombEffect;
@@ -39,6 +40,7 @@ pub use convolver::{ConvolverWeb, IrData, IrSlot};
 pub use script_distortion::ScriptDistortionWeb;
 pub use script_mapper::ScriptMapperWeb;
 pub use ott::OttWeb;
+pub use vocoder::VocoderWeb;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 use particle_wider::ParticleWiderEffect;
@@ -407,7 +409,8 @@ export_clap!(
 	ConvolverWeb,
 	ScriptDistortionWeb,
 	ScriptMapperWeb,
-	OttWeb
+	OttWeb,
+	VocoderWeb
 );
 
 #[cfg(test)]
@@ -805,6 +808,27 @@ mod tests {
 		for id in ["p1", "p2", "p3", "p4"] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
 		}
+	}
+
+	/// The vocoder draws a band meter pair and declares a sidechain input.
+	#[test]
+	fn the_vocoder_has_band_meters_and_a_sidechain() {
+		let face = i_am_web_gui::face_json(
+			&VocoderWeb::new(),
+			&Faceplate::new("I Am Vocoder", "#e0a45a", (700.0, 380.0)),
+		);
+
+		assert!(face.contains("\"hero\":\"vocodex\""), "{face}");
+
+		for id in ["bands", "attack", "release", "mix", "output", "sidechain"] {
+			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
+		}
+
+		assert!(face.contains("\"sidechain\""), "{face}");
+		assert!(
+			<VocoderWeb as i_am_plugin::Plugin>::INPUT_PORTS.len() == 2,
+			"main plus sidechain"
+		);
 	}
 
 	/// The OTT is a three-band meter and a second section for the bands.

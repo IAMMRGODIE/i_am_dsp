@@ -36,6 +36,8 @@ var wantsCurve = false;
 var curveState = null;
 var wantsOtt = false;
 var ottState = null;
+var wantsVocoder = false;
+var vocoderState = null;
 var noteBadge = null;
 var stereoScope = {
   inputLeft: null,
@@ -367,7 +369,9 @@ var ENV_MAX = 512;
 
   function buildKnob(control) {
     var spec = control.spec;
-    var diameter = spec.size === "large" ? 72 : spec.size === "small" ? 40 : 56;
+    // One knob size across the kit: a mixed row of 40/56/72 reads as a layout
+    // accident, not as emphasis.
+    var diameter = 56;
     var geometry = knobGeometry(diameter);
     var radius = geometry.radius;
     var zero = spec.bipolar ? clamp(norm(spec, 0), 0, 1) : 0;
@@ -1388,19 +1392,6 @@ var ENV_MAX = 512;
     var width = Math.max(0.15, Math.abs(Math.log2(bandwidth / cutoff)) * 0.35);
     var strength = 0.35 + 0.65 * amount;
     var path = "";
-    var grid = "";
-    var labels = "";
-
-    // The frequency axis is logarithmic: the curve is sampled on
-    // logarithmically spaced frequencies and the grid marks the decades, so the
-    // picture and the control mean the same thing.
-    [20, 100, 1000, 10000].forEach(function (frequency) {
-      var x = 20 + Math.log(frequency / 20) / Math.log(1000) * 480;
-      grid += '<line x1="' + x.toFixed(1) + '" y1="20" x2="' + x.toFixed(1) +
-        '" y2="150" stroke="#242424"/>';
-      labels += '<div class="hero-label" style="left:' + (x / 520 * 100).toFixed(1) +
-        '%;top:90%">' + (frequency >= 1000 ? frequency / 1000 + "k" : frequency) + '</div>';
-    });
 
     for (var i = 0; i <= 120; i++) {
       var frequency = 20 * Math.pow(1000, i / 120);
@@ -1412,12 +1403,11 @@ var ENV_MAX = 512;
     }
 
     return heroSvg(
-      grid +
       '<line x1="20" y1="150" x2="500" y2="150" stroke="#2a2a2a"/>' +
       '<path d="' + path + ' L 500 150 L 20 150 Z" fill="' + accent + '" fill-opacity=".08"/>' +
       '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
         'vector-effect="non-scaling-stroke"/>'
-    ) + labels;
+    );
   }
 
   /// Two channel gains as meters; balance is independent left and right levels.
@@ -1686,6 +1676,7 @@ var ENV_MAX = 512;
       else if (hero.kind === "curve") hero.el.innerHTML = curveSvg();
       else if (hero.kind === "mapping") hero.el.innerHTML = mappingSvg();
       else if (hero.kind === "ott") hero.el.innerHTML = ottSvg();
+      else if (hero.kind === "vocodex") hero.el.innerHTML = vocoderSvg();
     });
   }
 
@@ -1892,6 +1883,60 @@ var ENV_MAX = 512;
     };
     reader.readAsArrayBuffer(file);
     irInput.value = "";
+  }
+
+  /// The vocoder bank: the modulator bands above the centre line and the output
+  /// bands below it, one pair per band.
+  function vocoderSvg() {
+    var state = vocoderState;
+    var bands = state && state.bands ? Math.min(state.bands, 128) : 24;
+    var input = state && state.input ? state.input : [];
+    var output = state && state.output ? state.output : [];
+    var grid = '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f"/>';
+    var bars = "";
+    var width = 480 / bands;
+
+    for (var i = 0; i < bands; i++) {
+      var x = 20 + i * width;
+      var bar_width = Math.max(1, width - 1);
+      var in_height = Math.sqrt(clamp(input[i] || 0, 0, 1)) * 60;
+      var out_height = Math.sqrt(clamp(output[i] || 0, 0, 1)) * 60;
+
+      bars += '<rect x="' + x.toFixed(1) + '" y="' + (80 - in_height).toFixed(1) +
+        '" width="' + bar_width.toFixed(1) + '" height="' + in_height.toFixed(1) +
+        '" fill="#8a8a8a" fill-opacity=".5"/>';
+      bars += '<rect x="' + x.toFixed(1) + '" y="80" width="' + bar_width.toFixed(1) +
+        '" height="' + out_height.toFixed(1) + '" fill="' + accent +
+        '" fill-opacity=".65"/>';
+    }
+
+    var source = valueOf("sidechain", 1) ? "SIDECHAIN" : "SELF";
+
+    return heroSvg(grid + bars) +
+      '<div class="hero-label" style="left:2%;top:3%">IN ' + source + '</div>' +
+      '<div class="hero-label" style="left:2%;top:55%">OUTPUT</div>';
+  }
+
+  function pollVocoder() {
+    if (!wantsVocoder || document.hidden) {
+      setTimeout(pollVocoder, 60);
+      return;
+    }
+
+    fetch("/bands", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state) return;
+        var changed = JSON.stringify(state) !== JSON.stringify(vocoderState);
+        vocoderState = state;
+        if (changed) markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollVocoder, 60);
+      });
   }
 
   /// The OTT band meters, in dB of net gain: positive is attenuation, negative
@@ -2527,6 +2572,10 @@ var ENV_MAX = 512;
       return hero.kind === "ott";
     });
     if (wantsOtt) setTimeout(pollOtt, 50);
+    wantsVocoder = heroes.some(function (hero) {
+      return hero.kind === "vocodex";
+    });
+    if (wantsVocoder) setTimeout(pollVocoder, 50);
     if (face.script) {
       body.appendChild(buildScriptPanel());
       wantsScript = true;

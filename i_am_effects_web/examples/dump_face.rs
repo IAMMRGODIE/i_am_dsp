@@ -15,7 +15,7 @@ use std::path::Path;
 use i_am_effects_web::{
 	AllpassWeb, BalanceWeb, ChorusWeb, CombWeb, CompressorWeb, CrusherWeb, DelayWeb,
 	ConvolverWeb, DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
-	OttWeb, ScriptDistortionWeb, ScriptMapperWeb,
+	OttWeb, ScriptDistortionWeb, ScriptMapperWeb, VocoderWeb,
 	ParticleWiderWeb, PitchWeb, ReverbWeb, SchroederWeb, ShifterWeb, UnstablizerWeb, WidthWeb,
 	CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
@@ -261,6 +261,16 @@ fn main() {
 						.with_header(DELAY_HEADER)
 						.with_switches(DELAY_SWITCHES)
 						.with_clear(),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"vocoder" => {
+			let plugin = VocoderWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Vocoder", "#e0a45a", (700.0, 380.0)),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
