@@ -2,11 +2,11 @@
 
 use std::cell::RefCell;
 use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crossbeam_channel::Sender;
 use i_am_plugin::{Editor, EditorContext, EditorError, ParentWindow, Plugin, WindowSize};
-use windows_sys::Win32::Foundation::{GetLastError, HWND};
+use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, GetLastError, HWND};
 use windows_sys::Win32::Graphics::Gdi::COLOR_WINDOW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -15,6 +15,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 	WS_CHILD, WS_CLIPCHILDREN, WS_VISIBLE,
 };
 use wry::dpi::{LogicalPosition, LogicalSize};
+use wry::WebViewBuilderExtWindows;
 
 use crate::{ProtocolRequest, ProtocolResponse};
 
@@ -102,6 +103,19 @@ thread_local! {
 	static WEB_CONTEXT: RefCell<Option<wry::WebContext>> = const { RefCell::new(None) };
 }
 
+/// The profile layout version. Bump it when the browser options below change,
+/// so an older plug-in build with different options cannot share the folder.
+const PROFILE_VERSION: u32 = 1;
+
+/// Browser switches for the embedded WebView2.
+///
+/// The disk caches are bounded: a DAW session used to leave a fresh profile of
+/// ten to seventy megabytes under a pid folder, and those folders accumulated for
+/// over a gigabyte. The code and shader caches are turned off, and the HTTP and
+/// media caches are capped. This string is also part of the profile identity:
+/// change it and bump [PROFILE_VERSION].
+const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disk-cache-size=134217728 --media-cache-size=33554432 --disable-gpu-shader-disk-cache --disable-gpu-program-cache --disable-background-networking --disable-component-update --no-first-run --disable-sync --disable-breakpad";
+
 /// Where WebView2 keeps its profile when the plug-in does not choose.
 ///
 /// It must be writable. WebView2's default is next to the executable, and a DAW's
@@ -109,19 +123,30 @@ thread_local! {
 /// profile; a host that loads the plug-in from there gets a blank editor. A folder
 /// under the user's local application data always is writable, so that is the fallback.
 ///
-/// A profile per process. A single shared user-data folder crashes the WebView2
-/// controller when more than one process (or more than one environment) opens
-/// it at once; that failure is native, so no Rust panic hook can record it.
-/// The directory is small and can be cleaned when the DAW is closed.
+/// The folder is shared by every instance of this build, with the profile version in
+/// the name. WebView2 allows a user-data folder to be shared by environments that
+/// use the same options; it rejects one with different options, natively rather than
+/// through a Rust error. The pid suffix made a new profile every process and session,
+/// which is what grew to a gigabyte of dead folders. PROFILE_VERSION is the guard
+/// for builds whose options differ.
+///
+/// I_AM_PLUGIN_WRY_PER_PROCESS_PROFILE=1 restores the old per-process layout if a
+/// host turns out to dislike sharing.
+fn profile_name() -> String {
+	if std::env::var_os("I_AM_PLUGIN_WRY_PER_PROCESS_PROFILE").is_some() {
+		format!("WebView2-{}", std::process::id())
+	} else {
+		format!("WebView2-v{PROFILE_VERSION}")
+	}
+}
+
 fn default_data_directory() -> Option<PathBuf> {
+	clean_stale_profiles_once();
+
 	let mut candidates = Vec::with_capacity(2);
-	let process = std::process::id();
 
 	if let Some(base) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
-		candidates.push(
-			base.join("i_am_plugin_wry")
-				.join(format!("WebView2-{process}")),
-		);
+		candidates.push(base.join("i_am_plugin_wry").join(profile_name()));
 	}
 
 	// The temp directory is the fallback: it is writable even when a profile folder
@@ -129,12 +154,74 @@ fn default_data_directory() -> Option<PathBuf> {
 	candidates.push(
 		std::env::temp_dir()
 			.join("i_am_plugin_wry")
-			.join(format!("WebView2-{process}")),
+			.join(profile_name()),
 	);
 
 	candidates
 		.into_iter()
 		.find(|directory| std::fs::create_dir_all(directory).is_ok())
+}
+
+/// Runs the old-profile cleanup once per process.
+fn clean_stale_profiles_once() {
+	static CLEANED: std::sync::Once = std::sync::Once::new();
+
+	CLEANED.call_once(|| {
+		if let Some(base) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+			clean_stale_profiles(&base.join("i_am_plugin_wry"));
+		}
+		clean_stale_profiles(&std::env::temp_dir().join("i_am_plugin_wry"));
+	});
+}
+
+/// Deletes WebView2-<pid> folders whose process no longer exists.
+///
+/// The current folder is fixed, so every other pid folder is a leftover from an
+/// older build or an older per-process profile. A live process's folder is left
+/// alone, and a folder that cannot be removed (an orphaned child still holds a
+/// file) is retried on the next open.
+fn clean_stale_profiles(directory: &Path) {
+	let Ok(entries) = std::fs::read_dir(directory) else {
+		return;
+	};
+
+	for entry in entries.flatten() {
+		let name = entry.file_name();
+		let Some(name) = name.to_str() else {
+			continue;
+		};
+		let Some(pid) = name
+			.strip_prefix("WebView2-")
+			.and_then(|pid| pid.parse::<u32>().ok())
+		else {
+			continue;
+		};
+
+		if pid == std::process::id() || process_is_alive(pid) {
+			continue;
+		}
+
+		let path = entry.path();
+		if path.is_dir() {
+			let _ = std::fs::remove_dir_all(path);
+		}
+	}
+}
+
+/// Whether a process with this pid exists.
+fn process_is_alive(pid: u32) -> bool {
+	use windows_sys::Win32::Foundation::CloseHandle;
+	use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+	// SAFETY: OpenProcess does not read process memory; the handle is closed.
+	let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+	if handle.is_null() {
+		// Access denied means the process exists but is protected; do not delete
+		// the profile of something that may still be using it.
+		return unsafe { GetLastError() } == ERROR_ACCESS_DENIED;
+	}
+	unsafe { CloseHandle(handle) };
+	true
 }
 
 /// Where [report_error] writes its note. The temp directory is always writable.
@@ -477,6 +564,9 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 				};
 
 				builder
+					// The same arguments are part of the profile identity: a build
+					// with different arguments must use another profile version.
+					.with_additional_browser_args(BROWSER_ARGS)
 					// The page is the whole of the control, and the host owns the
 					// sizing: the title is only a suggestion, and WebView2 has no
 					// chrome of its own.
@@ -629,5 +719,41 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		}
 
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn stale_pid_profiles_are_removed_and_live_ones_kept() {
+		let directory = std::env::current_dir()
+			.unwrap()
+			.join("target")
+			.join(format!(
+				"i_am_plugin_wry_test_{}_{}",
+				std::process::id(),
+				std::time::SystemTime::now()
+					.duration_since(std::time::UNIX_EPOCH)
+					.unwrap()
+					.as_nanos()
+			));
+		std::fs::create_dir_all(directory.join("WebView2-4294967295")).unwrap();
+		std::fs::create_dir_all(directory.join(format!("WebView2-{}", std::process::id())))
+			.unwrap();
+		std::fs::create_dir_all(directory.join("WebView2-v1")).unwrap();
+
+		clean_stale_profiles(&directory);
+
+		assert!(!directory.join("WebView2-4294967295").exists());
+		assert!(
+			directory
+				.join(format!("WebView2-{}", std::process::id()))
+				.exists()
+		);
+		assert!(directory.join("WebView2-v1").exists());
+
+		let _ = std::fs::remove_dir_all(&directory);
 	}
 }
