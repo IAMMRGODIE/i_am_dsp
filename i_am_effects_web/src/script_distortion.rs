@@ -490,7 +490,8 @@ impl Plugin for ScriptDistortionWeb {
 			"#ff7a6b",
 			(700.0, 560.0),
 		)
-		.with_script();
+		.with_script()
+		.with_header(&["realtime"]);
 		let worker = self.worker.clone();
 		let map = self.processor.param_map();
 

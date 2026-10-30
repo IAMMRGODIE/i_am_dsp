@@ -101,6 +101,11 @@ body.preview #app{
   flex:0 0 auto; display:flex; align-items:center;
   gap:calc(8px * var(--scale));
 }
+.header-switch{display:flex; align-items:center; gap:calc(5px * var(--scale))}
+.header-caption{
+  font-size:calc(8px * var(--scale)); letter-spacing:.12em; text-transform:uppercase;
+  color:var(--text3); white-space:nowrap;
+}
 /* A choice in the header keeps its label on one line with its select. */
 .header .choice{
   flex-direction:row; align-items:center; gap:calc(5px * var(--scale));

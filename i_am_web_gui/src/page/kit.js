@@ -30,6 +30,8 @@ var scriptState = null;
 var scriptArea = null;
 var scriptStatus = null;
 var scriptError = null;
+var scriptDirty = false;
+var scriptEpoch = 0;
 var wantsCurve = false;
 var curveState = null;
 var wantsOtt = false;
@@ -1807,6 +1809,8 @@ var ENV_MAX = 512;
       return;
     }
 
+    var epoch = scriptEpoch;
+
     fetch("/script", { cache: "no-store" })
       .then(function (response) {
         return response.ok ? response.json() : null;
@@ -1814,9 +1818,14 @@ var ENV_MAX = 512;
       .then(function (state) {
         if (!state) return;
 
+        // A poll that started before an edit or an apply is stale: writing its
+        // source back would undo what the person just typed. The next poll reads
+        // the applied source.
+        if (epoch !== scriptEpoch) return;
+
         scriptState = state;
 
-        if (scriptArea && document.activeElement !== scriptArea) {
+        if (scriptArea && !scriptDirty && document.activeElement !== scriptArea) {
           scriptArea.value = state.source || "";
         }
 
@@ -1840,7 +1849,11 @@ var ENV_MAX = 512;
     if (scriptStatus) scriptStatus.textContent = "applying...";
     if (scriptError) scriptError.textContent = "";
 
-    fetch("/script", { method: "POST", body: scriptArea.value })
+    var source = scriptArea.value;
+    scriptDirty = false;
+    scriptEpoch += 1;
+
+    fetch("/script", { method: "POST", body: source })
       .then(function (response) {
         return response.ok ? response.json() : null;
       })
@@ -1860,6 +1873,10 @@ var ENV_MAX = 512;
     scriptArea.className = "script-area";
     scriptArea.spellcheck = false;
     scriptArea.rows = 7;
+    scriptArea.addEventListener("input", function () {
+      scriptDirty = true;
+      scriptEpoch += 1;
+    });
 
     var actions = element("div", "script-actions");
     var apply = element("button", "script-apply");
@@ -2011,6 +2028,44 @@ var ENV_MAX = 512;
     });
   }
 
+
+  /// A choice in the header: a label and a drop-down, without taking a row
+  /// from the faceplate.
+  function buildHeaderChoice(spec) {
+    var el = element("div", "choice");
+    var label = element("span", "label");
+    label.textContent = spec.label || "";
+
+    var select = document.createElement("select");
+    select.className = "mode-select";
+    select.setAttribute("aria-label", spec.label || "Choice");
+
+    var control = { spec: spec, value: spec.default, el: el, paint: function () {} };
+    controls[spec.id] = control;
+
+    (spec.choices || []).forEach(function (name, index) {
+      var option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = name;
+      select.appendChild(option);
+    });
+
+    select.addEventListener("change", function () {
+      control.value = parseInt(select.value, 10);
+      control.paint();
+      markDirty();
+      if (window.ipc) window.ipc.postMessage(spec.id + "=" + control.value);
+    });
+
+    control.paint = function () {
+      select.value = String(Math.round(control.value));
+    };
+
+    el.appendChild(label);
+    el.appendChild(select);
+    control.paint();
+    return el;
+  }
 
   function buildMode(spec) {
     var el = element("div", "mode");
@@ -2172,8 +2227,19 @@ var ENV_MAX = 512;
     if (modeEl) tools.appendChild(modeEl);
 
     headerSpecs.forEach(function (spec) {
-      if (spec.widget === "choice") tools.appendChild(buildMode(spec));
-      else tools.appendChild(makeControl(spec, true));
+      if (spec.widget === "choice") {
+        tools.appendChild(buildHeaderChoice(spec));
+      } else if (spec.kind === "bool") {
+        var dot = makeControl(spec, true);
+        var wrap = element("div", "header-switch");
+        var caption = element("span", "header-caption");
+        caption.textContent = spec.label;
+        wrap.appendChild(dot);
+        wrap.appendChild(caption);
+        tools.appendChild(wrap);
+      } else {
+        tools.appendChild(makeControl(spec, true));
+      }
     });
 
     if (modeEl || headerSpecs.length) header.appendChild(tools);

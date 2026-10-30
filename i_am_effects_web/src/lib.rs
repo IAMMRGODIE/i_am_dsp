@@ -781,12 +781,22 @@ mod tests {
 	fn the_script_mapper_has_a_mapping_hero_and_a_script_panel() {
 		let face = i_am_web_gui::face_json(
 			&ScriptMapperWeb::new(),
-			&Faceplate::new("I Am Script Mapper", "#8ad3ff", (700.0, 560.0)).with_script(),
+			&Faceplate::new("I Am Script Mapper", "#8ad3ff", (700.0, 560.0))
+				.with_script()
+				.with_header(&["window_size", "realtime"]),
 		);
 
 		assert!(face.contains("\"script\":true"), "{face}");
 		assert!(face.contains("\"hero\":\"mapping\""), "{face}");
 		assert!(face.contains("\"id\":\"mix\""), "{face}");
+		assert!(
+			face.contains("\"header\":[\"window_size\",\"realtime\"]"),
+			"{face}"
+		);
+		assert!(
+			face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"),
+			"{face}"
+		);
 
 		for id in ["p1", "p2", "p3", "p4"] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");

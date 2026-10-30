@@ -60,7 +60,6 @@ impl CompiledScript {
 	}
 
 	/// Evaluates the script as `[frequency, amplitude]`.
-	#[allow(dead_code)] // the frequency mapper uses it next
 	pub fn pair(&self, scope: &mut Scope) -> Result<(f32, f32), String> {
 		let value: Dynamic = self
 			.engine

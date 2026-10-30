@@ -43,6 +43,11 @@ fn bin_frequencie(sample_rate: usize, window_size: usize, k: usize) -> f32 {
 	k as f32 * sample_rate as f32 / window_size as f32
 }
 
+/// Wraps a phase into -pi..pi.
+fn wrap_phase(phase: f32) -> f32 {
+	(phase + PI).rem_euclid(2.0 * PI) - PI
+}
+
 /// The gain the overlap add gives a signal whose bins the vocoder leaves alone.
 ///
 /// Every frame is windowed on the way in and windowed again on the way out with
@@ -95,6 +100,8 @@ pub struct PhaseVocoder<Mapper: FrequencyMapper, const CHANNELS: usize> {
 	output_buffer: [RingBuffer<f32>; CHANNELS],
 	#[skip]
 	prev_analysis_phase: [Vec<f32>; CHANNELS],
+	#[skip]
+	prev_synthesis_phase: [Vec<f32>; CHANNELS],
 
 	#[skip]
 	temp_buffer: [Vec<Complex<f32>>; CHANNELS],
@@ -127,6 +134,7 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 		let ifft = planner.plan_fft_inverse(window_size);
 
 		let prev_analysis_phase = core::array::from_fn(|_| vec![0.0; window_size]);
+		let prev_synthesis_phase = core::array::from_fn(|_| vec![0.0; window_size]);
 
 		let temp_buffer = core::array::from_fn(|_| vec![Complex::ZERO; window_size]);
 		let output_temp_buffer = core::array::from_fn(|_| vec![Complex::ZERO; window_size]);
@@ -144,6 +152,7 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 			fft,
 			ifft,
 			prev_analysis_phase,
+			prev_synthesis_phase,
 			sample_rate,
 			temp_buffer,
 			output_temp_buffer,
@@ -180,7 +189,7 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 		self.ifft = planner.plan_fft_inverse(window_size);
 
 		self.prev_analysis_phase = core::array::from_fn(|_| vec![0.0; window_size]);
-		// self.prev_synthesis_phase = vec![0.0; window_size];
+		self.prev_synthesis_phase = core::array::from_fn(|_| vec![0.0; window_size]);
 
 		self.temp_buffer = core::array::from_fn(|_| vec![Complex::ZERO; window_size]);
 		self.output_temp_buffer = core::array::from_fn(|_| vec![Complex::ZERO; window_size]);
@@ -217,23 +226,44 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 					continue;
 				}
 	
-				let propagated_phase = 
-					self.prev_analysis_phase[channel][k] + 
+				// The phase a bin at the mapped frequency gains over one hop, plus
+				// the input's own phase deviation from its bin centre. The synthesis
+				// phase accumulates, so a bin moved to another frequency keeps a
+				// consistent phase from frame to frame instead of following the
+				// input bin's phase and beating against its new position.
+				let center_advance =
 					2.0 * PI * bin_center_freq * self.frame_hop as f32 / self.sample_rate as f32;
-	
+				let deviation = wrap_phase(
+					value.arg() - self.prev_analysis_phase[channel][k] - center_advance,
+				);
+				// A bin that sits off its centre is sharpened by the same ratio the
+				// mapping applies to the centre, so a pitch shift keeps the exact
+				// input frequency instead of shifting it by the raw deviation.
+				let ratio = if bin_center_freq > 0.0 {
+					mapped_freq / bin_center_freq
+				} else {
+					1.0
+				};
+				let propagated_phase = self.prev_synthesis_phase[channel][k]
+					+ 2.0 * PI * mapped_freq * self.frame_hop as f32 / self.sample_rate as f32
+					+ deviation * ratio;
+
 				self.prev_analysis_phase[channel][k] = value.arg();
-	
+
 				let new_phase = self.mapper.synthesis_phase(bin_center_freq, value.arg(), propagated_phase);
+				self.prev_synthesis_phase[channel][k] = new_phase;
 	
-				let new_idx = mapped_freq / self.sample_rate as f32 * self.window_size as f32;
-				let ratio = new_idx.fract();
-				let k_low = new_idx.floor() as usize;
-	
-				if k_low <= self.window_size / 2 {
-					self.output_temp_buffer[channel][k_low] += (1.0 - ratio) * Complex::from_polar(magnitude, new_phase);
-				}
-				if k_low < self.window_size / 2 {
-					self.output_temp_buffer[channel][k_low + 1] += ratio * Complex::from_polar(magnitude, new_phase);
+				// Place the bin at its nearest output bin and let the accumulated
+				// phase carry the exact frequency. Splitting it across two bins with
+				// the same phase would put two out-of-phase sinusoids into the same
+				// frame, which is heard as rough noise.
+				let new_idx =
+					(mapped_freq / self.sample_rate as f32 * self.window_size as f32).round()
+						as usize;
+
+				if new_idx <= self.window_size / 2 {
+					self.output_temp_buffer[channel][new_idx] +=
+						Complex::from_polar(magnitude, new_phase);
 				}
 			}
 	
@@ -496,17 +526,17 @@ mod tests {
 		}
 	}
 
-	/// The propagated phase is what a bin that is moved to another frequency
-	/// needs, and it is only correct on the bin centers, so a mapper that leaves
-	/// the bins where they are must not get a clean pass through from it.
+	/// The propagated phase now accumulates per bin with the input's phase
+	/// deviation, so a mapper that leaves the bins where they are also adds back
+	/// up instead of beating against the analysis phase.
 	#[test]
-	fn the_propagated_phase_does_not_reconstruct_a_pass_through() {
+	fn the_propagated_phase_also_reconstructs_a_pass_through() {
 		for window_factor in [0.0, 0.25, 0.54, 0.75, 1.0] {
 			let gain = pass_through_gain(false, window_factor);
-			const EXPECTED: f32 = 4.0;
+			let expected = overlap_add_gain(window_factor);
 			assert!(
-				(gain - EXPECTED).abs() > EXPECTED * 0.05,
-				"window factor {window_factor}: the propagated phase reconstructed the signal at {gain}",
+				(gain - expected).abs() < expected * 0.01,
+				"window factor {window_factor}: measured {gain}, expected {expected}",
 			);
 		}
 	}

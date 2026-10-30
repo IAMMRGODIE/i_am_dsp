@@ -277,7 +277,8 @@ fn main() {
 				i_am_web_gui::face_json(
 					&plugin,
 					&Faceplate::new("I Am Script Mapper", "#8ad3ff", (700.0, 560.0))
-						.with_script(),
+						.with_script()
+						.with_header(&["window_size", "realtime"]),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -288,7 +289,8 @@ fn main() {
 				i_am_web_gui::face_json(
 					&plugin,
 					&Faceplate::new("I Am Script Distortion", "#ff7a6b", (700.0, 560.0))
-						.with_script(),
+						.with_script()
+						.with_header(&["realtime"]),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

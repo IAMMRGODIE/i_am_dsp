@@ -19,14 +19,20 @@ use crate::script::{CompiledScript, ScriptWorker, json_escape};
 
 /// Frequency points in the table, from 20 Hz to 20 kHz.
 const FREQ_POINTS: usize = 1024;
-/// Amplitude points in the table, from -80 dB to 0 dB.
-const AMP_POINTS: usize = 16;
+/// Amplitude points in the table, from -80 dB to +80 dB.
+///
+/// The phase vocoder hands the mapper the raw FFT magnitude, which for a loud
+/// bin is in the hundreds, not in 0..1. A 0 dB ceiling used to clamp every loud
+/// bin to the same amplitude, flattening the spectrum into noise.
+const AMP_POINTS: usize = 32;
 /// The bottom of the frequency grid.
 const MIN_HZ: f32 = 20.0;
 /// The top of the frequency grid.
 const MAX_HZ: f32 = 20_000.0;
 /// The bottom of the amplitude grid, in dB.
 const MIN_DB: f32 = -80.0;
+/// The top of the amplitude grid, in dB.
+const MAX_DB: f32 = 80.0;
 
 /// The script a new instance starts with: the identity mapping.
 pub const DEFAULT_SCRIPT: &str = "[x * (1.0 + p1), a]";
@@ -59,7 +65,7 @@ impl MapperTable {
 
 		for amp_index in 0..AMP_POINTS {
 			let t = amp_index as f32 / (AMP_POINTS - 1) as f32;
-			let amplitude = 10.0_f32.powf(MIN_DB * (1.0 - t) / 20.0);
+			let amplitude = 10.0_f32.powf((MIN_DB + (MAX_DB - MIN_DB) * t) / 20.0);
 
 			for freq_index in 0..FREQ_POINTS {
 				let t = freq_index as f32 / (FREQ_POINTS - 1) as f32;
@@ -75,7 +81,7 @@ impl MapperTable {
 				}
 
 				freqs.push(mapped_frequency.clamp(1.0, nyquist));
-				amps.push(mapped_amplitude.clamp(0.0, 8.0));
+				amps.push(mapped_amplitude.clamp(0.0, 10_000.0));
 			}
 		}
 
@@ -92,7 +98,16 @@ impl MapperTable {
 		let y0 = y.floor() as usize;
 		let y1 = (y0 + 1).min(AMP_POINTS - 1);
 		let tx = x - x0 as f32;
-		let ty = y - y0 as f32;
+		// The grid is spaced in dB, but a script such as a * 0.5 is linear in the
+		// amplitude; interpolating by the dB position would overshoot it at the
+		// top of the range.
+		let amp0 = row_amplitude(y0);
+		let amp1 = row_amplitude(y1);
+		let ty = if amp1 > amp0 {
+			((amplitude - amp0) / (amp1 - amp0)).clamp(0.0, 1.0)
+		} else {
+			0.0
+		};
 
 		let at = |y: usize, x: usize| {
 			let index = y * FREQ_POINTS + x;
@@ -121,7 +136,9 @@ impl MapperTable {
 				let t = index as f32 / (POINTS - 1) as f32;
 				let frequency = MIN_HZ * (MAX_HZ / MIN_HZ).powf(t);
 				let grid = (t * (FREQ_POINTS - 1) as f32).round() as usize;
-				let index = (AMP_POINTS - 1) * FREQ_POINTS + grid;
+				let row = ((0.0 - MIN_DB) / (MAX_DB - MIN_DB) * (AMP_POINTS - 1) as f32)
+					.round() as usize;
+				let index = row * FREQ_POINTS + grid;
 
 				[frequency, self.freqs[index], self.amps[index]]
 			})
@@ -139,13 +156,23 @@ fn log_position(frequency: f32) -> f32 {
 /// Where an amplitude sits on the dB grid.
 fn amp_position(amplitude: f32) -> f32 {
 	let db = 20.0 * amplitude.max(1e-5).log10();
-	let t = ((db - MIN_DB) / -MIN_DB).clamp(0.0, 1.0);
+	let t = ((db - MIN_DB) / (MAX_DB - MIN_DB)).clamp(0.0, 1.0);
 	t * (AMP_POINTS - 1) as f32
+}
+
+/// The amplitude at one row of the dB grid.
+fn row_amplitude(row: usize) -> f32 {
+	let t = row as f32 / (AMP_POINTS - 1) as f32;
+	10.0_f32.powf((MIN_DB + (MAX_DB - MIN_DB) * t) / 20.0)
 }
 
 /// The mapper the phase vocoder calls per bin.
 pub struct ScriptMapper {
 	table: Option<Arc<MapperTable>>,
+	realtime_script: Option<Arc<CompiledScript>>,
+	realtime: bool,
+	params: [f32; 4],
+	scope: rhai::Scope<'static>,
 	mix: f32,
 	nyquist: f32,
 	moved: bool,
@@ -153,8 +180,16 @@ pub struct ScriptMapper {
 
 impl Default for ScriptMapper {
 	fn default() -> Self {
+		let mut scope = CompiledScript::scope([0.0; 4]);
+		scope.push("a", 0.0_f32);
+		scope.push("nyquist", 24_000.0_f32);
+
 		Self {
 			table: None,
+			realtime_script: None,
+			realtime: false,
+			params: [0.0; 4],
+			scope,
 			mix: 1.0,
 			nyquist: 24_000.0,
 			moved: false,
@@ -174,14 +209,43 @@ impl i_am_dsp::prelude::Parameters for ScriptMapper {
 
 impl FrequencyMapper for ScriptMapper {
 	fn map_frequency(&mut self, frequency: f32, amplitude: f32) -> (f32, f32) {
+		let input = frequency;
+		let mix = self.mix.clamp(0.0, 1.0);
+
+		// Realtime: evaluate the script for this bin here, on the audio thread.
+		// With a 2048 frame and fourfold overlap that is about 96 thousand
+		// evaluations a second, rather than the table's sixteen thousand renders
+		// per change.
+		if self.realtime && let Some(script) = self.realtime_script.clone() {
+			let _ = self.scope.set_value("x", input);
+			let _ = self.scope.set_value("a", amplitude);
+			let _ = self.scope.set_value("p1", self.params[0]);
+			let _ = self.scope.set_value("p2", self.params[1]);
+			let _ = self.scope.set_value("p3", self.params[2]);
+			let _ = self.scope.set_value("p4", self.params[3]);
+			let _ = self.scope.set_value("nyquist", self.nyquist);
+
+			if let Ok((mapped_frequency, mapped_amplitude)) = script.pair(&mut self.scope)
+				&& mapped_frequency.is_finite()
+				&& mapped_amplitude.is_finite()
+			{
+				let mapped_frequency =
+					(input + (mapped_frequency.clamp(1.0, self.nyquist) - input) * mix)
+						.clamp(1.0, self.nyquist);
+				let mapped_amplitude =
+					amplitude + (mapped_amplitude.clamp(0.0, 10_000.0) - amplitude) * mix;
+
+				self.moved = (mapped_frequency - input).abs() > 0.5;
+				return (mapped_frequency, mapped_amplitude.max(0.0));
+			}
+		}
+
 		let Some(table) = &self.table else {
 			self.moved = false;
 			return (frequency, amplitude);
 		};
 
-		let input = frequency;
 		let (mapped_frequency, mapped_amplitude) = table.sample(input, amplitude);
-		let mix = self.mix.clamp(0.0, 1.0);
 		let mapped_frequency =
 			(input + (mapped_frequency - input) * mix).clamp(1.0, self.nyquist);
 		let mapped_amplitude = amplitude + (mapped_amplitude - amplitude) * mix;
@@ -239,6 +303,19 @@ pub struct ScriptMapperEffect {
 	#[layout(group = "Script Mapper", order = 4, widget = knob)]
 	pub p4: f32,
 
+	/// The FFT window size, from the header.
+	#[choices("512", "1024", "2048", "4096")]
+	#[default(2)]
+	#[id(display = "Window Size")]
+	#[layout(group = "Script Mapper", order = 5, widget = choice)]
+	pub window_size: i32,
+
+	/// Evaluate the script on the audio thread instead of the rendered table.
+	#[default(false)]
+	#[id(display = "Realtime")]
+	#[layout(group = "Script Mapper", order = 6, widget = toggle)]
+	pub realtime: bool,
+
 	/// The Rhai body, saved with the plug-in state.
 	#[serde]
 	#[id(display = "Script")]
@@ -260,6 +337,12 @@ pub struct ScriptMapperEffect {
 	last_script: String,
 	#[skip]
 	last_request: Option<(u64, [f32; 4], f32)>,
+	#[skip]
+	compiled: Option<Arc<CompiledScript>>,
+	#[skip]
+	seen_compiled: u64,
+	#[skip]
+	last_window_size: i32,
 }
 
 impl ScriptMapperEffect {
@@ -276,6 +359,8 @@ impl ScriptMapperEffect {
 			p2: 0.0,
 			p3: 0.0,
 			p4: 0.0,
+			window_size: 2,
+			realtime: false,
 			script: DEFAULT_SCRIPT.to_string(),
 			vocoder,
 			worker,
@@ -285,6 +370,9 @@ impl ScriptMapperEffect {
 			synced_source: 0,
 			last_script: DEFAULT_SCRIPT.to_string(),
 			last_request: None,
+			compiled: None,
+			seen_compiled: 0,
+			last_window_size: 2,
 		}
 	}
 
@@ -327,6 +415,35 @@ impl ScriptMapperEffect {
 		self.vocoder.mapper.mix = self.mix;
 		self.vocoder.mapper.nyquist = self.sample_rate as f32 * 0.5;
 	}
+
+	/// Takes a freshly compiled script for the realtime path.
+	fn sync_compiled(&mut self) {
+		let generation = self.worker.compiled_generation();
+
+		if generation != self.seen_compiled {
+			self.seen_compiled = generation;
+			self.compiled = self.worker.compiled();
+			self.vocoder.mapper.realtime_script = self.compiled.clone();
+		}
+
+		self.vocoder.mapper.realtime = self.realtime;
+		self.vocoder.mapper.params = [self.p1, self.p2, self.p3, self.p4];
+	}
+
+	/// Rebuilds the vocoder when the window size changes.
+	fn sync_window(&mut self) {
+		if self.window_size == self.last_window_size {
+			return;
+		}
+
+		let size = [512, 1024, 2048, 4096][self.window_size.clamp(0, 3) as usize];
+
+		if self.vocoder.renew_window_size(size).is_some() {
+			self.vocoder.gain = 1.0 / overlap_add_gain(self.vocoder.window_factor);
+		}
+
+		self.last_window_size = self.window_size;
+	}
 }
 
 impl Effect<2> for ScriptMapperEffect {
@@ -343,6 +460,8 @@ impl Effect<2> for ScriptMapperEffect {
 		self.sync_script();
 		self.request_render();
 		self.sync_table();
+		self.sync_compiled();
+		self.sync_window();
 		self.vocoder.process(samples, other, context);
 	}
 }
@@ -533,7 +652,8 @@ impl Plugin for ScriptMapperWeb {
 			"#8ad3ff",
 			(700.0, 560.0),
 		)
-		.with_script();
+		.with_script()
+		.with_header(&["window_size", "realtime"]);
 		let worker = self.worker.clone();
 		let map = self.processor.param_map();
 		let sample_rate = self.processor.sample_rate() as f32;
@@ -588,7 +708,7 @@ mod tests {
 			table: Some(table),
 			mix: 0.0,
 			nyquist: 24_000.0,
-			moved: false,
+			..ScriptMapper::default()
 		};
 
 		assert!((mapper.map_frequency(1000.0, 0.5).0 - 1000.0).abs() < 1.0);
@@ -598,6 +718,84 @@ mod tests {
 
 		assert!((frequency - 2000.0).abs() < 2.0, "{frequency}");
 		assert!((amplitude - 0.5).abs() < 0.01, "{amplitude}");
+	}
+
+	fn shifted_sine_tone_ratio(realtime: bool) -> f32 {
+		let source = "[x * 2.0, a]";
+		let mut mapper = ScriptMapper {
+			realtime,
+			realtime_script: if realtime {
+				Some(Arc::new(CompiledScript::compile(source).expect("a compiled script")))
+			} else {
+				None
+			},
+			table: if realtime {
+				None
+			} else {
+				Some(Arc::new(table_of(source, [0.0; 4], 48_000.0)))
+			},
+			..ScriptMapper::default()
+		};
+		mapper.nyquist = 24_000.0;
+
+		let mut vocoder: PhaseVocoder<ScriptMapper, 2> =
+			PhaseVocoder::new(mapper, 2048, 48_000);
+		vocoder.window_factor = 0.6;
+		vocoder.gain = 1.0 / overlap_add_gain(vocoder.window_factor);
+
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let sample_rate = 48_000.0;
+		let total = 4096 + 12_288;
+		let mut output = Vec::with_capacity(total);
+
+		for i in 0..total {
+			let x = 0.5 * (2.0 * std::f32::consts::PI * 500.0 * i as f32 / sample_rate).sin();
+			let mut frame = [x, x];
+			vocoder.process(&mut frame, &[], &mut context);
+			output.push(frame[0]);
+		}
+
+		let tail = &output[4096..];
+		let length = tail.len() as f32;
+		let total_power: f32 = tail.iter().map(|sample| sample * sample).sum();
+		let mut real = 0.0;
+		let mut imaginary = 0.0;
+
+		for (index, sample) in tail.iter().enumerate() {
+			let phase = 2.0 * std::f32::consts::PI * 1000.0 * index as f32 / sample_rate;
+			real += sample * phase.cos();
+			imaginary += sample * phase.sin();
+		}
+
+		let tone = 2.0 * (real * real + imaginary * imaginary) / (length * length);
+		2.0 * tone / (total_power / length)
+	}
+
+	#[test]
+	fn a_shifted_sine_stays_tonal() {
+		let table = shifted_sine_tone_ratio(false);
+		let realtime = shifted_sine_tone_ratio(true);
+
+		assert!(table > 0.8, "table: {table}");
+		assert!(realtime > 0.8, "realtime: {realtime}");
+	}
+
+	#[test]
+	fn the_realtime_mapping_runs_the_script_per_bin() {
+		let script = Arc::new(
+			CompiledScript::compile("[x * 2.0, a * 0.5]").expect("a compiled script"),
+		);
+		let mut mapper = ScriptMapper {
+			realtime: true,
+			realtime_script: Some(script),
+			..ScriptMapper::default()
+		};
+
+		let (frequency, amplitude) = mapper.map_frequency(1000.0, 0.5);
+
+		assert!((frequency - 2000.0).abs() < 1.0, "{frequency}");
+		assert!((amplitude - 0.25).abs() < 0.01, "{amplitude}");
+		assert!(mapper.moved);
 	}
 
 	#[test]
