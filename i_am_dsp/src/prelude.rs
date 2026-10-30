@@ -5,6 +5,7 @@ pub use crate::generators::prelude::*;
 pub use crate::tools::wsola::*;
 pub use crate::tools::beat_clock::*;
 pub use crate::tools::synced_time::*;
+pub use crate::tools::pitch::*;
 pub use crate::parameters::*;
 pub use crate::*;
 

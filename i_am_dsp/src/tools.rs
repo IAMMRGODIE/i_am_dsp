@@ -8,6 +8,7 @@ pub mod wsola;
 pub mod bpm_syncer;
 pub mod beat_clock;
 pub mod synced_time;
+pub mod pitch;
 pub(crate) mod interpolate;
 pub(crate) mod matrix;
 
