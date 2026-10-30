@@ -12,6 +12,10 @@ use crate::{Effect, ProcessContext};
 /// The number of bands.
 pub const EQ_BANDS: usize = 6;
 
+/// The most sections one band can use: a 48 dB/oct cut is four 12 dB/oct
+/// biquads in series.
+const MAX_STAGES: usize = 4;
+
 /// One band's current settings, kept so the coefficients are only rebuilt when
 /// a control actually moves.
 #[derive(Clone, Copy, PartialEq)]
@@ -21,6 +25,7 @@ struct BandSettings {
 	frequency: f32,
 	gain: f32,
 	q: f32,
+	slope: i32,
 }
 
 impl Default for BandSettings {
@@ -31,6 +36,7 @@ impl Default for BandSettings {
 			frequency: 1_000.0,
 			gain: 0.0,
 			q: 0.707,
+			slope: 0,
 		}
 	}
 }
@@ -122,6 +128,16 @@ fn coefficients(
 	)
 }
 
+/// The number of 12 dB/oct sections a band uses. Only the cut types read the
+/// slope; a bell, a shelf and a notch are always one section.
+fn stage_count(settings: &BandSettings) -> usize {
+	if settings.kind == 3 || settings.kind == 4 {
+		(settings.slope.clamp(0, 3) + 1) as usize
+	} else {
+		1
+	}
+}
+
 /// A six-band parametric EQ.
 #[derive(Parameters)]
 pub struct ParametricEq<const CHANNELS: usize = 2> {
@@ -168,6 +184,14 @@ pub struct ParametricEq<const CHANNELS: usize = 2> {
 	#[layout(group = "EQ", order = 5, widget = knob)]
 	pub b1_q: f32,
 
+	/// Band 1 cutoff slope, for the cut types.
+	#[range(min = 0, max = 3)]
+	#[choices("12 dB/oct", "24 dB/oct", "36 dB/oct", "48 dB/oct")]
+	#[default(0)]
+	#[id(display = "Slope")]
+	#[layout(group = "EQ", order = 6, widget = choice)]
+	pub b1_slope: i32,
+
 	/// Band 2 on/off.
 	#[default(true)]
 	#[id(display = "On")]
@@ -202,6 +226,14 @@ pub struct ParametricEq<const CHANNELS: usize = 2> {
 	#[id(display = "Q")]
 	#[layout(group = "EQ", order = 10, widget = knob)]
 	pub b2_q: f32,
+
+	/// Band 2 cutoff slope, for the cut types.
+	#[range(min = 0, max = 3)]
+	#[choices("12 dB/oct", "24 dB/oct", "36 dB/oct", "48 dB/oct")]
+	#[default(0)]
+	#[id(display = "Slope")]
+	#[layout(group = "EQ", order = 11, widget = choice)]
+	pub b2_slope: i32,
 
 	/// Band 3 on/off.
 	#[default(true)]
@@ -238,6 +270,14 @@ pub struct ParametricEq<const CHANNELS: usize = 2> {
 	#[layout(group = "EQ", order = 15, widget = knob)]
 	pub b3_q: f32,
 
+	/// Band 3 cutoff slope, for the cut types.
+	#[range(min = 0, max = 3)]
+	#[choices("12 dB/oct", "24 dB/oct", "36 dB/oct", "48 dB/oct")]
+	#[default(0)]
+	#[id(display = "Slope")]
+	#[layout(group = "EQ", order = 16, widget = choice)]
+	pub b3_slope: i32,
+
 	/// Band 4 on/off.
 	#[default(true)]
 	#[id(display = "On")]
@@ -272,6 +312,14 @@ pub struct ParametricEq<const CHANNELS: usize = 2> {
 	#[id(display = "Q")]
 	#[layout(group = "EQ", order = 20, widget = knob)]
 	pub b4_q: f32,
+
+	/// Band 4 cutoff slope, for the cut types.
+	#[range(min = 0, max = 3)]
+	#[choices("12 dB/oct", "24 dB/oct", "36 dB/oct", "48 dB/oct")]
+	#[default(0)]
+	#[id(display = "Slope")]
+	#[layout(group = "EQ", order = 21, widget = choice)]
+	pub b4_slope: i32,
 
 	/// Band 5 on/off.
 	#[default(true)]
@@ -308,6 +356,14 @@ pub struct ParametricEq<const CHANNELS: usize = 2> {
 	#[layout(group = "EQ", order = 25, widget = knob)]
 	pub b5_q: f32,
 
+	/// Band 5 cutoff slope, for the cut types.
+	#[range(min = 0, max = 3)]
+	#[choices("12 dB/oct", "24 dB/oct", "36 dB/oct", "48 dB/oct")]
+	#[default(0)]
+	#[id(display = "Slope")]
+	#[layout(group = "EQ", order = 26, widget = choice)]
+	pub b5_slope: i32,
+
 	/// Band 6 on/off.
 	#[default(false)]
 	#[id(display = "On")]
@@ -343,6 +399,14 @@ pub struct ParametricEq<const CHANNELS: usize = 2> {
 	#[layout(group = "EQ", order = 30, widget = knob)]
 	pub b6_q: f32,
 
+	/// Band 6 cutoff slope, for the cut types.
+	#[range(min = 0, max = 3)]
+	#[choices("12 dB/oct", "24 dB/oct", "36 dB/oct", "48 dB/oct")]
+	#[default(0)]
+	#[id(display = "Slope")]
+	#[layout(group = "EQ", order = 31, widget = choice)]
+	pub b6_slope: i32,
+
 	/// Gain after the bands.
 	#[range(min = -12.0, max = 12.0)]
 	#[unit(decibels)]
@@ -354,7 +418,7 @@ pub struct ParametricEq<const CHANNELS: usize = 2> {
 	#[skip]
 	sample_rate: f32,
 	#[skip]
-	filters: [Biquad<CHANNELS>; EQ_BANDS],
+	filters: [[Biquad<CHANNELS>; MAX_STAGES]; EQ_BANDS],
 	#[skip]
 	last: [BandSettings; EQ_BANDS],
 }
@@ -370,34 +434,42 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 			b1_freq: 20.0,
 			b1_gain: 0.0,
 			b1_q: 0.707,
+			b1_slope: 0,
 			b2_on: true,
 			b2_type: 1,
 			b2_freq: 100.0,
 			b2_gain: 0.0,
 			b2_q: 0.707,
+			b2_slope: 0,
 			b3_on: true,
 			b3_type: 0,
 			b3_freq: 400.0,
 			b3_gain: 0.0,
 			b3_q: 1.0,
+			b3_slope: 0,
 			b4_on: true,
 			b4_type: 0,
 			b4_freq: 2_000.0,
 			b4_gain: 0.0,
 			b4_q: 1.0,
+			b4_slope: 0,
 			b5_on: true,
 			b5_type: 2,
 			b5_freq: 8_000.0,
 			b5_gain: 0.0,
 			b5_q: 0.707,
+			b5_slope: 0,
 			b6_on: false,
 			b6_type: 4,
 			b6_freq: 20_000.0,
 			b6_gain: 0.0,
 			b6_q: 0.707,
+			b6_slope: 0,
 			output: 0.0,
 			sample_rate: sample_rate as f32,
-			filters: core::array::from_fn(|_| Biquad::new(sample_rate)),
+			filters: core::array::from_fn(|_| {
+				core::array::from_fn(|_| Biquad::new(sample_rate))
+			}),
 			last: [BandSettings::default(); EQ_BANDS],
 		};
 
@@ -413,6 +485,7 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 				frequency: self.b1_freq,
 				gain: self.b1_gain,
 				q: self.b1_q,
+				slope: self.b1_slope,
 			},
 			1 => BandSettings {
 				on: self.b2_on,
@@ -420,6 +493,7 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 				frequency: self.b2_freq,
 				gain: self.b2_gain,
 				q: self.b2_q,
+				slope: self.b2_slope,
 			},
 			2 => BandSettings {
 				on: self.b3_on,
@@ -427,6 +501,7 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 				frequency: self.b3_freq,
 				gain: self.b3_gain,
 				q: self.b3_q,
+				slope: self.b3_slope,
 			},
 			3 => BandSettings {
 				on: self.b4_on,
@@ -434,6 +509,7 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 				frequency: self.b4_freq,
 				gain: self.b4_gain,
 				q: self.b4_q,
+				slope: self.b4_slope,
 			},
 			4 => BandSettings {
 				on: self.b5_on,
@@ -441,6 +517,7 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 				frequency: self.b5_freq,
 				gain: self.b5_gain,
 				q: self.b5_q,
+				slope: self.b5_slope,
 			},
 			_ => BandSettings {
 				on: self.b6_on,
@@ -448,6 +525,7 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 				frequency: self.b6_freq,
 				gain: self.b6_gain,
 				q: self.b6_q,
+				slope: self.b6_slope,
 			},
 		}
 	}
@@ -461,14 +539,27 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 				continue;
 			}
 
+			let previous_stages = stage_count(&self.last[index]);
+			let stages = stage_count(&setting);
+
 			self.last[index] = setting;
 
 			if !setting.on {
 				continue;
 			}
 
+			let filters = &mut self.filters[index];
+
 			if !was_on {
-				self.filters[index].clear_state();
+				for filter in filters.iter_mut() {
+					filter.clear_state();
+				}
+			} else if stages > previous_stages {
+				// A new stage starts from rest; the older ones keep their state so
+				// turning the slope up does not click.
+				for filter in filters.iter_mut().take(stages).skip(previous_stages) {
+					filter.clear_state();
+				}
 			}
 
 			let (b, a) = coefficients(
@@ -479,8 +570,10 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 				self.sample_rate,
 			);
 
-			self.filters[index].b = b;
-			self.filters[index].a = a;
+			for filter in filters.iter_mut().take(stages) {
+				filter.b = b;
+				filter.a = a;
+			}
 		}
 	}
 }
@@ -499,8 +592,12 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for ParametricEq<CHANNELS> {
 		self.update();
 		let mut frame = *samples;
 
-		for (index, filter) in self.filters.iter_mut().enumerate() {
-			if self.last[index].on {
+		for (index, filters) in self.filters.iter_mut().enumerate() {
+			if !self.last[index].on {
+				continue;
+			}
+
+			for filter in filters.iter_mut().take(stage_count(&self.last[index])) {
 				frame = filter.process_sample(frame);
 			}
 		}
@@ -513,8 +610,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for ParametricEq<CHANNELS> {
 	}
 
 	fn clear_tail(&mut self) {
-		for filter in self.filters.iter_mut() {
-			filter.clear_state();
+		for filters in self.filters.iter_mut() {
+			for filter in filters.iter_mut() {
+				filter.clear_state();
+			}
 		}
 	}
 }
@@ -582,6 +681,34 @@ mod tests {
 
 		let rms = (energy / 4_096.0).sqrt();
 		assert!(rms < 0.03, "{rms}");
+	}
+
+	/// More sections make a cut steeper.
+	#[test]
+	fn the_slope_stacks_cut_sections() {
+		let render = |slope: i32| {
+			let mut effect = ParametricEq::<2>::new(48_000);
+			effect.b1_freq = 500.0;
+			effect.b1_slope = slope;
+			let mut context: Box<dyn ProcessContext> = Box::new(());
+			let mut energy = 0.0;
+
+			for index in 0..8_192 {
+				let phase = 2.0 * std::f32::consts::PI * 100.0 * index as f32 / 48_000.0;
+				let mut samples = [0.5 * phase.sin(), 0.5 * phase.sin()];
+				effect.process(&mut samples, &[], &mut context);
+
+				if index >= 4_096 {
+					energy += samples[0] * samples[0];
+				}
+			}
+
+			(energy / 4_096.0).sqrt()
+		};
+
+		let shallow = render(0);
+		let steep = render(3);
+		assert!(steep < shallow * 0.05, "12 dB/oct {shallow}, 48 dB/oct {steep}");
 	}
 
 	/// The band count and channel count are generic.

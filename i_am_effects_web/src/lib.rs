@@ -388,12 +388,12 @@ web_plugin!(
 /// The EQ's six bands: the page shows the selected band's controls and the
 /// output, and the hero draws all six.
 pub const EQ_VISIBLE: &[(i32, &[&str])] = &[
-	(0, &["b1_on", "b1_type", "b1_freq", "b1_gain", "b1_q", "output"]),
-	(1, &["b2_on", "b2_type", "b2_freq", "b2_gain", "b2_q", "output"]),
-	(2, &["b3_on", "b3_type", "b3_freq", "b3_gain", "b3_q", "output"]),
-	(3, &["b4_on", "b4_type", "b4_freq", "b4_gain", "b4_q", "output"]),
-	(4, &["b5_on", "b5_type", "b5_freq", "b5_gain", "b5_q", "output"]),
-	(5, &["b6_on", "b6_type", "b6_freq", "b6_gain", "b6_q", "output"]),
+	(0, &["b1_on", "b1_type", "b1_freq", "b1_gain", "b1_q", "b1_slope", "output"]),
+	(1, &["b2_on", "b2_type", "b2_freq", "b2_gain", "b2_q", "b2_slope", "output"]),
+	(2, &["b3_on", "b3_type", "b3_freq", "b3_gain", "b3_q", "b3_slope", "output"]),
+	(3, &["b4_on", "b4_type", "b4_freq", "b4_gain", "b4_q", "b4_slope", "output"]),
+	(4, &["b5_on", "b5_type", "b5_freq", "b5_gain", "b5_q", "b5_slope", "output"]),
+	(5, &["b6_on", "b6_type", "b6_freq", "b6_gain", "b6_q", "b6_slope", "output"]),
 ];
 
 web_plugin!(
@@ -995,7 +995,10 @@ mod tests {
 			"{face}"
 		);
 
-		for id in ["b1_on", "b1_type", "b1_freq", "b1_gain", "b1_q", "b6_on", "b6_q", "output"] {
+		for id in [
+			"b1_on", "b1_type", "b1_freq", "b1_gain", "b1_q", "b1_slope", "b6_on", "b6_q",
+			"b6_slope", "output",
+		] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
 		}
 

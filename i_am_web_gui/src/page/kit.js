@@ -1860,8 +1860,14 @@ var ENV_MAX = 512;
       var ni = -c.b[1] * sin - c.b[2] * sin2;
       var dr = 1 + c.a[0] * cos + c.a[1] * cos2;
       var di = -c.a[0] * sin - c.a[1] * sin2;
+      var bandMagnitude = Math.sqrt(nr * nr + ni * ni) / Math.sqrt(dr * dr + di * di);
 
-      magnitude *= Math.sqrt(nr * nr + ni * ni) / Math.sqrt(dr * dr + di * di);
+      // A cut stacks identical sections; 48 dB/oct is four of them.
+      if (band.type === 3 || band.type === 4) {
+        bandMagnitude = Math.pow(bandMagnitude, clamp(band.slope, 0, 3) + 1);
+      }
+
+      magnitude *= bandMagnitude;
     }
 
     return 20 * Math.log10(Math.max(magnitude, 1e-6));
@@ -1880,7 +1886,8 @@ var ENV_MAX = 512;
         type: Math.round(valueOf("b" + n + "_type", 0)),
         freq: valueOf("b" + n + "_freq", 1000),
         gain: valueOf("b" + n + "_gain", 0),
-        q: valueOf("b" + n + "_q", 1)
+        q: valueOf("b" + n + "_q", 1),
+        slope: Math.round(valueOf("b" + n + "_slope", 0))
       });
     }
 
@@ -2590,8 +2597,12 @@ var ENV_MAX = 512;
     var index = Math.round(valueOf("band", 0));
     var type = Math.round(valueOf("b" + (index + 1) + "_type", 0));
     var gain = controls["b" + (index + 1) + "_gain"];
+    var slope = controls["b" + (index + 1) + "_slope"];
 
     if (gain && gain.el) gain.el.style.display = type <= 2 ? "" : "none";
+    if (slope && slope.el) {
+      slope.el.style.display = type === 3 || type === 4 ? "" : "none";
+    }
   }
 
   /// Show the branch the current switch selects. Only the listed controls move;
