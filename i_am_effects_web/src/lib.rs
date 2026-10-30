@@ -733,15 +733,15 @@ mod tests {
 
 	/// The convolver's picture is the impulse response it has loaded.
 	#[test]
-	fn the_convolver_has_an_impulse_hero_and_a_mix() {
+	fn the_convolver_has_an_impulse_hero_and_dry_wet_gains() {
 		let face = i_am_web_gui::face_json(
 			&ConvolverWeb::new(),
 			&Faceplate::new("I Am Convolver", "#b08cff", (520.0, 330.0)),
 		);
 
 		assert!(face.contains("\"hero\":\"impulse\""), "{face}");
-		assert!(face.contains("\"id\":\"mix\""), "{face}");
-		assert!(face.contains("\"id\":\"gain\""), "{face}");
+		assert!(face.contains("\"id\":\"dry_gain\""), "{face}");
+		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");
 		assert!(!face.contains("\"id\":\"ir\""), "the response is state, not a control: {face}");
 	}
 

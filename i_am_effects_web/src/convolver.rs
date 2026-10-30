@@ -1,11 +1,13 @@
 //! The convolver product: an impulse response loaded from a file, convolved by
 //! the FFT engine in `i_am_dsp`.
 //!
-//! The IR is not a control. It is loaded through the page's own file picker and
-//! posted to the product's `/ir` route, and the bytes are decoded and resampled on
-//! that thread. A shared [IrSlot] is how they reach the audio thread and how the
-//! page reads the waveform back; the IR is also serialized into the plug-in state,
-//! so a project keeps the room it was saved with.
+//! The IR is not a control. Clicking its picture asks the host side of the editor
+//! for a native file dialog (on Windows, owned by the DAW window so it comes up in
+//! front); a page without that path can still POST the bytes to the product's
+//! `/ir` route. Either way the file is decoded and resampled off the audio thread.
+//! A shared [IrSlot] is how the result reaches the audio thread and how the page
+//! reads the waveform back; the IR is also serialized into the plug-in state, so a
+//! project keeps the room it was saved with.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -178,21 +180,21 @@ impl IrSlot {
 /// One convolver instance.
 #[derive(Parameters)]
 pub struct ConvolverEffect {
-	/// How much of the convolved signal is heard.
+	/// The level of the dry signal.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.0)]
+	#[unit(percent)]
+	#[id(display = "Dry")]
+	#[layout(group = "Convolver", order = 0, widget = knob)]
+	pub dry_gain: f32,
+
+	/// The level of the convolved signal.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(1.0)]
 	#[unit(percent)]
-	#[id(display = "Mix")]
-	#[layout(group = "Convolver", order = 0, widget = knob, size = large, hero = "impulse")]
-	pub mix: f32,
-
-	/// The level of the wet signal, in decibels.
-	#[range(min = -24.0, max = 24.0)]
-	#[default(0.0)]
-	#[unit(db)]
-	#[id(display = "Gain")]
-	#[layout(group = "Convolver", order = 1, widget = knob)]
-	pub gain: f32,
+	#[id(display = "Wet")]
+	#[layout(group = "Convolver", order = 1, widget = knob, size = large, hero = "impulse")]
+	pub wet_gain: f32,
 
 	/// The impulse response, saved with the plug-in state.
 	#[serde]
@@ -217,8 +219,8 @@ impl ConvolverEffect {
 	/// A convolver with no impulse response yet, sharing `slot` with its editor.
 	pub fn new(sample_rate: usize, slot: Arc<IrSlot>) -> Self {
 		Self {
-			mix: 1.0,
-			gain: 0.0,
+			dry_gain: 0.0,
+			wet_gain: 1.0,
 			ir: None,
 			slot,
 			convolver: None,
@@ -247,7 +249,7 @@ impl ConvolverEffect {
 		};
 
 		let mut convolver = FftConvolver::<2>::new([left, right], self.sample_rate);
-		// The mix is applied around the convolver, so its own gains are neutral.
+		// The dry/wet balance is applied around the convolver, so its own gains are neutral.
 		convolver.dry_gain = 0.0;
 		convolver.wet_gain = 1.0;
 		self.convolver = Some(convolver);
@@ -304,16 +306,97 @@ impl Effect<2> for ConvolverEffect {
 		};
 
 		let dry = *samples;
-		let mix = self.mix.clamp(0.0, 1.0);
-		let gain = 10.0_f32.powf(self.gain / 20.0);
+		let dry_gain = self.dry_gain.clamp(0.0, 1.0);
+		let wet_gain = self.wet_gain.clamp(0.0, 1.0);
 
 		convolver.process(samples, other, context);
 
 		for (channel, sample) in samples.iter_mut().enumerate() {
-			*sample = dry[channel] * (1.0 - mix) + *sample * mix * gain;
+			*sample = dry[channel] * dry_gain + *sample * wet_gain;
 		}
 	}
 }
+
+/// Opens the native picker, owned by the window the user clicked, and decodes
+/// the chosen file on a worker thread.
+///
+/// A page's own file input has no owner of its own inside a host, so its picker
+/// can open behind the DAW, or appear not to open at all. A dialog whose owner is
+/// the foreground window always comes up in front of it.
+#[cfg(windows)]
+fn pick_ir(slot: Arc<IrSlot>) {
+	use raw_window_handle::{
+		DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
+		RawWindowHandle, WindowHandle, Win32WindowHandle, WindowsDisplayHandle,
+	};
+	use std::num::NonZeroIsize;
+	use windows_sys::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetForegroundWindow};
+
+	struct Owner(isize);
+
+	impl HasWindowHandle for Owner {
+		fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+			let hwnd = NonZeroIsize::new(self.0).ok_or(HandleError::Unavailable)?;
+			let handle = RawWindowHandle::Win32(Win32WindowHandle::new(hwnd));
+
+			// SAFETY: the window outlives the dialog, and the handle is only
+			// borrowed for the duration of the call.
+			Ok(unsafe { WindowHandle::borrow_raw(handle) })
+		}
+	}
+
+	impl HasDisplayHandle for Owner {
+		fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+			// SAFETY: the Windows display handle carries no state.
+			Ok(unsafe {
+				DisplayHandle::borrow_raw(RawDisplayHandle::Windows(
+					WindowsDisplayHandle::new(),
+				))
+			})
+		}
+	}
+
+	let mut window = unsafe { GetForegroundWindow() };
+
+	if !window.is_null() {
+		let root = unsafe { GetAncestor(window, GA_ROOT) };
+		if !root.is_null() {
+			window = root;
+		}
+	}
+
+	let owner = (!window.is_null()).then_some(Owner(window as isize));
+	let mut dialog = rfd::FileDialog::new()
+		.add_filter("Impulse response", &["wav", "flac", "mp3", "ogg"]);
+
+	if let Some(owner) = &owner {
+		dialog = dialog.set_parent(owner);
+	}
+
+	let Some(path) = dialog.pick_file() else {
+		return;
+	};
+
+	// Decoding a long file on the UI thread would freeze the editor; the slot's
+	// generation is what tells the page and the audio thread when it is ready.
+	std::thread::spawn(move || {
+		let name = path
+			.file_name()
+			.map(|name| name.to_string_lossy().into_owned())
+			.unwrap_or_else(|| "impulse".to_string());
+
+		match std::fs::read(&path) {
+			Ok(bytes) => match decode_ir(&bytes, slot.host_rate(), name) {
+				Ok(ir) => slot.set(Arc::new(ir)),
+				Err(error) => slot.fail(error),
+			},
+			Err(error) => slot.fail(error.to_string()),
+		}
+	});
+}
+
+#[cfg(not(windows))]
+fn pick_ir(_slot: Arc<IrSlot>) {}
 
 /// Decodes an uploaded file into an impulse response at `sample_rate`.
 fn decode_ir(bytes: &[u8], sample_rate: usize, name: String) -> Result<IrData, String> {
@@ -649,7 +732,8 @@ impl Plugin for ConvolverWeb {
 
 	fn editor(&self) -> Option<Box<dyn Editor<Self>>> {
 		let face = i_am_web_gui::Faceplate::new("I Am Convolver", ACCENT, SIZE);
-		let slot = self.ir.clone();
+		let route_slot = self.ir.clone();
+		let command_slot = self.ir.clone();
 
 		i_am_web_gui::editor_with(
 			self,
@@ -657,7 +741,15 @@ impl Plugin for ConvolverWeb {
 			self.bypass.clone(),
 			self.scope.clone(),
 			self.processor.sample_rate(),
-			move |request: &ProtocolRequest<'_>| ir_route(request, &slot),
+			move |request: &ProtocolRequest<'_>| ir_route(request, &route_slot),
+			move |command: &str| {
+				if command != "__load_ir" {
+					return false;
+				}
+
+				pick_ir(command_slot.clone());
+				true
+			},
 		)
 	}
 }
@@ -789,17 +881,34 @@ mod tests {
 	}
 
 	#[test]
-	fn a_fully_dry_mix_leaves_the_input_alone() {
+	fn a_fully_dry_balance_leaves_the_input_alone() {
 		let slot = Arc::new(IrSlot::new());
 		slot.set(delta_ir("delta", 9));
 		let mut effect = ConvolverEffect::new(48_000, slot);
-		effect.mix = 0.0;
+		effect.dry_gain = 1.0;
+		effect.wet_gain = 0.0;
 		let mut context: Box<dyn ProcessContext> = Box::new(());
 		let mut frame = [0.25, 0.75];
 
 		effect.process(&mut frame, &[], &mut context);
 
 		assert_eq!(frame, [0.25, 0.75]);
+	}
+
+	#[test]
+	fn the_dry_and_wet_gains_mix_the_two_paths() {
+		let slot = Arc::new(IrSlot::new());
+		slot.set(delta_ir("delta", 10));
+		let mut effect = ConvolverEffect::new(48_000, slot);
+		effect.dry_gain = 0.25;
+		effect.wet_gain = 0.5;
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut frame = [1.0, -1.0];
+
+		effect.process(&mut frame, &[], &mut context);
+
+		assert!((frame[0] - 0.75).abs() < 0.01, "{}", frame[0]);
+		assert!((frame[1] + 0.75).abs() < 0.01, "{}", frame[1]);
 	}
 
 	#[test]

@@ -70,14 +70,26 @@ pub fn editor<P: Plugin>(
 	scope: Arc<Scope>,
 	rate: usize,
 ) -> Option<Box<dyn Editor<P>>> {
-	editor_with(processor, face, bypass, scope, rate, |_: &ProtocolRequest<'_>| None)
+	editor_with(
+		processor,
+		face,
+		bypass,
+		scope,
+		rate,
+		|_: &ProtocolRequest<'_>| None,
+		|_: &str| false,
+	)
 }
 
-/// The editor for a plug-in that also serves routes of its own.
+/// The editor for a plug-in that also serves routes and commands of its own.
 ///
 /// `extra` sees every request before the kit's routes do, and answers the ones
 /// the product owns: an upload route, or the state of a resource the page draws.
 /// Returning `None` passes the request on to the kit.
+///
+/// `command` sees every IPC string before the parameter parser does. A command
+/// that needs the host -- a native file dialog, say -- returns true and is not
+/// mistaken for `id=value`.
 pub fn editor_with<P: Plugin>(
 	processor: &P,
 	face: Faceplate,
@@ -85,6 +97,7 @@ pub fn editor_with<P: Plugin>(
 	scope: Arc<Scope>,
 	rate: usize,
 	extra: impl Fn(&ProtocolRequest<'_>) -> Option<ProtocolResponse> + Send + Sync + 'static,
+	command: impl Fn(&str) -> bool + Send + Sync + 'static,
 ) -> Option<Box<dyn Editor<P>>> {
 	let sections = face::sections(&processor.get_parameters());
 
@@ -104,6 +117,10 @@ pub fn editor_with<P: Plugin>(
 
 	Some(Box::new(
 		WryEditor::<P>::new(PAGE, move |body| {
+			if command(body) {
+				return None;
+			}
+
 			if !face::apply_bypass(&command_bypass, body) {
 				face::apply_command(&command_map, &command_sections, body);
 			}

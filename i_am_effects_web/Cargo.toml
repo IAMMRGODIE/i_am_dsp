@@ -26,3 +26,10 @@ i_am_web_gui = { workspace = true }
 i_am_effects_core = { workspace = true }
 crossbeam-channel = "0.5.16"
 serde = { version = "1.0.229", features = ["derive", "rc"] }
+
+# The Convolver opens its own file dialog, owned by the window the user clicked,
+# so the picker cannot end up behind the DAW (or look like it never opened).
+[target.'cfg(target_os = "windows")'.dependencies]
+raw-window-handle = "0.6"
+rfd = "0.17.2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

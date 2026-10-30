@@ -1961,6 +1961,15 @@ var ENV_MAX = 512;
         if (section.hero === "impulse") {
           hero.title = "Load an impulse response";
           hero.addEventListener("click", function () {
+            // In a host, ask Rust for a native dialog owned by the DAW. The
+            // browser's own file input has no owner there, which is why its
+            // picker can open behind the window or appear not to open at all.
+            // The preview server has no IPC, so it uses the input instead.
+            if (window.ipc && window.ipc.postMessage) {
+              window.ipc.postMessage("__load_ir");
+              return;
+            }
+
             if (irInput) irInput.click();
           });
         }
