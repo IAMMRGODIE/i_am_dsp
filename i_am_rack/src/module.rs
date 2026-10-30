@@ -38,6 +38,15 @@ impl ModuleKind {
 			Self::Gain => "Gain",
 		}
 	}
+
+	/// The picture a card draws above its controls.
+	pub const fn hero(self) -> &'static str {
+		match self {
+			Self::Filter => "spectrum",
+			Self::Drive => "transfer",
+			Self::Gain => "waveform",
+		}
+	}
 }
 
 /// A soft clipper with the labels a person reads, instead of the field names.

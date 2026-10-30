@@ -56,6 +56,11 @@ const STYLE: &str = include_str!("page/kit.css");
 /// The page's script.
 const SCRIPT: &str = include_str!("page/kit.js");
 
+/// The card a faceplate and a rack module share, served at `/card.css`.
+pub const CARD_STYLE: &str = include_str!("page/card.css");
+/// The card's drawing code, served at `/card.js`.
+pub const CARD_SCRIPT: &str = include_str!("page/card.js");
+
 /// The three assets a page is made of.
 ///
 /// A product that draws something the metadata cannot describe -- a rack, a
@@ -203,6 +208,16 @@ pub fn editor_with_page<P: Plugin>(
 				status: 200,
 				content_type: "text/javascript; charset=utf-8",
 				body: page.js.as_bytes().to_vec(),
+			},
+			"/card.css" => ProtocolResponse {
+				status: 200,
+				content_type: "text/css; charset=utf-8",
+				body: CARD_STYLE.as_bytes().to_vec(),
+			},
+			"/card.js" => ProtocolResponse {
+				status: 200,
+				content_type: "text/javascript; charset=utf-8",
+				body: CARD_SCRIPT.as_bytes().to_vec(),
 			},
 			"/face" => ProtocolResponse::json(page_face.clone()),
 			"/state" => ProtocolResponse::json(face::state_json_with_bypass(

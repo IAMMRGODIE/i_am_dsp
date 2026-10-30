@@ -32,6 +32,7 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 			json!({
 				"id": module.id,
 				"kind": module.kind.name(),
+				"hero": module.kind.hero(),
 				"bypass": module.bypass,
 				"controls": shared.schemas.get(&module.kind).cloned().unwrap_or_default(),
 				"values": &module.params,
