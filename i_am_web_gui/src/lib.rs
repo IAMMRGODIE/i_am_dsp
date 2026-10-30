@@ -408,3 +408,9 @@ macro_rules! web_plugin {
 		}
 	};
 }
+
+/// A test binary does not export a plug-in, but the clap-wrapper static library
+/// that the vst3 feature links still references the clap_entry data symbol.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+static clap_entry: [u8; 64] = [0; 64];

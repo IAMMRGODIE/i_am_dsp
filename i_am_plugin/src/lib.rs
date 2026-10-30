@@ -186,6 +186,14 @@ pub use clack_extensions::gui::{AspectRatioStrategy, GuiResizeHints};
 /// can name them without also depending on that crate.
 pub use i_am_dsp::{Message, Processor};
 
+/// The clap-wrapper static library references the clap_entry data symbol even in
+/// test binaries, which do not export a plug-in. The real entry point is only
+/// produced by the product cdylib; this zeroed local symbol lets the test build
+/// link without pretending to be a VST3 plug-in.
+#[cfg(all(test, feature = "vst3"))]
+#[unsafe(no_mangle)]
+pub static clap_entry: [u8; 64] = [0; 64];
+
 /// The names the export macros need to be able to reach.
 ///
 /// A macro expands in the crate that calls it, so everything it mentions has to be

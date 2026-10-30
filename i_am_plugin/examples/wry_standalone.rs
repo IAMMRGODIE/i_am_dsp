@@ -286,3 +286,9 @@ mod imp {
 		}
 	}
 }
+
+/// The example is not a plug-in, but a vst3-enabled workspace still links the
+/// clap-wrapper static library that expects this data symbol.
+#[cfg(feature = "vst3")]
+#[unsafe(no_mangle)]
+static clap_entry: [u8; 64] = [0; 64];
