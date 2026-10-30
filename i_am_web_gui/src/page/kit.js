@@ -51,7 +51,7 @@ var meter = { input: null, sidechain: null };
 var envHistory = { input: [], output: [] };
 var envWindow = 128;
 var ENV_MAX = 512;
-  var scope = { input: null, output: null };
+  var scope = { input: null, output: null, sidechain: null };
   var knobs = [];
   var scale = 1;
   var spectra = { input: null, output: null };
@@ -867,6 +867,7 @@ var ENV_MAX = 512;
     fft(real, imag);
 
     var raw = new Float32Array(BANDS);
+    var filled = new Uint8Array(BANDS);
 
     for (var k = 1; k < fftLength / 2; k++) {
       var frequency = k * rate / fftLength;
@@ -877,7 +878,25 @@ var ENV_MAX = 512;
 
       if (band < 0) band = 0;
       if (band >= BANDS) band = BANDS - 1;
-      if (magnitude > raw[band]) raw[band] = magnitude;
+      if (magnitude > raw[band]) {
+        raw[band] = magnitude;
+        filled[band] = 1;
+      }
+    }
+
+    // The lowest log bands are narrower than one FFT bin, so a band can fall
+    // between two bins and read as silence; that left a single dead point at the
+    // left edge of every spectrum. A band with no bin is unmeasured, not quiet,
+    // so take the nearest measured neighbour instead.
+    var first = 0;
+    while (first < BANDS && !filled[first]) first++;
+    if (first < BANDS) {
+      for (var b = 0; b < first; b++) raw[b] = raw[first];
+      var carry = raw[first];
+      for (var b = first; b < BANDS; b++) {
+        if (filled[b]) carry = raw[b];
+        else raw[b] = carry;
+      }
     }
 
     for (var b = 0; b < BANDS; b++) {
@@ -1367,7 +1386,10 @@ var ENV_MAX = 512;
     }
 
     var rate = face.rate || 48000;
-    var inputBands = bandsOf(scope.input, rate);
+    // A vocoder's useful "before" is the modulator, not its own carrier: when the
+    // sidechain is on, draw that instead so the two traces show the transfer.
+    var before = valueOf("sidechain", 0) && scope.sidechain ? scope.sidechain : scope.input;
+    var inputBands = bandsOf(before, rate);
     var outputBands = bandsOf(scope.output, rate);
 
     if (!inputBands || !outputBands) return "";
@@ -1787,11 +1809,12 @@ var ENV_MAX = 512;
       })
       .then(function (buffer) {
         var data = new Float32Array(buffer);
-        var half = data.length / 2;
+        var third = data.length / 3;
 
-        if (half > 64) {
-          scope.input = data.subarray(0, half);
-          scope.output = data.subarray(half);
+        if (third > 64) {
+          scope.input = data.subarray(0, third);
+          scope.output = data.subarray(third, third * 2);
+          scope.sidechain = data.subarray(third * 2);
           seedEnvelope(scope.input, scope.output);
           pushEnvelope(scope.input, scope.output);
           markDirty();

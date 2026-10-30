@@ -270,7 +270,8 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am STFT Vocoder", "#7bb8ff", (700.0, 340.0)),
+					&Faceplate::new("I Am STFT Vocoder", "#7bb8ff", (700.0, 340.0))
+						.with_header(&["window_size"]),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

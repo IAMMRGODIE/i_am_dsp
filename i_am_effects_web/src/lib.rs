@@ -847,10 +847,12 @@ mod tests {
 	fn the_stft_vocoder_has_a_window_choice_and_a_spectrum_hero() {
 		let face = i_am_web_gui::face_json(
 			&StftVocoderWeb::new(),
-			&Faceplate::new("I Am STFT Vocoder", "#7bb8ff", (700.0, 340.0)),
+			&Faceplate::new("I Am STFT Vocoder", "#7bb8ff", (700.0, 340.0))
+				.with_header(&["window_size"]),
 		);
 
 		assert!(face.contains("\"hero\":\"spectra\""), "{face}");
+		assert!(face.contains("\"header\":[\"window_size\"]"), "{face}");
 
 		for id in ["window_size", "mix", "output", "sidechain"] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");

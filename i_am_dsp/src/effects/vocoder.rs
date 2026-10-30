@@ -24,13 +24,13 @@ pub const MIN_HZ: f32 = 20.0;
 pub const MAX_HZ: f32 = 20_000.0;
 
 /// One band: two carrier stages and two modulator stages, plus the envelope.
-struct Band {
-	carrier: [Biquad<2>; 2],
-	modulator: [Biquad<2>; 2],
+struct Band<const CHANNELS: usize> {
+	carrier: [Biquad<CHANNELS>; 2],
+	modulator: [Biquad<CHANNELS>; 2],
 	envelope: f32,
 }
 
-impl Band {
+impl<const CHANNELS: usize> Band<CHANNELS> {
 	fn new(sample_rate: usize) -> Self {
 		Self {
 			carrier: [Biquad::new(sample_rate), Biquad::new(sample_rate)],
@@ -38,7 +38,11 @@ impl Band {
 			envelope: 0.0,
 		}
 	}
+}
 
+/// The mean of a frame, so a mono detector sees a stereo frame as one signal.
+fn mono<const CHANNELS: usize>(frame: &[f32; CHANNELS]) -> f32 {
+	frame.iter().sum::<f32>() / CHANNELS as f32
 }
 
 /// The band levels the page draws, one pair per band.
@@ -95,7 +99,7 @@ impl VocoderMeters {
 
 /// The vocoder's DSP.
 #[derive(Parameters)]
-pub struct VocoderEffect {
+pub struct VocoderEffect<const CHANNELS: usize = 2> {
 	/// How many bands the bank has, from 4 to 128.
 	#[range(min = 4, max = 128)]
 	#[default(24)]
@@ -151,7 +155,7 @@ pub struct VocoderEffect {
 	pub sidechain: bool,
 
 	#[skip]
-	bands_state: Vec<Band>,
+	bands_state: Vec<Band<CHANNELS>>,
 	#[skip]
 	active: usize,
 	#[skip]
@@ -172,7 +176,7 @@ pub struct VocoderEffect {
 	meter_counter: usize,
 }
 
-impl VocoderEffect {
+impl<const CHANNELS: usize> VocoderEffect<CHANNELS> {
 	/// A 24-band bank at the host's rate.
 	pub fn new(sample_rate: usize, meters: Arc<VocoderMeters>) -> Self {
 		let mut effect = Self {
@@ -245,15 +249,15 @@ impl VocoderEffect {
 	}
 }
 
-impl Effect<2> for VocoderEffect {
+impl<const CHANNELS: usize> Effect<CHANNELS> for VocoderEffect<CHANNELS> {
 	fn delay(&self) -> usize {
 		0
 	}
 
 	fn process(
 		&mut self,
-		samples: &mut [f32; 2],
-		other: &[&[f32; 2]],
+		samples: &mut [f32; CHANNELS],
+		other: &[&[f32; CHANNELS]],
 		_: &mut Box<dyn ProcessContext>,
 	) {
 		// Both the band count and the bandwidth change the coefficients.
@@ -269,7 +273,7 @@ impl Effect<2> for VocoderEffect {
 		} else {
 			&dry
 		};
-		let modulator = (modulator_frame[0] + modulator_frame[1]) * 0.5;
+		let modulator = mono(modulator_frame);
 		let output_gain = 10.0_f32.powf(self.output / 20.0);
 		let mix = self.mix.clamp(0.0, 1.0);
 		let bands = self.active;
@@ -282,18 +286,21 @@ impl Effect<2> for VocoderEffect {
 			self.meter_counter = 0;
 		}
 
-		let mut wet = [0.0_f32; 2];
+		let mut wet = [0.0_f32; CHANNELS];
 
 		for band in 0..bands {
 			let state = &mut self.bands_state[band];
 
-			let mut carrier = [dry[0], dry[1]];
+			let mut carrier = dry;
 			carrier = state.carrier[0].process_sample(carrier);
 			carrier = state.carrier[1].process_sample(carrier);
 
-			let mut modulator_band = state.modulator[0].process_sample([modulator, modulator]);
+			let mut modulator_band =
+				state.modulator[0].process_sample([modulator; CHANNELS]);
 			modulator_band = state.modulator[1].process_sample(modulator_band);
-			let level = modulator_band[0].abs();
+			let level = modulator_band
+				.iter()
+				.fold(0.0_f32, |loudest, sample| loudest.max(sample.abs()));
 
 			let coefficient = if level > state.envelope {
 				self.attack_coefficient
@@ -303,22 +310,23 @@ impl Effect<2> for VocoderEffect {
 			state.envelope = coefficient * state.envelope + (1.0 - coefficient) * level;
 
 			let envelope = state.envelope;
-			let out_left = carrier[0] * envelope;
-			let out_right = carrier[1] * envelope;
 
-			wet[0] += out_left;
-			wet[1] += out_right;
+			for (channel, sample) in wet.iter_mut().enumerate() {
+				*sample += carrier[channel] * envelope;
+			}
 
 			if write_meters {
-				meters.set(band, envelope, (out_left.abs() + out_right.abs()) * 0.5);
+				let level = carrier
+					.iter()
+					.map(|sample| sample.abs())
+					.sum::<f32>()
+					/ CHANNELS as f32;
+				meters.set(band, envelope, level * envelope);
 			}
 		}
 
-		wet[0] *= output_gain;
-		wet[1] *= output_gain;
-
-		for channel in 0..2 {
-			let sample = dry[channel] * (1.0 - mix) + wet[channel] * mix;
+		for channel in 0..CHANNELS {
+			let sample = dry[channel] * (1.0 - mix) + wet[channel] * output_gain * mix;
 			samples[channel] = if sample.is_finite() { sample } else { 0.0 };
 		}
 	}
@@ -329,7 +337,7 @@ impl Effect<2> for VocoderEffect {
 /// with the modulator's spectral shape imposed on the carrier's magnitudes and
 /// the carrier's phase kept for the inverse transform.
 #[derive(Parameters)]
-pub struct StftVocoderEffect {
+pub struct StftVocoderEffect<const CHANNELS: usize = 2> {
 	/// The FFT window size.
 	#[choices("512", "1024", "2048", "4096")]
 	#[default(2)]
@@ -373,17 +381,17 @@ pub struct StftVocoderEffect {
 	#[skip]
 	gain: f32,
 	#[skip]
-	carrier_input: [RingBuffer<f32>; 2],
+	carrier_input: [RingBuffer<f32>; CHANNELS],
 	#[skip]
 	modulator_input: RingBuffer<f32>,
 	#[skip]
-	output_buffer: [RingBuffer<f32>; 2],
+	output_buffer: [RingBuffer<f32>; CHANNELS],
 	#[skip]
-	carrier_spectrum: [Vec<Complex<f32>>; 2],
+	carrier_spectrum: [Vec<Complex<f32>>; CHANNELS],
 	#[skip]
 	modulator_spectrum: Vec<Complex<f32>>,
 	#[skip]
-	output_spectrum: [Vec<Complex<f32>>; 2],
+	output_spectrum: [Vec<Complex<f32>>; CHANNELS],
 	#[skip]
 	input_count: usize,
 	#[skip]
@@ -392,7 +400,7 @@ pub struct StftVocoderEffect {
 	last_window: usize,
 }
 
-impl StftVocoderEffect {
+impl<const CHANNELS: usize> StftVocoderEffect<CHANNELS> {
 	/// An STFT vocoder with a 2048 sample window.
 	pub fn new(_sample_rate: usize) -> Self {
 		let mut effect = Self {
@@ -406,12 +414,12 @@ impl StftVocoderEffect {
 			ifft: FftPlanner::new().plan_fft_inverse(2),
 			window_table: Vec::new(),
 			gain: 1.0,
-			carrier_input: [RingBuffer::new(2), RingBuffer::new(2)],
+			carrier_input: core::array::from_fn(|_| RingBuffer::new(2)),
 			modulator_input: RingBuffer::new(2),
-			output_buffer: [RingBuffer::new(2), RingBuffer::new(2)],
-			carrier_spectrum: [vec![Complex::ZERO; 2], vec![Complex::ZERO; 2]],
+			output_buffer: core::array::from_fn(|_| RingBuffer::new(2)),
+			carrier_spectrum: core::array::from_fn(|_| vec![Complex::ZERO; 2]),
 			modulator_spectrum: vec![Complex::ZERO; 2],
-			output_spectrum: [vec![Complex::ZERO; 2], vec![Complex::ZERO; 2]],
+			output_spectrum: core::array::from_fn(|_| vec![Complex::ZERO; 2]),
 			input_count: 0,
 			output_count: 0,
 			last_window: 0,
@@ -436,9 +444,9 @@ impl StftVocoderEffect {
 			})
 			.collect();
 		self.gain = 1.0 / overlap_add_gain(0.6);
-		self.carrier_input = [RingBuffer::new(window), RingBuffer::new(window)];
+		self.carrier_input = core::array::from_fn(|_| RingBuffer::new(window));
 		self.modulator_input = RingBuffer::new(window);
-		self.output_buffer = [RingBuffer::new(window), RingBuffer::new(window)];
+		self.output_buffer = core::array::from_fn(|_| RingBuffer::new(window));
 		self.carrier_spectrum = core::array::from_fn(|_| vec![Complex::ZERO; window]);
 		self.modulator_spectrum = vec![Complex::ZERO; window];
 		self.output_spectrum = core::array::from_fn(|_| vec![Complex::ZERO; window]);
@@ -452,7 +460,7 @@ impl StftVocoderEffect {
 		let fft = self.fft.clone();
 		let ifft = self.ifft.clone();
 
-		for channel in 0..2 {
+		for channel in 0..CHANNELS {
 			for index in 0..window {
 				self.carrier_spectrum[channel][index] =
 					Complex::new(self.window_table[index] * self.carrier_input[channel][index], 0.0);
@@ -477,7 +485,7 @@ impl StftVocoderEffect {
 		let gain = self.gain;
 		let window_table = &self.window_table;
 
-		for channel in 0..2 {
+		for channel in 0..CHANNELS {
 			let carrier = &self.carrier_spectrum[channel];
 			let output = &mut self.output_spectrum[channel];
 
@@ -503,15 +511,15 @@ impl StftVocoderEffect {
 	}
 }
 
-impl Effect<2> for StftVocoderEffect {
+impl<const CHANNELS: usize> Effect<CHANNELS> for StftVocoderEffect<CHANNELS> {
 	fn delay(&self) -> usize {
 		self.window / 2
 	}
 
 	fn process(
 		&mut self,
-		samples: &mut [f32; 2],
-		other: &[&[f32; 2]],
+		samples: &mut [f32; CHANNELS],
+		other: &[&[f32; CHANNELS]],
 		_: &mut Box<dyn ProcessContext>,
 	) {
 		let size = [512, 1_024, 2_048, 4_096]
@@ -527,7 +535,7 @@ impl Effect<2> for StftVocoderEffect {
 		} else {
 			&dry
 		};
-		let modulator = (modulator_frame[0] + modulator_frame[1]) * 0.5;
+		let modulator = mono(modulator_frame);
 
 		for (channel, sample) in samples.iter_mut().enumerate() {
 			self.carrier_input[channel].push(*sample);
@@ -550,7 +558,7 @@ impl Effect<2> for StftVocoderEffect {
 		let output_gain = 10.0_f32.powf(self.output / 20.0);
 		let mix = self.mix.clamp(0.0, 1.0);
 
-		for channel in 0..2 {
+		for channel in 0..CHANNELS {
 			let sample = dry[channel] * (1.0 - mix) + samples[channel] * output_gain * mix;
 			samples[channel] = if sample.is_finite() { sample } else { 0.0 };
 		}
@@ -710,6 +718,35 @@ mod tests {
 		let energy = stft_energy(&mut effect, 8_192, Some(0.5));
 
 		assert!(energy > 1e-9, "the sidechained STFT was silent: {energy}");
+	}
+
+	/// Both vocoders are generic over their channel count, so a mono instance
+	/// processes on one channel without reaching for a second one.
+	#[test]
+	fn both_vocoders_process_mono() {
+		let meters = Arc::new(VocoderMeters::default());
+		let mut band: VocoderEffect<1> = VocoderEffect::new(48_000, meters);
+		let mut stft: StftVocoderEffect<1> = StftVocoderEffect::new(48_000);
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut band_energy = 0.0;
+		let mut stft_energy = 0.0;
+
+		for frame in 0..8_192 {
+			let t = frame as f32 / 48_000.0;
+			let input = 0.5 * (2.0 * std::f32::consts::PI * 220.0 * t).sin();
+			let mut samples = [input];
+
+			band.process(&mut samples, &[], &mut context);
+			band_energy += samples[0] * samples[0];
+
+			let mut samples = [input];
+			stft.process(&mut samples, &[], &mut context);
+			stft_energy += samples[0] * samples[0];
+		}
+
+		assert!(band_energy.is_finite(), "{band_energy}");
+		assert!(stft_energy.is_finite(), "{stft_energy}");
+		assert!(stft_energy > 1e-9, "the mono STFT was silent: {stft_energy}");
 	}
 
 	#[test]

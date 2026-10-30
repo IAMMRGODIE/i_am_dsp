@@ -173,7 +173,7 @@ mod tests {
 	#[test]
 	fn the_band_route_reports_a_level_per_band() {
 		let meters = Arc::new(VocoderMeters::default());
-		let effect = VocoderEffect::new(48_000, meters.clone());
+		let effect: VocoderEffect<2> = VocoderEffect::new(48_000, meters.clone());
 		drop(effect);
 
 		let request = ProtocolRequest {

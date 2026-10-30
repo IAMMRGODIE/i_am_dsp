@@ -116,7 +116,8 @@ impl Plugin for StftVocoderWeb {
 	}
 
 	fn editor(&self) -> Option<Box<dyn Editor<Self>>> {
-		let face = i_am_web_gui::Faceplate::new("I Am STFT Vocoder", "#7bb8ff", (700.0, 340.0));
+		let face = i_am_web_gui::Faceplate::new("I Am STFT Vocoder", "#7bb8ff", (700.0, 340.0))
+			.with_header(&["window_size"]);
 
 		i_am_web_gui::editor(
 			self,

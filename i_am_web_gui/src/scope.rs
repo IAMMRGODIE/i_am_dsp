@@ -129,13 +129,15 @@ impl Scope {
 		(level(input_energy), level(sidechain_energy))
 	}
 
-	/// The last [POINTS] frames as little-endian f32: input first, then output.
+	/// The last [POINTS] frames as little-endian f32: input, output and the
+	/// sidechain the effect saw. The page draws the sidechain as the before
+	/// trace when a vocoder is modulating from it.
 	pub fn snapshot(&self) -> Vec<u8> {
 		let end = self.write.load(Ordering::Acquire);
 		let start = end.saturating_sub(POINTS);
-		let mut bytes = Vec::with_capacity(POINTS * 8);
+		let mut bytes = Vec::with_capacity(POINTS * 12);
 
-		for channel in [&self.input, &self.output] {
+		for channel in [&self.input, &self.output, &self.sidechain] {
 			for offset in 0..POINTS {
 				let frame = start + offset;
 				let value = if frame < end {
@@ -184,7 +186,7 @@ impl Scope {
 mod tests {
 	use super::*;
 
-	/// The page reads the newest frames, in order, and gets both channels.
+	/// The page reads the newest frames, in order, and gets all three traces.
 	#[test]
 	fn a_snapshot_holds_the_newest_frames() {
 		let scope = Scope::new();
@@ -195,7 +197,7 @@ mod tests {
 		}
 
 		let bytes = scope.snapshot();
-		assert_eq!(bytes.len(), POINTS * 8);
+		assert_eq!(bytes.len(), POINTS * 12);
 
 		let read = |offset: usize| {
 			f32::from_le_bytes(bytes[offset * 4..offset * 4 + 4].try_into().unwrap())
@@ -205,6 +207,8 @@ mod tests {
 		assert_eq!(read(POINTS - 1), (count - 1) as f32);
 		assert_eq!(read(POINTS), -100.0, "the output follows the input");
 		assert_eq!(read(POINTS * 2 - 1), -((count - 1) as f32));
+		assert_eq!(read(POINTS * 2), 100.0, "the sidechain follows the input");
+		assert_eq!(read(POINTS * 3 - 1), (count - 1) as f32);
 	}
 
 	/// The stereo snapshot keeps L/R separately, before and after the effect.
@@ -234,7 +238,7 @@ mod tests {
 	fn a_fresh_scope_is_silent() {
 		let bytes = Scope::new().snapshot();
 
-		assert_eq!(bytes.len(), POINTS * 8);
+		assert_eq!(bytes.len(), POINTS * 12);
 		assert!(bytes.iter().all(|byte| *byte == 0));
 	}
 	/// The meter reads the input and the sidechain separately, in dBFS.
