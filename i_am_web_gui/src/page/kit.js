@@ -1403,8 +1403,7 @@ var ENV_MAX = 512;
     return heroSvg(
       '<line x1="20" y1="150" x2="500" y2="150" stroke="#3a3a3a"/>' +
       (pre > 0
-        ? '<line x1="20" y1="150" x2="' + preX.toFixed(1) + '" y2="150" stroke="#343434"/>' +
-          '<text x="24" y="143" fill="#8a8a8a" font-size="7">pre</text>'
+        ? '<line x1="20" y1="150" x2="' + preX.toFixed(1) + '" y2="150" stroke="#343434"/>'
         : "") +
       '<path d="' + tail + ' L ' + xAt(total).toFixed(1) + ' 150 L ' + xAt(pre).toFixed(1) +
         ' 150 Z" fill="' + accent + '" fill-opacity=".07"/>' +
@@ -1413,7 +1412,7 @@ var ENV_MAX = 512;
       '<path d="' + high + '" fill="none" stroke="#ffffff" stroke-opacity=".22" ' +
         'stroke-width="1" vector-effect="non-scaling-stroke"/>' +
       ticks
-    );
+    ) + (pre > 0 ? '<div class="hero-label" style="left:4.6%;top:88%">pre</div>' : "");
   }
 
   /// Left: the transfer curve on a square that stays left. Right: a scrolling
@@ -1492,9 +1491,7 @@ var ENV_MAX = 512;
       right =
         '<path d="' + outPath + ' L 392 132 L 8 132 Z" fill="' + accent + '" fill-opacity=".06"/>' +
         '<path d="' + inPath + '" fill="none" stroke="#8a8a8a" stroke-width="1.1" opacity=".65" vector-effect="non-scaling-stroke"/>' +
-        '<path d="' + outPath + '" fill="none" stroke="' + accent + '" stroke-width="1.6" vector-effect="non-scaling-stroke"/>' +
-        '<text x="16" y="17" fill="#8a8a8a" font-size="7">IN</text>' +
-        '<text x="52" y="17" fill="' + accent + '" font-size="7">OUT</text>';
+        '<path d="' + outPath + '" fill="none" stroke="' + accent + '" stroke-width="1.6" vector-effect="non-scaling-stroke"/>';
     } else {
       right = '<line x1="8" y1="132" x2="392" y2="132" stroke="#3a3a3a"/>';
     }
@@ -1505,6 +1502,10 @@ var ENV_MAX = 512;
       '<div class="transfer-box">' + left + '</div>' +
       '<div class="env-box" title="Scroll to change the envelope time window">' +
         '<svg viewBox="0 0 400 140" preserveAspectRatio="none">' + right + '</svg>' +
+        (count > 1
+          ? '<div class="hero-label" style="left:4%;top:2%">IN</div>' +
+            '<div class="hero-label" style="left:13%;top:2%;color:' + accent + '">OUT</div>'
+          : "") +
         '<div class="hero-badge">' + seconds + ' s</div></div>' +
       '</div>';
   }
