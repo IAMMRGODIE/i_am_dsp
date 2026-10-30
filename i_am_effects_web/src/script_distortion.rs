@@ -401,6 +401,13 @@ impl Default for ScriptDistortionWeb {
 	}
 }
 
+impl Drop for ScriptDistortionWeb {
+	fn drop(&mut self) {
+		// The worker thread must be gone before the host unloads this DLL.
+		self.worker.shutdown();
+	}
+}
+
 impl i_am_dsp::prelude::Parameters for ScriptDistortionWeb {
 	fn get_parameters(&self) -> Vec<Parameter> {
 		self.processor.parameters()
@@ -548,6 +555,35 @@ mod tests {
 	fn a_script_that_fails_at_runtime_is_an_error() {
 		let script = CompiledScript::compile("nope").expect("the lookup compiles");
 		assert!(DistortionTable::render(&script, [0.0; 4], 1.0).is_err());
+	}
+
+	#[test]
+	fn dropping_the_worker_joins_its_thread() {
+		let worker = distortion_worker();
+		let started = Instant::now();
+		drop(worker);
+		assert!(started.elapsed() < Duration::from_secs(2));
+	}
+
+	#[test]
+	fn dropping_a_busy_worker_joins_its_thread() {
+		let worker = distortion_worker();
+
+		for _ in 0..20 {
+			let _ = worker.request([0.0; 4], 1.0);
+		}
+
+		let started = Instant::now();
+		drop(worker);
+		assert!(started.elapsed() < Duration::from_secs(2));
+	}
+
+	#[test]
+	fn dropping_the_product_stops_its_worker() {
+		let plugin = ScriptDistortionWeb::new();
+		let started = Instant::now();
+		drop(plugin);
+		assert!(started.elapsed() < Duration::from_secs(2));
 	}
 
 	#[test]

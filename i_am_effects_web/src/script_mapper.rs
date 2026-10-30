@@ -563,6 +563,13 @@ impl Default for ScriptMapperWeb {
 	}
 }
 
+impl Drop for ScriptMapperWeb {
+	fn drop(&mut self) {
+		// The worker thread must be gone before the host unloads this DLL.
+		self.worker.shutdown();
+	}
+}
+
 impl i_am_dsp::prelude::Parameters for ScriptMapperWeb {
 	fn get_parameters(&self) -> Vec<Parameter> {
 		self.processor.parameters()

@@ -99,6 +99,8 @@ struct ScriptRequest {
 	source: Arc<str>,
 	params: [f32; 4],
 	extra: f32,
+	/// Tells the worker to stop and return before the module is unloaded.
+	shutdown: bool,
 }
 
 /// The script, its status, and the table the audio thread reads.
@@ -115,6 +117,7 @@ pub struct ScriptWorker<T: Send + Sync + 'static> {
 	compiled: Arc<Mutex<Option<Arc<CompiledScript>>>>,
 	compiled_generation: Arc<AtomicU64>,
 	requests: Sender<ScriptRequest>,
+	handle: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl<T: Send + Sync + 'static> ScriptWorker<T> {
@@ -139,33 +142,39 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 
 		let (requests, receiver) = bounded(8);
 
-		let worker = Arc::new(Self {
-			source: source.clone(),
-			source_generation: source_generation.clone(),
-			status: status.clone(),
-			curve: curve.clone(),
-			table: table.clone(),
-			table_generation: table_generation.clone(),
-			compiled: compiled.clone(),
-			compiled_generation: compiled_generation.clone(),
-			requests,
-		});
+		let thread_status = status.clone();
+		let thread_curve = curve.clone();
+		let thread_table = table.clone();
+		let thread_table_generation = table_generation.clone();
+		let thread_compiled = compiled.clone();
+		let thread_compiled_generation = compiled_generation.clone();
 
-		std::thread::spawn(move || {
+		let handle = std::thread::spawn(move || {
 			run(
 				receiver,
-				status,
-				curve,
-				table,
-				table_generation,
-				compiled,
-				compiled_generation,
+				thread_status,
+				thread_curve,
+				thread_table,
+				thread_table_generation,
+				thread_compiled,
+				thread_compiled_generation,
 				render,
 				curve_of,
 			);
 		});
 
-		worker
+		Arc::new(Self {
+			source,
+			source_generation,
+			status,
+			curve,
+			table,
+			table_generation,
+			compiled,
+			compiled_generation,
+			requests,
+			handle: Mutex::new(Some(handle)),
+		})
 	}
 
 	/// The current script text.
@@ -200,6 +209,7 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 			source: Arc::from(source.as_str()),
 			params,
 			extra,
+			shutdown: false,
 		};
 
 		self.requests.try_send(request).is_ok()
@@ -234,6 +244,34 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 	pub fn status(&self) -> ScriptStatus {
 		self.status.lock().map(|status| status.clone()).unwrap_or_default()
 	}
+
+	/// Stops the worker and waits for its thread to return.
+	///
+	/// The product calls this from its own Drop, before the host can unload the
+	/// module. The worker thread must never be left inside a DLL that the host is
+	/// about to free.
+	pub fn shutdown(&self) {
+		let handle = self.handle.lock().ok().and_then(|mut handle| handle.take());
+
+		let Some(handle) = handle else {
+			return;
+		};
+
+		let _ = self.requests.send(ScriptRequest {
+			source: Arc::from(""),
+			params: [0.0; 4],
+			extra: 0.0,
+			shutdown: true,
+		});
+
+		let _ = handle.join();
+	}
+}
+
+impl<T: Send + Sync + 'static> Drop for ScriptWorker<T> {
+	fn drop(&mut self) {
+		self.shutdown();
+	}
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -261,7 +299,16 @@ where
 		let mut request = first;
 
 		while let Ok(next) = receiver.try_recv() {
+			if next.shutdown {
+				request = next;
+				break;
+			}
+
 			request = next;
+		}
+
+		if request.shutdown {
+			break;
 		}
 
 		let stale = compiled_local
