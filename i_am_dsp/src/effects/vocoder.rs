@@ -278,9 +278,8 @@ impl Effect<2> for VocoderEffect {
 		other: &[&[f32; 2]],
 		_: &mut Box<dyn ProcessContext>,
 	) {
-		if self.bands.clamp(4, 128) as usize != self.active {
-			self.update_bands();
-		}
+		// Both the band count and the bandwidth change the coefficients.
+		self.update_bands();
 
 		if self.attack != self.last_attack || self.release != self.last_release {
 			self.update_times();
@@ -418,6 +417,22 @@ mod tests {
 			let energy = render(&mut effect, 1_024, None);
 			assert!(energy.iter().all(|value| value.is_finite()), "{bandwidth}");
 		}
+	}
+
+	#[test]
+	fn bandwidth_moves_the_filter_coefficients() {
+		let meters = Arc::new(VocoderMeters::default());
+		let mut effect = VocoderEffect::new(48_000, meters);
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut frame = [0.0; 2];
+		effect.process(&mut frame, &[], &mut context);
+
+		let before = effect.bands_state[12].carrier[0].b;
+		effect.bandwidth = 2.0;
+		effect.process(&mut frame, &[], &mut context);
+		let after = effect.bands_state[12].carrier[0].b;
+
+		assert_ne!(before, after, "bandwidth did not redesign the filters");
 	}
 
 	#[test]
