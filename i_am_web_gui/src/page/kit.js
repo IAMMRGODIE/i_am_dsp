@@ -1111,10 +1111,9 @@ var ENV_MAX = 512;
       var color = failed ? "#ff7a6b" : (pending ? accent : "#8a8a8a");
 
       return heroSvg(
-        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c"/>' +
-        '<text x="260" y="84" text-anchor="middle" fill="' + color + '" font-size="10">' +
-        escapeXml(message) + '</text>'
-      );
+        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c"/>'
+      ) + '<div class="hero-empty" style="color:' + color + '">' +
+        escapeXml(message) + '</div>';
     }
 
     var peaks = irState.peaks;
@@ -1136,9 +1135,8 @@ var ENV_MAX = 512;
     return heroSvg(
       '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f"/>' +
       '<path d="' + top + bottom + ' Z" fill="' + accent + '" fill-opacity=".14" stroke="' +
-        accent + '" stroke-width="1" vector-effect="non-scaling-stroke"/>' +
-      '<text x="20" y="16" fill="#9a9a9a" font-size="8">' + escapeXml(label) + '</text>'
-    );
+        accent + '" stroke-width="1" vector-effect="non-scaling-stroke"/>'
+    ) + '<div class="hero-label" style="top:2%">' + escapeXml(label) + '</div>';
   }
 
   /// A frequency mapping: input to output frequency on a log/log plot at the top,
@@ -1148,17 +1146,12 @@ var ENV_MAX = 512;
       '<rect x="20" y="12" width="480" height="82" fill="none" stroke="#2a2a2a"/>' +
       '<line x1="20" y1="94" x2="500" y2="12" stroke="#3a3a3a" stroke-dasharray="3 5"/>' +
       '<line x1="20" y1="148" x2="500" y2="148" stroke="#2f2f2f"/>' +
-      '<line x1="20" y1="116" x2="500" y2="116" stroke="#242424"/>' +
-      '<text x="22" y="10" fill="#8a8a8a" font-size="7">frequency in / out</text>' +
-      '<text x="22" y="112" fill="#8a8a8a" font-size="7">amplitude</text>';
+      '<line x1="20" y1="116" x2="500" y2="116" stroke="#242424"/>';
     var points = curveState && curveState.points;
 
     if (!points || points.length < 2) {
-      return heroSvg(
-        grid +
-        '<text x="260" y="52" text-anchor="middle" fill="#8a8a8a" font-size="10">' +
-        'Waiting for the script...</text>'
-      );
+      return heroSvg(grid) +
+        '<div class="hero-empty">Waiting for the script...</div>';
     }
 
     var span = Math.log(1000);
@@ -1183,7 +1176,9 @@ var ENV_MAX = 512;
       'vector-effect="non-scaling-stroke"/>' +
       '<path d="' + amplitudePath + '" fill="none" stroke="#9a9a9a" stroke-width="1.2" ' +
       'vector-effect="non-scaling-stroke"/>'
-    );
+    ) +
+      '<div class="hero-label" style="top:3%">frequency in / out</div>' +
+      '<div class="hero-label" style="top:68%">amplitude</div>';
   }
 
   function escapeXml(value) {
@@ -1204,11 +1199,8 @@ var ENV_MAX = 512;
     var points = curveState && curveState.points;
 
     if (!points || points.length < 2) {
-      return heroSvg(
-        grid +
-        '<text x="260" y="84" text-anchor="middle" fill="#8a8a8a" font-size="10">' +
-        'Waiting for the script...</text>'
-      );
+      return heroSvg(grid) +
+        '<div class="hero-empty">Waiting for the script...</div>';
     }
 
     var path = "";
@@ -1224,9 +1216,8 @@ var ENV_MAX = 512;
     return heroSvg(
       grid +
       '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="1.8" ' +
-      'vector-effect="non-scaling-stroke"/>' +
-      '<text x="20" y="15" fill="#8a8a8a" font-size="8">in -1..1 / out -2..2</text>'
-    );
+      'vector-effect="non-scaling-stroke"/>'
+    ) + '<div class="hero-label" style="top:2%">in -1..1 / out -2..2</div>';
   }
 
   /// Before and after spectra only: a frequency shifter has no response curve to

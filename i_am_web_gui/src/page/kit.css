@@ -164,6 +164,20 @@ body.preview #app{
 }
 .hero svg{display:block;width:100%;height:100%;pointer-events:none}
 .hero[data-hero="impulse"]{cursor:pointer;user-select:none}
+/* Labels sit outside the SVG: the hero is stretched to the window, and text
+   inside an SVG with preserveAspectRatio="none" would stretch with it. */
+.hero-label{
+  position:absolute; left:calc(14px * var(--scale)); z-index:1;
+  max-width:calc(100% - calc(28px * var(--scale)));
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font:calc(8px * var(--scale))/1.2 var(--mono); color:var(--text3);
+  pointer-events:none;
+}
+.hero-empty{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font:calc(10px * var(--scale))/1.2 inherit; color:var(--text3);
+  pointer-events:none; text-align:center; padding:0 calc(14px * var(--scale));
+}
 /* A script panel is a drawer: closed it costs one row, open it shows the body. */
 .script-panel{
   flex:0 0 auto; border:1px solid var(--border); border-radius:4px;
