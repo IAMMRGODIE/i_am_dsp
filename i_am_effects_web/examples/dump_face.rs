@@ -15,6 +15,7 @@ use std::path::Path;
 use i_am_effects_web::{
 	AllpassWeb, BalanceWeb, ChorusWeb, CombWeb, CompressorWeb, CrusherWeb, DelayWeb,
 	ConvolverWeb, DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
+	ScriptDistortionWeb,
 	ParticleWiderWeb, PitchWeb, ReverbWeb, SchroederWeb, ShifterWeb, UnstablizerWeb, WidthWeb,
 	CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
@@ -256,6 +257,17 @@ fn main() {
 					&Faceplate::new("I Am Delay", "#e8c35a", (560.0, 300.0))
 						.with_header(DELAY_HEADER)
 						.with_switches(DELAY_SWITCHES),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
+		"script_distortion" => {
+			let plugin = ScriptDistortionWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Script Distortion", "#ff7a6b", (700.0, 560.0))
+						.with_script(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

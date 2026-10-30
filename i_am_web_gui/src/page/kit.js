@@ -25,6 +25,13 @@ var wantsParticles = false;
 var wantsIr = false;
 var irState = null;
 var irInput = null;
+var wantsScript = false;
+var scriptState = null;
+var scriptArea = null;
+var scriptStatus = null;
+var scriptError = null;
+var wantsCurve = false;
+var curveState = null;
 var noteBadge = null;
 var stereoScope = {
   inputLeft: null,
@@ -1142,6 +1149,41 @@ var ENV_MAX = 512;
       .replace(/"/g, "&quot;");
   }
 
+  /// The scripted transfer function: a shaped curve over the input range, with
+  /// the identity line for reference.
+  function curveSvg() {
+    var grid =
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f"/>' +
+      '<line x1="260" y1="14" x2="260" y2="146" stroke="#2a2a2a"/>' +
+      '<line x1="20" y1="142" x2="500" y2="18" stroke="#3a3a3a" stroke-dasharray="3 5"/>';
+    var points = curveState && curveState.points;
+
+    if (!points || points.length < 2) {
+      return heroSvg(
+        grid +
+        '<text x="260" y="84" text-anchor="middle" fill="#8a8a8a" font-size="10">' +
+        'Waiting for the script...</text>'
+      );
+    }
+
+    var path = "";
+
+    for (var i = 0; i < points.length; i++) {
+      var x = clamp(points[i][0], -1, 1);
+      var y = clamp(points[i][1], -2, 2);
+      var px = 20 + (x + 1) * 0.5 * 480;
+      var py = 80 - y / 2 * 62;
+      path += (i ? " L " : "M ") + px.toFixed(1) + " " + py.toFixed(1);
+    }
+
+    return heroSvg(
+      grid +
+      '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="1.8" ' +
+      'vector-effect="non-scaling-stroke"/>' +
+      '<text x="20" y="15" fill="#8a8a8a" font-size="8">in -1..1 / out -2..2</text>'
+    );
+  }
+
   /// Before and after spectra only: a frequency shifter has no response curve to
   /// draw, and the two traces are the whole story.
   function spectraSvg() {
@@ -1457,6 +1499,7 @@ var ENV_MAX = 512;
   else if (hero.kind === "particles") hero.el.innerHTML = particlesSvg();
       else if (hero.kind === "pitch") hero.el.innerHTML = pitchSvg() + pitchBadge();
       else if (hero.kind === "impulse") hero.el.innerHTML = impulseSvg();
+      else if (hero.kind === "curve") hero.el.innerHTML = curveSvg();
     });
   }
 
@@ -1663,6 +1706,110 @@ var ENV_MAX = 512;
     };
     reader.readAsArrayBuffer(file);
     irInput.value = "";
+  }
+
+  /// The script panel's text and status. The worker owns the script; the page
+  /// only shows what it reports.
+  function pollScript() {
+    if (!wantsScript || document.hidden) {
+      setTimeout(pollScript, 500);
+      return;
+    }
+
+    fetch("/script", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state) return;
+
+        scriptState = state;
+
+        if (scriptArea && document.activeElement !== scriptArea) {
+          scriptArea.value = state.source || "";
+        }
+
+        if (scriptError) scriptError.textContent = state.error || "";
+
+        if (scriptStatus) {
+          scriptStatus.textContent = state.error
+            ? "error"
+            : "applied " + (state.applied || 0);
+        }
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollScript, 500);
+      });
+  }
+
+  function applyScript() {
+    if (!scriptArea) return;
+
+    if (scriptStatus) scriptStatus.textContent = "applying...";
+    if (scriptError) scriptError.textContent = "";
+
+    fetch("/script", { method: "POST", body: scriptArea.value })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (result) {
+        if (result && result.error && scriptError) scriptError.textContent = result.error;
+        pollScript();
+      })
+      .catch(function () {});
+  }
+
+  function buildScriptPanel() {
+    var panel = element("details", "script-panel");
+    var summary = element("summary", "");
+    summary.textContent = "Script (Rhai)";
+
+    scriptArea = document.createElement("textarea");
+    scriptArea.className = "script-area";
+    scriptArea.spellcheck = false;
+    scriptArea.rows = 7;
+
+    var actions = element("div", "script-actions");
+    var apply = element("button", "script-apply");
+    apply.type = "button";
+    apply.textContent = "Apply";
+    apply.addEventListener("click", applyScript);
+
+    scriptStatus = element("span", "script-status");
+    scriptError = element("div", "script-error");
+
+    actions.appendChild(apply);
+    actions.appendChild(scriptStatus);
+    panel.appendChild(summary);
+    panel.appendChild(scriptArea);
+    panel.appendChild(actions);
+    panel.appendChild(scriptError);
+
+    return panel;
+  }
+
+  /// The curve the worker rendered, downsampled by it for the picture.
+  function pollCurve() {
+    if (!wantsCurve || document.hidden) {
+      setTimeout(pollCurve, 400);
+      return;
+    }
+
+    fetch("/curve", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state) return;
+        var changed = JSON.stringify(state) !== JSON.stringify(curveState);
+        curveState = state;
+        if (changed) markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollCurve, 400);
+      });
   }
 
   // The goniometer needs L/R before and after the effect; the mono /scope is not
@@ -2056,6 +2203,15 @@ var ENV_MAX = 512;
       irInput.addEventListener("change", uploadIr);
       document.body.appendChild(irInput);
       setTimeout(pollIr, 50);
+    }
+    wantsCurve = heroes.some(function (hero) {
+      return hero.kind === "curve";
+    });
+    if (wantsCurve) setTimeout(pollCurve, 50);
+    if (face.script) {
+      body.appendChild(buildScriptPanel());
+      wantsScript = true;
+      setTimeout(pollScript, 50);
     }
     if (wantsMeter) setInterval(pollMeter, 100);
     if (wantsStereo) setTimeout(pollStereo, 50);

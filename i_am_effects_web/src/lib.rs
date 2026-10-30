@@ -25,6 +25,8 @@ mod particle_wider;
 mod pitch;
 mod reverb;
 mod schroeder;
+mod script;
+mod script_distortion;
 mod shifter;
 mod unstablizer;
 
@@ -32,6 +34,7 @@ use allpass::AllpassEffect;
 use comb::CombEffect;
 use compressor::CompressorEffect;
 pub use convolver::{ConvolverWeb, IrData, IrSlot};
+pub use script_distortion::ScriptDistortionWeb;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 use particle_wider::ParticleWiderEffect;
@@ -366,7 +369,7 @@ web_plugin!(
 	Crusher<2>,
 	Crusher::<2>::new,
 	"iamdsp.effects.crusher.web",
-	"I Am Crusher Web",
+	"I Am Crusher",
 	(400.0, 640.0),
 	"#8a6aff"
 );
@@ -393,7 +396,8 @@ export_clap!(
 	FlangerWeb,
 	PhaserWeb,
 	CrusherWeb,
-	ConvolverWeb
+	ConvolverWeb,
+	ScriptDistortionWeb
 );
 
 #[cfg(test)]
@@ -743,6 +747,25 @@ mod tests {
 		assert!(face.contains("\"id\":\"dry_gain\""), "{face}");
 		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");
 		assert!(!face.contains("\"id\":\"ir\""), "the response is state, not a control: {face}");
+	}
+
+	/// The scripted distortion is a curve with a script panel and four controls.
+	#[test]
+	fn the_script_distortion_has_a_curve_and_a_script_panel() {
+		let face = i_am_web_gui::face_json(
+			&ScriptDistortionWeb::new(),
+			&Faceplate::new("I Am Script Distortion", "#ff7a6b", (700.0, 560.0)).with_script(),
+		);
+
+		assert!(face.contains("\"script\":true"), "{face}");
+		assert!(face.contains("\"hero\":\"curve\""), "{face}");
+		assert!(face.contains("\"id\":\"in_gain\""), "{face}");
+		assert!(face.contains("\"id\":\"out_gain\""), "{face}");
+		assert!(face.contains("\"id\":\"mix\""), "{face}");
+
+		for id in ["p1", "p2", "p3", "p4"] {
+			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
+		}
 	}
 
 	/// The IR reverb exposes the room, the T60, and a wet-only convolver.

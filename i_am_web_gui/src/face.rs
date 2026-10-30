@@ -39,6 +39,9 @@ pub struct Faceplate {
 	/// Pairs of controls that trade places when a switch moves: the delay's free
 	/// time in milliseconds and the same length in beats.
 	pub switches: Option<&'static [Switch]>,
+	/// Whether the page shows the script panel: a text area that posts a Rhai
+	/// body to the product's `/script` route.
+	pub script: bool,
 }
 
 /// One either-or pair of parameters, selected by a boolean parameter.
@@ -75,6 +78,7 @@ impl Faceplate {
 			curves: None,
 			header: None,
 			switches: None,
+			script: false,
 		}
 	}
 
@@ -111,6 +115,12 @@ impl Faceplate {
 	/// Let a boolean parameter choose between two sets of controls.
 	pub const fn with_switches(mut self, switches: &'static [Switch]) -> Self {
 		self.switches = Some(switches);
+		self
+	}
+
+	/// Show the script panel, for a product whose curve is written in Rhai.
+	pub const fn with_script(mut self) -> Self {
+		self.script = true;
 		self
 	}
 }
@@ -355,7 +365,7 @@ pub fn face_json_with_rate(
 		},
 		None => out.push_str("null"),
 	}
-	let _ = write!(out, ",\"hosted\":{hosted}");
+	let _ = write!(out, ",\"hosted\":{hosted},\"script\":{script}", script = face.script);
 	out.push_str(",\"visible\":");
 	match face.visible {
 		Some(rows) => {
