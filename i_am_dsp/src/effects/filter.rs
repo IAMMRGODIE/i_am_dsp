@@ -730,6 +730,31 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		self.x = [[0.0; CHANNELS], [0.0; CHANNELS]];
 		self.y = [[0.0; CHANNELS], [0.0; CHANNELS]];
 	}
+
+	/// Process one frame with the direct-form I recurrence.
+	///
+	/// The effect's process loop uses SIMD; a bank of many small filters, like
+	/// the vocoder's, calls this one frame at a time instead.
+	pub fn process_sample(&mut self, input: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		let mut output = [0.0; CHANNELS];
+
+		for channel in 0..CHANNELS {
+			let x = input[channel];
+			let y = self.b[0] * x
+				+ self.b[1] * self.x[0][channel]
+				+ self.b[2] * self.x[1][channel]
+				- self.a[0] * self.y[0][channel]
+				- self.a[1] * self.y[1][channel];
+
+			self.x[1][channel] = self.x[0][channel];
+			self.x[0][channel] = x;
+			self.y[1][channel] = self.y[0][channel];
+			self.y[0][channel] = y;
+			output[channel] = y;
+		}
+
+		output
+	}
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {

@@ -820,7 +820,15 @@ mod tests {
 
 		assert!(face.contains("\"hero\":\"vocodex\""), "{face}");
 
-		for id in ["bands", "attack", "release", "mix", "output", "sidechain"] {
+		for id in [
+			"bands",
+			"bandwidth",
+			"attack",
+			"release",
+			"mix",
+			"output",
+			"sidechain",
+		] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
 		}
 

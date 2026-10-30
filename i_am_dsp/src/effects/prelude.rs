@@ -22,4 +22,4 @@ pub use super::unstablizer::*;
 pub use super::reverb_ir_gen::*;
 pub use super::hybrid_reverb::*;
 
-// pub use super::vocoder::*;
+pub use super::vocoder::*;

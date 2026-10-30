@@ -22,4 +22,4 @@ pub mod particle_wider;
 pub mod unstablizer;
 pub mod reverb_ir_gen;
 pub mod hybrid_reverb;
-// pub mod vocoder;
+pub mod vocoder;
