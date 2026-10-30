@@ -51,6 +51,7 @@ var meter = { input: null, sidechain: null };
 var envHistory = { input: [], output: [] };
 var envWindow = 128;
 var eqDrag = null;
+var eqSpectrum = { input: null, output: null, rate: 0, inputPath: "", outputPath: "" };
 var ENV_MAX = 512;
   var scope = { input: null, output: null, sidechain: null };
   var knobs = [];
@@ -1926,6 +1927,34 @@ var ENV_MAX = 512;
       curve += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
     }
 
+    var spectrum = "";
+
+    if (scope.input && scope.output) {
+      if (eqSpectrum.input !== scope.input || eqSpectrum.output !== scope.output ||
+          eqSpectrum.rate !== rate) {
+        var inputBands = bandsOf(scope.input, rate);
+        var outputBands = bandsOf(scope.output, rate);
+
+        if (inputBands && outputBands) {
+          spectra.input = smoothBands(spectra.input, inputBands);
+          spectra.output = smoothBands(spectra.output, outputBands);
+          eqSpectrum.input = scope.input;
+          eqSpectrum.output = scope.output;
+          eqSpectrum.rate = rate;
+          eqSpectrum.inputPath = bandsPath(spectra.input);
+          eqSpectrum.outputPath = bandsPath(spectra.output);
+        }
+      }
+
+      if (eqSpectrum.inputPath) {
+        spectrum =
+          '<path d="' + eqSpectrum.inputPath + '" fill="none" stroke="#8a8a8a" ' +
+            'stroke-width="1" opacity=".4" vector-effect="non-scaling-stroke"/>' +
+          '<path d="' + eqSpectrum.outputPath + '" fill="none" stroke="' + accent + '" ' +
+            'stroke-width="1.2" opacity=".45" vector-effect="non-scaling-stroke"/>';
+      }
+    }
+
     var nodes = "";
 
     for (var b = 0; b < bands.length; b++) {
@@ -1951,6 +1980,7 @@ var ENV_MAX = 512;
 
     return heroSvg(
       grid +
+      spectrum +
       '<path d="' + curve + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
         'vector-effect="non-scaling-stroke"/>' +
       nodes
@@ -2971,7 +3001,7 @@ var ENV_MAX = 512;
       return hero.kind === "waveform" || hero.kind === "transfer" ||
         hero.kind === "spectrum" || hero.kind === "spectra" ||
         hero.kind === "compressor" || hero.kind === "gate" ||
-        hero.kind === "expander" || hero.kind === "limiter";
+        hero.kind === "expander" || hero.kind === "limiter" || hero.kind === "eq";
     });
     wantsMeter = heroes.some(function (hero) {
       return hero.kind === "compressor" || hero.kind === "gate" ||
