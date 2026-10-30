@@ -57,8 +57,8 @@ use filter::Multimode;
 pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_dsp::prelude::{
 	Chorus, Crusher, Delay, Distortion, Expander, Flanger, Gain as GainDsp, Gate, Limiter,
-	LrControl, Phaser, SineWave, StereoController, StereoRouter, TapeStopEffect,
-	TransientShaper,
+	LrControl, ParametricEq, Phaser, SineWave, StereoController, StereoRouter,
+	TapeStopEffect, TransientShaper,
 };
 use i_am_web_gui::Switch;
 use i_am_plugin::export_clap;
@@ -384,6 +384,30 @@ web_plugin!(
 );
 
 
+
+/// The EQ's six bands: the page shows the selected band's controls and the
+/// output, and the hero draws all six.
+pub const EQ_VISIBLE: &[(i32, &[&str])] = &[
+	(0, &["b1_on", "b1_type", "b1_freq", "b1_gain", "b1_q", "output"]),
+	(1, &["b2_on", "b2_type", "b2_freq", "b2_gain", "b2_q", "output"]),
+	(2, &["b3_on", "b3_type", "b3_freq", "b3_gain", "b3_q", "output"]),
+	(3, &["b4_on", "b4_type", "b4_freq", "b4_gain", "b4_q", "output"]),
+	(4, &["b5_on", "b5_type", "b5_freq", "b5_gain", "b5_q", "output"]),
+	(5, &["b6_on", "b6_type", "b6_freq", "b6_gain", "b6_q", "output"]),
+];
+
+web_plugin!(
+	EqWeb,
+	ParametricEq<2>,
+	ParametricEq::<2>::new,
+	"iamdsp.effects.eq.web",
+	"I Am EQ",
+	(760.0, 420.0),
+	"#8a7bff",
+	mode = "band",
+	visible = EQ_VISIBLE
+);
+
 web_plugin!(
 	TapeStopWeb,
 	TapeStopEffect<2>,
@@ -489,7 +513,8 @@ export_clap!(
 	ExpanderWeb,
 	LimiterWeb,
 	TransientWeb,
-	RouterWeb
+	RouterWeb,
+	EqWeb
 );
 
 #[cfg(test)]
@@ -607,6 +632,7 @@ mod tests {
 		assert!(FlangerWeb::new().editor().is_some());
 		assert!(PhaserWeb::new().editor().is_some());
 		assert!(CrusherWeb::new().editor().is_some());
+		assert!(EqWeb::new().editor().is_some());
 		assert!(TapeStopWeb::new().editor().is_some());
 		assert!(GateWeb::new().editor().is_some());
 		assert!(ExpanderWeb::new().editor().is_some());
@@ -951,6 +977,32 @@ mod tests {
 	}
 
 
+
+	/// The EQ edits one band at a time and draws all six in its hero.
+	#[test]
+	fn the_eq_has_six_bands_and_a_graphical_hero() {
+		let face = i_am_web_gui::face_json(
+			&EqWeb::new(),
+			&Faceplate::new("I Am EQ", "#8a7bff", (760.0, 420.0))
+				.with_mode("band")
+				.with_visible(EQ_VISIBLE),
+		);
+
+		assert!(face.contains("\"hero\":\"eq\""), "{face}");
+		assert!(face.contains("\"mode\":\"band\""), "{face}");
+		assert!(
+			face.contains("\"choices\":[\"Bell\",\"Low Shelf\",\"High Shelf\",\"Low Cut\",\"High Cut\",\"Notch\"]"),
+			"{face}"
+		);
+
+		for id in ["b1_on", "b1_type", "b1_freq", "b1_gain", "b1_q", "b6_on", "b6_q", "output"] {
+			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
+		}
+
+		assert!(face.contains("\"visible\":[[0,[\"b1_on\""), "{face}");
+		assert!(face.contains("[5,[\"b6_on\""), "{face}");
+	}
+
 	/// The new utility products: a tape stop, the three downward dynamics, a
 	/// transient shaper and the stereo router.
 	#[test]
@@ -1215,6 +1267,7 @@ mod tests {
 			FlangerWeb::window_options(),
 			PhaserWeb::window_options(),
 			CrusherWeb::window_options(),
+			EqWeb::window_options(),
 			TapeStopWeb::window_options(),
 			GateWeb::window_options(),
 			ExpanderWeb::window_options(),

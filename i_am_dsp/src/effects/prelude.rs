@@ -26,3 +26,4 @@ pub use super::vocoder::*;
 pub use super::dynamics::*;
 pub use super::tape_stop::*;
 pub use super::router::*;
+pub use super::eq::*;

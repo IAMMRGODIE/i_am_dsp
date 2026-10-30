@@ -26,3 +26,4 @@ pub mod vocoder;
 pub mod dynamics;
 pub mod tape_stop;
 pub mod router;
+pub mod eq;

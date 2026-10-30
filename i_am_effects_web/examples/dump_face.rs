@@ -16,7 +16,7 @@ use i_am_effects_web::{
 	AllpassWeb, BalanceWeb, ChorusWeb, CombWeb, CompressorWeb, CrusherWeb, DelayWeb,
 	ConvolverWeb, DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
 	OttWeb, ScriptDistortionWeb, ScriptMapperWeb, VocoderWeb, StftVocoderWeb,
-	TapeStopWeb, GateWeb, ExpanderWeb, LimiterWeb, TransientWeb, RouterWeb,
+	TapeStopWeb, GateWeb, ExpanderWeb, LimiterWeb, TransientWeb, RouterWeb, EqWeb,
 	ParticleWiderWeb, PitchWeb, ReverbWeb, SchroederWeb, ShifterWeb, UnstablizerWeb, WidthWeb,
 	CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
@@ -278,6 +278,19 @@ fn main() {
 			)
 		},
 
+
+		"eq" => {
+			let plugin = EqWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am EQ", "#8a7bff", (760.0, 420.0))
+						.with_mode("band")
+						.with_visible(i_am_effects_web::EQ_VISIBLE),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		},
 		"tape_stop" => {
 			let plugin = TapeStopWeb::new();
 			(
