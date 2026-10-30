@@ -19,7 +19,7 @@ use crate::processor::{EffectMessage, EffectProcessor};
 /// on the processor: the processor lives in another crate, and only the product type
 /// (which is local) may implement a foreign trait for it.
 #[doc(hidden)]
-pub fn view_for<E: Parameters>(processor: &EffectProcessor<E>) -> EffectView {
+pub fn view_for<E: Parameters + 'static>(processor: &EffectProcessor<E>) -> EffectView {
 	EffectView {
 		parameters: processor.parameters(),
 		param_map: processor.param_map(),
