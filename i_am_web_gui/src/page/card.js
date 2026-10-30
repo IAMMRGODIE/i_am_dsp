@@ -7,7 +7,7 @@
 (function () {
   "use strict";
 
-  var START = -135;
+  var START = -225;
   var SWEEP = 270;
 
   function clamp(value, low, high) {
@@ -253,9 +253,10 @@
       var position = clamp(norm(spec, current), 0, 1);
       var angle = START + SWEEP * position;
       fill.setAttribute("d", arcPath(32, 32, 25, START, angle));
-      var tip = polar(32, 32, 16, angle);
-      hand.setAttribute("x1", "32");
-      hand.setAttribute("y1", "32");
+      var inner = polar(32, 32, 9, angle);
+      var tip = polar(32, 32, 25, angle);
+      hand.setAttribute("x1", inner.x.toFixed(2));
+      hand.setAttribute("y1", inner.y.toFixed(2));
       hand.setAttribute("x2", tip.x.toFixed(2));
       hand.setAttribute("y2", tip.y.toFixed(2));
       readout.textContent = format(spec, current);
@@ -413,9 +414,40 @@
     var head = document.createElement("header");
     head.className = "mcard-head";
 
+    var collapse = document.createElement("button");
+    collapse.type = "button";
+    collapse.className = "mcard-collapse";
+    collapse.textContent = "\u25BE";
+    collapse.title = "Collapse";
+    collapse.setAttribute("aria-label", "Collapse");
+    collapse.addEventListener("click", function () {
+      var collapsed = card.classList.toggle("collapsed");
+      collapse.textContent = collapsed ? "\u25B8" : "\u25BE";
+      collapse.title = collapsed ? "Expand" : "Collapse";
+      collapse.setAttribute("aria-label", collapse.title);
+    });
+    head.appendChild(collapse);
+
+    var bypassed = !!options.bypass;
+
+    var power = document.createElement("button");
+    power.type = "button";
+    power.className = "mcard-power";
+    power.title = "Bypass";
+    power.setAttribute("aria-label", "Bypass");
+    power.setAttribute("aria-pressed", bypassed ? "true" : "false");
+    if (bypassed) power.classList.add("off");
     var dot = document.createElement("span");
-    dot.className = "mcard-dot";
-    head.appendChild(dot);
+    dot.className = "dot";
+    power.appendChild(dot);
+    power.addEventListener("click", function () {
+      bypassed = !bypassed;
+      power.classList.toggle("off", bypassed);
+      power.setAttribute("aria-pressed", bypassed ? "true" : "false");
+      card.classList.toggle("bypassed", bypassed);
+      if (options.onBypass) options.onBypass(bypassed);
+    });
+    head.appendChild(power);
 
     var name = document.createElement("span");
     name.className = "mcard-name";
@@ -426,6 +458,10 @@
     badge.className = "mcard-badge";
     badge.textContent = options.badge || "";
     head.appendChild(badge);
+
+    var spacer = document.createElement("span");
+    spacer.className = "mcard-spacer";
+    head.appendChild(spacer);
 
     var heroElement = null;
     function paintHero() {
@@ -465,39 +501,6 @@
       }
       head.appendChild(setting(spec.label, control));
     });
-
-    var spacer = document.createElement("span");
-    spacer.className = "mcard-spacer";
-    head.appendChild(spacer);
-
-    var collapse = document.createElement("button");
-    collapse.type = "button";
-    collapse.className = "mcard-collapse";
-    collapse.textContent = "\u2304";
-    collapse.title = "Collapse";
-    collapse.setAttribute("aria-label", "Collapse");
-    collapse.addEventListener("click", function () {
-      var collapsed = card.classList.toggle("collapsed");
-      collapse.textContent = collapsed ? "\u2305" : "\u2304";
-      collapse.title = collapsed ? "Expand" : "Collapse";
-      collapse.setAttribute("aria-label", collapse.title);
-    });
-    head.appendChild(collapse);
-
-    var bypassed = !!options.bypass;
-    var toggle = document.createElement("button");
-    toggle.className = "mcard-bypass";
-    toggle.type = "button";
-    toggle.textContent = bypassed ? "Bypassed" : "Active";
-    if (bypassed) toggle.classList.add("off");
-    toggle.addEventListener("click", function () {
-      bypassed = !bypassed;
-      toggle.textContent = bypassed ? "Bypassed" : "Active";
-      toggle.classList.toggle("off", bypassed);
-      card.classList.toggle("bypassed", bypassed);
-      if (options.onBypass) options.onBypass(bypassed);
-    });
-    head.appendChild(toggle);
 
     card.appendChild(head);
 
