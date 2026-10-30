@@ -13,9 +13,9 @@ use crate::{Effect, ProcessContext, effects::filter::Biquad};
 /// The most bands the bank can hold.
 pub const MAX_BANDS: usize = 128;
 /// The bottom of the band bank.
-pub const MIN_HZ: f32 = 80.0;
+pub const MIN_HZ: f32 = 20.0;
 /// The top of the band bank.
-pub const MAX_HZ: f32 = 12_000.0;
+pub const MAX_HZ: f32 = 20_000.0;
 
 /// One band: two carrier stages and two modulator stages, plus the envelope.
 struct Band {
@@ -33,15 +33,6 @@ impl Band {
 		}
 	}
 
-	fn clear(&mut self) {
-		for filter in &mut self.carrier {
-			filter.clear_state();
-		}
-		for filter in &mut self.modulator {
-			filter.clear_state();
-		}
-		self.envelope = 0.0;
-	}
 }
 
 /// The band levels the page draws, one pair per band.
@@ -224,34 +215,15 @@ impl VocoderEffect {
 
 			let lower = MIN_HZ * ratio.powf(index as f32 / bands as f32);
 			let upper = MIN_HZ * ratio.powf((index + 1) as f32 / bands as f32);
+			let center = (lower * upper).sqrt();
+			let width = center / q * bandwidth;
 
-			if index == 0 {
-				for filter in &mut band.carrier {
-					filter.set_to_lowpass(upper, Biquad::<2>::Q1);
-				}
-				for filter in &mut band.modulator {
-					filter.set_to_lowpass(upper, Biquad::<2>::Q1);
-				}
-			} else if index + 1 == bands {
-				for filter in &mut band.carrier {
-					filter.set_to_highpass(lower, Biquad::<2>::Q1);
-				}
-				for filter in &mut band.modulator {
-					filter.set_to_highpass(lower, Biquad::<2>::Q1);
-				}
-			} else {
-				let center = (lower * upper).sqrt();
-				let width = center / q * bandwidth;
-
-				for filter in &mut band.carrier {
-					filter.set_to_bandpass(center, width);
-				}
-				for filter in &mut band.modulator {
-					filter.set_to_bandpass(center, width);
-				}
+			for filter in &mut band.carrier {
+				filter.set_to_bandpass(center, width);
 			}
-
-			band.clear();
+			for filter in &mut band.modulator {
+				filter.set_to_bandpass(center, width);
+			}
 		}
 
 		self.meters.set_bands(bands);
