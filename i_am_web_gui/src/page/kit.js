@@ -1097,8 +1097,11 @@ var ENV_MAX = 512;
   function impulseSvg() {
     if (!irState || !irState.peaks || !irState.peaks.length) {
       var failed = irState && irState.error;
-      var message = failed ? irState.error : "Click to load an impulse response";
-      var color = failed ? "#ff7a6b" : "#8a8a8a";
+      var pending = irState && irState.pending;
+      var message = failed
+        ? irState.error
+        : (pending ? "Choosing an impulse response..." : "Click to load an impulse response");
+      var color = failed ? "#ff7a6b" : (pending ? accent : "#8a8a8a");
 
       return heroSvg(
         '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c"/>' +

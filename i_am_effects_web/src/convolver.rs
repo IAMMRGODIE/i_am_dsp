@@ -79,6 +79,8 @@ pub struct IrSlot {
 	error: Mutex<Option<String>>,
 	generation: AtomicU64,
 	rate: AtomicUsize,
+	/// Whether the native picker is open right now.
+	pending: AtomicBool,
 }
 
 impl Default for IrSlot {
@@ -95,6 +97,7 @@ impl IrSlot {
 			error: Mutex::new(None),
 			generation: AtomicU64::new(0),
 			rate: AtomicUsize::new(44_100),
+			pending: AtomicBool::new(false),
 		}
 	}
 
@@ -112,6 +115,16 @@ impl IrSlot {
 	/// skip the lock while nothing has happened.
 	pub fn generation(&self) -> u64 {
 		self.generation.load(Ordering::Acquire)
+	}
+
+	/// Whether a native picker is open right now.
+	pub fn is_pending(&self) -> bool {
+		self.pending.load(Ordering::Relaxed)
+	}
+
+	/// Marks the native picker as open or finished.
+	pub fn set_pending(&self, pending: bool) {
+		self.pending.store(pending, Ordering::Relaxed);
 	}
 
 	/// The current impulse response, if one is loaded.
@@ -148,11 +161,12 @@ impl IrSlot {
 		let Some(ir) = self.load() else {
 			let error = self.error();
 			return format!(
-				"{{\"name\":null,\"rate\":0,\"samples\":0,\"peaks\":[],\"error\":{}}}",
+				"{{\"name\":null,\"rate\":0,\"samples\":0,\"peaks\":[],\"error\":{},\"pending\":{}}}",
 				match error {
 					Some(error) => format!("\"{}\"", json_escape(&error)),
 					None => "null".to_string(),
-				}
+				},
+				self.is_pending()
 			);
 		};
 
@@ -168,11 +182,12 @@ impl IrSlot {
 		}
 
 		format!(
-			"{{\"name\":\"{}\",\"rate\":{},\"samples\":{},\"peaks\":[{}],\"error\":null}}",
+			"{{\"name\":\"{}\",\"rate\":{},\"samples\":{},\"peaks\":[{}],\"error\":null,\"pending\":{}}}",
 			json_escape(&ir.name),
 			ir.rate,
 			ir.samples(),
 			peaks,
+			self.is_pending(),
 		)
 	}
 }
@@ -317,44 +332,62 @@ impl Effect<2> for ConvolverEffect {
 	}
 }
 
-/// Opens the native picker, owned by the window the user clicked, and decodes
-/// the chosen file on a worker thread.
+/// A window handle for the window that should own the picker.
+#[cfg(windows)]
+struct Owner(isize);
+
+#[cfg(windows)]
+impl raw_window_handle::HasWindowHandle for Owner {
+	fn window_handle(
+		&self,
+	) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
+		let hwnd = std::num::NonZeroIsize::new(self.0)
+			.ok_or(raw_window_handle::HandleError::Unavailable)?;
+		let handle = raw_window_handle::RawWindowHandle::Win32(
+			raw_window_handle::Win32WindowHandle::new(hwnd),
+		);
+
+		// SAFETY: the window outlives the dialog, and the handle is only borrowed
+		// for the duration of the call.
+		Ok(unsafe { raw_window_handle::WindowHandle::borrow_raw(handle) })
+	}
+}
+
+#[cfg(windows)]
+impl raw_window_handle::HasDisplayHandle for Owner {
+	fn display_handle(
+		&self,
+	) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+		// SAFETY: the Windows display handle carries no state.
+		Ok(unsafe {
+			raw_window_handle::DisplayHandle::borrow_raw(
+				raw_window_handle::RawDisplayHandle::Windows(
+					raw_window_handle::WindowsDisplayHandle::new(),
+				),
+			)
+		})
+	}
+}
+
+/// Opens the native picker, owned by the window the user clicked, on a thread of
+/// its own.
 ///
 /// A page's own file input has no owner of its own inside a host, so its picker
 /// can open behind the DAW, or appear not to open at all. A dialog whose owner is
 /// the foreground window always comes up in front of it.
+///
+/// The dialog also runs on a worker thread, not in the IPC callback: opening a
+/// modal window from inside the click that WebView2 is still dispatching made it
+/// appear only some of the time.
 #[cfg(windows)]
 fn pick_ir(slot: Arc<IrSlot>) {
-	use raw_window_handle::{
-		DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
-		RawWindowHandle, WindowHandle, Win32WindowHandle, WindowsDisplayHandle,
-	};
-	use std::num::NonZeroIsize;
 	use windows_sys::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetForegroundWindow};
 
-	struct Owner(isize);
-
-	impl HasWindowHandle for Owner {
-		fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-			let hwnd = NonZeroIsize::new(self.0).ok_or(HandleError::Unavailable)?;
-			let handle = RawWindowHandle::Win32(Win32WindowHandle::new(hwnd));
-
-			// SAFETY: the window outlives the dialog, and the handle is only
-			// borrowed for the duration of the call.
-			Ok(unsafe { WindowHandle::borrow_raw(handle) })
-		}
+	if slot.is_pending() {
+		return;
 	}
 
-	impl HasDisplayHandle for Owner {
-		fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
-			// SAFETY: the Windows display handle carries no state.
-			Ok(unsafe {
-				DisplayHandle::borrow_raw(RawDisplayHandle::Windows(
-					WindowsDisplayHandle::new(),
-				))
-			})
-		}
-	}
+	slot.set_pending(true);
 
 	let mut window = unsafe { GetForegroundWindow() };
 
@@ -365,34 +398,44 @@ fn pick_ir(slot: Arc<IrSlot>) {
 		}
 	}
 
-	let owner = (!window.is_null()).then_some(Owner(window as isize));
-	let mut dialog = rfd::FileDialog::new()
-		.add_filter("Impulse response", &["wav", "flac", "mp3", "ogg"]);
+	let owner = window as isize;
 
-	if let Some(owner) = &owner {
-		dialog = dialog.set_parent(owner);
-	}
-
-	let Some(path) = dialog.pick_file() else {
-		return;
-	};
-
-	// Decoding a long file on the UI thread would freeze the editor; the slot's
-	// generation is what tells the page and the audio thread when it is ready.
 	std::thread::spawn(move || {
-		let name = path
-			.file_name()
-			.map(|name| name.to_string_lossy().into_owned())
-			.unwrap_or_else(|| "impulse".to_string());
+		// Let the click that asked for the picker finish before a modal dialog
+		// takes over: it is dispatched by WebView2 inside the same input event.
+		std::thread::sleep(std::time::Duration::from_millis(50));
 
-		match std::fs::read(&path) {
-			Ok(bytes) => match decode_ir(&bytes, slot.host_rate(), name) {
-				Ok(ir) => slot.set(Arc::new(ir)),
-				Err(error) => slot.fail(error),
-			},
-			Err(error) => slot.fail(error.to_string()),
+		let mut dialog = rfd::FileDialog::new()
+			.add_filter("Impulse response", &["wav", "flac", "mp3", "ogg"]);
+
+		if owner != 0 {
+			let owner = Owner(owner);
+			dialog = dialog.set_parent(&owner);
 		}
+
+		if let Some(path) = dialog.pick_file() {
+			load_ir(&slot, &path);
+		}
+
+		slot.set_pending(false);
 	});
+}
+
+/// Reads and decodes one picked file into the slot.
+#[cfg(windows)]
+fn load_ir(slot: &IrSlot, path: &std::path::Path) {
+	let name = path
+		.file_name()
+		.map(|name| name.to_string_lossy().into_owned())
+		.unwrap_or_else(|| "impulse".to_string());
+
+	match std::fs::read(path) {
+		Ok(bytes) => match decode_ir(&bytes, slot.host_rate(), name) {
+			Ok(ir) => slot.set(Arc::new(ir)),
+			Err(error) => slot.fail(error),
+		},
+		Err(error) => slot.fail(error.to_string()),
+	}
 }
 
 #[cfg(not(windows))]
@@ -937,6 +980,15 @@ mod tests {
 
 		assert!(fresh.convolver.is_some());
 		assert!(fresh_slot.load().is_some(), "the state load also fills the slot");
+	}
+
+	#[test]
+	fn a_pending_picker_is_reported() {
+		let slot = IrSlot::new();
+		slot.set_pending(true);
+		assert!(slot.json().contains("\"pending\":true"), "{}", slot.json());
+		slot.set_pending(false);
+		assert!(slot.json().contains("\"pending\":false"), "{}", slot.json());
 	}
 
 	#[test]
