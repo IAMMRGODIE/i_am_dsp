@@ -32,6 +32,8 @@ var scriptStatus = null;
 var scriptError = null;
 var wantsCurve = false;
 var curveState = null;
+var wantsOtt = false;
+var ottState = null;
 var noteBadge = null;
 var stereoScope = {
   inputLeft: null,
@@ -1538,6 +1540,7 @@ var ENV_MAX = 512;
       else if (hero.kind === "impulse") hero.el.innerHTML = impulseSvg();
       else if (hero.kind === "curve") hero.el.innerHTML = curveSvg();
       else if (hero.kind === "mapping") hero.el.innerHTML = mappingSvg();
+      else if (hero.kind === "ott") hero.el.innerHTML = ottSvg();
     });
   }
 
@@ -1744,6 +1747,56 @@ var ENV_MAX = 512;
     };
     reader.readAsArrayBuffer(file);
     irInput.value = "";
+  }
+
+  /// The OTT band meters, in dB of net gain: positive is attenuation, negative
+  /// is the upward compressor's boost.
+  function ottSvg() {
+    var bands = ottState && ottState.bands ? ottState.bands : [0, 0, 0];
+    var grid = '<line x1="260" y1="10" x2="260" y2="150" stroke="#2f2f2f"/>';
+    var bars = "";
+
+    for (var i = 0; i < 3; i++) {
+      var y = 30 + i * 45;
+      var db = bands[i] || 0;
+      var x = db >= 0
+        ? 260 + Math.min(db, 60) / 60 * 230
+        : 260 + Math.max(db, -24) / 24 * 100;
+      var left = Math.min(260, x);
+      var width = Math.abs(x - 260);
+      var color = db >= 0 ? accent : negative;
+
+      bars += '<rect x="' + left.toFixed(1) + '" y="' + (y - 7) +
+        '" width="' + width.toFixed(1) + '" height="14" fill="' + color +
+        '" fill-opacity=".55" rx="2"/>';
+    }
+
+    return heroSvg(grid + bars) +
+      '<div class="hero-label" style="left:2%;top:12%">LOW</div>' +
+      '<div class="hero-label" style="left:2%;top:40%">MID</div>' +
+      '<div class="hero-label" style="left:2%;top:68%">HIGH</div>';
+  }
+
+  function pollOtt() {
+    if (!wantsOtt || document.hidden) {
+      setTimeout(pollOtt, 60);
+      return;
+    }
+
+    fetch("/bands", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state) return;
+        var changed = JSON.stringify(state) !== JSON.stringify(ottState);
+        ottState = state;
+        if (changed) markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollOtt, 60);
+      });
   }
 
   /// The script panel's text and status. The worker owns the script; the page
@@ -2246,6 +2299,10 @@ var ENV_MAX = 512;
       return hero.kind === "curve" || hero.kind === "mapping";
     });
     if (wantsCurve) setTimeout(pollCurve, 50);
+    wantsOtt = heroes.some(function (hero) {
+      return hero.kind === "ott";
+    });
+    if (wantsOtt) setTimeout(pollOtt, 50);
     if (face.script) {
       body.appendChild(buildScriptPanel());
       wantsScript = true;

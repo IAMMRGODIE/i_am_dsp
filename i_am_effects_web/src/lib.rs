@@ -21,6 +21,7 @@ mod convolver;
 mod disperser;
 mod filter;
 mod ir_reverb;
+mod ott;
 mod particle_wider;
 mod pitch;
 mod reverb;
@@ -37,6 +38,7 @@ use compressor::CompressorEffect;
 pub use convolver::{ConvolverWeb, IrData, IrSlot};
 pub use script_distortion::ScriptDistortionWeb;
 pub use script_mapper::ScriptMapperWeb;
+pub use ott::OttWeb;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 use particle_wider::ParticleWiderEffect;
@@ -400,7 +402,8 @@ export_clap!(
 	CrusherWeb,
 	ConvolverWeb,
 	ScriptDistortionWeb,
-	ScriptMapperWeb
+	ScriptMapperWeb,
+	OttWeb
 );
 
 #[cfg(test)]
@@ -788,6 +791,36 @@ mod tests {
 		for id in ["p1", "p2", "p3", "p4"] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
 		}
+	}
+
+	/// The OTT is a three-band meter and a second section for the bands.
+	#[test]
+	fn the_ott_has_band_meters_and_a_bands_section() {
+		let face = i_am_web_gui::face_json(
+			&OttWeb::new(),
+			&Faceplate::new("I Am OTT", "#ffb454", (700.0, 580.0)),
+		);
+
+		assert!(face.contains("\"hero\":\"ott\""), "{face}");
+
+		for id in [
+			"input_gain",
+			"output_gain",
+			"depth",
+			"time",
+			"upward",
+			"downward",
+			"band1_threshold",
+			"band1_gain",
+			"band2_threshold",
+			"band2_gain",
+			"band3_threshold",
+			"band3_gain",
+		] {
+			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
+		}
+
+		assert!(face.contains("\"name\":\"Bands\""), "{face}");
 	}
 
 	/// The IR reverb exposes the room, the T60, and a wet-only convolver.
