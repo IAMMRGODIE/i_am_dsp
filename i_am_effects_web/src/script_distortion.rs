@@ -65,13 +65,13 @@ impl DistortionTable {
 	}
 
 	/// The points the page draws.
-	fn curve_points(&self) -> Vec<[f32; 2]> {
+	fn curve_points(&self) -> Vec<[f32; 3]> {
 		const POINTS: usize = 256;
 
 		(0..POINTS)
 			.map(|index| {
 				let x = -1.0 + 2.0 * index as f32 / (POINTS - 1) as f32;
-				[x, self.sample(x)]
+				[x, self.sample(x), 0.0]
 			})
 			.collect()
 	}
@@ -107,30 +107,40 @@ pub struct ScriptDistortionEffect {
 	/// The first script control.
 	#[range(min = -1.0, max = 1.0)]
 	#[default(0.0)]
-	#[id(display = "A")]
+	#[id(display = "P1")]
 	#[layout(group = "Script Distortion", order = 3, widget = knob, hero = "curve")]
 	pub p1: f32,
 
 	/// The second script control.
 	#[range(min = -1.0, max = 1.0)]
 	#[default(0.0)]
-	#[id(display = "B")]
+	#[id(display = "P2")]
 	#[layout(group = "Script Distortion", order = 4, widget = knob)]
 	pub p2: f32,
 
 	/// The third script control.
 	#[range(min = -1.0, max = 1.0)]
 	#[default(0.0)]
-	#[id(display = "C")]
+	#[id(display = "P3")]
 	#[layout(group = "Script Distortion", order = 5, widget = knob)]
 	pub p3: f32,
 
 	/// The fourth script control.
 	#[range(min = -1.0, max = 1.0)]
 	#[default(0.0)]
-	#[id(display = "D")]
+	#[id(display = "P4")]
 	#[layout(group = "Script Distortion", order = 6, widget = knob)]
 	pub p4: f32,
+
+	/// Run the script on the audio thread instead of the table.
+	///
+	/// The table is the safe default; this is for sound design, where the exact
+	/// curve matters more than the cost. A heavy script can starve the audio
+	/// thread, which is why it is a switch and not the default.
+	#[default(false)]
+	#[id(display = "Realtime")]
+	#[layout(group = "Script Distortion", order = 7, widget = toggle)]
+	pub realtime: bool,
 
 	/// The Rhai body, saved with the plug-in state.
 	#[serde]
@@ -149,6 +159,12 @@ pub struct ScriptDistortionEffect {
 	last_script: String,
 	#[skip]
 	last_request: Option<(u64, [f32; 4], f32)>,
+	#[skip]
+	realtime_script: Option<Arc<CompiledScript>>,
+	#[skip]
+	seen_compiled: u64,
+	#[skip]
+	realtime_scope: rhai::Scope<'static>,
 }
 
 impl ScriptDistortionEffect {
@@ -162,6 +178,7 @@ impl ScriptDistortionEffect {
 			p2: 0.0,
 			p3: 0.0,
 			p4: 0.0,
+			realtime: false,
 			script: DEFAULT_SCRIPT.to_string(),
 			worker,
 			table: None,
@@ -169,6 +186,9 @@ impl ScriptDistortionEffect {
 			synced_source: 0,
 			last_script: DEFAULT_SCRIPT.to_string(),
 			last_request: None,
+			realtime_script: None,
+			seen_compiled: 0,
+			realtime_scope: CompiledScript::scope([0.0; 4]),
 		}
 	}
 
@@ -181,11 +201,13 @@ impl ScriptDistortionEffect {
 			let source = self.worker.source();
 			self.script = source.clone();
 			self.last_script = source;
+			self.realtime_script = None;
 		} else if self.script != self.last_script {
 			// A state load replaced the field; push it to the worker and render.
 			let generation = self.worker.set_source(self.script.clone());
 			self.synced_source = generation;
 			self.last_script = self.script.clone();
+			self.realtime_script = None;
 		}
 	}
 
@@ -210,6 +232,16 @@ impl ScriptDistortionEffect {
 			self.table = self.worker.table();
 		}
 	}
+
+	/// Takes a freshly compiled script for the realtime path.
+	fn sync_compiled(&mut self) {
+		let generation = self.worker.compiled_generation();
+
+		if generation != self.seen_compiled {
+			self.seen_compiled = generation;
+			self.realtime_script = self.worker.compiled();
+		}
+	}
 }
 
 impl Effect<2> for ScriptDistortionEffect {
@@ -226,15 +258,45 @@ impl Effect<2> for ScriptDistortionEffect {
 		self.sync_script();
 		self.request_render();
 		self.sync_table();
+		self.sync_compiled();
+
+		let dry = *samples;
+		let out_gain = 10.0_f32.powf(self.out_gain / 20.0);
+		let mix = self.mix.clamp(0.0, 1.0);
+		let in_gain = 10.0_f32.powf(self.in_gain / 20.0);
+
+		if self.realtime && let Some(script) = self.realtime_script.clone() {
+				let _ = self.realtime_scope.set_value("p1", self.p1);
+				let _ = self.realtime_scope.set_value("p2", self.p2);
+				let _ = self.realtime_scope.set_value("p3", self.p3);
+				let _ = self.realtime_scope.set_value("p4", self.p4);
+
+				for (channel, sample) in samples.iter_mut().enumerate() {
+					let input = dry[channel];
+					let _ = self.realtime_scope.set_value("x", input * in_gain);
+
+					let shaped = script
+						.number(&mut self.realtime_scope)
+						.ok()
+						.filter(|value| value.is_finite())
+						.map(|value| value * out_gain)
+						.or_else(|| {
+							self.table
+								.as_ref()
+								.map(|table| table.sample(input) * out_gain)
+						})
+						.unwrap_or(input);
+
+					*sample = input * (1.0 - mix) + shaped * mix;
+				}
+
+				return;
+		}
 
 		let Some(table) = self.table.as_ref() else {
 			// Nothing rendered yet: pass the dry signal rather than silence.
 			return;
 		};
-
-		let dry = *samples;
-		let out_gain = 10.0_f32.powf(self.out_gain / 20.0);
-		let mix = self.mix.clamp(0.0, 1.0);
 
 		for (channel, sample) in samples.iter_mut().enumerate() {
 			let shaped = table.sample(dry[channel]) * out_gain;
@@ -292,7 +354,7 @@ fn route(
 		let points = worker.curve();
 		let mut json = String::from("{\"points\":[");
 
-		for (index, [x, y]) in points.iter().enumerate() {
+		for (index, [x, y, _]) in points.iter().enumerate() {
 			if index > 0 {
 				json.push(',');
 			}
@@ -526,6 +588,31 @@ mod tests {
 		}
 
 		assert!(worker.table().is_some(), "the old table is kept");
+	}
+
+	#[test]
+	fn the_realtime_switch_runs_the_script_on_the_audio_thread() {
+		let worker = distortion_worker();
+		worker.set_source("x * 2.0".to_string());
+		worker.request([0.0; 4], 1.0);
+
+		let started = Instant::now();
+
+		while worker.compiled_generation() == 0 {
+			assert!(started.elapsed() < Duration::from_secs(2), "no compiled script");
+			std::thread::sleep(Duration::from_millis(5));
+		}
+
+		let mut effect = ScriptDistortionEffect::new(worker);
+		effect.realtime = true;
+		effect.mix = 1.0;
+
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut frame = [0.25, -0.5];
+		effect.process(&mut frame, &[], &mut context);
+
+		assert!((frame[0] - 0.5).abs() < 1e-3, "{}", frame[0]);
+		assert!((frame[1] + 1.0).abs() < 1e-3, "{}", frame[1]);
 	}
 
 	#[test]

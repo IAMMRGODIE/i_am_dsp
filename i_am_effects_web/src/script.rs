@@ -110,9 +110,11 @@ pub struct ScriptWorker<T: Send + Sync + 'static> {
 	source: Arc<Mutex<String>>,
 	source_generation: Arc<AtomicU64>,
 	status: Arc<Mutex<ScriptStatus>>,
-	curve: Arc<Mutex<Vec<[f32; 2]>>>,
+	curve: Arc<Mutex<Vec<[f32; 3]>>>,
 	table: Arc<Mutex<Option<Arc<T>>>>,
 	table_generation: Arc<AtomicU64>,
+	compiled: Arc<Mutex<Option<Arc<CompiledScript>>>>,
+	compiled_generation: Arc<AtomicU64>,
 	requests: Sender<ScriptRequest>,
 }
 
@@ -125,7 +127,7 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 	pub fn spawn<R, C>(render: R, curve_of: C) -> Arc<Self>
 	where
 		R: Fn(&CompiledScript, [f32; 4], f32) -> Result<T, String> + Send + 'static,
-		C: Fn(&T) -> Vec<[f32; 2]> + Send + Sync + 'static,
+		C: Fn(&T) -> Vec<[f32; 3]> + Send + Sync + 'static,
 	{
 		let source = Arc::new(Mutex::new(String::new()));
 		let source_generation = Arc::new(AtomicU64::new(0));
@@ -133,6 +135,8 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 		let curve = Arc::new(Mutex::new(Vec::new()));
 		let table = Arc::new(Mutex::new(None));
 		let table_generation = Arc::new(AtomicU64::new(0));
+		let compiled = Arc::new(Mutex::new(None));
+		let compiled_generation = Arc::new(AtomicU64::new(0));
 
 		let (requests, receiver) = bounded(8);
 
@@ -143,6 +147,8 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 			curve: curve.clone(),
 			table: table.clone(),
 			table_generation: table_generation.clone(),
+			compiled: compiled.clone(),
+			compiled_generation: compiled_generation.clone(),
 			requests,
 		});
 
@@ -153,6 +159,8 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 				curve,
 				table,
 				table_generation,
+				compiled,
+				compiled_generation,
 				render,
 				curve_of,
 			);
@@ -208,8 +216,18 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 		self.table.lock().ok()?.clone()
 	}
 
+	/// The generation of the compiled script, bumped after every attempt.
+	pub fn compiled_generation(&self) -> u64 {
+		self.compiled_generation.load(Ordering::Acquire)
+	}
+
+	/// The compiled script, for a product that runs it on the audio thread.
+	pub fn compiled(&self) -> Option<Arc<CompiledScript>> {
+		self.compiled.lock().ok()?.clone()
+	}
+
 	/// The points the page draws for the current table.
-	pub fn curve(&self) -> Vec<[f32; 2]> {
+	pub fn curve(&self) -> Vec<[f32; 3]> {
 		self.curve.lock().map(|curve| curve.clone()).unwrap_or_default()
 	}
 
@@ -223,18 +241,20 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 fn run<T, R, C>(
 	receiver: Receiver<ScriptRequest>,
 	status: Arc<Mutex<ScriptStatus>>,
-	curve: Arc<Mutex<Vec<[f32; 2]>>>,
+	curve: Arc<Mutex<Vec<[f32; 3]>>>,
 	table: Arc<Mutex<Option<Arc<T>>>>,
 	table_generation: Arc<AtomicU64>,
+	compiled: Arc<Mutex<Option<Arc<CompiledScript>>>>,
+	compiled_generation: Arc<AtomicU64>,
 	render: R,
 	curve_of: C,
 )
 where
 	T: Send + Sync + 'static,
 	R: Fn(&CompiledScript, [f32; 4], f32) -> Result<T, String>,
-	C: Fn(&T) -> Vec<[f32; 2]>,
+	C: Fn(&T) -> Vec<[f32; 3]>,
 {
-	let mut compiled: Option<(Arc<str>, CompiledScript)> = None;
+	let mut compiled_local: Option<(Arc<str>, Arc<CompiledScript>)> = None;
 
 	while let Ok(first) = receiver.recv() {
 		// Only the newest request matters: a knob that moved ten times should
@@ -245,26 +265,40 @@ where
 			request = next;
 		}
 
-		let stale = compiled
+		let stale = compiled_local
 			.as_ref()
 			.map(|(compiled_source, _)| compiled_source.as_ref() != request.source.as_ref())
 			.unwrap_or(true);
 
 		if stale {
 			match CompiledScript::compile(request.source.as_ref()) {
-				Ok(script) => compiled = Some((request.source.clone(), script)),
+				Ok(script) => {
+					let script = Arc::new(script);
+					compiled_local = Some((request.source.clone(), script.clone()));
+
+					if let Ok(mut current) = compiled.lock() {
+						*current = Some(script);
+					}
+
+					compiled_generation.fetch_add(1, Ordering::Release);
+				},
 				Err(error) => {
+					if let Ok(mut current) = compiled.lock() {
+						*current = None;
+					}
+
+					compiled_generation.fetch_add(1, Ordering::Release);
 					set_error(&status, error);
 					continue;
 				},
 			}
 		}
 
-		let Some((_, script)) = compiled.as_ref() else {
+		let Some((_, script)) = compiled_local.as_ref() else {
 			continue;
 		};
 
-		match render(script, request.params, request.extra) {
+		match render(script.as_ref(), request.params, request.extra) {
 			Ok(rendered) => {
 				let rendered = Arc::new(rendered);
 				let points = curve_of(&rendered);

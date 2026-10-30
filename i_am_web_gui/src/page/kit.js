@@ -1141,6 +1141,51 @@ var ENV_MAX = 512;
     );
   }
 
+  /// A frequency mapping: input to output frequency on a log/log plot at the top,
+  /// and the amplitude the script returns along the bottom.
+  function mappingSvg() {
+    var grid =
+      '<rect x="20" y="12" width="480" height="82" fill="none" stroke="#2a2a2a"/>' +
+      '<line x1="20" y1="94" x2="500" y2="12" stroke="#3a3a3a" stroke-dasharray="3 5"/>' +
+      '<line x1="20" y1="148" x2="500" y2="148" stroke="#2f2f2f"/>' +
+      '<line x1="20" y1="116" x2="500" y2="116" stroke="#242424"/>' +
+      '<text x="22" y="10" fill="#8a8a8a" font-size="7">frequency in / out</text>' +
+      '<text x="22" y="112" fill="#8a8a8a" font-size="7">amplitude</text>';
+    var points = curveState && curveState.points;
+
+    if (!points || points.length < 2) {
+      return heroSvg(
+        grid +
+        '<text x="260" y="52" text-anchor="middle" fill="#8a8a8a" font-size="10">' +
+        'Waiting for the script...</text>'
+      );
+    }
+
+    var span = Math.log(1000);
+    var frequencyPath = "";
+    var amplitudePath = "";
+
+    for (var i = 0; i < points.length; i++) {
+      var input = clamp(points[i][0], 20, 20000);
+      var mapped = clamp(points[i][1], 20, 20000);
+      var amplitude = clamp(points[i][2], 0, 2);
+      var x = 20 + Math.log(input / 20) / span * 480;
+      var y = 94 - Math.log(mapped / 20) / span * 82;
+      var amp = 148 - amplitude / 2 * 32;
+
+      frequencyPath += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+      amplitudePath += (i ? " L " : "M ") + x.toFixed(1) + " " + amp.toFixed(1);
+    }
+
+    return heroSvg(
+      grid +
+      '<path d="' + frequencyPath + '" fill="none" stroke="' + accent + '" stroke-width="1.6" ' +
+      'vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + amplitudePath + '" fill="none" stroke="#9a9a9a" stroke-width="1.2" ' +
+      'vector-effect="non-scaling-stroke"/>'
+    );
+  }
+
   function escapeXml(value) {
     return String(value === null || value === undefined ? "" : value)
       .replace(/&/g, "&amp;")
@@ -1500,6 +1545,7 @@ var ENV_MAX = 512;
       else if (hero.kind === "pitch") hero.el.innerHTML = pitchSvg() + pitchBadge();
       else if (hero.kind === "impulse") hero.el.innerHTML = impulseSvg();
       else if (hero.kind === "curve") hero.el.innerHTML = curveSvg();
+      else if (hero.kind === "mapping") hero.el.innerHTML = mappingSvg();
     });
   }
 
@@ -2205,7 +2251,7 @@ var ENV_MAX = 512;
       setTimeout(pollIr, 50);
     }
     wantsCurve = heroes.some(function (hero) {
-      return hero.kind === "curve";
+      return hero.kind === "curve" || hero.kind === "mapping";
     });
     if (wantsCurve) setTimeout(pollCurve, 50);
     if (face.script) {

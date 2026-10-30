@@ -27,6 +27,7 @@ mod reverb;
 mod schroeder;
 mod script;
 mod script_distortion;
+mod script_mapper;
 mod shifter;
 mod unstablizer;
 
@@ -35,6 +36,7 @@ use comb::CombEffect;
 use compressor::CompressorEffect;
 pub use convolver::{ConvolverWeb, IrData, IrSlot};
 pub use script_distortion::ScriptDistortionWeb;
+pub use script_mapper::ScriptMapperWeb;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 use particle_wider::ParticleWiderEffect;
@@ -397,7 +399,8 @@ export_clap!(
 	PhaserWeb,
 	CrusherWeb,
 	ConvolverWeb,
-	ScriptDistortionWeb
+	ScriptDistortionWeb,
+	ScriptMapperWeb
 );
 
 #[cfg(test)]
@@ -761,6 +764,25 @@ mod tests {
 		assert!(face.contains("\"hero\":\"curve\""), "{face}");
 		assert!(face.contains("\"id\":\"in_gain\""), "{face}");
 		assert!(face.contains("\"id\":\"out_gain\""), "{face}");
+		assert!(face.contains("\"id\":\"mix\""), "{face}");
+
+		for id in ["p1", "p2", "p3", "p4"] {
+			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
+		}
+
+		assert!(face.contains("\"id\":\"realtime\""), "{face}");
+	}
+
+	/// The scripted mapper has a mapping hero and the same script panel.
+	#[test]
+	fn the_script_mapper_has_a_mapping_hero_and_a_script_panel() {
+		let face = i_am_web_gui::face_json(
+			&ScriptMapperWeb::new(),
+			&Faceplate::new("I Am Script Mapper", "#8ad3ff", (700.0, 560.0)).with_script(),
+		);
+
+		assert!(face.contains("\"script\":true"), "{face}");
+		assert!(face.contains("\"hero\":\"mapping\""), "{face}");
 		assert!(face.contains("\"id\":\"mix\""), "{face}");
 
 		for id in ["p1", "p2", "p3", "p4"] {
