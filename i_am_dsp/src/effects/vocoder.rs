@@ -8,7 +8,13 @@ use std::sync::Arc;
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{Effect, ProcessContext, effects::filter::Biquad};
+use rustfft::{Fft, FftPlanner, num_complex::Complex};
+
+use crate::{
+	Effect, ProcessContext,
+	effects::{filter::Biquad, phase_vocoder::overlap_add_gain},
+	tools::ring_buffer::RingBuffer,
+};
 
 /// The most bands the bank can hold.
 pub const MAX_BANDS: usize = 128;
@@ -318,6 +324,239 @@ impl Effect<2> for VocoderEffect {
 	}
 }
 
+
+/// The STFT vocoder: two analyses (carrier and modulator) and one synthesis,
+/// with the modulator's spectral shape imposed on the carrier's magnitudes and
+/// the carrier's phase kept for the inverse transform.
+#[derive(Parameters)]
+pub struct StftVocoderEffect {
+	/// The FFT window size.
+	#[choices("512", "1024", "2048", "4096")]
+	#[default(2)]
+	#[id(display = "Window Size")]
+	#[layout(group = "STFT Vocoder", order = 0, widget = choice, hero = "spectra")]
+	pub window_size: i32,
+
+	/// The wet/dry mix.
+	#[range(min = 0.0, max = 1.0)]
+	#[unit(percent)]
+	#[default(1.0)]
+	#[id(display = "Mix")]
+	#[layout(group = "STFT Vocoder", order = 1, widget = knob)]
+	pub mix: f32,
+
+	/// The output gain.
+	#[range(min = -24.0, max = 24.0)]
+	#[unit(db)]
+	#[default(0.0)]
+	#[id(display = "Output")]
+	#[layout(group = "STFT Vocoder", order = 2, widget = knob)]
+	pub output: f32,
+
+	/// Use the sidechain as the modulator; off, the effect vocodes the input
+	/// with itself.
+	#[default(false)]
+	#[id(display = "Sidechain")]
+	#[layout(group = "STFT Vocoder", order = 3, widget = toggle)]
+	pub sidechain: bool,
+
+	#[skip]
+	window: usize,
+	#[skip]
+	hop: usize,
+	#[skip]
+	fft: Arc<dyn Fft<f32>>,
+	#[skip]
+	ifft: Arc<dyn Fft<f32>>,
+	#[skip]
+	window_table: Vec<f32>,
+	#[skip]
+	gain: f32,
+	#[skip]
+	carrier_input: [RingBuffer<f32>; 2],
+	#[skip]
+	modulator_input: RingBuffer<f32>,
+	#[skip]
+	output_buffer: [RingBuffer<f32>; 2],
+	#[skip]
+	carrier_spectrum: [Vec<Complex<f32>>; 2],
+	#[skip]
+	modulator_spectrum: Vec<Complex<f32>>,
+	#[skip]
+	output_spectrum: [Vec<Complex<f32>>; 2],
+	#[skip]
+	input_count: usize,
+	#[skip]
+	output_count: usize,
+	#[skip]
+	last_window: usize,
+}
+
+impl StftVocoderEffect {
+	/// An STFT vocoder with a 2048 sample window.
+	pub fn new(_sample_rate: usize) -> Self {
+		let mut effect = Self {
+			window_size: 2,
+			mix: 1.0,
+			output: 0.0,
+			sidechain: false,
+			window: 0,
+			hop: 0,
+			fft: FftPlanner::new().plan_fft_forward(2),
+			ifft: FftPlanner::new().plan_fft_inverse(2),
+			window_table: Vec::new(),
+			gain: 1.0,
+			carrier_input: [RingBuffer::new(2), RingBuffer::new(2)],
+			modulator_input: RingBuffer::new(2),
+			output_buffer: [RingBuffer::new(2), RingBuffer::new(2)],
+			carrier_spectrum: [vec![Complex::ZERO; 2], vec![Complex::ZERO; 2]],
+			modulator_spectrum: vec![Complex::ZERO; 2],
+			output_spectrum: [vec![Complex::ZERO; 2], vec![Complex::ZERO; 2]],
+			input_count: 0,
+			output_count: 0,
+			last_window: 0,
+		};
+
+		effect.renew(2_048);
+		effect
+	}
+
+	fn renew(&mut self, window: usize) {
+		let window = window.clamp(512, 4_096);
+		let hop = window / 4;
+		let mut planner = FftPlanner::new();
+		self.window = window;
+		self.hop = hop;
+		self.fft = planner.plan_fft_forward(window);
+		self.ifft = planner.plan_fft_inverse(window);
+		self.window_table = (0..window)
+			.map(|index| {
+				let phase = 2.0 * std::f32::consts::PI * index as f32 / window as f32;
+				0.5 * (0.6 - 0.4 * phase.cos())
+			})
+			.collect();
+		self.gain = 1.0 / overlap_add_gain(0.6);
+		self.carrier_input = [RingBuffer::new(window), RingBuffer::new(window)];
+		self.modulator_input = RingBuffer::new(window);
+		self.output_buffer = [RingBuffer::new(window), RingBuffer::new(window)];
+		self.carrier_spectrum = core::array::from_fn(|_| vec![Complex::ZERO; window]);
+		self.modulator_spectrum = vec![Complex::ZERO; window];
+		self.output_spectrum = core::array::from_fn(|_| vec![Complex::ZERO; window]);
+		self.input_count = 0;
+		self.output_count = 0;
+		self.last_window = window;
+	}
+
+	fn process_frame(&mut self) {
+		let window = self.window;
+		let fft = self.fft.clone();
+		let ifft = self.ifft.clone();
+
+		for channel in 0..2 {
+			for index in 0..window {
+				self.carrier_spectrum[channel][index] =
+					Complex::new(self.window_table[index] * self.carrier_input[channel][index], 0.0);
+			}
+			fft.process(&mut self.carrier_spectrum[channel]);
+		}
+
+		for index in 0..window {
+			self.modulator_spectrum[index] =
+				Complex::new(self.window_table[index] * self.modulator_input[index], 0.0);
+		}
+		fft.process(&mut self.modulator_spectrum);
+
+		// Normalise the modulator by its loudest bin, not its mean: a sine
+		// modulator has almost all of its energy in one bin, and dividing by the
+		// mean would make that bin tens of times louder than the carrier.
+		let peak = (1..window / 2)
+			.map(|bin| self.modulator_spectrum[bin].norm())
+			.fold(0.0_f32, f32::max);
+		let denominator = peak + 1e-9;
+		let modulator = &self.modulator_spectrum;
+		let gain = self.gain;
+		let window_table = &self.window_table;
+
+		for channel in 0..2 {
+			let carrier = &self.carrier_spectrum[channel];
+			let output = &mut self.output_spectrum[channel];
+
+			output[0] = carrier[0];
+			for bin in 1..window / 2 {
+				let scale = modulator[bin].norm() / denominator;
+				output[bin] = Complex::from_polar(carrier[bin].norm() * scale, carrier[bin].arg());
+			}
+			let nyquist = window / 2;
+			let scale = modulator[nyquist].norm() / denominator;
+			output[nyquist] = Complex::new(carrier[nyquist].re * scale, 0.0);
+			for bin in 1..window / 2 {
+				output[window - bin] = output[bin].conj();
+			}
+
+			ifft.process(output);
+
+			for index in 0..window {
+				self.output_buffer[channel][index] +=
+					output[index].re * window_table[index] / window as f32 * gain;
+			}
+		}
+	}
+}
+
+impl Effect<2> for StftVocoderEffect {
+	fn delay(&self) -> usize {
+		self.window / 2
+	}
+
+	fn process(
+		&mut self,
+		samples: &mut [f32; 2],
+		other: &[&[f32; 2]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
+		let size = [512, 1_024, 2_048, 4_096]
+			[self.window_size.clamp(0, 3) as usize];
+
+		if size != self.last_window {
+			self.renew(size);
+		}
+
+		let dry = *samples;
+		let modulator_frame = if self.sidechain {
+			other.get(1).copied().unwrap_or(&dry)
+		} else {
+			&dry
+		};
+		let modulator = (modulator_frame[0] + modulator_frame[1]) * 0.5;
+
+		for (channel, sample) in samples.iter_mut().enumerate() {
+			self.carrier_input[channel].push(*sample);
+			*sample = self.output_buffer[channel][self.output_count];
+		}
+		self.modulator_input.push(modulator);
+
+		self.output_count = (self.output_count + 1) % self.window;
+		self.input_count += 1;
+
+		if self.input_count >= self.hop {
+			for buffer in &mut self.output_buffer {
+				buffer.extend_defaults(self.hop);
+			}
+			self.input_count -= self.hop;
+			self.output_count = (self.output_count + self.window - self.hop) % self.window;
+			self.process_frame();
+		}
+
+		let output_gain = 10.0_f32.powf(self.output / 20.0);
+		let mix = self.mix.clamp(0.0, 1.0);
+
+		for channel in 0..2 {
+			let sample = dry[channel] * (1.0 - mix) + samples[channel] * output_gain * mix;
+			samples[channel] = if sample.is_finite() { sample } else { 0.0 };
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -426,6 +665,51 @@ mod tests {
 		}
 
 		assert!(energy > 1e-6, "15 kHz was lost: {energy}");
+	}
+
+	fn stft_energy(effect: &mut StftVocoderEffect, frames: usize, sidechain: Option<f32>) -> f32 {
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut energy = 0.0;
+
+		for frame in 0..frames {
+			let t = frame as f32 / 48_000.0;
+			let input = 0.5 * (2.0 * std::f32::consts::PI * 220.0 * t).sin();
+			let main = [input, input];
+			let mut samples = main;
+
+			if let Some(level) = sidechain {
+				let value = level * (2.0 * std::f32::consts::PI * 330.0 * t).sin();
+				let side = [value, value];
+				effect.process(&mut samples, &[&main, &side], &mut context);
+			} else {
+				effect.process(&mut samples, &[], &mut context);
+			}
+
+			energy += samples[0] * samples[0] + samples[1] * samples[1];
+		}
+
+		energy
+	}
+
+	#[test]
+	fn the_stft_vocoder_is_finite_at_every_window() {
+		for window in 0..4 {
+			let mut effect = StftVocoderEffect::new(48_000);
+			effect.window_size = window;
+			let energy = stft_energy(&mut effect, 8_192, None);
+
+			assert!(energy.is_finite(), "{window}: {energy}");
+		}
+	}
+
+	#[test]
+	fn the_stft_vocoder_uses_the_sidechain() {
+		let mut effect = StftVocoderEffect::new(48_000);
+		effect.window_size = 2;
+		effect.sidechain = true;
+		let energy = stft_energy(&mut effect, 8_192, Some(0.5));
+
+		assert!(energy > 1e-9, "the sidechained STFT was silent: {energy}");
 	}
 
 	#[test]

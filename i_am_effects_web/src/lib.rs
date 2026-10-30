@@ -30,6 +30,7 @@ mod script;
 mod script_distortion;
 mod script_mapper;
 mod shifter;
+mod stft_vocoder;
 mod unstablizer;
 mod vocoder;
 
@@ -41,6 +42,7 @@ pub use script_distortion::ScriptDistortionWeb;
 pub use script_mapper::ScriptMapperWeb;
 pub use ott::OttWeb;
 pub use vocoder::VocoderWeb;
+pub use stft_vocoder::StftVocoderWeb;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 use particle_wider::ParticleWiderEffect;
@@ -410,7 +412,8 @@ export_clap!(
 	ScriptDistortionWeb,
 	ScriptMapperWeb,
 	OttWeb,
-	VocoderWeb
+	VocoderWeb,
+	StftVocoderWeb
 );
 
 #[cfg(test)]
@@ -835,6 +838,30 @@ mod tests {
 		assert!(face.contains("\"sidechain\""), "{face}");
 		assert!(
 			<VocoderWeb as i_am_plugin::Plugin>::INPUT_PORTS.len() == 2,
+			"main plus sidechain"
+		);
+	}
+
+	/// The STFT vocoder has a window choice, a sidechain input and a spectrum view.
+	#[test]
+	fn the_stft_vocoder_has_a_window_choice_and_a_spectrum_hero() {
+		let face = i_am_web_gui::face_json(
+			&StftVocoderWeb::new(),
+			&Faceplate::new("I Am STFT Vocoder", "#7bb8ff", (700.0, 340.0)),
+		);
+
+		assert!(face.contains("\"hero\":\"spectra\""), "{face}");
+
+		for id in ["window_size", "mix", "output", "sidechain"] {
+			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
+		}
+
+		assert!(
+			face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"),
+			"{face}"
+		);
+		assert!(
+			<StftVocoderWeb as i_am_plugin::Plugin>::INPUT_PORTS.len() == 2,
 			"main plus sidechain"
 		);
 	}
