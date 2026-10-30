@@ -2,6 +2,7 @@
 
 pub mod prelude;
 pub mod filter;
+pub mod multimode;
 pub mod disperser;
 pub mod convolver;
 pub mod enveloper;

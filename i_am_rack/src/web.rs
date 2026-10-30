@@ -32,7 +32,11 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 			json!({
 				"id": module.id,
 				"kind": module.kind.name(),
+				"accent": module.kind.accent(),
 				"hero": module.kind.hero(),
+				"mode": module.kind.mode(),
+				"header": module.kind.header(),
+				"visible": module.kind.visible(),
 				"bypass": module.bypass,
 				"controls": shared.schemas.get(&module.kind).cloned().unwrap_or_default(),
 				"values": &module.params,
@@ -97,14 +101,14 @@ fn command(body: &[u8], shared: &RackShared) -> ProtocolResponse {
 			continue;
 		};
 
-		let Ok(value) = raw.parse::<f32>() else {
+		let Ok(value) = raw.parse::<f64>() else {
 			ok = false;
 			continue;
 		};
 
 		module.params.insert(
 			parameter.to_string(),
-			value.clamp(control.min as f32, control.max as f32),
+			value.clamp(control.min, control.max),
 		);
 	}
 

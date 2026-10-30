@@ -54,7 +54,11 @@
       rack.appendChild(window.IAmCard.create({
         title: module.kind,
         badge: "M" + (module.id + 1),
+        accent: module.accent,
         hero: module.hero,
+        mode: module.mode,
+        header: module.header,
+        visible: module.visible,
         bypass: module.bypass,
         controls: module.controls,
         values: module.values,

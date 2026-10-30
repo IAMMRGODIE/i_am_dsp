@@ -1,8 +1,9 @@
 //! The rack's own state, and the binary form a host saves.
 //!
-//! M0 keeps this deliberately plain: a version, a list of modules, and the float
-//! parameters each module holds. The host never sees these as parameters; the
-//! whole struct travels inside one serialized parameter.
+//! M1 keeps this deliberately plain: a version, a list of modules, and the
+//! parameters each module holds. Every value is stored as f64 and converted to
+//! the parameter's own type by the engine; the host never sees these as
+//! parameters, the whole struct travels inside one serialized parameter.
 
 use std::collections::BTreeMap;
 
@@ -11,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::module::{self, ModuleKind};
 
 /// The version this build writes.
-pub const STATE_VERSION: u32 = 1;
+pub const STATE_VERSION: u32 = 2;
 
 /// Everything a rack remembers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,8 +32,9 @@ pub struct ModuleState {
 	pub kind: ModuleKind,
 	/// Whether its processing is skipped.
 	pub bypass: bool,
-	/// Its float parameters, by identifier.
-	pub params: BTreeMap<String, f32>,
+	/// Its parameters, by identifier. Floats, integers and booleans all have a
+	/// numeric form here; the parameter map knows which one to store.
+	pub params: BTreeMap<String, f64>,
 }
 
 impl ModuleState {
@@ -54,7 +56,7 @@ impl RackState {
 			version: STATE_VERSION,
 			modules: vec![
 				ModuleState::new(0, ModuleKind::Filter),
-				ModuleState::new(1, ModuleKind::Drive),
+				ModuleState::new(1, ModuleKind::Distortion),
 				ModuleState::new(2, ModuleKind::Gain),
 			],
 		}

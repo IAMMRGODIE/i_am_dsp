@@ -1,6 +1,7 @@
 //! Prelude module for effects library
 
 pub use super::filter::*;
+pub use super::multimode::*;
 pub use super::disperser::*;
 pub use super::convolver::*;
 pub use super::hilbert_transform::*;

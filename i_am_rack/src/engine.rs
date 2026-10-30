@@ -71,7 +71,7 @@ impl Module {
 		let map = paramed.param_map();
 
 		for (identifier, value) in &state.params {
-			map.set(identifier, *value, Ordering::SeqCst);
+			store(&map, identifier, *value);
 		}
 
 		Self {
@@ -81,6 +81,24 @@ impl Module {
 			paramed,
 			map,
 		}
+	}
+}
+
+/// Writes a numeric value into the map, converting to the type the parameter holds.
+///
+/// The state stores everything as f64; a mode is an integer and a bypass-like
+/// flag is a boolean, and storing the wrong type would be ignored by the map.
+fn store(map: &ParamMap, identifier: &str, value: f64) {
+	let Some(atomic) = map.get(identifier) else {
+		return;
+	};
+
+	if atomic.is_int() {
+		atomic.store(value.round() as i32, Ordering::SeqCst);
+	} else if atomic.is_bool() {
+		atomic.store(value != 0.0, Ordering::SeqCst);
+	} else {
+		atomic.store(value as f32, Ordering::SeqCst);
 	}
 }
 
@@ -124,7 +142,7 @@ impl Engine {
 			module.bypass = edited.bypass;
 
 			for (identifier, value) in &edited.params {
-				module.map.set(identifier, *value, Ordering::SeqCst);
+				store(&module.map, identifier, *value);
 			}
 		}
 	}

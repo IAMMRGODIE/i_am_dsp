@@ -19,7 +19,6 @@ mod comb;
 mod compressor;
 mod convolver;
 mod disperser;
-mod filter;
 mod ir_reverb;
 mod ott;
 mod particle_wider;
@@ -53,11 +52,23 @@ use shifter::ShifterEffect;
 use unstablizer::UnstablizerEffect;
 pub use shifter::{SHIFTER_CURVES, SHIFTER_VISIBLE};
 pub use pitch::PITCH_VISIBLE;
-use filter::Multimode;
-pub use filter::{FILTER_HEADER, FILTER_VISIBLE};
+/// The parameters the page draws in the header, beside the mode.
+pub const FILTER_HEADER: &[&str] = &["stages"];
+
+/// The controls each mode reads; the page hides the rest.
+pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
+	(0, &["cutoff", "q", "stages"]),
+	(1, &["cutoff", "q", "stages"]),
+	(2, &["cutoff", "q", "stages"]),
+	(3, &["cutoff", "q", "stages"]),
+	(4, &["cutoff", "gain_db"]),
+	(5, &["cutoff", "gain_db", "slope"]),
+	(6, &["cutoff", "gain_db", "slope"]),
+];
+
 use i_am_dsp::prelude::{
 	Chorus, Crusher, Delay, Distortion, Expander, Flanger, Gain as GainDsp, Gate, Limiter,
-	LrControl, ParametricEq, Phaser, SineWave, StereoController, StereoRouter,
+	LrControl, Multimode, ParametricEq, Phaser, SineWave, StereoController, StereoRouter,
 	TapeStopEffect, TransientShaper,
 };
 use i_am_web_gui::Switch;

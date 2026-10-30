@@ -1,5 +1,5 @@
-//! The filter the web product ships: seven algorithms, each available as a
-//! cascade of up to four biquads.
+//! A filter with seven algorithms, each available as a cascade of up to four
+//! biquads.
 //!
 //! The DSP crate has a lowpass, a highpass and a bandpass, each with its own type;
 //! the RBJ setters on Biquad cover the rest. A plug-in that offers them all cannot
@@ -8,7 +8,7 @@
 //! four in series are 48. The parameters are shared where they overlap and the
 //! faceplate hides the ones a mode does not read.
 
-use i_am_dsp::prelude::{Biquad, Effect, ProcessContext};
+use crate::prelude::{Biquad, Effect, ProcessContext};
 use i_am_dsp_derive::Parameters;
 
 /// The parameters the page draws in the header, beside the mode.

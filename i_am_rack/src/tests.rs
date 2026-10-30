@@ -96,7 +96,7 @@ fn the_rack_route_lists_modules_and_controls() {
 
 	assert_eq!(modules.len(), 3);
 	assert_eq!(modules[0]["kind"], "Filter");
-	assert_eq!(modules[1]["kind"], "Drive");
+	assert_eq!(modules[1]["kind"], "Distortion");
 	assert_eq!(modules[2]["kind"], "Gain");
 	assert_eq!(modules[0]["hero"], "spectrum");
 	assert!(

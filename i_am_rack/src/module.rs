@@ -1,16 +1,33 @@
-//! The module types M0 can put in a rack.
+//! The module types the rack can hold, and the card metadata each one brings.
 //!
-//! Every module is an Effect<2> from i_am_dsp, erased behind a Box, so the rack
-//! engine can hold a different type in each slot without knowing which one it is.
-//! The parameter schema comes from the effect itself: the page gets the same
-//! control JSON a faceplate would.
+//! Every module is the same effect the standalone product ships: Multimode for
+//! Filter, Distortion for Drive, Gain for Gain. The card a module shows is the
+//! product card, so the mode/header/visible rules travel with the kind.
 
 use std::collections::BTreeMap;
 
-use i_am_dsp::prelude::{
-	Effect, Gain, Lowpass, Parameter, ParameterMeta, Parameters, ProcessContext,
-	SetValue, SoftClipper, Unit, Value,
-};
+use i_am_dsp::prelude::{Distortion, Effect, Gain, Multimode, Parameter, Value};
+
+/// The controls each Multimode algorithm reads; everything else is hidden.
+pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
+	(0, &["cutoff", "q", "stages"]),
+	(1, &["cutoff", "q", "stages"]),
+	(2, &["cutoff", "q", "stages"]),
+	(3, &["cutoff", "q", "stages"]),
+	(4, &["cutoff", "gain_db"]),
+	(5, &["cutoff", "gain_db", "slope"]),
+	(6, &["cutoff", "gain_db", "slope"]),
+];
+
+/// The controls each shaper reads.
+pub const DISTORTION_VISIBLE: &[(i32, &[&str])] = &[
+	(0, &["threshold", "gain"]),
+	(1, &["alpha", "gain"]),
+	(2, &["k", "gain"]),
+	(3, &["a", "p", "gain"]),
+	(4, &["bits", "gain"]),
+	(5, &["target_sample_rate", "gain"]),
+];
 
 /// A module type a rack slot can hold.
 #[derive(
@@ -18,24 +35,33 @@ use i_am_dsp::prelude::{
 	serde::Serialize, serde::Deserialize,
 )]
 pub enum ModuleKind {
-	/// A resonant lowpass.
+	/// A seven-mode resonant filter.
 	Filter,
-	/// A soft clipper.
-	Drive,
+	/// The six-shaper distortion product.
+	Distortion,
 	/// A plain gain.
 	Gain,
 }
 
 impl ModuleKind {
-	/// Every kind M0 knows, in menu order.
-	pub const ALL: [Self; 3] = [Self::Filter, Self::Drive, Self::Gain];
+	/// Every kind the rack knows, in menu order.
+	pub const ALL: [Self; 3] = [Self::Filter, Self::Distortion, Self::Gain];
 
 	/// The name a card shows.
 	pub const fn name(self) -> &'static str {
 		match self {
 			Self::Filter => "Filter",
-			Self::Drive => "Drive",
+			Self::Distortion => "Distortion",
 			Self::Gain => "Gain",
+		}
+	}
+
+	/// The identity colour the product uses.
+	pub const fn accent(self) -> &'static str {
+		match self {
+			Self::Filter => "#4c8dff",
+			Self::Distortion => "#ff9a3d",
+			Self::Gain => "#35c77a",
 		}
 	}
 
@@ -43,108 +69,42 @@ impl ModuleKind {
 	pub const fn hero(self) -> &'static str {
 		match self {
 			Self::Filter => "spectrum",
-			Self::Drive => "transfer",
+			Self::Distortion => "transfer",
 			Self::Gain => "waveform",
 		}
 	}
-}
 
-/// A soft clipper with the labels a person reads, instead of the field names.
-///
-/// The DSP crate's SoftClipper calls its controls alpha and gain, which is right
-/// for a struct and wrong for a card. The module keeps the two floats and hands
-/// the clipper the values on every block; the extra copy is two floats.
-struct DriveModule {
-	amount: f32,
-	output: f32,
-	inner: SoftClipper,
-}
-
-impl DriveModule {
-	fn new() -> Self {
-		Self {
-			amount: 0.5,
-			output: 1.0,
-			inner: SoftClipper::new(0.5, 1.0),
+	/// The parameter the page draws as a mode switch in the header.
+	pub const fn mode(self) -> Option<&'static str> {
+		match self {
+			Self::Filter | Self::Distortion => Some("mode"),
+			Self::Gain => None,
 		}
 	}
 
-	fn apply(&mut self) {
-		self.inner.alpha = self.amount.clamp(0.01, 1.0);
-		self.inner.gain = self.output.clamp(0.01, 4.0);
-	}
-
-	fn parameter(
-		identifier: &'static str,
-		label: &'static str,
-		value: f32,
-		range: std::ops::RangeInclusive<f32>,
-		default: f32,
-		logarithmic: bool,
-	) -> Parameter {
-		Parameter::new(
-			identifier,
-			Value::Float {
-				value,
-				range,
-				logarithmic,
-			},
-		)
-		.with_meta(ParameterMeta {
-			default: Some(default as f64),
-			unit: Unit::Percent,
-			display_name: Some(label.into()),
-			..Default::default()
-		})
-	}
-}
-
-impl Parameters for DriveModule {
-	fn get_parameters(&self) -> Vec<Parameter> {
-		vec![
-			Self::parameter("amount", "Amount", self.amount, 0.01..=1.0, 0.5, false),
-			Self::parameter("output", "Output", self.output, 0.01..=4.0, 1.0, true),
-		]
-	}
-
-	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		match (identifier, value) {
-			("amount", SetValue::Float(value)) => {
-				self.amount = value.clamp(0.01, 1.0);
-				self.apply();
-				true
-			},
-			("output", SetValue::Float(value)) => {
-				self.output = value.clamp(0.01, 4.0);
-				self.apply();
-				true
-			},
-			_ => false,
+	/// The parameters the page draws in the header instead of the body.
+	pub const fn header(self) -> &'static [&'static str] {
+		match self {
+			Self::Filter => &["stages"],
+			_ => &[],
 		}
 	}
-}
 
-impl Effect<2> for DriveModule {
-	fn process(
-		&mut self,
-		samples: &mut [f32; 2],
-		other: &[&[f32; 2]],
-		process_context: &mut Box<dyn ProcessContext>,
-	) {
-		self.apply();
-		self.inner.process(samples, other, process_context);
-	}
-
-	fn delay(&self) -> usize {
-		0
+	/// The controls each mode reads, when the card hides the rest.
+	pub const fn visible(self) -> Option<&'static [(i32, &'static [&'static str])]> {
+		match self {
+			Self::Filter => Some(FILTER_VISIBLE),
+			Self::Distortion => Some(DISTORTION_VISIBLE),
+			Self::Gain => None,
+		}
 	}
 }
 
 /// Builds a fresh effect for a kind at a sample rate.
 pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> {
 	match kind {
-		ModuleKind::Filter => Box::new(Lowpass::<2>::new(sample_rate, 1_000.0, 0.707)),
-		ModuleKind::Drive => Box::new(DriveModule::new()),
+		ModuleKind::Filter => Box::new(Multimode::new(sample_rate, 1_000.0, 0.707)),
+		ModuleKind::Distortion => Box::new(Distortion::<2>::new(sample_rate)),
 		ModuleKind::Gain => Box::new(Gain::new(1.0)),
 	}
 }
@@ -154,16 +114,18 @@ pub(crate) fn schema(kind: ModuleKind) -> Vec<Parameter> {
 	build(kind, 44_100).get_parameters()
 }
 
-/// The float parameters a fresh module starts with.
+/// The parameters a fresh module starts with.
 ///
-/// Integer choices and booleans do not belong in the M0 state: every module in
-/// this set is controlled by floats only. A kernel that has a mode would store it
-/// under the same map with its own value type.
-pub(crate) fn default_params(kind: ModuleKind) -> BTreeMap<String, f32> {
+/// Everything has a numeric form here: a float is itself, an integer is widened,
+/// and a boolean is 0 or 1. The engine converts back to the type the parameter
+/// map holds.
+pub(crate) fn default_params(kind: ModuleKind) -> BTreeMap<String, f64> {
 	schema(kind)
 		.into_iter()
 		.filter_map(|parameter| match parameter.value {
-			Value::Float { value, .. } => Some((parameter.identifier, value)),
+			Value::Float { value, .. } => Some((parameter.identifier, value as f64)),
+			Value::Int { value, .. } => Some((parameter.identifier, value as f64)),
+			Value::Bool(value) => Some((parameter.identifier, if value { 1.0 } else { 0.0 })),
 			_ => None,
 		})
 		.collect()
