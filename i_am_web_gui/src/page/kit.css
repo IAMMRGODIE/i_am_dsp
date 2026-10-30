@@ -70,7 +70,8 @@ body.preview #app{
 .power:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
 .bypassed .power .dot{background:#666; color:#666; box-shadow:none}
 .mode{
-  display:flex; gap:calc(2px * var(--scale)); padding:calc(2px * var(--scale));
+  display:flex; align-items:center; gap:calc(2px * var(--scale));
+  padding:calc(2px * var(--scale));
   border:1px solid var(--border); border-radius:5px; background:#222; flex:0 0 auto;
 }
 .mode button{
@@ -194,6 +195,7 @@ body.preview #app{
   box-shadow:0 1px 0 rgba(255,255,255,.025) inset;
 }
 .hero svg{display:block;width:100%;height:100%;pointer-events:none}
+.hero[data-hero="eq"] svg{pointer-events:auto}
 .hero[data-hero="impulse"]{cursor:pointer;user-select:none}
 /* Labels sit outside the SVG: the hero is stretched to the window, and text
    inside an SVG with preserveAspectRatio="none" would stretch with it. */

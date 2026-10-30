@@ -1932,11 +1932,14 @@ var ENV_MAX = 512;
 
       nodes +=
         '<circle cx="' + bx.toFixed(1) + '" cy="' + by.toFixed(1) + '" r="' + radius +
-          '" fill="' + color + '" fill-opacity="' + opacity + '" stroke="#151515" stroke-width="1"/>' +
+          '" fill="' + color + '" fill-opacity="' + opacity + '" stroke="#151515" stroke-width="1"' +
+          ' data-eq-band="' + b + '" style="cursor:move"/>' +
         '<text x="' + (bx + 7).toFixed(1) + '" y="' + (by - 6).toFixed(1) +
-          '" fill="' + color + '" fill-opacity="' + opacity + '" font-size="8">' + (b + 1) + '</text>' +
+          '" fill="' + color + '" fill-opacity="' + opacity + '" font-size="8"' +
+          ' pointer-events="none">' + (b + 1) + '</text>' +
         '<circle cx="' + bx.toFixed(1) + '" cy="' + by.toFixed(1) +
-          '" r="12" fill="transparent" data-eq-band="' + b + '" style="cursor:move"/>';
+          '" r="18" fill="#000" fill-opacity="0" pointer-events="all"' +
+          ' data-eq-band="' + b + '" style="cursor:move"/>';
     }
 
     return heroSvg(
