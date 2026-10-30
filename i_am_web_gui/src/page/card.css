@@ -24,7 +24,7 @@
 .mcard-name{font-weight:600; font-size:12px; white-space:nowrap}
 .mcard-badge{
   display:inline-flex; align-items:center; justify-content:center;
-  min-width:24px; height:16px; padding:0 5px; border-radius:8px;
+  min-width:24px; height:16px; padding:1px 5px 0; border-radius:8px;
   background:#333; color:var(--text3); font-family:var(--mono);
   font-size:9px; line-height:1; letter-spacing:.04em;
 }
