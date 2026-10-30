@@ -80,13 +80,20 @@
     return typeof value === "number" ? value : fallback;
   }
 
-  function frame(inner) {
-    return '<svg class="mcard-graph" viewBox="0 0 500 150" preserveAspectRatio="none">' +
-      '<line x1="18" y1="10" x2="18" y2="140" stroke="#333" stroke-width="1"/>' +
-      '<line x1="18" y1="75" x2="482" y2="75" stroke="#2e2e2e" stroke-width="1"/>' +
+  function heroSvg(inner) {
+    return '<svg class="mcard-graph" viewBox="0 0 520 160" preserveAspectRatio="none">' +
       inner +
-      '<line x1="18" y1="140" x2="482" y2="140" stroke="#333" stroke-width="1"/>' +
       '</svg>';
+  }
+
+  function wavePath(amplitude, middle, cycles) {
+    var path = "";
+    for (var i = 0; i <= 180; i++) {
+      var x = 20 + i / 180 * 480;
+      var y = middle - Math.sin(i / 180 * Math.PI * 2 * cycles) * amplitude;
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+    return path;
   }
 
   function spectrumHero(values) {
@@ -100,8 +107,8 @@
       : 1;
     var magnitudes = [];
 
-    for (var i = 0; i < 96; i++) {
-      var frequency = 20 * Math.pow(1000, i / 95);
+    for (var i = 0; i < 80; i++) {
+      var frequency = 20 * Math.pow(1000, i / 79);
       var ratio = frequency / cutoff;
       var denominator = Math.sqrt(
         Math.pow(1 - ratio * ratio, 2) + Math.pow(ratio / q, 2)
@@ -134,76 +141,71 @@
 
     for (var j = 0; j < magnitudes.length; j++) {
       var decibels = 20 * Math.log10(Math.max(magnitudes[j] / loudest, 1e-6));
-      var x = 18 + j / 95 * 464;
-      var y = clamp(10 + (1 - (1 + decibels / 40)) * 130, 10, 140);
+      var x = 20 + j / 79 * 480;
+      var y = clamp(10 + (1 - (1 + decibels / 40)) * 140, 10, 150);
       points.push((j ? "L " : "M ") + x.toFixed(1) + " " + y.toFixed(1));
     }
 
-    return frame(
+    return heroSvg(
       '<path d="' + points.join(" ") + '" fill="none" stroke="var(--accent)" ' +
       'stroke-width="2" vector-effect="non-scaling-stroke"/>'
     );
-  }
-
-  function shaper(mode, value, values) {
-    if (mode === 1) {
-      var alpha = Math.max(valueOf(values, "alpha", 0.5), 0.01);
-      return Math.tanh(value / alpha);
-    }
-    if (mode === 2) {
-      var k = Math.max(valueOf(values, "k", 2.0), 0.01);
-      return value * k / (1 + Math.abs(value * k));
-    }
-    if (mode === 3) {
-      var a = Math.max(valueOf(values, "a", 1.0), 0.01);
-      var p = Math.max(valueOf(values, "p", 2.0), 1.0);
-      return value / (1 + Math.pow(Math.abs(value) / a, p)) * (1 + 1 / Math.pow(a, p));
-    }
-    if (mode === 4) {
-      var bits = Math.max(valueOf(values, "bits", 8), 1);
-      var steps = Math.pow(2, bits) / 2;
-      return Math.round(value * steps) / steps;
-    }
-    if (mode === 5) {
-      return value;
-    }
-    var threshold = Math.max(valueOf(values, "threshold", 0.8), 0.01);
-    return clamp(value, -threshold, threshold);
   }
 
   function transferHero(values) {
     var mode = Math.round(valueOf(values, "mode", 0));
-    var points = [];
+    var threshold = clamp(valueOf(values, "threshold", 0.8), 0.01, 4);
+    var gain = valueOf(values, "gain", 1);
+    var alpha = Math.max(valueOf(values, "alpha", 0.5), 0.01);
+    var k = valueOf(values, "k", 2);
+    var a = Math.max(valueOf(values, "a", 1), 0.01);
+    var p = valueOf(values, "p", 2);
+    var bits = Math.max(1, valueOf(values, "bits", 8));
+    var path = "";
 
-    for (var i = 0; i <= 80; i++) {
-      var input = -1 + 2 * i / 80;
-      var output = shaper(mode, input, values);
-      var x = 18 + (input + 1) / 2 * 464;
-      var y = 75 - output * 65;
-      points.push((i ? "L " : "M ") + x.toFixed(1) + " " + y.toFixed(1));
+    // The domain is wider than the clip point on purpose: a hard clipper's curve
+    // only shows its knees when the flat part has somewhere to run.
+    for (var i = 0; i <= 140; i++) {
+      var x = -2 + i / 140 * 4;
+      var shaped;
+
+      if (mode === 1) shaped = Math.tanh(x / alpha);
+      else if (mode === 2) shaped = 2 / (1 + Math.exp(-x * k)) - 1;
+      else if (mode === 3) {
+        var factor = 1 + 1 / Math.pow(a, p);
+        var norm = Math.pow(Math.abs(x) / a, p);
+        shaped = (x / (1 + norm)) * factor;
+      } else if (mode === 4) shaped = Math.round(bits * x) / bits;
+      else if (mode === 5) shaped = x;
+      else shaped = clamp(x, -threshold, threshold);
+
+      var y = clamp(shaped * gain, -2, 2);
+      path += (i ? " L " : "M ") + (20 + (x + 2) / 4 * 480).toFixed(1) +
+        " " + (80 - y / 2 * 66).toFixed(1);
     }
 
-    return frame(
-      '<line x1="18" y1="10" x2="482" y2="140" stroke="#3a3a3a" stroke-width="1" ' +
-      'stroke-dasharray="3 4"/>' +
-      '<path d="' + points.join(" ") + '" fill="none" stroke="var(--accent)" ' +
-      'stroke-width="2" vector-effect="non-scaling-stroke"/>'
+    return heroSvg(
+      '<path d="M 20 146 L 500 14" stroke="#333" stroke-width="1" stroke-dasharray="3 5" ' +
+      'vector-effect="non-scaling-stroke"/>' +
+      '<line x1="260" y1="12" x2="260" y2="148" stroke="#2b2b2b"/>' +
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2b2b2b"/>' +
+      '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2.4" ' +
+      'vector-effect="non-scaling-stroke"/>'
     );
   }
 
   function waveformHero(values) {
-    var gain = clamp(valueOf(values, "gain", 1) / 4, 0.05, 1);
-    var amplitude = 62 * gain;
-    var points = [];
+    var gain = valueOf(values, "gain", 1);
+    var db = 20 * Math.log10(Math.max(gain, 1e-4));
+    var output = clamp(20 * Math.pow(10, db / 20), 3, 58);
+    var input = wavePath(16, 80, 3);
 
-    for (var i = 0; i <= 160; i++) {
-      var x = 18 + i / 160 * 464;
-      var y = 75 - Math.sin(i / 160 * Math.PI * 6) * amplitude;
-      points.push((i ? "L " : "M ") + x.toFixed(1) + " " + y.toFixed(1));
-    }
-
-    return frame(
-      '<path d="' + points.join(" ") + '" fill="none" stroke="var(--accent)" ' +
+    return heroSvg(
+      '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>' +
+      '<path d="' + input + ' L 500 80 L 20 80 Z" fill="#8a8a8a" fill-opacity=".14"/>' +
+      '<path d="' + input + '" fill="none" stroke="#6a6a6a" stroke-width="1.5" ' +
+      'vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + wavePath(output, 80, 3) + '" fill="none" stroke="var(--accent)" ' +
       'stroke-width="2" vector-effect="non-scaling-stroke"/>'
     );
   }
