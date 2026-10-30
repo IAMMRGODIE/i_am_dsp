@@ -1894,11 +1894,14 @@ var ENV_MAX = 512;
     var output = state && state.output ? state.output : [];
     var grid = '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f"/>';
     var bars = "";
-    var width = 480 / bands;
+    var slot = 480 / bands;
+    // The bars widen with the same Bandwidth multiplier the filters use, so
+    // the picture shows how much the bands overlap.
+    var bandwidth = clamp(valueOf("bandwidth", 1.0), 0.25, 4.0);
+    var bar_width = Math.max(1, slot * bandwidth - 1);
 
     for (var i = 0; i < bands; i++) {
-      var x = 20 + i * width;
-      var bar_width = Math.max(1, width - 1);
+      var x = 20 + (i + 0.5) * slot - bar_width / 2;
       var in_height = Math.sqrt(clamp(input[i] || 0, 0, 1)) * 60;
       var out_height = Math.sqrt(clamp(output[i] || 0, 0, 1)) * 60;
 
