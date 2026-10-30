@@ -1,6 +1,6 @@
 //! A disperser whose cutoff is swept by an LFO, a saturator and an amplitude modulation.
 //!
-//! This is the DSP of the `i_am_crusher` plug-in. The signal is pushed through
+//! This is the DSP of the `I Am Crusher` plug-in. The signal is pushed through
 //! a stack of allpass sections (a disperser) whose cutoff an LFO sweeps across
 //! the audible range, then through a saturating curve and an amplitude
 //! modulation. The stack is the library's [`Disperser`], the curve is the one

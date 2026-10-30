@@ -5,7 +5,7 @@
 //! This crate turns that into a page: [Faceplate] adds the name, the identity
 //! colour, an optional mode switch and a bypass flag; [editor] serves the page over
 //! a custom protocol, and the page draws and drives the controls. Nothing here
-//! links a toolkit; WebView2 comes from i_am_plugin_wry.
+//! links a toolkit; WebView2 comes from i_am_plugin::wry.
 //!
 //! The page gets these routes:
 //!
@@ -46,8 +46,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use i_am_plugin::{Editor, Plugin};
-pub use i_am_plugin_wry::{ProtocolRequest, ProtocolResponse};
-use i_am_plugin_wry::WryEditor;
+pub use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
+use i_am_plugin::wry::WryEditor;
 
 /// The page itself.
 const PAGE: &str = include_str!("page/index.html");
@@ -221,7 +221,7 @@ macro_rules! web_plugin {
 	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, curves = $curves:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)? $(, clear = $clear:literal)?) => {
 		#[doc = concat!("The ", $title, " plug-in, with a web faceplate.")]
 		pub struct $name {
-			processor: i_am_effects_core::processor::EffectProcessor<$effect>,
+			processor: i_am_plugin::processor::EffectProcessor<$effect>,
 			bypass: std::sync::Arc<std::sync::atomic::AtomicBool>,
 			scope: std::sync::Arc<$crate::Scope>,
 			clear: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -230,7 +230,7 @@ macro_rules! web_plugin {
 		impl Default for $name {
 			fn default() -> Self {
 				Self {
-					processor: i_am_effects_core::processor::EffectProcessor::new($build),
+					processor: i_am_plugin::processor::EffectProcessor::new($build),
 					bypass: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
 					scope: std::sync::Arc::new($crate::Scope::new()),
 					clear: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -272,7 +272,7 @@ macro_rules! web_plugin {
 		}
 
 		impl i_am_dsp::Processor for $name {
-			type Message = i_am_effects_core::processor::EffectMessage;
+			type Message = i_am_plugin::processor::EffectMessage;
 
 			fn delay(&self) -> usize {
 				i_am_dsp::Processor::delay(&self.processor)

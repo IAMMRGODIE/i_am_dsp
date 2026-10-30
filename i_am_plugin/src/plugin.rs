@@ -67,7 +67,7 @@ pub trait Plugin: Processor {
 	///
 	/// Called once each time the host opens the GUI, so a closed and reopened editor
 	/// starts from a fresh view. The editor is generic over the GUI toolkit: an
-	/// `i_am_plugin_iced` editor, one for egui, or one written for a bespoke renderer
+	/// `i_am_plugin::wry` editor, one for egui, or one written for a bespoke renderer
 	/// are all handed back the same way.
 	fn editor(&self) -> Option<Box<dyn Editor<Self>>> {
 		None

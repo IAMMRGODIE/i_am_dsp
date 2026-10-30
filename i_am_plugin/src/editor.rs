@@ -5,7 +5,7 @@
 //! `raw-window-handle`, which every windowing library in the ecosystem understands,
 //! and messages travel over a channel of the plug-in's own message type. An editor
 //! is what joins those to a GUI: this module defines the seam, and a crate such as
-//! `i_am_plugin_iced` provides the implementation.
+//! `i_am_plugin::wry` provides the implementation.
 
 use std::ffi::c_void;
 
@@ -136,7 +136,7 @@ pub struct EditorContext<P: Plugin> {
 
 /// A GUI a plug-in can open in the host's window.
 ///
-/// Implement this to connect a toolkit (iced is in `i_am_plugin_iced`; egui, slint or
+/// Implement this to connect a toolkit (iced is in `i_am_plugin::wry`; egui, slint or
 /// a bespoke renderer would be a crate of their own) and return it from
 /// [Plugin::editor](crate::Plugin::editor).
 ///

@@ -7,8 +7,7 @@ edition = "2024"
 # page draws the controls, and a custom protocol serves the state the host owns.
 #
 # No toolkit is linked here. The page is plain HTML/CSS/JS, embedded in the binary,
-# and WebView2 comes from i_am_plugin_wry.
+# and WebView2 comes from i_am_plugin::wry.
 [dependencies]
 i_am_dsp = { workspace = true }
 i_am_plugin = { workspace = true }
-i_am_plugin_wry = { workspace = true }

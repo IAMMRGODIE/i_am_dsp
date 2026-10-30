@@ -1,8 +1,0 @@
-[package]
-name = "i_am_effects_core"
-version = "0.1.0"
-edition = "2024"
-description = "The GUI-neutral half of the i_am_effects bundle: processor plumbing only"
-
-[dependencies]
-i_am_dsp = { workspace = true }

@@ -8,14 +8,12 @@
 //! A GUI is connected through the [Editor] trait. A plug-in says which editor it
 //! uses in [Plugin::editor], and the editor is handed the host's window as a raw
 //! handle plus a channel for its messages; everything else is the backend's business.
-//! This crate's tests use the default: no editor at all. The iced backend lives in
-//! `i_am_plugin_iced` and a WebView2 one in `i_am_plugin_wry`; an egui one would be
-//! a crate of its own, and all of them plug into the same seam.
+//! This crate's tests use the default: no editor at all. The WebView2 backend is the
+//! [wry] module; another toolkit would be another module behind the same seam.
 //!
 //! # Minimal Example
 //! 
 //! ```ignore
-//! use i_am_dsp_iced::{Processor as IcedProcessor, SyncedView};
 //! use i_am_plugin::{Descriptor, Plugin, WindowOptions, export_clap};
 //! 
 //! // first, build a processor from `i_am_dsp`
@@ -25,15 +23,6 @@
 //!     type Message = ();
 //!     // see more in `i_am_dsp::Processor`
 //!     //...
-//! }
-//!
-//! // then add the iced view, so a backend can draw it
-//! impl IcedProcessor for MyProcessor {
-//!     type SyncedView = MyView;
-//!
-//!     fn synced_view(&self) -> Self::SyncedView {
-//!         MyView
-//!     }
 //! }
 //! 
 //! impl Plugin for MyProcessor {
@@ -54,7 +43,10 @@
 //!
 //!     // the only line that names the toolkit
 //!     fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
-//!         Some(Box::new(i_am_plugin_iced::IcedEditor::new(self.synced_view())))
+//!         Some(Box::new(i_am_plugin::wry::WryEditor::new(
+//!             "<html>...</html>",
+//!             |body| Some(MyMessage::from_js(body)),
+//!         )))
 //!     }
 //! }
 //! 
@@ -166,6 +158,13 @@ mod latency;
 mod main_thread;
 mod plugin;
 mod shared;
+
+/// The GUI-neutral processor plumbing: an effect and the parameter map a host
+/// and the interface both read.
+pub mod processor;
+
+/// The WebView2 editor backend, formerly the separate i_am_plugin_wry crate.
+pub mod wry;
 
 #[cfg(test)]
 mod tests;

@@ -19,7 +19,7 @@
 //! Typical use, from the workspace root, through the `cargo bundle` alias:
 //!
 //! ```text
-//! cargo bundle -p plugin_example --features vst3
+//! cargo bundle -p i_am_effects --features vst3
 //! ```
 
 mod bundle;

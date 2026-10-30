@@ -39,7 +39,7 @@ impl Message for () {
 
 /// The audio and message side of an application or a plug-in.
 ///
-/// A GUI toolkit is not part of this: `i_am_dsp_iced` extends it with a view, and
+/// A GUI toolkit is not part of this: `i_am_web_gui` extends it with a view, and
 /// `i_am_plugin` wraps it in a CLAP/VST3 host. Implement this directly for a processor
 /// that has no interface, or for one an interface of some other kind drives.
 pub trait Processor: Parameters + Send + Sync + 'static {
