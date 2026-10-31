@@ -1,10 +1,12 @@
-//! M0 of I Am Multipass: a serial rack with a state of its own.
+//! M1 of I Am Multipass: a three-band rack with a state of its own.
 //!
-//! The audio path is a chain of boxed effects (Filter, Drive, Gain). The host
-//! sees exactly one parameter, a serialized RackState; the page talks to the
-//! rack over /rack and /rack-command instead of the host parameter table. That is
-//! the shape the final product needs: module parameters are too dynamic to be
-//! automation lanes, and a single state blob is what a project save carries.
+//! The audio path is a LR4 split into Low / Mid / High, each with two serial
+//! module slots (Filter, Distortion, Compressor, Gain) and a band gain/pan/mute/
+//! solo stage. The host sees exactly one parameter, a serialized RackState; the
+//! page talks to the rack over /rack and /rack-command instead of the host
+//! parameter table. That is the shape the final product needs: module parameters
+//! are too dynamic to be automation lanes, and a single state blob is what a
+//! project save carries.
 
 mod crossover;
 mod engine;
@@ -38,9 +40,9 @@ use engine::Engine;
 use shared::RackShared;
 
 /// The logical size the page is laid out for.
-const WIDTH: f32 = 1_100.0;
+const WIDTH: f32 = 1_000.0;
 /// The logical height the page is laid out for.
-const HEIGHT: f32 = 760.0;
+const HEIGHT: f32 = 700.0;
 
 const PAGE_HTML: &str = include_str!("page/rack.html");
 const PAGE_CSS: &str = include_str!("page/rack.css");

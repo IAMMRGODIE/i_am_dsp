@@ -49,6 +49,13 @@
 }
 .mcard-select:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
 .mcard-mode{min-width:92px}
+.mcard-kind{min-width:96px}
+.mcard-remove{
+  width:20px; height:20px; padding:0; font:inherit; font-size:15px; line-height:1;
+  color:var(--text3); background:transparent; border:0; border-radius:4px;
+  cursor:pointer;
+}
+.mcard-remove:hover{color:#ff7a7a; background:rgba(255,255,255,.07)}
 .mcard-collapse{
   width:20px; height:20px; padding:0; font:inherit; font-size:13px; line-height:1;
   color:var(--text2); background:transparent; border:0; border-radius:4px;

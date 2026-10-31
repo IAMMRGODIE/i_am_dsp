@@ -44,16 +44,107 @@ body{
   box-shadow:0 0 8px var(--accent); display:block;
 }
 .power.off .dot{background:#555; box-shadow:none}
+
 .rack{
   flex:1; min-height:0; overflow-y:auto; overflow-x:hidden;
-  display:flex; flex-direction:column; align-items:center;
-  gap:10px; padding:0 2px 10px 0;
+  padding:0 2px 12px;
 }
-.rack .mcard{width:min(100%, 760px); flex:0 0 auto;}
+
+.crossover{
+  display:flex; align-items:center; gap:14px;
+  padding:8px 14px; margin-bottom:10px;
+  background:var(--card); border:1px solid #353535; border-radius:8px;
+}
+.crossover-controls{display:flex; align-items:flex-start; gap:10px; flex:0 0 auto}
+.crossover-label{
+  margin-top:18px; font-size:9px; letter-spacing:.14em;
+  color:var(--text3); text-transform:uppercase; white-space:nowrap;
+}
+.crossover .knob-wrap{width:112px}
+.crossover .knob{width:58px; height:58px}
+.crossover-sep{margin-top:30px; color:#555; font-size:18px}
+.crossover-viz{flex:1; min-width:240px; height:64px; display:flex; align-items:center}
+.crossover-viz svg{width:100%; height:64px; display:block}
+.crossover-note{
+  font-family:var(--mono); font-size:9px; color:var(--text3);
+  white-space:nowrap;
+}
+
+.band{
+  padding:10px 12px 12px; margin-bottom:10px;
+  background:#202020; border:1px solid #333; border-radius:8px;
+}
+.band.muted .slots{opacity:.45}
+
+/* The lane and slot label already name the card; keep the rack header compact. */
+.rack .mcard-name,
+.rack .mcard-badge,
+.rack .mcard-head .mcard-spacer{display:none}
+.rack .mcard-head{gap:6px; padding:6px 8px}
+.band-head{
+  display:flex; align-items:center; gap:10px; min-height:78px;
+}
+.band-name{font-size:13px; font-weight:600; letter-spacing:.02em; width:42px}
+.band-range{font-family:var(--mono); font-size:10px; color:var(--text3); white-space:nowrap}
+.band-spacer{flex:1}
+.band-controls{display:flex; gap:2px}
+.band-controls .knob-wrap{width:102px}
+.band-controls .knob{width:56px; height:56px}
+.band-buttons{display:flex; gap:4px; margin-left:6px}
+.band-button{
+  width:26px; height:22px; padding:0;
+  font:inherit; font-size:10px; font-weight:600;
+  color:var(--text2); background:var(--raised);
+  border:1px solid #454545; border-radius:4px; cursor:pointer;
+}
+.band-button:hover{background:#3a3a3a; color:var(--text1)}
+.band-button.on{color:#111; background:var(--accent); border-color:var(--accent)}
+.band-button:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+
+.slots{
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px; margin-top:6px;
+}
+.slot{min-width:0; display:flex; flex-direction:column; gap:4px}
+.slot-label{
+  padding-left:2px; font-size:8px; letter-spacing:.12em;
+  color:var(--text3); text-transform:uppercase;
+}
+.slot .mcard{width:100%}
+.slot-empty{
+  flex:1; min-height:224px; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:8px;
+  background:#1b1b1b; border:1px dashed #3a3a3a; border-radius:8px;
+}
+.slot-add{
+  appearance:none; -webkit-appearance:none;
+  height:30px; min-width:156px; padding:0 28px 0 12px;
+  border:1px solid var(--border); border-radius:5px;
+  background:#242424;
+  background-image:linear-gradient(45deg,transparent 50%,#8a8a8a 50%),
+    linear-gradient(135deg,#8a8a8a 50%,transparent 50%);
+  background-position:calc(100% - 14px) 50%, calc(100% - 10px) 50%;
+  background-size:4px 4px, 4px 4px;
+  background-repeat:no-repeat;
+  color:var(--text1); font:inherit; font-size:11px;
+  color-scheme:dark; cursor:pointer;
+}
+.slot-add:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+.slot-hint{font-size:9px; color:#666}
+
 .footer{
   flex:0 0 20px; display:flex; align-items:center; gap:8px;
   padding:0 4px; color:var(--text3); font-size:10px;
 }
 .hint{color:#666}
+
 .rack::-webkit-scrollbar{width:8px}
 .rack::-webkit-scrollbar-thumb{background:#3a3a3a; border-radius:4px}
+
+@media (max-width:900px){
+  .slots{grid-template-columns:1fr}
+  .band-range{display:none}
+  .crossover-note{display:none}
+  .crossover-label{display:none}
+  .crossover-viz{min-width:160px}
+}

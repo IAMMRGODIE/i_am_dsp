@@ -100,6 +100,25 @@ impl Default for BandState {
 }
 
 impl RackState {
+	/// The next unused module id, so a new slot keeps every existing id stable.
+	pub fn next_id(&self) -> u32 {
+		self.bands
+			.iter()
+			.flat_map(|band| band.slots.iter().flatten())
+			.map(|module| module.id)
+			.max()
+			.map_or(0, |id| id + 1)
+	}
+
+	/// The module with this id, whichever band and slot holds it.
+	pub fn module_mut(&mut self, id: u32) -> Option<&mut ModuleState> {
+		self.bands
+			.iter_mut()
+			.flat_map(|band| band.slots.iter_mut())
+			.flatten()
+			.find(|module| module.id == id)
+	}
+
 	/// The chain a fresh instance starts with: one product in each band's first
 	/// slot, the second slot empty.
 	pub fn initial() -> Self {

@@ -63,12 +63,15 @@ struct Module {
 impl Module {
 	fn new(state: &ModuleState, sample_rate: usize) -> Self {
 		let effect = module::build(state.kind, sample_rate);
-		let paramed = Paramed::new(ModuleEffect(effect));
+		let mut paramed = Paramed::new(ModuleEffect(effect));
 		let map = paramed.param_map();
 
 		for (identifier, value) in &state.params {
 			store(&map, identifier, *value);
 		}
+
+		// Make delay() see the state's lookahead before the first block.
+		paramed.sync_params();
 
 		Self {
 			id: state.id,
@@ -85,6 +88,53 @@ impl Module {
 		for (identifier, value) in &state.params {
 			store(&self.map, identifier, *value);
 		}
+
+		// A changed lookahead changes this module's delay, and the engine's
+		// lane compensation reads it.
+		self.paramed.sync_params();
+	}
+}
+
+/// A stereo delay line that aligns one band with the slowest band.
+///
+/// A module with lookahead or a delay makes its band later than the others; the
+/// engine gives every shorter band the difference so the sum stays phase-aligned.
+struct DelayLine {
+	buffer: Vec<[f32; 2]>,
+	index: usize,
+}
+
+impl DelayLine {
+	fn new(length: usize) -> Self {
+		Self {
+			buffer: vec![[0.0; 2]; length],
+			index: 0,
+		}
+	}
+
+	fn set_length(&mut self, length: usize) {
+		if self.buffer.len() == length {
+			return;
+		}
+
+		self.buffer = vec![[0.0; 2]; length];
+		self.index = 0;
+	}
+
+	#[cfg(test)]
+	fn len(&self) -> usize {
+		self.buffer.len()
+	}
+
+	fn process(&mut self, frame: [f32; 2]) -> [f32; 2] {
+		if self.buffer.is_empty() {
+			return frame;
+		}
+
+		let delayed = self.buffer[self.index];
+		self.buffer[self.index] = frame;
+		self.index = (self.index + 1) % self.buffer.len();
+		delayed
 	}
 }
 
@@ -95,6 +145,10 @@ struct Lane {
 	mute: bool,
 	solo: bool,
 	slots: [Option<Module>; 2],
+	/// The latency of the active modules in this lane, in samples.
+	delay: usize,
+	/// The delay that aligns this lane with the slowest lane.
+	compensation: DelayLine,
 }
 
 impl Lane {
@@ -105,6 +159,8 @@ impl Lane {
 			mute: false,
 			solo: false,
 			slots: [None, None],
+			delay: 0,
+			compensation: DelayLine::new(0),
 		}
 	}
 }
@@ -160,6 +216,28 @@ impl Engine {
 				}
 			}
 		}
+
+		// A band is as late as the active modules it runs in series. Give every
+		// shorter band the difference, so a compressor with lookahead in one
+		// band does not comb-filter the others.
+		let mut delays = [0usize; 3];
+
+		for (index, lane) in self.lanes.iter().enumerate() {
+			delays[index] = lane
+				.slots
+				.iter()
+				.flatten()
+				.filter(|module| !module.bypass)
+				.map(|module| module.paramed.delay())
+				.sum();
+		}
+
+		let longest = delays.iter().copied().max().unwrap_or(0);
+
+		for (index, lane) in self.lanes.iter_mut().enumerate() {
+			lane.delay = delays[index];
+			lane.compensation.set_length(longest - delays[index]);
+		}
 	}
 
 	/// Splits the frame, runs both slots of every band, and sums what is left.
@@ -175,6 +253,9 @@ impl Engine {
 
 		for (index, lane) in self.lanes.iter_mut().enumerate() {
 			if lane.mute || (any_solo && !lane.solo) {
+				// Keep the alignment line moving, so unmuting does not replay
+				// audio from before the mute.
+				lane.compensation.process([0.0, 0.0]);
 				continue;
 			}
 
@@ -195,22 +276,39 @@ impl Engine {
 			let left = gain * if pan > 0.0 { 1.0 - pan } else { 1.0 };
 			let right = gain * if pan < 0.0 { 1.0 + pan } else { 1.0 };
 
-			output[0] += band[0] * left;
-			output[1] += band[1] * right;
+			let frame = lane.compensation.process([band[0] * left, band[1] * right]);
+			output[0] += frame[0];
+			output[1] += frame[1];
 		}
 
 		*samples = output;
 	}
 
 	/// The latency of the chain, in samples.
+	///
+	/// This is the slowest band; the other bands are padded to match it.
 	pub fn delay(&self) -> usize {
 		self.lanes
 			.iter()
-			.flat_map(|lane| &lane.slots)
-			.flatten()
-			.map(|module| module.paramed.delay())
+			.map(|lane| lane.delay)
 			.max()
 			.unwrap_or(0)
+	}
+
+	/// The latency of each band, for a test.
+	#[cfg(test)]
+	pub fn lane_delays(&self) -> [usize; 3] {
+		[self.lanes[0].delay, self.lanes[1].delay, self.lanes[2].delay]
+	}
+
+	/// The compensation delay of each band, for a test.
+	#[cfg(test)]
+	pub fn lane_compensations(&self) -> [usize; 3] {
+		[
+			self.lanes[0].compensation.len(),
+			self.lanes[1].compensation.len(),
+			self.lanes[2].compensation.len(),
+		]
 	}
 
 	/// The populated slots, in band order, for a test.

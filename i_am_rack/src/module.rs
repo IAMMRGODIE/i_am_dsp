@@ -1,12 +1,15 @@
 //! The module types the rack can hold, and the card metadata each one brings.
 //!
 //! Every module is the same effect the standalone product ships: Multimode for
-//! Filter, Distortion for Drive, Gain for Gain. The card a module shows is the
-//! product card, so the mode/header/visible rules travel with the kind.
+//! Filter, Distortion for Drive, Compressor for Compressor, Gain for Gain. The
+//! card a module shows is the product card, so the mode/header/visible rules
+//! travel with the kind.
 
 use std::collections::BTreeMap;
 
-use i_am_dsp::prelude::{Distortion, Effect, Gain, Multimode, Parameter, Value};
+use i_am_dsp::prelude::{
+	Compressor, Distortion, Effect, Gain, Multimode, Parameter, RectifyEnvelope, Unit, Value,
+};
 
 /// The controls each Multimode algorithm reads; everything else is hidden.
 pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
@@ -29,6 +32,17 @@ pub const DISTORTION_VISIBLE: &[(i32, &[&str])] = &[
 	(5, &["target_sample_rate", "gain"]),
 ];
 
+/// The controls a compressor card shows; the library's sub-parameters are
+/// trimmed down to the ones a person turns.
+pub const COMPRESSOR_VISIBLE: &[&str] = &[
+	"threshold",
+	"ratio",
+	"smoother.attack_time",
+	"smoother.release_time",
+	"lookahead",
+	"gain_linear",
+];
+
 /// A module type a rack slot can hold.
 #[derive(
 	Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash,
@@ -39,19 +53,27 @@ pub enum ModuleKind {
 	Filter,
 	/// The six-shaper distortion product.
 	Distortion,
+	/// A peak/RMS compressor.
+	Compressor,
 	/// A plain gain.
 	Gain,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 3] = [Self::Filter, Self::Distortion, Self::Gain];
+	pub const ALL: [Self; 4] = [
+		Self::Filter,
+		Self::Distortion,
+		Self::Compressor,
+		Self::Gain,
+	];
 
 	/// The name a card shows.
 	pub const fn name(self) -> &'static str {
 		match self {
 			Self::Filter => "Filter",
 			Self::Distortion => "Distortion",
+			Self::Compressor => "Compressor",
 			Self::Gain => "Gain",
 		}
 	}
@@ -61,6 +83,7 @@ impl ModuleKind {
 		match self {
 			Self::Filter => "#4c8dff",
 			Self::Distortion => "#ff9a3d",
+			Self::Compressor => "#ef5b5b",
 			Self::Gain => "#35c77a",
 		}
 	}
@@ -70,6 +93,7 @@ impl ModuleKind {
 		match self {
 			Self::Filter => "spectrum",
 			Self::Distortion => "transfer",
+			Self::Compressor => "compressor",
 			Self::Gain => "waveform",
 		}
 	}
@@ -78,7 +102,7 @@ impl ModuleKind {
 	pub const fn mode(self) -> Option<&'static str> {
 		match self {
 			Self::Filter | Self::Distortion => Some("mode"),
-			Self::Gain => None,
+			Self::Compressor | Self::Gain => None,
 		}
 	}
 
@@ -95,7 +119,7 @@ impl ModuleKind {
 		match self {
 			Self::Filter => Some(FILTER_VISIBLE),
 			Self::Distortion => Some(DISTORTION_VISIBLE),
-			Self::Gain => None,
+			Self::Compressor | Self::Gain => None,
 		}
 	}
 }
@@ -105,13 +129,45 @@ pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> 
 	match kind {
 		ModuleKind::Filter => Box::new(Multimode::new(sample_rate, 1_000.0, 0.707)),
 		ModuleKind::Distortion => Box::new(Distortion::<2>::new(sample_rate)),
+		ModuleKind::Compressor => Box::new(Compressor::<RectifyEnvelope<2>, 2>::new(
+			RectifyEnvelope::<2>::new(sample_rate, 30.0),
+			sample_rate,
+			10.0,
+			100.0,
+			-24.0,
+			4.0,
+		)),
 		ModuleKind::Gain => Box::new(Gain::new(1.0)),
 	}
 }
 
 /// The parameter schema of a kind, at a rate that does not affect the metadata.
 pub(crate) fn schema(kind: ModuleKind) -> Vec<Parameter> {
-	build(kind, 44_100).get_parameters()
+	let mut parameters = build(kind, 44_100).get_parameters();
+
+	if kind == ModuleKind::Compressor {
+		for parameter in &mut parameters {
+			match parameter.identifier.as_str() {
+				"threshold" => parameter.meta.display_name = Some("Threshold".into()),
+				"ratio" => parameter.meta.display_name = Some("Ratio".into()),
+				"smoother.attack_time" => parameter.meta.display_name = Some("Attack".into()),
+				"smoother.release_time" => parameter.meta.display_name = Some("Release".into()),
+				"lookahead" => {
+					parameter.meta.display_name = Some("Lookahead".into());
+					parameter.meta.unit = Unit::Samples;
+				},
+				"gain_linear" => parameter.meta.display_name = Some("Makeup".into()),
+				_ => {},
+			}
+		}
+
+		parameters
+			.into_iter()
+			.filter(|parameter| COMPRESSOR_VISIBLE.contains(&parameter.identifier.as_str()))
+			.collect()
+	} else {
+		parameters
+	}
 }
 
 /// The parameters a fresh module starts with.

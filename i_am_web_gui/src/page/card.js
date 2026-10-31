@@ -45,6 +45,7 @@
     if (spec.unit === "ms") return value.toFixed(1) + " ms";
     if (spec.unit === "s") return value.toFixed(3) + " s";
     if (spec.unit === "beats") return value.toFixed(2) + " beats";
+    if (spec.unit === "samples") return Math.round(value) + " smp";
     return spec.kind === "int" ? String(Math.round(value)) : value.toFixed(2);
   }
 
@@ -194,6 +195,43 @@
     );
   }
 
+  function compressorHero(values) {
+    var threshold = clamp(valueOf(values, "threshold", -24), -60, 0);
+    var ratio = clamp(valueOf(values, "ratio", 4), 1, 20);
+    var makeup = clamp(valueOf(values, "gain_linear", 1), 0.01, 4);
+    var makeupDb = 20 * Math.log10(makeup);
+    var points = [];
+
+    function xFor(db) { return 20 + (db + 60) / 60 * 480; }
+    function yFor(db) { return 148 - (db + 60) / 60 * 136; }
+
+    for (var i = 0; i <= 120; i++) {
+      var inputDb = -60 + i / 120 * 60;
+      var outputDb = inputDb < threshold
+        ? inputDb
+        : threshold + (inputDb - threshold) / ratio;
+      outputDb = clamp(outputDb + makeupDb, -60, 0);
+      points.push((i ? "L " : "M ") + xFor(inputDb).toFixed(1) +
+        " " + yFor(outputDb).toFixed(1));
+    }
+
+    var thresholdX = xFor(threshold);
+
+    return heroSvg(
+      '<line x1="20" y1="12" x2="20" y2="148" stroke="#2b2b2b"/>' +
+      '<line x1="20" y1="148" x2="500" y2="148" stroke="#2b2b2b"/>' +
+      '<line x1="20" y1="148" x2="500" y2="12" stroke="#333" stroke-width="1" ' +
+      'stroke-dasharray="3 5" vector-effect="non-scaling-stroke"/>' +
+      '<line x1="' + thresholdX.toFixed(1) + '" y1="12" x2="' + thresholdX.toFixed(1) +
+      '" y2="148" stroke="#3a2a2a"/>' +
+      '<path d="' + points.join(" ") + '" fill="none" stroke="var(--accent)" ' +
+      'stroke-width="2.2" vector-effect="non-scaling-stroke"/>' +
+      '<text x="' + (thresholdX + 4).toFixed(1) + '" y="22" fill="#777" font-size="9">' +
+      threshold.toFixed(0) + ' dB</text>' +
+      '<text x="462" y="140" fill="#777" font-size="9">' + ratio.toFixed(1) + ':1</text>'
+    );
+  }
+
   function waveformHero(values) {
     var gain = valueOf(values, "gain", 1);
     var db = 20 * Math.log10(Math.max(gain, 1e-4));
@@ -213,6 +251,7 @@
   function hero(kind, values) {
     if (kind === "spectrum") return spectrumHero(values);
     if (kind === "transfer") return transferHero(values);
+    if (kind === "compressor") return compressorHero(values);
     if (kind === "waveform") return waveformHero(values);
     return "";
   }
@@ -389,6 +428,10 @@
     return makeKnob(spec, value, onEdit).el;
   }
 
+  function control(spec, value, onEdit) {
+    return makeBodyControl(spec, value, onEdit);
+  }
+
   function setting(label, control) {
     var box = document.createElement("div");
     box.className = "mcard-setting";
@@ -464,6 +507,37 @@
     var spacer = document.createElement("span");
     spacer.className = "mcard-spacer";
     head.appendChild(spacer);
+
+    if (options.kinds && options.kinds.length) {
+      var kindSelect = document.createElement("select");
+      kindSelect.className = "mcard-select mcard-kind";
+      kindSelect.title = "Module type";
+      kindSelect.setAttribute("aria-label", "Module type");
+
+      options.kinds.forEach(function (kind) {
+        var option = document.createElement("option");
+        option.value = kind;
+        option.textContent = kind;
+        kindSelect.appendChild(option);
+      });
+
+      kindSelect.value = options.kind || options.kinds[0];
+      kindSelect.addEventListener("change", function () {
+        if (options.onKind) options.onKind(kindSelect.value);
+      });
+      head.appendChild(kindSelect);
+    }
+
+    if (options.onRemove) {
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "mcard-remove";
+      remove.textContent = "\u00D7";
+      remove.title = "Remove module";
+      remove.setAttribute("aria-label", "Remove module");
+      remove.addEventListener("click", function () { options.onRemove(); });
+      head.appendChild(remove);
+    }
 
     var heroElement = null;
     function paintHero() {
@@ -548,6 +622,7 @@
 
   window.IAmCard = {
     create: create,
+    control: control,
     hero: hero,
     format: format,
     norm: norm,

@@ -116,6 +116,10 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[1]["kind"], "Distortion");
 	assert_eq!(modules[2]["kind"], "Gain");
 	assert_eq!(modules[0]["hero"], "spectrum");
+
+	let kinds = json["kinds"].as_array().expect("kinds");
+	assert_eq!(kinds.len(), 4);
+	assert!(kinds.iter().any(|kind| kind["name"] == "Compressor"));
 	assert!(
 		modules[0]["controls"]
 			.as_array()
@@ -207,5 +211,114 @@ fn activation_rebuilds_for_the_new_rate() {
 		rack.state().bands[0].slots[0].as_ref().unwrap().params["cutoff"],
 		1_000.0
 	);
-	assert_eq!(rack.engine.kinds(), ModuleKind::ALL.to_vec());
+	assert_eq!(
+		rack.engine.kinds(),
+		vec![ModuleKind::Filter, ModuleKind::Distortion, ModuleKind::Gain]
+	);
+}
+
+/// Band gain/pan/mute/solo and the two crossover points are all page commands.
+#[test]
+fn band_and_crossover_commands_edit_the_state() {
+	let rack = Rack::default();
+
+	let response = command(
+		&rack,
+		"band.0.gain=0.5
+band.0.pan=-0.25
+band.1.mute=1
+band.2.solo=1
+split.low=240
+split.high=3600",
+	);
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+
+	assert_eq!(state.bands[0].gain, 0.5);
+	assert_eq!(state.bands[0].pan, -0.25);
+	assert!(state.bands[1].mute);
+	assert!(state.bands[2].solo);
+	assert_eq!(state.split_low, 240.0);
+	assert_eq!(state.split_high, 3_600.0);
+}
+
+/// An empty slot can take a module, and the compressor schema is the curated one.
+#[test]
+fn a_slot_can_hold_and_clear_a_compressor() {
+	let rack = Rack::default();
+
+	let response = command(&rack, "slot.1.1.kind=Compressor");
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	let module = state.bands[1].slots[1]
+		.as_ref()
+		.expect("the new compressor");
+
+	assert_eq!(module.kind, ModuleKind::Compressor);
+	assert_eq!(module.id, 5);
+	assert!(module.params.contains_key("threshold"));
+	assert!(module.params.contains_key("ratio"));
+	assert!(module.params.contains_key("smoother.attack_time"));
+	assert!(module.params.contains_key("smoother.release_time"));
+	assert!(module.params.contains_key("lookahead"));
+	assert!(!module.params.contains_key("enveloper.cutoff"));
+
+	let response = command(&rack, "slot.1.1.clear=1");
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+	assert!(rack.state().bands[1].slots[1].is_none());
+}
+
+/// Replacing a module keeps the id the page addresses.
+#[test]
+fn changing_a_slot_type_keeps_its_id() {
+	let rack = Rack::default();
+
+	command(&rack, "slot.0.0.kind=Compressor");
+
+	let first = rack.state();
+	let first = first.bands[0].slots[0].as_ref().expect("the compressor");
+
+	assert_eq!(first.id, 0);
+	assert_eq!(first.kind, ModuleKind::Compressor);
+
+	command(&rack, "slot.0.0.kind=Gain");
+
+	let second = rack.state();
+	let second = second.bands[0].slots[0].as_ref().expect("the gain");
+
+	assert_eq!(second.id, 0);
+	assert_eq!(second.kind, ModuleKind::Gain);
+	assert!(second.params.contains_key("gain"));
+}
+
+/// A lookahead compressor delays its band; the other bands are padded to match.
+#[test]
+fn compressor_latency_is_reported_and_compensated() {
+	let mut state = RackState::initial();
+	let mut compressor = ModuleState::new(6, ModuleKind::Compressor);
+
+	compressor.params.insert("lookahead".to_string(), 64.0);
+	state.bands[0].slots[1] = Some(compressor);
+
+	let engine = crate::engine::Engine::new(48_000, &state);
+
+	assert_eq!(engine.delay(), 64);
+	assert_eq!(engine.lane_delays(), [64, 0, 0]);
+	assert_eq!(engine.lane_compensations(), [0, 64, 64]);
+
+	state.bands[0].slots[1]
+		.as_mut()
+		.expect("the compressor")
+		.bypass = true;
+
+	let engine = crate::engine::Engine::new(48_000, &state);
+
+	assert_eq!(engine.delay(), 0);
+	assert_eq!(engine.lane_delays(), [0, 0, 0]);
+	assert_eq!(engine.lane_compensations(), [0, 0, 0]);
 }
