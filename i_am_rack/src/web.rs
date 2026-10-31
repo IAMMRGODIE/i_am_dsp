@@ -365,6 +365,7 @@ fn command(body: &[u8], shared: &RackShared) -> ProtocolResponse {
 	let text = String::from_utf8_lossy(body);
 	let rate = shared.rate.load(Ordering::Relaxed);
 	let mut state = shared.lock();
+	shared.pull_params(&mut state);
 	let mut ok = true;
 
 	for line in text.lines() {

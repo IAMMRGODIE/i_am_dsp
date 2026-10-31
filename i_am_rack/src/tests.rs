@@ -219,6 +219,30 @@ fn host_parameters_cover_macros_and_automation() {
 	assert!(cutoff < 1_000.0, "automated cutoff {cutoff}");
 }
 
+/// Host and page edits meet in the same map without reporting the whole table.
+#[test]
+fn host_and_page_parameter_changes_are_bidirectional() {
+	let mut rack = Rack::default();
+	let map = rack.param_map();
+
+	assert!(!map.get("macro1").unwrap().is_chanegd());
+	assert!(!map.get("macro2").unwrap().is_chanegd());
+
+	assert_eq!(command(&rack, "macro.0=0.5").body, b"{\"ok\":true}");
+	assert!(map.get("macro1").unwrap().is_chanegd());
+	assert!(!map.get("macro2").unwrap().is_chanegd());
+
+	map.get("macro1")
+		.unwrap()
+		.store(0.25_f32, std::sync::atomic::Ordering::SeqCst);
+
+	for _ in 0..64 {
+		process(&mut rack, [0.0, 0.0]);
+	}
+
+	assert!((rack.state().macros[0] - 0.25).abs() < 1e-6);
+}
+
 /// A whole-plug-in bypass is the input, untouched.
 #[test]
 fn the_plug_in_bypass_passes_the_signal_through() {

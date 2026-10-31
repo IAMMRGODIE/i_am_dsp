@@ -89,6 +89,7 @@ pub struct Rack {
 	scope: Arc<Scope>,
 	params: ParamMap,
 	live_generation: u64,
+	param_tick: usize,
 }
 
 impl Default for Rack {
@@ -120,6 +121,7 @@ impl Default for Rack {
 			scope: Arc::new(Scope::new()),
 			params,
 			live_generation: 0,
+			param_tick: 0,
 		}
 	}
 }
@@ -138,6 +140,14 @@ impl Rack {
 	/// Turns the bypass on or off from code, for a test.
 	pub fn set_bypassed(&self, bypassed: bool) {
 		self.bypass.store(bypassed, Ordering::Relaxed);
+	}
+
+	fn pull_host_params(&mut self) {
+		let mut state = self.shared.lock();
+
+		if self.shared.pull_params(&mut state) {
+			self.shared.dirty.store(true, Ordering::Release);
+		}
 	}
 
 	/// A copy of the editable state, for a test or a preview.
@@ -249,6 +259,13 @@ impl Processor for Rack {
 		other: &[[f32; 2]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
+		self.param_tick += 1;
+
+		if self.param_tick >= 64 {
+			self.param_tick = 0;
+			self.pull_host_params();
+		}
+
 		let input = *samples;
 		let input_mono = (input[0] + input[1]) * 0.5;
 		let sidechain = other
