@@ -344,6 +344,20 @@ impl RackState {
 		self.source_slots.iter_mut().find(|slot| slot.id == id)
 	}
 
+	/// Keeps every module contiguous and leaves a single empty slot at the end.
+	pub fn normalize_slots(&mut self) {
+		for band in &mut self.bands {
+			let mut modules = band
+				.slots
+				.drain(..)
+				.flatten()
+				.map(Some)
+				.collect::<Vec<_>>();
+			modules.push(None);
+			band.slots = modules;
+		}
+	}
+
 	/// Brings a version-5 file into the source-slot layout.
 	pub fn migrate(&mut self) {
 		if self.source_slots.is_empty() {
@@ -368,6 +382,7 @@ impl RackState {
 		}
 
 		self.source_slots.truncate(8);
+		self.normalize_slots();
 		self.version = STATE_VERSION;
 	}
 

@@ -496,33 +496,6 @@
       slots.appendChild(makeSlot(data, bandIndex, slot, module));
     }
 
-    if (band.slots.length < 8) {
-      var add = el("div", "slot slot-add-tile");
-      var addSelect = document.createElement("select");
-      addSelect.className = "mcard-select slot-add";
-      addSelect.setAttribute("aria-label", "Add module to band");
-
-      var placeholder = document.createElement("option");
-      placeholder.value = "";
-      placeholder.textContent = "+ Add module";
-      addSelect.appendChild(placeholder);
-
-      (data.kinds || []).forEach(function (kind) {
-        var option = document.createElement("option");
-        option.value = kind.name;
-        option.textContent = kind.name;
-        addSelect.appendChild(option);
-      });
-
-      addSelect.addEventListener("change", function () {
-        if (!addSelect.value) return;
-        sendNow("slot." + bandIndex + ".add", addSelect.value).then(load);
-      });
-
-      add.appendChild(addSelect);
-      slots.appendChild(add);
-    }
-
     section.appendChild(slots);
     return section;
   }

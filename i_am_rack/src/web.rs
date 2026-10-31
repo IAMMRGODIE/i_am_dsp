@@ -361,7 +361,9 @@ fn command(body: &[u8], shared: &RackShared) -> ProtocolResponse {
 
 		let applied = apply_line(&mut state, shared, rate, key.trim(), raw.trim());
 
-		if !applied {
+		if applied {
+			state.normalize_slots();
+		} else {
 			ok = false;
 		}
 	}
@@ -477,10 +479,6 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		let Some(kind) = module_kind(raw) else {
 			return false;
 		};
-
-		if state.bands[band].slots.len() >= 8 {
-			return false;
-		}
 
 		let id = state.next_id();
 		let module = Some(ModuleState::new(id, kind));
