@@ -1,10 +1,12 @@
-//! The audio-thread half: a chain of erased effects.
+//! The audio-thread half: a three-band split, two slots per band.
 //!
 //! A module is a Paramed around a ModuleEffect. Paramed keeps the parameter map
 //! the page writes and pushes it into the effect before every block, which is the
 //! same arrangement EffectProcessor uses for a single product. The Box is the
-//! only thing the rack needs to know about a module: everything else comes from
-//! its Parameters implementation.
+//! only thing the rack needs to know about a module.
+//!
+//! The split itself is in crossover.rs. A band is muted/soloed after its
+//! modules and before the sum; the band gain and pan are the last thing applied.
 
 use std::sync::atomic::Ordering;
 
@@ -13,14 +15,11 @@ use i_am_dsp::prelude::{
 };
 use i_am_dsp::ProcessContext;
 
+use crate::crossover::Crossover;
 use crate::module::{self, ModuleKind};
-use crate::state::RackState;
+use crate::state::{ModuleState, RackState};
 
 /// A boxed effect, adapted so Paramed can wrap it.
-///
-/// Paramed wants a concrete type with Parameters and Effect; a trait object is
-/// neither nameable as a type parameter here nor extendable by an impl, so this
-/// newtype delegates both traits to the box inside it.
 pub(crate) struct ModuleEffect(Box<dyn Effect<2>>);
 
 impl Parameters for ModuleEffect {
@@ -62,11 +61,8 @@ struct Module {
 }
 
 impl Module {
-	fn new(state: &crate::state::ModuleState, sample_rate: usize) -> Self {
+	fn new(state: &ModuleState, sample_rate: usize) -> Self {
 		let effect = module::build(state.kind, sample_rate);
-
-		// The map is made from the effect's own schema, then brought up to the
-		// values the state file carries. Paramed pushes it back on every block.
 		let paramed = Paramed::new(ModuleEffect(effect));
 		let map = paramed.param_map();
 
@@ -82,12 +78,154 @@ impl Module {
 			map,
 		}
 	}
+
+	fn update(&mut self, state: &ModuleState) {
+		self.bypass = state.bypass;
+
+		for (identifier, value) in &state.params {
+			store(&self.map, identifier, *value);
+		}
+	}
+}
+
+/// One band's controls and slots.
+struct Lane {
+	gain: f64,
+	pan: f64,
+	mute: bool,
+	solo: bool,
+	slots: [Option<Module>; 2],
+}
+
+impl Lane {
+	fn new() -> Self {
+		Self {
+			gain: 1.0,
+			pan: 0.0,
+			mute: false,
+			solo: false,
+			slots: [None, None],
+		}
+	}
+}
+
+/// The three-band engine the audio thread runs.
+pub(crate) struct Engine {
+	lanes: [Lane; 3],
+	crossover: Crossover,
+	/// The rate the modules were built for.
+	pub rate: usize,
+}
+
+impl Engine {
+	/// Builds the bands described by a state.
+	pub fn new(sample_rate: usize, state: &RackState) -> Self {
+		let mut engine = Self {
+			lanes: [Lane::new(), Lane::new(), Lane::new()],
+			crossover: Crossover::new(sample_rate, state.split_low, state.split_high),
+			rate: sample_rate,
+		};
+
+		engine.apply(state);
+		engine
+	}
+
+	/// Copies the editable state into the running bands.
+	pub fn apply(&mut self, state: &RackState) {
+		self.crossover.set_splits(state.split_low, state.split_high);
+
+		for (index, band) in state.bands.iter().enumerate() {
+			let lane = &mut self.lanes[index];
+
+			lane.gain = band.gain;
+			lane.pan = band.pan;
+			lane.mute = band.mute;
+			lane.solo = band.solo;
+
+			for (slot, edited) in band.slots.iter().enumerate() {
+				match edited {
+					Some(edited) => {
+						let rebuild = match &lane.slots[slot] {
+							Some(module) => module.kind != edited.kind || module.id != edited.id,
+							None => true,
+						};
+
+						if rebuild {
+							lane.slots[slot] = Some(Module::new(edited, self.rate));
+						} else if let Some(module) = &mut lane.slots[slot] {
+							module.update(edited);
+						}
+					},
+					None => lane.slots[slot] = None,
+				}
+			}
+		}
+	}
+
+	/// Splits the frame, runs both slots of every band, and sums what is left.
+	pub fn process(
+		&mut self,
+		samples: &mut [f32; 2],
+		_other: &[[f32; 2]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		let bands = self.crossover.split(*samples, process_context);
+		let any_solo = self.lanes.iter().any(|lane| lane.solo);
+		let mut output = [0.0_f32; 2];
+
+		for (index, lane) in self.lanes.iter_mut().enumerate() {
+			if lane.mute || (any_solo && !lane.solo) {
+				continue;
+			}
+
+			let mut band = bands[index];
+
+			for slot in &mut lane.slots {
+				let Some(module) = slot else {
+					continue;
+				};
+
+				if !module.bypass {
+					module.paramed.process(&mut band, &[], process_context);
+				}
+			}
+
+			let gain = lane.gain as f32;
+			let pan = lane.pan as f32;
+			let left = gain * if pan > 0.0 { 1.0 - pan } else { 1.0 };
+			let right = gain * if pan < 0.0 { 1.0 + pan } else { 1.0 };
+
+			output[0] += band[0] * left;
+			output[1] += band[1] * right;
+		}
+
+		*samples = output;
+	}
+
+	/// The latency of the chain, in samples.
+	pub fn delay(&self) -> usize {
+		self.lanes
+			.iter()
+			.flat_map(|lane| &lane.slots)
+			.flatten()
+			.map(|module| module.paramed.delay())
+			.max()
+			.unwrap_or(0)
+	}
+
+	/// The populated slots, in band order, for a test.
+	#[cfg(test)]
+	pub fn kinds(&self) -> Vec<ModuleKind> {
+		self.lanes
+			.iter()
+			.flat_map(|lane| &lane.slots)
+			.flatten()
+			.map(|module| module.kind)
+			.collect()
+	}
 }
 
 /// Writes a numeric value into the map, converting to the type the parameter holds.
-///
-/// The state stores everything as f64; a mode is an integer and a bypass-like
-/// flag is a boolean, and storing the wrong type would be ignored by the map.
 fn store(map: &ParamMap, identifier: &str, value: f64) {
 	let Some(atomic) = map.get(identifier) else {
 		return;
@@ -99,87 +237,5 @@ fn store(map: &ParamMap, identifier: &str, value: f64) {
 		atomic.store(value != 0.0, Ordering::SeqCst);
 	} else {
 		atomic.store(value as f32, Ordering::SeqCst);
-	}
-}
-
-/// The chain the audio thread runs.
-pub(crate) struct Engine {
-	modules: Vec<Module>,
-	/// The rate the modules were built for.
-	pub rate: usize,
-}
-
-impl Engine {
-	/// Builds the chain described by a state.
-	pub fn new(sample_rate: usize, state: &RackState) -> Self {
-		Self {
-			modules: state
-				.modules
-				.iter()
-				.map(|module| Module::new(module, sample_rate))
-				.collect(),
-			rate: sample_rate,
-		}
-	}
-
-	/// Copies the editable state into the running chain.
-	///
-	/// Called when the page changed something, not every block. Only values that
-	/// differ are stored, so a block that changed nothing costs one compare.
-	pub fn apply(&mut self, state: &RackState) {
-		for module in &mut self.modules {
-			let Some(edited) = state.modules.iter().find(|edited| edited.id == module.id)
-			else {
-				continue;
-			};
-
-			// A kind change would need a new effect, which M0 cannot do; the
-			// state the page writes never changes one.
-			if edited.kind != module.kind {
-				continue;
-			}
-
-			module.bypass = edited.bypass;
-
-			for (identifier, value) in &edited.params {
-				store(&module.map, identifier, *value);
-			}
-		}
-	}
-
-	/// Runs every enabled module in order.
-	pub fn process(
-		&mut self,
-		samples: &mut [f32; 2],
-		other: &[[f32; 2]],
-		process_context: &mut Box<dyn ProcessContext>,
-	) {
-		// Effect takes side-chains as slices of slices, which the processor is not
-		// given; M0 has no side-chain module, so this list stays empty in practice.
-		let sides: Vec<&[f32; 2]> = other.iter().collect();
-
-		for module in &mut self.modules {
-			if module.bypass {
-				continue;
-			}
-
-			module
-				.paramed
-				.process(samples, &sides, process_context);
-		}
-	}
-
-	/// The latency of the chain, in samples.
-	pub fn delay(&self) -> usize {
-		self.modules
-			.iter()
-			.map(|module| module.paramed.delay())
-			.sum()
-	}
-
-	/// The kinds in the chain, in order, for a test.
-	#[cfg(test)]
-	pub fn kinds(&self) -> Vec<ModuleKind> {
-		self.modules.iter().map(|module| module.kind).collect()
 	}
 }

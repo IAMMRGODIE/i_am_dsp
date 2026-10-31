@@ -53,7 +53,7 @@
     data.modules.forEach(function (module) {
       rack.appendChild(window.IAmCard.create({
         title: module.kind,
-        badge: "M" + (module.id + 1),
+        badge: module.band_name || ("M" + (module.id + 1)),
         accent: module.accent,
         hero: module.hero,
         mode: module.mode,

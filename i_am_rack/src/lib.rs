@@ -6,6 +6,7 @@
 //! the shape the final product needs: module parameters are too dynamic to be
 //! automation lanes, and a single state blob is what a project save carries.
 
+mod crossover;
 mod engine;
 mod module;
 mod shared;
