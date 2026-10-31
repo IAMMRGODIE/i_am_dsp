@@ -438,67 +438,242 @@
     return section;
   }
 
-  function sourceControl(card, spec, value, address) {
-    card.appendChild(window.IAmCard.control(spec, value, function (_, next) {
-      queue(address, next);
+  function svgNode(tag, attributes) {
+    var node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (var key in attributes) node.setAttribute(key, attributes[key]);
+    return node;
+  }
+
+  function paintCurve(svg, values, color) {
+    svg.textContent = "";
+
+    svg.appendChild(svgNode("line", {
+      x1: 8, y1: 32, x2: 292, y2: 32,
+      stroke: "#333", "stroke-width": "1", "stroke-dasharray": "2 4"
+    }));
+
+    var path = "";
+
+    for (var i = 0; i < values.length; i++) {
+      var x = 8 + i / (values.length - 1) * 284;
+      var y = 32 - Math.max(-1, Math.min(1, values[i])) * 22;
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    svg.appendChild(svgNode("path", {
+      d: path, fill: "none", stroke: color, "stroke-width": "2",
+      "stroke-linecap": "round", "vector-effect": "non-scaling-stroke"
     }));
   }
 
-  function makeSourceCard(title, build) {
+  function lfoValue(shape, phase) {
+    switch (((shape % 4) + 4) % 4) {
+      case 1: return 1 - 4 * Math.abs(phase - 0.5);
+      case 2: return 2 * phase - 1;
+      case 3: return phase < 0.5 ? 1 : -1;
+      default: return Math.sin(phase * Math.PI * 2);
+    }
+  }
+
+  function tableValue(shape, morph, phase) {
+    var first = lfoValue(shape, phase);
+    var second = lfoValue(shape + 1, phase);
+    return first + (second - first) * Math.max(0, Math.min(1, morph));
+  }
+
+  function drawLfo(svg, lfo) {
+    var cycles = Math.max(1, Math.min(4, Math.round(lfo.rate || 1)));
+    var values = [];
+
+    for (var i = 0; i < 120; i++) {
+      values.push(lfoValue(lfo.shape, (i / 120 * cycles) % 1));
+    }
+
+    paintCurve(svg, values, "#4c8dff");
+  }
+
+  function drawEnvelope(svg, env) {
+    var attack = Math.max(1, env.attack || 10);
+    var release = Math.max(1, env.release || 100);
+    var knee = Math.max(0.08, Math.min(0.92, attack / (attack + release)));
+    var values = [];
+
+    for (var i = 0; i < 120; i++) {
+      var t = i / 119;
+      values.push(t <= knee ? t / knee : Math.exp(-4 * (t - knee) / (1 - knee)));
+    }
+
+    paintCurve(svg, values, "#35c77a");
+  }
+
+  function drawRandom(svg, random) {
+    var steps = Math.max(4, Math.min(32, Math.round((random.rate || 4) * 2)));
+    var alpha = 0.08 + 0.65 * Math.exp(-(random.smooth || 0) / 120);
+    var current = 0;
+    var values = [];
+
+    for (var i = 0; i < 120; i++) {
+      var step = Math.floor(i / 120 * steps);
+      var seed = Math.sin(step * 12.9898 + 4.1414) * 43758.5453;
+      var target = (seed - Math.floor(seed)) * 2 - 1;
+      current += (target - current) * alpha;
+      values.push(current);
+    }
+
+    paintCurve(svg, values, "#ff9a3d");
+  }
+
+  function drawTable(svg, table) {
+    var values = [];
+
+    for (var i = 0; i < 120; i++) {
+      values.push(tableValue(table.shape, table.morph, (i / 120 * 2) % 1));
+    }
+
+    paintCurve(svg, values, "#c8e04a");
+  }
+
+  function sourceControl(card, spec, value, address, onChange) {
+    card.appendChild(window.IAmCard.control(spec, value, function (_, next) {
+      queue(address, next);
+      if (onChange) onChange(next);
+    }));
+  }
+
+  function makeSourceCard(title, accent, paint, build) {
     var card = el("div", "mod-card");
+    card.style.setProperty("--accent", accent);
     card.appendChild(el("div", "mod-card-title", title));
+
+    var hero = el("div", "mod-hero");
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 300 64");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", title + " modulation shape");
+    hero.appendChild(svg);
+    card.appendChild(hero);
+
     var controls = el("div", "mod-card-controls");
-    build(controls);
+    build(controls, function () { paint(svg); });
+    paint(svg);
     card.appendChild(controls);
     return card;
   }
 
+  function numberOr(value, fallback) {
+    return typeof value === "number" ? value : fallback;
+  }
+
   function makeModulation(data) {
     var sources = data.sources || {};
-    var lfo = sources.lfo || {};
-    var env = sources.env || {};
-    var random = sources.random || {};
+    var lfo = {
+      rate: numberOr((sources.lfo || {}).rate, 1),
+      shape: numberOr((sources.lfo || {}).shape, 0)
+    };
+    var env = {
+      attack: numberOr((sources.env || {}).attack, 10),
+      release: numberOr((sources.env || {}).release, 100)
+    };
+    var random = {
+      rate: numberOr((sources.random || {}).rate, 4),
+      smooth: numberOr((sources.random || {}).smooth, 80)
+    };
+    var table = {
+      rate: numberOr((sources.table || {}).rate, 1),
+      shape: numberOr((sources.table || {}).shape, 0),
+      morph: numberOr((sources.table || {}).morph, 0)
+    };
     var section = el("section", "modulation");
     var head = el("div", "mod-head");
 
     head.appendChild(el("span", "mod-title", "MODULATION"));
-    head.appendChild(el("span", "mod-hint", "8 slots \u00B7 LFO / envelope / random"));
+    head.appendChild(el("span", "mod-hint", "8 slots \u00B7 LFO / envelope / random / table"));
     section.appendChild(head);
 
     var grid = el("div", "mod-sources");
 
-    grid.appendChild(makeSourceCard("LFO", function (card) {
+    grid.appendChild(makeSourceCard("LFO", "#4c8dff", function (svg) {
+      drawLfo(svg, lfo);
+    }, function (card, refresh) {
       sourceControl(card, {
         id: "lfo.rate", label: "Rate", kind: "float",
         min: 0.01, max: 20, default: 1, unit: "hz", log: true
-      }, lfo.rate === undefined ? 1 : lfo.rate, "source.lfo.rate");
+      }, lfo.rate, "source.lfo.rate", function (value) {
+        lfo.rate = value;
+        refresh();
+      });
       sourceControl(card, {
         id: "lfo.shape", label: "Shape", kind: "int",
         min: 0, max: 3, default: 0, widget: "choice",
         choices: ["Sine", "Triangle", "Saw", "Square"]
-      }, lfo.shape === undefined ? 0 : lfo.shape, "source.lfo.shape");
+      }, lfo.shape, "source.lfo.shape", function (value) {
+        lfo.shape = value;
+        refresh();
+      });
     }));
 
-    grid.appendChild(makeSourceCard("Envelope", function (card) {
+    grid.appendChild(makeSourceCard("Envelope", "#35c77a", function (svg) {
+      drawEnvelope(svg, env);
+    }, function (card, refresh) {
       sourceControl(card, {
         id: "env.attack", label: "Attack", kind: "float",
         min: 1, max: 500, default: 10, unit: "ms", log: true
-      }, env.attack === undefined ? 10 : env.attack, "source.env.attack");
+      }, env.attack, "source.env.attack", function (value) {
+        env.attack = value;
+        refresh();
+      });
       sourceControl(card, {
         id: "env.release", label: "Release", kind: "float",
         min: 1, max: 500, default: 100, unit: "ms", log: true
-      }, env.release === undefined ? 100 : env.release, "source.env.release");
+      }, env.release, "source.env.release", function (value) {
+        env.release = value;
+        refresh();
+      });
     }));
 
-    grid.appendChild(makeSourceCard("Random", function (card) {
+    grid.appendChild(makeSourceCard("Random", "#ff9a3d", function (svg) {
+      drawRandom(svg, random);
+    }, function (card, refresh) {
       sourceControl(card, {
         id: "random.rate", label: "Rate", kind: "float",
         min: 0.01, max: 20, default: 4, unit: "hz", log: true
-      }, random.rate === undefined ? 4 : random.rate, "source.random.rate");
+      }, random.rate, "source.random.rate", function (value) {
+        random.rate = value;
+        refresh();
+      });
       sourceControl(card, {
         id: "random.smooth", label: "Smooth", kind: "float",
         min: 0, max: 500, default: 80, unit: "ms", log: true
-      }, random.smooth === undefined ? 80 : random.smooth, "source.random.smooth");
+      }, random.smooth, "source.random.smooth", function (value) {
+        random.smooth = value;
+        refresh();
+      });
+    }));
+
+    grid.appendChild(makeSourceCard("Table", "#c8e04a", function (svg) {
+      drawTable(svg, table);
+    }, function (card, refresh) {
+      sourceControl(card, {
+        id: "table.rate", label: "Rate", kind: "float",
+        min: 0.01, max: 20, default: 1, unit: "hz", log: true
+      }, table.rate, "source.table.rate", function (value) {
+        table.rate = value;
+      });
+      sourceControl(card, {
+        id: "table.shape", label: "Shape", kind: "int",
+        min: 0, max: 3, default: 0, widget: "choice",
+        choices: ["Sine", "Triangle", "Saw", "Square"]
+      }, table.shape, "source.table.shape", function (value) {
+        table.shape = value;
+        refresh();
+      });
+      sourceControl(card, {
+        id: "table.morph", label: "Morph", kind: "float",
+        min: 0, max: 1, default: 0, unit: "percent"
+      }, table.morph, "source.table.morph", function (value) {
+        table.morph = value;
+        refresh();
+      });
     }));
 
     section.appendChild(grid);
@@ -516,8 +691,8 @@
 
   function makeAssignment(data, slot, assignment) {
     var row = el("div", "assign-row");
-    var sourceNames = ["LFO", "Envelope", "Random"];
-    var sourceValues = ["lfo", "env", "random"];
+    var sourceNames = ["LFO", "Envelope", "Random", "Table"];
+    var sourceValues = ["lfo", "env", "random", "table"];
 
     row.appendChild(el("span", "assign-slot", String(slot + 1).padStart(2, "0")));
 

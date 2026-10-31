@@ -119,6 +119,11 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 			"rate": state.sources.random_rate,
 			"smooth": state.sources.random_smooth,
 		},
+		"table": {
+			"rate": state.sources.table_rate,
+			"shape": state.sources.table_shape,
+			"morph": state.sources.table_morph,
+		},
 	});
 
 	json!({
@@ -496,6 +501,13 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		("random", "smooth") => {
 			state.sources.random_smooth = value.clamp(0.0, 500.0) as f32;
 		},
+		("table", "rate") => state.sources.table_rate = value.clamp(0.01, 20.0) as f32,
+		("table", "shape") => {
+			state.sources.table_shape = (value.round() as i32).clamp(0, 3);
+		},
+		("table", "morph") => {
+			state.sources.table_morph = value.clamp(0.0, 1.0) as f32;
+		},
 		_ => return false,
 	}
 
@@ -565,6 +577,7 @@ fn source_index(raw: &str) -> Option<usize> {
 		"lfo" => Some(0),
 		"env" | "envelope" => Some(1),
 		"random" => Some(2),
+		"table" => Some(3),
 		_ => None,
 	}
 }

@@ -343,6 +343,9 @@ fn source_and_assignment_commands_edit_the_state() {
 source.lfo.shape=2
 source.env.attack=5
 source.random.smooth=120
+source.table.rate=0.5
+source.table.shape=1
+source.table.morph=0.4
 assign.0.source=lfo
 assign.0.target=m0.cutoff
 assign.0.depth=0.5",
@@ -356,6 +359,9 @@ assign.0.depth=0.5",
 	assert_eq!(state.sources.lfo_shape, 2);
 	assert!((state.sources.env_attack - 5.0).abs() < 1e-6);
 	assert!((state.sources.random_smooth - 120.0).abs() < 1e-6);
+	assert!((state.sources.table_rate - 0.5).abs() < 1e-6);
+	assert_eq!(state.sources.table_shape, 1);
+	assert!((state.sources.table_morph - 0.4).abs() < 1e-6);
 
 	let assignment = state.assignments[0]
 		.as_ref()
@@ -385,6 +391,8 @@ fn the_rack_route_lists_modulation_targets() {
 	assert!(targets.iter().any(|target| target["id"] == "band.0.gain"));
 	assert_eq!(json["assignments"].as_array().expect("assignments").len(), 8);
 	assert_eq!(json["sources"]["lfo"]["shape"], 0);
+	assert_eq!(json["sources"]["table"]["shape"], 0);
+	assert!(json["sources"]["table"]["morph"].is_number());
 }
 
 /// An LFO assignment moves the filter cutoff at the control rate.
@@ -423,6 +431,47 @@ fn an_lfo_modulates_a_filter_cutoff() {
 	assert!(
 		highest - lowest > 100.0,
 		"the cutoff stayed between {lowest} and {highest}"
+	);
+}
+
+/// A table assignment moves the filter cutoff too.
+#[test]
+fn a_table_modulates_a_filter_cutoff() {
+	let mut state = RackState::initial();
+
+	state.sources.table_rate = 10.0;
+	state.sources.table_shape = 1;
+	state.sources.table_morph = 0.75;
+	state.assignments[0] = Some(Assignment {
+		source: 3,
+		target: Some(Target::Module {
+			module: 0,
+			parameter: "cutoff".to_string(),
+		}),
+		depth: 0.8,
+	});
+
+	let mut engine = crate::engine::Engine::new(48_000, &state);
+	let base = engine
+		.module_parameter(0, "cutoff")
+		.expect("the filter cutoff");
+	let mut lowest = base;
+	let mut highest = base;
+
+	for _ in 0..4_096 {
+		process_engine(&mut engine, [0.0, 0.0]);
+
+		let cutoff = engine
+			.module_parameter(0, "cutoff")
+			.expect("the filter cutoff");
+
+		lowest = lowest.min(cutoff);
+		highest = highest.max(cutoff);
+	}
+
+	assert!(
+		highest - lowest > 100.0,
+		"the table cutoff stayed between {lowest} and {highest}"
 	);
 }
 

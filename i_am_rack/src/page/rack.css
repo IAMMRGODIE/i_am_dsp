@@ -152,9 +152,14 @@ body{
   text-transform:uppercase; white-space:nowrap;
 }
 .mod-hint{font-size:9px; color:#666; white-space:nowrap}
-.mod-sources{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px}
+.mod-sources{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px}
 .mod-card{background:#262626; border:1px solid #353535; border-radius:8px; padding:8px 10px}
 .mod-card-title{font-size:11px; font-weight:600; margin-bottom:2px}
+.mod-hero{
+  height:64px; margin:4px 0 2px; background:#1a1a1a;
+  border:1px solid #333; border-radius:4px; overflow:hidden;
+}
+.mod-hero svg{width:100%; height:100%; display:block}
 .mod-card-controls{display:flex; flex-wrap:wrap; gap:0 6px; align-items:flex-start}
 .mod-card-controls .knob-wrap{width:96px}
 .mod-card-controls .knob{width:52px; height:52px}

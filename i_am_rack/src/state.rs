@@ -1,6 +1,6 @@
 //! The rack's own state, and the binary form a host saves.
 //!
-//! M2 splits the chain into three bands and keeps three modulation sources plus
+//! M2b splits the chain into three bands and keeps four modulation sources plus
 //! eight assignments. Every value is stored as f64 and converted to the
 //! parameter's own type by the engine; the host never sees these as parameters,
 //! the whole struct travels inside one serialized parameter.
@@ -30,7 +30,7 @@ pub struct RackState {
 	pub split_high: f32,
 	/// Low, mid and high, in that order.
 	pub bands: [BandState; 3],
-	/// The three modulation sources: LFO, envelope and random.
+	/// The four modulation sources: LFO, envelope, random and table.
 	#[serde(default)]
 	pub sources: SourceSettings,
 	/// Eight modulation assignments; empty slots are off.
@@ -38,7 +38,7 @@ pub struct RackState {
 	pub assignments: [Option<Assignment>; 8],
 }
 
-/// The knobs of the three modulation sources.
+/// The knobs of the four modulation sources.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SourceSettings {
@@ -54,6 +54,12 @@ pub struct SourceSettings {
 	pub random_rate: f32,
 	/// Random smoothing in milliseconds.
 	pub random_smooth: f32,
+	/// Wavetable rate in hertz.
+	pub table_rate: f32,
+	/// 0 sine, 1 triangle, 2 saw, 3 square.
+	pub table_shape: i32,
+	/// How far the table morphs toward the next shape, 0..1.
+	pub table_morph: f32,
 }
 
 impl Default for SourceSettings {
@@ -65,6 +71,9 @@ impl Default for SourceSettings {
 			env_release: 100.0,
 			random_rate: 4.0,
 			random_smooth: 80.0,
+			table_rate: 1.0,
+			table_shape: 0,
+			table_morph: 0.0,
 		}
 	}
 }
@@ -72,7 +81,7 @@ impl Default for SourceSettings {
 /// One source-to-target modulation assignment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assignment {
-	/// 0 LFO, 1 envelope, 2 random.
+	/// 0 LFO, 1 envelope, 2 random, 3 table.
 	pub source: usize,
 	/// What it moves; an assignment with no target is inactive.
 	pub target: Option<Target>,

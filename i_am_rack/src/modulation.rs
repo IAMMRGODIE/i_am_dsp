@@ -1,4 +1,4 @@
-//! The three control-rate modulation sources: LFO, envelope and random.
+//! The four control-rate modulation sources: LFO, envelope, random and table.
 //!
 //! The engine asks for a value every 64 samples. The LFO and random phases
 //! advance per sample so their timing does not depend on the control block, and
@@ -16,6 +16,7 @@ pub(crate) struct Modulation {
 	rate: usize,
 	counter: usize,
 	lfo_phase: f32,
+	table_phase: f32,
 	envelope: f32,
 	random_phase: f32,
 	random_target: f32,
@@ -35,6 +36,7 @@ impl Modulation {
 			rate,
 			counter: 0,
 			lfo_phase: 0.0,
+			table_phase: 0.0,
 			envelope: 0.0,
 			random_phase: 0.0,
 			random_target: 0.0,
@@ -58,10 +60,13 @@ impl Modulation {
 		self.random_coeff = time_coefficient(settings.random_smooth, self.rate);
 	}
 
-	/// Advances one sample. Returns the three source values on a control tick.
-	pub fn advance(&mut self, input: f32) -> Option<[f32; 3]> {
+	/// Advances one sample. Returns the four source values on a control tick.
+	pub fn advance(&mut self, input: f32) -> Option<[f32; 4]> {
 		let lfo_rate = self.settings.lfo_rate.clamp(0.01, 20.0);
 		self.lfo_phase = (self.lfo_phase + lfo_rate / self.rate as f32).fract();
+
+		let table_rate = self.settings.table_rate.clamp(0.01, 20.0);
+		self.table_phase = (self.table_phase + table_rate / self.rate as f32).fract();
 
 		let target = input.abs();
 		let coeff = if target > self.envelope {
@@ -94,8 +99,20 @@ impl Modulation {
 			lfo(self.settings.lfo_shape, self.lfo_phase),
 			self.envelope.clamp(0.0, 1.0),
 			self.random_value.clamp(-1.0, 1.0),
+			table(
+				self.settings.table_shape,
+				self.settings.table_morph,
+				self.table_phase,
+			),
 		])
 	}
+}
+
+/// One table sample, morphing from the selected shape to the next one.
+fn table(shape: i32, morph: f32, phase: f32) -> f32 {
+	let first = lfo(shape, phase);
+	let second = lfo(shape + 1, phase);
+	first + (second - first) * morph.clamp(0.0, 1.0)
 }
 
 /// One LFO sample, in -1..1.

@@ -335,7 +335,7 @@ impl Engine {
 	}
 
 	/// Applies the eight assignments once, at a control tick.
-	fn apply_modulation(&mut self, values: [f32; 3]) {
+	fn apply_modulation(&mut self, values: [f32; 4]) {
 		let mut sums: BTreeMap<Target, f32> = BTreeMap::new();
 
 		for assignment in self.assignments.iter().flatten() {

@@ -1,9 +1,9 @@
-//! M2 of I Am Multipass: a three-band rack with modulation of its own.
+//! M2b of I Am Multipass: a three-band rack with modulation of its own.
 //!
 //! The audio path is a LR4 split into Low / Mid / High, each with two serial
 //! module slots (Filter, Distortion, Compressor, Gain) and a band gain/pan/mute/
-//! solo stage. Three control-rate sources (LFO, envelope, random) move eight
-//! assignments across module parameters and band controls. The host sees exactly
+//! solo stage. Four control-rate sources (LFO, envelope, random, table) move
+//! eight assignments across module parameters and band controls. The host sees exactly
 //! one parameter, a serialized RackState; the page talks to the rack over /rack
 //! and /rack-command instead of the host parameter table. That is the shape the
 //! final product needs: module parameters are too dynamic to be automation
