@@ -1116,6 +1116,7 @@
     chrome = chrome || {};
     var card = el("div", "mod-card");
     card.style.setProperty("--accent", accent);
+    if (title.indexOf("MIDI") === 0) card.classList.add("midi-card");
 
     var key = chrome.key || title;
 
@@ -1192,6 +1193,11 @@
     var liveSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     liveSvg.setAttribute("viewBox", "0 0 300 64");
     liveSvg.setAttribute("class", "mod-live");
+
+    if (title.indexOf("MIDI") === 0) {
+      svg.setAttribute("preserveAspectRatio", "none");
+      liveSvg.setAttribute("preserveAspectRatio", "none");
+    }
     liveSvg.setAttribute("aria-hidden", "true");
     hero.appendChild(liveSvg);
     card.appendChild(hero);
@@ -1237,32 +1243,6 @@
 
     head.appendChild(el("span", "mod-title", "MODULATION"));
     head.appendChild(el("span", "mod-hint", "source slots \u00B7 assignments \u00B7 macros"));
-    head.appendChild(el("span", "mod-spacer"));
-
-    var add = document.createElement("select");
-    add.className = "mcard-select add-source";
-    add.setAttribute("aria-label", "Add modulation source");
-    var placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "+ Add source";
-    add.appendChild(placeholder);
-
-    [["lfo", "LFO"], ["envelope", "Envelope"], ["random", "Random"], ["table", "Table"],
-      ["pitch", "Pitch"], ["midi", "MIDI"]]
-      .forEach(function (entry) {
-        var option = document.createElement("option");
-        option.value = entry[0];
-        option.textContent = entry[1];
-        add.appendChild(option);
-      });
-
-    add.addEventListener("change", function () {
-      if (!add.value) return;
-      sendNow("source.add", add.value).then(load);
-      add.value = "";
-    });
-
-    head.appendChild(add);
     section.appendChild(head);
 
     var grid = el("div", "mod-sources");
@@ -1559,6 +1539,33 @@
       card.setAttribute("data-source-id", String(id));
       grid.appendChild(card);
     });
+
+    var addCard = el("div", "mod-card mod-add");
+    var addSelect = document.createElement("select");
+    addSelect.className = "mcard-select slot-add";
+    addSelect.setAttribute("aria-label", "Add modulation source");
+
+    var addPlaceholder = document.createElement("option");
+    addPlaceholder.value = "";
+    addPlaceholder.textContent = "+ Add source";
+    addSelect.appendChild(addPlaceholder);
+
+    [["lfo", "LFO"], ["envelope", "Envelope"], ["random", "Random"], ["table", "Table"],
+      ["pitch", "Pitch"], ["midi", "MIDI"]]
+      .forEach(function (entry) {
+        var option = document.createElement("option");
+        option.value = entry[0];
+        option.textContent = entry[1];
+        addSelect.appendChild(option);
+      });
+
+    addSelect.addEventListener("change", function () {
+      if (!addSelect.value) return;
+      sendNow("source.add", addSelect.value).then(load);
+    });
+
+    addCard.appendChild(addSelect);
+    grid.appendChild(addCard);
 
     section.appendChild(grid);
 
