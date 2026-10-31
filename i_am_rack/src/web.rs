@@ -388,6 +388,7 @@ fn command(body: &[u8], shared: &RackShared) -> ProtocolResponse {
 		}
 	}
 
+	shared.sync_params(&state);
 	shared.dirty.store(true, Ordering::Release);
 
 	ProtocolResponse::json(format!("{{\"ok\":{ok}}}"))

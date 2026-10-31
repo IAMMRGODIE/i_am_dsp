@@ -26,10 +26,11 @@ pub use state::{ModuleState, RackState};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use portable_atomic::{AtomicBool as PortableBool, AtomicF32};
+
 use i_am_dsp::Processor;
 use i_am_dsp::prelude::{
-	AtomicValue, ParamMap, Parameter, ParameterMeta, Parameters, SetValue, Unit, Value,
-	from_binary, to_binary,
+	AtomicValue, ParamMap, Parameter, Parameters, SetValue, Value, from_binary, to_binary,
 };
 use i_am_dsp::ProcessContext;
 use i_am_plugin::processor::{DEFAULT_SAMPLE_RATE, EffectMessage};
@@ -50,6 +51,36 @@ const PAGE_HTML: &str = include_str!("page/rack.html");
 const PAGE_CSS: &str = include_str!("page/rack.css");
 const PAGE_JS: &str = include_str!("page/rack.js");
 
+fn host_float(value: f32) -> AtomicValue {
+	AtomicValue::Float {
+		value: AtomicF32::new(value),
+		range: 0.0..=1.0,
+		logarithmic: false,
+		changed: PortableBool::new(false),
+	}
+}
+
+/// The host-facing parameter map: state plus macro and automation controls.
+fn host_param_map(state: &RackState) -> ParamMap {
+	let mut entries: Vec<(String, Arc<AtomicValue>)> = Vec::new();
+
+	for (index, value) in state.macros.iter().enumerate() {
+		entries.push((
+			format!("macro{}", index + 1),
+			Arc::new(host_float(*value)),
+		));
+	}
+
+	for (index, value) in state.automation_values.iter().enumerate() {
+		entries.push((
+			format!("automation{}", index + 1),
+			Arc::new(host_float(*value)),
+		));
+	}
+
+	ParamMap::new_with(entries)
+}
+
 /// The rack plug-in.
 pub struct Rack {
 	shared: Arc<RackShared>,
@@ -69,22 +100,18 @@ impl Default for Rack {
 			.map(|kind| (kind, i_am_web_gui::controls(&module::schema(kind))))
 			.collect();
 
+		let params = host_param_map(&state);
+
 		let shared = Arc::new(RackShared {
 			state: Mutex::new(state.clone()),
 			schemas,
 			dirty: AtomicBool::new(false),
 			rate: AtomicUsize::new(DEFAULT_SAMPLE_RATE),
 			live: Mutex::new(Vec::new()),
+			params: params.clone(),
 		});
 
 		let engine = Engine::new(DEFAULT_SAMPLE_RATE, &state);
-
-		// The host still needs a parameter to hang the state on. It has no range
-		// and no automation; the wrapper serializes the value it finds here.
-		let params = ParamMap::new_with([(
-			"rack_state".to_string(),
-			Arc::new(AtomicValue::Nothing),
-		)]);
 
 		Self {
 			shared,
@@ -128,44 +155,35 @@ impl Parameters for Rack {
 	fn get_parameters(&self) -> Vec<Parameter> {
 		let state = self.shared.lock();
 		let bytes = to_binary(&*state).unwrap_or_default();
-		let mut parameters = vec![Parameter::new("rack_state", Value::Serialized(bytes))];
+		let mut parameters = Vec::with_capacity(self.params.len() + 1);
+		parameters.push(Parameter::new("rack_state", Value::Serialized(bytes)));
 
-		for (index, value) in state.macros.iter().enumerate() {
-			parameters.push(
-				Parameter::new(
-					format!("macro{}", index + 1),
-					Value::Float {
-						value: *value,
-						range: 0.0..=1.0,
-						logarithmic: false,
-					},
-				)
-				.with_meta(ParameterMeta {
-					default: Some(0.0),
-					unit: Unit::Percent,
-					display_name: Some(format!("Macro {}", index + 1).into()),
-					..ParameterMeta::default()
-				}),
-			);
-		}
+		for index in 0..self.params.len() {
+			let Some(identifier) = self.params.query_param_id(index) else {
+				continue;
+			};
+			let meta = self.params.query_meta(index).unwrap_or_default();
 
-		for (index, value) in state.automation_values.iter().enumerate() {
-			parameters.push(
-				Parameter::new(
-					format!("automation{}", index + 1),
-					Value::Float {
-						value: *value,
-						range: 0.0..=1.0,
-						logarithmic: false,
-					},
-				)
-				.with_meta(ParameterMeta {
-					default: Some(0.0),
-					unit: Unit::Percent,
-					display_name: Some(format!("Automation {}", index + 1).into()),
-					..ParameterMeta::default()
-				}),
-			);
+			let Some(atomic) = self.params.get_by_index(index) else {
+				continue;
+			};
+			let value = match atomic.load(Ordering::Relaxed) {
+				SetValue::Float(value) => Value::Float {
+					value,
+					range: 0.0..=1.0,
+					logarithmic: false,
+				},
+				SetValue::Int(value) => Value::Int {
+					value,
+					range: 0..=1,
+					logarithmic: false,
+				},
+				SetValue::Bool(value) => Value::Bool(value),
+				SetValue::Nothing => Value::Nothing,
+				SetValue::Serialized(_) => Value::Nothing,
+			};
+
+			parameters.push(Parameter::new(identifier, value).with_meta(meta));
 		}
 
 		parameters
@@ -182,6 +200,7 @@ impl Parameters for Rack {
 			};
 
 			state.migrate();
+			self.shared.sync_params(&state);
 			*self.shared.lock() = state;
 			self.shared.dirty.store(true, Ordering::Release);
 			return true;
@@ -209,6 +228,8 @@ impl Parameters for Rack {
 			return false;
 		}
 
+		self.params
+			.set(identifier, SetValue::Float(value), Ordering::SeqCst);
 		drop(state);
 		self.shared.dirty.store(true, Ordering::Release);
 		true

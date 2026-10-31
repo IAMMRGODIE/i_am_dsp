@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 
+use i_am_dsp::prelude::ParamMap;
 use i_am_web_gui::Control;
 
 use crate::module::ModuleKind;
@@ -25,6 +26,8 @@ pub(crate) struct RackShared {
 	pub rate: AtomicUsize,
 	/// The latest live source values/phases.
 	pub live: Mutex<Vec<(u32, f32, f32)>>,
+	/// The host-facing parameter map, kept in sync with the state.
+	pub params: ParamMap,
 }
 
 impl RackShared {
@@ -34,5 +37,24 @@ impl RackShared {
 		self.state
 			.lock()
 			.unwrap_or_else(|poisoned| poisoned.into_inner())
+	}
+
+	/// Mirrors page-driven macro/automation edits into the host map.
+	pub fn sync_params(&self, state: &RackState) {
+		for (index, value) in state.macros.iter().enumerate() {
+			self.params.set(
+				&format!("macro{}", index + 1),
+				*value,
+				std::sync::atomic::Ordering::SeqCst,
+			);
+		}
+
+		for (index, value) in state.automation_values.iter().enumerate() {
+			self.params.set(
+				&format!("automation{}", index + 1),
+				*value,
+				std::sync::atomic::Ordering::SeqCst,
+			);
+		}
 	}
 }

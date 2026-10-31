@@ -180,12 +180,33 @@ fn host_parameters_cover_macros_and_automation() {
 	assert_eq!(parameters[1].identifier, "macro1");
 	assert_eq!(parameters[9].identifier, "automation1");
 
+	let map = rack.param_map();
+	assert_eq!(map.len(), 40);
+	assert_eq!(map.query_param_id(0), Some("macro1"));
+
 	assert!(rack.set_parameter("macro1", SetValue::Float(0.75)));
 	assert!(rack.set_parameter("automation1", SetValue::Float(0.5)));
 
 	let state = rack.state();
 	assert!((state.macros[0] - 0.75).abs() < 1e-6);
 	assert!((state.automation_values[0] - 0.5).abs() < 1e-6);
+
+	let macro_value = map
+		.get("macro1")
+		.unwrap()
+		.load(std::sync::atomic::Ordering::Relaxed)
+		.float()
+		.unwrap();
+	assert!((macro_value - 0.75).abs() < 1e-6);
+
+	assert_eq!(command(&rack, "macro.0=0.25").body, b"{\"ok\":true}");
+	let macro_value = map
+		.get("macro1")
+		.unwrap()
+		.load(std::sync::atomic::Ordering::Relaxed)
+		.float()
+		.unwrap();
+	assert!((macro_value - 0.25).abs() < 1e-6);
 
 	assert_eq!(command(&rack, "automation.0.target=m0.cutoff").body, b"{\"ok\":true}");
 
