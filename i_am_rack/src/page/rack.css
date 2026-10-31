@@ -139,11 +139,14 @@ body{
   color:var(--text3); text-transform:uppercase;
 }
 .slot .mcard{width:100%}
-.slot:has(.mcard.collapsed){flex:0 0 72px; min-width:72px; align-self:stretch}
-.slot .mcard.collapsed{height:100%; min-height:260px}
+.slot:has(.mcard.collapsed){flex:0 0 56px; min-width:56px; align-self:stretch}
+.slot .mcard.collapsed{
+  flex:1; align-self:stretch; min-height:240px;
+  display:flex; flex-direction:column;
+}
 .slot .mcard.collapsed .mcard-head{
-  flex-direction:column; align-items:center; justify-content:flex-start;
-  gap:9px; height:100%; min-height:100%; padding:10px 4px;
+  flex:1; flex-direction:column; align-items:center; justify-content:space-between;
+  gap:4px; height:100%; min-height:100%; padding:10px 3px;
 }
 .slot .mcard.collapsed .mcard-setting,
 .slot .mcard.collapsed .mcard-kind,
@@ -231,12 +234,13 @@ body{
 .mod-card.collapsed .mod-hero,
 .mod-card.collapsed .mod-card-controls{display:none}
 .mod-card.collapsed{
-  padding-bottom:0; flex:0 0 72px; min-width:72px;
-  align-self:stretch; height:100%; min-height:260px;
+  padding-bottom:0; flex:0 0 56px; min-width:56px;
+  align-self:stretch; min-height:240px;
+  display:flex; flex-direction:column;
 }
 .mod-card.collapsed .mod-card-head{
-  flex-direction:column; align-items:center; justify-content:flex-start;
-  gap:9px; height:100%; min-height:100%; padding:9px 4px;
+  flex:1; flex-direction:column; align-items:center; justify-content:space-between;
+  gap:4px; height:100%; min-height:100%; padding:9px 3px;
 }
 .mod-card.collapsed .mcard-setting,
 .mod-card.collapsed .mcard-spacer{display:none}
