@@ -28,8 +28,8 @@ use std::sync::{Arc, Mutex};
 
 use i_am_dsp::Processor;
 use i_am_dsp::prelude::{
-	AtomicValue, ParamMap, Parameter, Parameters, SetValue, Value, from_binary,
-	to_binary,
+	AtomicValue, ParamMap, Parameter, ParameterMeta, Parameters, SetValue, Unit, Value,
+	from_binary, to_binary,
 };
 use i_am_dsp::ProcessContext;
 use i_am_plugin::processor::{DEFAULT_SAMPLE_RATE, EffectMessage};
@@ -128,25 +128,88 @@ impl Parameters for Rack {
 	fn get_parameters(&self) -> Vec<Parameter> {
 		let state = self.shared.lock();
 		let bytes = to_binary(&*state).unwrap_or_default();
+		let mut parameters = vec![Parameter::new("rack_state", Value::Serialized(bytes))];
 
-		vec![Parameter::new("rack_state", Value::Serialized(bytes))]
+		for (index, value) in state.macros.iter().enumerate() {
+			parameters.push(
+				Parameter::new(
+					format!("macro{}", index + 1),
+					Value::Float {
+						value: *value,
+						range: 0.0..=1.0,
+						logarithmic: false,
+					},
+				)
+				.with_meta(ParameterMeta {
+					default: Some(0.0),
+					unit: Unit::Percent,
+					display_name: Some(format!("Macro {}", index + 1).into()),
+					..ParameterMeta::default()
+				}),
+			);
+		}
+
+		for (index, value) in state.automation_values.iter().enumerate() {
+			parameters.push(
+				Parameter::new(
+					format!("automation{}", index + 1),
+					Value::Float {
+						value: *value,
+						range: 0.0..=1.0,
+						logarithmic: false,
+					},
+				)
+				.with_meta(ParameterMeta {
+					default: Some(0.0),
+					unit: Unit::Percent,
+					display_name: Some(format!("Automation {}", index + 1).into()),
+					..ParameterMeta::default()
+				}),
+			);
+		}
+
+		parameters
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		if identifier != "rack_state" {
+		if identifier == "rack_state" {
+			let SetValue::Serialized(bytes) = value else {
+				return false;
+			};
+
+			let Ok(mut state) = from_binary::<RackState>(bytes) else {
+				return false;
+			};
+
+			state.migrate();
+			*self.shared.lock() = state;
+			self.shared.dirty.store(true, Ordering::Release);
+			return true;
+		}
+
+		let SetValue::Float(value) = value else {
+			return false;
+		};
+		let value = value.clamp(0.0, 1.0);
+		let mut state = self.shared.lock();
+
+		if let Some(index) = identifier
+			.strip_prefix("macro")
+			.and_then(|index| index.parse::<usize>().ok())
+			.filter(|index| (1..=8).contains(index))
+		{
+			state.macros[index - 1] = value;
+		} else if let Some(index) = identifier
+			.strip_prefix("automation")
+			.and_then(|index| index.parse::<usize>().ok())
+			.filter(|index| (1..=crate::state::AUTOMATION_SLOTS).contains(index))
+		{
+			state.automation_values[index - 1] = value;
+		} else {
 			return false;
 		}
 
-		let SetValue::Serialized(bytes) = value else {
-			return false;
-		};
-
-		let Ok(mut state) = from_binary::<RackState>(bytes) else {
-			return false;
-		};
-
-		state.migrate();
-		*self.shared.lock() = state;
+		drop(state);
 		self.shared.dirty.store(true, Ordering::Release);
 		true
 	}

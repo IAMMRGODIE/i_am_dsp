@@ -139,6 +139,11 @@ impl Module {
 		self.current.get(identifier).copied()
 	}
 
+	fn set_base_target(&mut self, identifier: &str, value: f64) {
+		self.base.insert(identifier.to_string(), value);
+		self.smoothing = true;
+	}
+
 	fn control(&self, identifier: &str) -> Option<&Control> {
 		self.controls.get(identifier)
 	}
@@ -325,6 +330,39 @@ impl Engine {
 
 		self.assignments = state.assignments.clone();
 		self.macros = state.macros;
+		self.apply_automation(state);
+	}
+
+	fn apply_automation(&mut self, state: &RackState) {
+		for (slot, target) in state.automation.iter().enumerate() {
+			let Some(target) = target else {
+				continue;
+			};
+			let value = state.automation_values[slot].clamp(0.0, 1.0) as f64;
+
+			match target {
+				Target::Module { module, parameter } => {
+					let Some(module) = self.module_mut(*module) else {
+						continue;
+					};
+					let Some(control) = module.control(parameter).cloned() else {
+						continue;
+					};
+					let mapped = control.min + (control.max - control.min) * value;
+					module.set_base_target(parameter, mapped);
+				},
+				Target::BandGain(index) => {
+					if let Some(lane) = self.lanes.get_mut(*index) {
+						lane.base_gain = value * 2.0;
+					}
+				},
+				Target::BandPan(index) => {
+					if let Some(lane) = self.lanes.get_mut(*index) {
+						lane.base_pan = value * 2.0 - 1.0;
+					}
+				},
+			}
+		}
 	}
 
 	/// Splits the frame, runs both slots of every band, and sums what is left.

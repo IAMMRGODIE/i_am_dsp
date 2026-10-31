@@ -169,6 +169,34 @@ fn the_rack_route_lists_bands_and_modules() {
 	);
 }
 
+/// The host sees eight macros and 32 fixed automation parameters.
+#[test]
+fn host_parameters_cover_macros_and_automation() {
+	let mut rack = Rack::default();
+	let parameters = rack.get_parameters();
+
+	assert_eq!(parameters.len(), 41);
+	assert_eq!(parameters[0].identifier, "rack_state");
+	assert_eq!(parameters[1].identifier, "macro1");
+	assert_eq!(parameters[9].identifier, "automation1");
+
+	assert!(rack.set_parameter("macro1", SetValue::Float(0.75)));
+	assert!(rack.set_parameter("automation1", SetValue::Float(0.5)));
+
+	let state = rack.state();
+	assert!((state.macros[0] - 0.75).abs() < 1e-6);
+	assert!((state.automation_values[0] - 0.5).abs() < 1e-6);
+
+	assert_eq!(command(&rack, "automation.0.target=m0.cutoff").body, b"{\"ok\":true}");
+
+	for _ in 0..256 {
+		process(&mut rack, [0.0, 0.0]);
+	}
+
+	let cutoff = rack.engine.module_parameter(0, "cutoff").unwrap();
+	assert!(cutoff > 1_000.0, "automated cutoff {cutoff}");
+}
+
 /// A whole-plug-in bypass is the input, untouched.
 #[test]
 fn the_plug_in_bypass_passes_the_signal_through() {
@@ -560,7 +588,7 @@ fn legacy_sources_migrate_to_slots() {
 
 	state.migrate();
 
-	assert_eq!(state.version, 7);
+	assert_eq!(state.version, 8);
 	assert_eq!(state.source_slots.len(), 4);
 	assert_eq!(state.source_slots[0].kind, SourceKind::Lfo);
 	assert!((state.source_slots[0].settings.lfo_rate - 3.0).abs() < 1e-6);
@@ -631,6 +659,7 @@ fn the_rack_route_lists_modulation_targets() {
 	assert_eq!(sources[3]["kind"], "table");
 	assert!(sources[3]["settings"]["morph"].is_number());
 	assert_eq!(json["macros"].as_array().expect("macros").len(), 8);
+	assert_eq!(json["automation"].as_array().expect("automation").len(), 32);
 }
 
 /// A Pitch source follows a 440 Hz tone as a normalized MIDI note.

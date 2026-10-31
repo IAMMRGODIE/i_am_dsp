@@ -279,6 +279,26 @@ body{
 .mod-card-controls .knob-wrap{width:100px}
 .mod-card-controls .knob{width:54px; height:54px}
 .mod-card-controls .mcard-row{width:100%; justify-content:flex-start; padding:4px 0 0}
+.automation{
+  padding:10px 12px 12px; margin-top:10px;
+  background:#202020; border:1px solid #333; border-radius:8px;
+}
+.automation-grid{
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:4px 12px;
+}
+.automation-row{
+  display:grid; grid-template-columns:30px minmax(0,1fr) 34px;
+  align-items:center; gap:6px;
+}
+.automation-slot{
+  font-family:var(--mono); font-size:9px; color:var(--text3);
+}
+.automation-target{width:100%; min-width:0; height:20px; font-size:9px}
+.automation-value{
+  font-family:var(--mono); font-size:9px; color:var(--mod);
+  text-align:right;
+}
 .assignments{display:flex; flex-direction:column; gap:4px; margin-top:10px}
 .assign-row{
   display:grid; grid-template-columns:24px 112px minmax(0,1fr) 26px 150px 24px;

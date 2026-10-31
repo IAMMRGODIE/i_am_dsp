@@ -1580,6 +1580,58 @@
     return section;
   }
 
+  function makeAutomation(data) {
+    var section = el("section", "automation");
+    var head = el("div", "mod-head");
+    head.appendChild(el("span", "mod-title", "DAW PARAMETERS"));
+    head.appendChild(el("span", "mod-hint", "32 fixed host slots \u00B7 bind manually"));
+    section.appendChild(head);
+
+    var grid = el("div", "automation-grid");
+    var bindings = data.automation || [];
+
+    for (var slot = 0; slot < 32; slot++) {
+      (function (index) {
+        var binding = bindings[index] || { slot: index, target: null, value: 0 };
+        var row = el("div", "automation-row");
+        row.appendChild(el("span", "automation-slot", "A" + String(index + 1).padStart(2, "0")));
+
+        var target = document.createElement("select");
+        target.className = "mcard-select automation-target";
+        target.setAttribute("aria-label", "Automation " + (index + 1) + " target");
+
+        var placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Unbound";
+        target.appendChild(placeholder);
+
+        (data.targets || []).forEach(function (entry) {
+          var option = document.createElement("option");
+          option.value = entry.id;
+          option.textContent = entry.label;
+          target.appendChild(option);
+        });
+
+        if (binding.target) target.value = binding.target;
+
+        target.addEventListener("change", function () {
+          if (!target.value) {
+            sendNow("automation." + index + ".clear", 1).then(load);
+          } else {
+            sendNow("automation." + index + ".target", target.value).then(load);
+          }
+        });
+
+        row.appendChild(target);
+        row.appendChild(el("span", "automation-value", Math.round((binding.value || 0) * 100) + "%"));
+        grid.appendChild(row);
+      })(slot);
+    }
+
+    section.appendChild(grid);
+    return section;
+  }
+
   function makeAssignment(data, slot, assignment) {
     var row = el("div", "assign-row");
     var sources = data.sources || [];
@@ -1718,6 +1770,7 @@
       rack.appendChild(makeBand(data, index));
     });
     rack.appendChild(makeModulation(data));
+    rack.appendChild(makeAutomation(data));
 
     rack.querySelectorAll(".band .slots").forEach(function (element, index) {
       element.scrollLeft = slotScroll[index] || 0;

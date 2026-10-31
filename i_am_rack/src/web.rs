@@ -192,6 +192,13 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		"assignments": assignments,
 		"sources": sources,
 		"macros": state.macros,
+		"automation": (0..crate::state::AUTOMATION_SLOTS)
+			.map(|slot| json!({
+				"slot": slot,
+				"target": state.automation[slot].as_ref().map(target_id),
+				"value": state.automation_values[slot],
+			}))
+			.collect::<Vec<_>>(),
 	})
 	.to_string()
 }
@@ -399,6 +406,8 @@ fn apply_line(
 		apply_split(state, rest, raw, rate)
 	} else if let Some(rest) = key.strip_prefix("slot.") {
 		apply_slot(state, rest, raw)
+	} else if let Some(rest) = key.strip_prefix("automation.") {
+		apply_automation(state, shared, rest, raw)
 	} else if let Some(rest) = key.strip_prefix("macro.") {
 		apply_macro(state, rest, raw)
 	} else if let Some(rest) = key.strip_prefix("source.") {
@@ -628,6 +637,50 @@ fn apply_module(
 		parameter.to_string(),
 		value.clamp(control.min, control.max),
 	);
+	true
+}
+
+fn apply_automation(
+	state: &mut RackState,
+	shared: &RackShared,
+	rest: &str,
+	raw: &str,
+) -> bool {
+	let Some((slot, parameter)) = rest.split_once('.') else {
+		return false;
+	};
+	let Ok(slot) = slot.parse::<usize>() else {
+		return false;
+	};
+
+	if slot >= crate::state::AUTOMATION_SLOTS {
+		return false;
+	}
+
+	match parameter {
+		"target" => {
+			let Some(target) = parse_target(raw, state, shared) else {
+				return false;
+			};
+			state.automation[slot] = Some(target);
+		},
+		"clear" => {
+			let Some(clear) = boolean(raw) else {
+				return false;
+			};
+			if clear {
+				state.automation[slot] = None;
+			}
+		},
+		"value" => {
+			let Some(value) = number(raw) else {
+				return false;
+			};
+			state.automation_values[slot] = value.clamp(0.0, 1.0) as f32;
+		},
+		_ => return false,
+	}
+
 	true
 }
 

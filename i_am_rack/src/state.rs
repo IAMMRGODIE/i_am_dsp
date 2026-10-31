@@ -12,9 +12,11 @@ use serde::{Deserialize, Serialize};
 use crate::module::{self, ModuleKind};
 
 /// The version this build writes.
-pub const STATE_VERSION: u32 = 7;
+pub const STATE_VERSION: u32 = 8;
 /// Assignment source id offset for the eight macros.
 pub const MACRO_BASE: usize = 1_000_000_000;
+/// How many fixed automation parameters the host exposes.
+pub const AUTOMATION_SLOTS: usize = 32;
 
 /// The default low/mid crossover.
 pub const DEFAULT_SPLIT_LOW: f32 = 120.0;
@@ -44,6 +46,12 @@ pub struct RackState {
 	/// Eight macro values, 0..1; assignments can use them as sources.
 	#[serde(default)]
 	pub macros: [f32; 8],
+	/// Fixed host automation bindings.
+	#[serde(default = "default_automation")]
+	pub automation: [Option<Target>; AUTOMATION_SLOTS],
+	/// The host values for those slots, 0..1.
+	#[serde(default)]
+	pub automation_values: [f32; AUTOMATION_SLOTS],
 }
 
 /// The knobs of the four modulation sources.
@@ -207,6 +215,10 @@ pub fn default_source_slots() -> Vec<SourceSlot> {
 
 fn default_midi_curve() -> Vec<(f32, f32)> {
 	vec![(0.0, 0.0), (1.0, 1.0)]
+}
+
+fn default_automation() -> [Option<Target>; AUTOMATION_SLOTS] {
+	std::array::from_fn(|_| None)
 }
 
 fn default_lfo_points() -> Vec<(f32, f32, f32)> {
@@ -469,6 +481,8 @@ impl RackState {
 			source_slots: default_source_slots(),
 			assignments: std::array::from_fn(|_| None),
 			macros: [0.0; 8],
+			automation: default_automation(),
+			automation_values: [0.0; AUTOMATION_SLOTS],
 		}
 	}
 }
