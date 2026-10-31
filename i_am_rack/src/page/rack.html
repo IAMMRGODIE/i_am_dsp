@@ -15,8 +15,17 @@
       <span class="dot"></span>
     </button>
     <span class="title">I Am Multipass</span>
-    <span class="tag">M2b</span>
+    <span class="tag">M4</span>
     <span class="spacer"></span>
+    <button id="undo" class="bar-button" type="button" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>&#8630;</button>
+    <button id="redo" class="bar-button" type="button" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>&#8631;</button>
+    <span class="bar-sep"></span>
+    <button id="ab" class="bar-button" type="button" title="A/B compare" aria-label="A/B compare" data-active="A">A</button>
+    <span class="bar-sep"></span>
+    <button id="preset-init" class="bar-button" type="button" title="Reset to the initial rack">Init</button>
+    <button id="preset-save" class="bar-button" type="button" title="Save the rack as a JSON file">Save</button>
+    <button id="preset-load" class="bar-button" type="button" title="Load a rack JSON file">Load</button>
+    <input id="preset-file" type="file" accept=".json,application/json" hidden>
     <span id="rate" class="rate">--</span>
   </header>
   <main id="rack" class="rack" aria-live="polite"></main>
@@ -32,7 +41,7 @@
   <footer class="footer">
     <span id="status">loading</span>
     <span class="spacer"></span>
-    <span class="hint">LR4 &#183; 3 bands &#183; 2 slots &#183; 8 mod slots</span>
+    <span class="hint">LR4 &#183; 3 bands &#183; dynamic slots &#183; mod matrix</span>
   </footer>
 </div>
 <script src="/card.js?v=2"></script>

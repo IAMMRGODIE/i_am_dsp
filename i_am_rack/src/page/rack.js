@@ -11,6 +11,13 @@
   var splitter = document.getElementById("splitter");
   var activePanel = "sources";
   var panelPages = null;
+  var undoButton = document.getElementById("undo");
+  var redoButton = document.getElementById("redo");
+  var abButton = document.getElementById("ab");
+  var presetInit = document.getElementById("preset-init");
+  var presetSave = document.getElementById("preset-save");
+  var presetLoad = document.getElementById("preset-load");
+  var presetFile = document.getElementById("preset-file");
 
   var pending = Object.create(null);
   var timer = null;
@@ -69,7 +76,15 @@
         return response.json();
       })
       .then(function (result) {
-        if (!result.ok) status.textContent = "some commands were ignored";
+        if (!result.ok) {
+          status.textContent = "some commands were ignored";
+          return;
+        }
+
+        // A normal edit is a new undo step and drops the redo branch; a
+        // whole-state command refreshes the buttons from /rack right after.
+        undoButton.disabled = false;
+        redoButton.disabled = true;
       })
       .catch(function (error) {
         status.textContent = error.message;
@@ -79,6 +94,28 @@
   function sendNow(address, value) {
     pending[address] = address + "=" + value;
     return flush();
+  }
+
+  // A command that replaces the whole state must not share a batch with a
+  // slider that is still in the queue: the server treats it as a lone line.
+  function runSpecial(address, value) {
+    return flush().then(function () {
+      return sendNow(address, value);
+    });
+  }
+
+  function refreshEditSlots(data) {
+    undoButton.disabled = !data.history || !data.history.undo;
+    redoButton.disabled = !data.history || !data.history.redo;
+
+    var active = data.ab && data.ab.active === "B" ? "B" : "A";
+    abButton.textContent = active;
+    abButton.dataset.active = active;
+    abButton.title = "A/B compare (now " + active + ")";
+  }
+
+  function historyStep(direction) {
+    return runSpecial("history." + direction, "1").then(load);
   }
 
   function formatHz(value) {
@@ -1265,7 +1302,90 @@
 
       var dot = el("span", "dot");
       power.appendChild(dot);
-      power.addEventListener("click", function () { chrome.onBypass(!chrome.bypass); });
+      undoButton.addEventListener("click", function () { historyStep("undo"); });
+  redoButton.addEventListener("click", function () { historyStep("redo"); });
+  abButton.addEventListener("click", function () {
+    runSpecial("ab.toggle", "1").then(load);
+  });
+
+  presetInit.addEventListener("click", function () {
+    runSpecial("preset.init", "1").then(load);
+  });
+
+  presetSave.addEventListener("click", function () {
+    flush()
+      .then(function () {
+        return fetch("/state", { cache: "no-store" });
+      })
+      .then(function (response) {
+        if (!response.ok) throw new Error("state " + response.status);
+        return response.text();
+      })
+      .then(function (text) {
+        var blob = new Blob([text], { type: "application/json" });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement("a");
+        link.href = url;
+        link.download = "I Am Multipass.json";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        status.textContent = "preset saved";
+      })
+      .catch(function (error) {
+        status.textContent = error.message;
+      });
+  });
+
+  presetLoad.addEventListener("click", function () {
+    presetFile.click();
+  });
+
+  presetFile.addEventListener("change", function () {
+    var file = presetFile.files && presetFile.files[0];
+    presetFile.value = "";
+    if (!file) return;
+
+    file.text()
+      .then(function (text) {
+        var parsed;
+
+        try {
+          parsed = JSON.parse(text);
+        } catch (error) {
+          status.textContent = "not a preset file";
+          return;
+        }
+
+        return runSpecial("preset.load", JSON.stringify(parsed)).then(load);
+      })
+      .catch(function (error) {
+        status.textContent = error.message;
+      });
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+
+    var target = event.target;
+    if (target && (target.isContentEditable ||
+      /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) {
+      return;
+    }
+
+    var key = String(event.key).toLowerCase();
+
+    if (key === "z") {
+      event.preventDefault();
+      historyStep(event.shiftKey ? "redo" : "undo");
+    } else if (key === "y") {
+      event.preventDefault();
+      historyStep("redo");
+    }
+  });
+
+  power.addEventListener("click", function () { chrome.onBypass(!chrome.bypass); });
       head.appendChild(power);
     }
 
@@ -1936,6 +2056,7 @@
     rate.textContent = (data.rate / 1000).toFixed(1) + " kHz";
     status.textContent = data.modules.length + " modules \u00B7 " + data.bands.length +
       " bands \u00B7 " + mods + " mods";
+    refreshEditSlots(data);
   }
 
   function load() {

@@ -24,7 +24,7 @@ pub const DEFAULT_SPLIT_LOW: f32 = 120.0;
 pub const DEFAULT_SPLIT_HIGH: f32 = 2_000.0;
 
 /// Everything a rack remembers.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RackState {
 	/// The layout version, for a later migration.
 	pub version: u32,
@@ -55,7 +55,7 @@ pub struct RackState {
 }
 
 /// The knobs of the four modulation sources.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SourceSettings {
 	/// LFO rate in hertz.
@@ -179,7 +179,7 @@ impl SourceKind {
 }
 
 /// One modulation-source slot.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceSlot {
 	/// Stable within a state; assignments address it by this id.
 	pub id: u32,
@@ -258,7 +258,7 @@ pub enum AssignmentMode {
 }
 
 /// One source-to-target modulation assignment.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Assignment {
 	/// 0 LFO, 1 envelope, 2 random, 3 table, 4..=11 macro 1..8.
 	pub source: usize,
@@ -301,7 +301,7 @@ pub enum Target {
 }
 
 /// One band: its gain stage and the two slots in front of it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BandState {
 	/// Linear gain, 0..2.
 	pub gain: f64,
@@ -316,7 +316,7 @@ pub struct BandState {
 }
 
 /// One module in a slot.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModuleState {
 	/// Stable within a state file; the page addresses commands by it.
 	pub id: u32,
@@ -407,7 +407,7 @@ impl RackState {
 	pub fn migrate(&mut self) {
 		let previous = self.version;
 
-		if self.source_slots.is_empty() {
+		if previous < 6 && self.source_slots.is_empty() {
 			let legacy = self.sources.clone();
 			self.source_slots = default_source_slots();
 

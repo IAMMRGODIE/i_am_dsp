@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use i_am_dsp::prelude::{ParamMap, SetValue};
@@ -15,9 +16,146 @@ use i_am_web_gui::Control;
 use crate::module::ModuleKind;
 use crate::state::RackState;
 
+/// How many edits the rack remembers, one entry per page command batch.
+pub const HISTORY_LIMIT: usize = 64;
+
+/// The undo and redo stacks.
+///
+/// A page command edits the whole state under one lock, so a snapshot taken
+/// before the batch is an exact undo step. Redo is cleared as soon as a new
+/// edit lands, the way a document editor behaves.
+/// Edits to the same control inside this window are one undo step, so a knob
+/// drag does not leave sixty-four one-pixel undo states behind.
+const COALESCE_WINDOW: Duration = Duration::from_millis(600);
+
+#[derive(Default)]
+pub(crate) struct EditHistory {
+	undo: Vec<RackState>,
+	redo: Vec<RackState>,
+	/// The controls the last recorded edit touched.
+	last_signature: Option<String>,
+	/// When that edit landed.
+	last_at: Option<Instant>,
+}
+
+impl EditHistory {
+	/// Remembers the state before an edit that actually changed something.
+	///
+	/// Consecutive edits to the same controls within COALESCE_WINDOW keep the
+	/// oldest snapshot, which makes one undo return to before the drag.
+	pub fn record(&mut self, before: RackState, signature: String) {
+		let now = Instant::now();
+		let coalesce = self.last_signature.as_deref() == Some(signature.as_str())
+			&& self
+				.last_at
+				.is_some_and(|at| now.duration_since(at) < COALESCE_WINDOW);
+
+		self.redo.clear();
+
+		if !coalesce {
+			self.undo.push(before);
+
+			if self.undo.len() > HISTORY_LIMIT {
+				self.undo.remove(0);
+			}
+		}
+
+		self.last_signature = Some(signature);
+		self.last_at = Some(now);
+	}
+
+	/// Records a wholesale replacement (a preset) as its own step.
+	pub fn record_replacement(&mut self, before: RackState) {
+		self.record(before, String::new());
+		self.last_signature = None;
+		self.last_at = None;
+	}
+
+	/// Swaps the live state with the previous one; returns false when empty.
+	pub fn undo(&mut self, current: &mut RackState) -> bool {
+		let Some(previous) = self.undo.pop() else {
+			return false;
+		};
+
+		self.redo.push(current.clone());
+		*current = previous;
+		self.last_signature = None;
+		self.last_at = None;
+		true
+	}
+
+	/// Swaps the live state with the one undo replaced; returns false when empty.
+	pub fn redo(&mut self, current: &mut RackState) -> bool {
+		let Some(next) = self.redo.pop() else {
+			return false;
+		};
+
+		self.undo.push(current.clone());
+		*current = next;
+		self.last_signature = None;
+		self.last_at = None;
+		true
+	}
+
+	/// Whether there is anything to undo.
+	pub fn can_undo(&self) -> bool {
+		!self.undo.is_empty()
+	}
+
+	/// Whether there is anything to redo.
+	pub fn can_redo(&self) -> bool {
+		!self.redo.is_empty()
+	}
+
+	/// Forgets every step, e.g. when the host loads another project.
+	pub fn clear(&mut self) {
+		self.undo.clear();
+		self.redo.clear();
+	}
+}
+
+/// The A/B comparison slots.
+///
+/// The live state is whichever slot is active; the other slot is a snapshot.
+/// Switching stores the live state and loads the other one, so both sides keep
+/// their edits without doubling the state the engine applies.
+#[derive(Default)]
+pub(crate) struct AbCompare {
+	/// 0 is A, 1 is B.
+	pub active: usize,
+	/// What the slot that is not live holds; empty until the first switch.
+	pub other: Option<RackState>,
+}
+
+impl AbCompare {
+	/// Switches sides and returns whether the live state was replaced.
+	pub fn toggle(&mut self, live: &mut RackState) -> bool {
+		match self.other.take() {
+			Some(other) => {
+				self.other = Some(std::mem::replace(live, other));
+			},
+			None => {
+				self.other = Some(live.clone());
+			},
+		}
+
+		self.active = 1 - self.active;
+		true
+	}
+
+	/// The letter the page shows.
+	pub fn letter(&self) -> &'static str {
+		if self.active == 0 { "A" } else { "B" }
+	}
+}
+
 pub(crate) struct RackShared {
 	/// The editable truth. The engine catches up when dirty is set.
 	pub state: Mutex<RackState>,
+	/// Undo/redo snapshots of the state above.
+	pub history: Mutex<EditHistory>,
+	/// The A/B comparison slots.
+	pub ab: Mutex<AbCompare>,
 	/// The controls of each kind, built once from the effect metadata.
 	pub schemas: BTreeMap<ModuleKind, Vec<Control>>,
 	/// Set by a page command, cleared by the audio thread after applying it.
@@ -37,6 +175,28 @@ impl RackShared {
 		self.state
 			.lock()
 			.unwrap_or_else(|poisoned| poisoned.into_inner())
+	}
+
+	/// Forgets undo steps and the other A/B side, e.g. when the host loads a
+	/// project over the live state.
+	pub fn reset_edit_slots(&self) {
+		self.history
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.clear();
+		*self
+			.ab
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner()) = AbCompare::default();
+	}
+
+	/// Clears redo (and undo) after an A/B switch, where the other slot's
+	/// timeline would not make sense.
+	pub fn clear_history(&self) {
+		self.history
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.clear();
 	}
 
 	/// Mirrors page-driven macro/automation edits into the host map.

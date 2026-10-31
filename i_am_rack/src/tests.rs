@@ -1058,3 +1058,198 @@ fn an_envelope_modulates_a_band_gain() {
 		"the low band gain stayed between {lowest} and {highest}"
 	);
 }
+
+/// One command is one undo step; redo walks the same stack forward again.
+#[test]
+fn history_undoes_and_redoes_an_edit() {
+	let rack = Rack::default();
+	let before = rack.state().bands[0].slots[0]
+		.as_ref()
+		.expect("the low band's filter")
+		.params["cutoff"];
+
+	command(&rack, "0.cutoff=3000");
+
+	assert_eq!(
+		rack.state().bands[0].slots[0].as_ref().unwrap().params["cutoff"],
+		3_000.0
+	);
+
+	command(&rack, "history.undo=1");
+
+	assert_eq!(
+		rack.state().bands[0].slots[0].as_ref().unwrap().params["cutoff"],
+		before
+	);
+
+	command(&rack, "history.redo=1");
+
+	assert_eq!(
+		rack.state().bands[0].slots[0].as_ref().unwrap().params["cutoff"],
+		3_000.0
+	);
+}
+
+/// An undo with nothing to undo leaves the rack alone and still answers ok.
+#[test]
+fn an_empty_undo_is_a_no_op() {
+	let rack = Rack::default();
+	let before = rack.state();
+
+	let response = command(&rack, "history.undo=1");
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+	assert_eq!(rack.state(), before);
+}
+
+/// A/B keeps both sides; switching stores the live one and loads the other.
+#[test]
+fn ab_compare_keeps_both_sides() {
+	let rack = Rack::default();
+
+	command(&rack, "0.cutoff=4000");
+	command(&rack, "ab.toggle=1");
+
+	let json: serde_json::Value =
+		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	assert_eq!(json["ab"]["active"], "B");
+
+	command(&rack, "0.cutoff=800");
+	command(&rack, "ab.toggle=1");
+
+	let json: serde_json::Value =
+		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	assert_eq!(json["ab"]["active"], "A");
+	assert_eq!(
+		rack.state().bands[0].slots[0].as_ref().unwrap().params["cutoff"],
+		4_000.0
+	);
+
+	command(&rack, "ab.toggle=1");
+
+	assert_eq!(
+		rack.state().bands[0].slots[0].as_ref().unwrap().params["cutoff"],
+		800.0
+	);
+}
+
+/// A saved state loaded as a preset becomes the live rack.
+#[test]
+fn a_preset_file_replaces_the_rack() {
+	let rack = Rack::default();
+	let mut preset = RackState::initial();
+	preset.split_low = 200.0;
+	preset.split_high = 3_000.0;
+	preset.bands[0].slots[0]
+		.as_mut()
+		.expect("the low band's filter")
+		.params
+		.insert("cutoff".to_string(), 4_321.0);
+	preset.macros[2] = 0.75;
+
+	let body = format!(
+		"preset.load={}",
+		serde_json::to_string(&preset).expect("the preset JSON")
+	);
+	let response = command(&rack, &body);
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+
+	assert_eq!(state.split_low, 200.0);
+	assert_eq!(state.split_high, 3_000.0);
+	assert_eq!(
+		state.bands[0].slots[0].as_ref().unwrap().params["cutoff"],
+		4_321.0
+	);
+	assert_eq!(state.macros[2], 0.75);
+}
+
+/// A file that is not a state is rejected without touching the rack.
+#[test]
+fn a_broken_preset_is_rejected() {
+	let rack = Rack::default();
+	let before = rack.state();
+
+	let response = command(&rack, "preset.load=not a state");
+
+	assert_eq!(response.body, b"{\"ok\":false}");
+	assert_eq!(rack.state(), before);
+}
+
+/// Init resets the rack, and that reset is itself undoable.
+#[test]
+fn preset_init_returns_to_the_default_rack() {
+	let rack = Rack::default();
+
+	command(&rack, "0.cutoff=3000");
+	command(&rack, "preset.init=1");
+
+	assert_eq!(rack.state(), RackState::initial());
+
+	command(&rack, "history.undo=1");
+
+	assert_eq!(
+		rack.state().bands[0].slots[0].as_ref().unwrap().params["cutoff"],
+		3_000.0
+	);
+}
+
+/// The page's Save button reads exactly the state the host would save.
+#[test]
+fn the_state_route_returns_a_preset_document() {
+	let rack = Rack::default();
+
+	let response = get(&rack, "/state");
+	let state: RackState = serde_json::from_slice(&response.body).expect("the state JSON");
+
+	assert_eq!(state, rack.state());
+}
+
+/// The page learns whether undo/redo are available and which side is live.
+#[test]
+fn the_rack_route_reports_undo_and_ab() {
+	let rack = Rack::default();
+
+	let json: serde_json::Value =
+		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	assert_eq!(json["history"]["undo"], false);
+	assert_eq!(json["history"]["redo"], false);
+	assert_eq!(json["ab"]["active"], "A");
+
+	command(&rack, "0.cutoff=3000");
+
+	let json: serde_json::Value =
+		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	assert_eq!(json["history"]["undo"], true);
+	assert_eq!(json["history"]["redo"], false);
+
+	command(&rack, "history.undo=1");
+
+	let json: serde_json::Value =
+		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	assert_eq!(json["history"]["undo"], false);
+	assert_eq!(json["history"]["redo"], true);
+}
+
+/// A knob drag lands as many commands; undo goes back to before the drag.
+#[test]
+fn a_drag_is_one_undo_step() {
+	let rack = Rack::default();
+	let before = rack.state().bands[0].slots[0]
+		.as_ref()
+		.expect("the low band's filter")
+		.params["cutoff"];
+
+	command(&rack, "0.cutoff=2000");
+	command(&rack, "0.cutoff=2500");
+	command(&rack, "0.cutoff=3000");
+
+	command(&rack, "history.undo=1");
+
+	assert_eq!(
+		rack.state().bands[0].slots[0].as_ref().unwrap().params["cutoff"],
+		before
+	);
+}

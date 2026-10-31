@@ -32,6 +32,18 @@ body{
 }
 .spacer{flex:1}
 .rate{font-family:var(--mono); font-size:11px; color:var(--text2)}
+.bar-button{
+  height:22px; min-width:22px; padding:0 7px; display:inline-flex;
+  align-items:center; justify-content:center;
+  font:inherit; font-size:11px; line-height:1; color:var(--text2);
+  background:#333; border:1px solid #414141; border-radius:4px; cursor:pointer;
+}
+.bar-button:hover:not(:disabled){background:#3d3d3d; color:var(--text1)}
+.bar-button:disabled{opacity:.35; cursor:default}
+.bar-button:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+#ab{min-width:26px; font-weight:600; color:var(--text1)}
+#ab[data-active="B"]{border-color:var(--mod); color:var(--mod)}
+.bar-sep{width:1px; height:18px; background:#3f3f3f; margin:0 2px}
 .power{
   width:24px; height:24px; padding:0; display:flex; align-items:center;
   justify-content:center; background:transparent; border:0; border-radius:50%;

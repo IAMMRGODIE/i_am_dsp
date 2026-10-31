@@ -1,13 +1,16 @@
-//! M2b of I Am Multipass: a three-band rack with modulation of its own.
+//! M4 of I Am Multipass: a three-band rack with its own modulation.
 //!
-//! The audio path is a LR4 split into Low / Mid / High, each with two serial
-//! module slots (Filter, Distortion, Compressor, Gain) and a band gain/pan/mute/
-//! solo stage. Four control-rate sources (LFO, envelope, random, table) move
-//! eight assignments across module parameters and band controls. The host sees exactly
-//! one parameter, a serialized RackState; the page talks to the rack over /rack
-//! and /rack-command instead of the host parameter table. That is the shape the
-//! final product needs: module parameters are too dynamic to be automation
-//! lanes, and a single state blob is what a project save carries.
+//! The audio path is a LR4 split into Low / Mid / High. Each band holds any
+//! number of serial module slots (Filter, Distortion, Compressor, Gain) and a
+//! band gain/pan/mute/solo stage. Dynamic control-rate sources (LFO, envelope,
+//! random, table, pitch, MIDI) move a matrix of assignments across module
+//! parameters and band controls. The host only automates eight macros and 32
+//! automation slots; everything else lives in one serialized RackState, which
+//! is also what a project save carries and what a preset file round-trips.
+//!
+//! The page edits the state over /rack-command and reads it back from /rack.
+//! Undo/redo, A/B compare and preset import live in shared memory beside the
+//! state, so they never leak into the host parameter table.
 
 mod crossover;
 mod engine;
@@ -105,6 +108,8 @@ impl Default for Rack {
 
 		let shared = Arc::new(RackShared {
 			state: Mutex::new(state.clone()),
+			history: Mutex::new(shared::EditHistory::default()),
+			ab: Mutex::new(shared::AbCompare::default()),
 			schemas,
 			dirty: AtomicBool::new(false),
 			rate: AtomicUsize::new(DEFAULT_SAMPLE_RATE),
@@ -210,6 +215,7 @@ impl Parameters for Rack {
 			};
 
 			state.migrate();
+			self.shared.reset_edit_slots();
 			self.shared.sync_params(&state);
 			*self.shared.lock() = state;
 			self.shared.dirty.store(true, Ordering::Release);

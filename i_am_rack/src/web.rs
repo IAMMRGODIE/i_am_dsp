@@ -24,7 +24,10 @@ use serde_json::{Value, json};
 use crate::crossover::sanitize;
 use crate::module::ModuleKind;
 use crate::shared::RackShared;
-use crate::state::{Assignment, AssignmentMode, MACRO_BASE, ModuleState, RackState, SourceKind, Target, lfo_preset};
+use crate::state::{
+	Assignment, AssignmentMode, MACRO_BASE, ModuleState, RackState, SourceKind,
+	SourceSettings, STATE_VERSION, Target, lfo_preset,
+};
 
 /// The names the three bands answer to.
 pub const BAND_NAMES: [&str; 3] = ["Low", "Mid", "High"];
@@ -35,10 +38,17 @@ pub(crate) fn route(
 ) -> Option<ProtocolResponse> {
 	match (request.method, request.path) {
 		("GET", "/rack") => Some(ProtocolResponse::json(rack_json(shared))),
+		("GET", "/state") => Some(ProtocolResponse::json(state_json(shared))),
 		("GET", "/modulation") => Some(ProtocolResponse::json(modulation_json(shared))),
 		("POST", "/rack-command") => Some(command(request.body, shared)),
 		_ => None,
 	}
+}
+
+/// The live state as the JSON a preset file carries.
+fn state_json(shared: &RackShared) -> String {
+	let state = shared.lock();
+	serde_json::to_string_pretty(&*state).unwrap_or_else(|_| "{}".to_string())
 }
 
 fn modulation_json(shared: &RackShared) -> String {
@@ -129,6 +139,15 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		})
 		.collect::<Vec<_>>();
 
+	let history = shared
+		.history
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	let ab = shared
+		.ab
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+
 	let sources = state
 		.source_slots
 		.iter()
@@ -192,6 +211,13 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		"assignments": assignments,
 		"sources": sources,
 		"macros": state.macros,
+		"history": {
+			"undo": history.can_undo(),
+			"redo": history.can_redo(),
+		},
+		"ab": {
+			"active": ab.letter(),
+		},
 		"automation": (0..crate::state::AUTOMATION_SLOTS)
 			.map(|slot| json!({
 				"slot": slot,
@@ -366,7 +392,14 @@ fn command(body: &[u8], shared: &RackShared) -> ProtocolResponse {
 	let rate = shared.rate.load(Ordering::Relaxed);
 	let mut state = shared.lock();
 	shared.pull_params(&mut state);
+
+	if let Some(response) = special_command(text.trim(), shared, &mut state, rate) {
+		return response;
+	}
+
+	let before = state.clone();
 	let mut ok = true;
+	let mut signature = Vec::new();
 
 	for line in text.lines() {
 		let line = line.trim();
@@ -383,16 +416,257 @@ fn command(body: &[u8], shared: &RackShared) -> ProtocolResponse {
 		let applied = apply_line(&mut state, shared, rate, key.trim(), raw.trim());
 
 		if applied {
+			signature.push(key.trim().to_string());
 			state.normalize_slots();
 		} else {
 			ok = false;
 		}
 	}
 
-	shared.sync_params(&state);
-	shared.dirty.store(true, Ordering::Release);
+	// A batch that changed nothing (a repeated slider value, a rejected line)
+	// must not add an undo step nobody can get back to.
+	if *state != before {
+		signature.sort();
+		signature.dedup();
 
+		shared
+			.history
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.record(before, signature.join(","));
+	}
+
+	commit(shared, &state);
+
+	command_response(ok)
+}
+
+/// The commands that replace the state as a whole instead of editing a field.
+///
+/// They travel alone in the body: undo, redo, A/B switching, and a preset file
+/// (a compact JSON document after `preset.load=`).
+fn special_command(
+	text: &str,
+	shared: &RackShared,
+	state: &mut RackState,
+	rate: usize,
+) -> Option<ProtocolResponse> {
+	let (key, raw) = text.split_once('=')?;
+
+	match key.trim() {
+		"history.undo" => {
+			let changed = shared
+				.history
+				.lock()
+				.unwrap_or_else(|poisoned| poisoned.into_inner())
+				.undo(state);
+
+			if changed {
+				commit(shared, state);
+			}
+
+			Some(command_response(true))
+		},
+		"history.redo" => {
+			let changed = shared
+				.history
+				.lock()
+				.unwrap_or_else(|poisoned| poisoned.into_inner())
+				.redo(state);
+
+			if changed {
+				commit(shared, state);
+			}
+
+			Some(command_response(true))
+		},
+		"ab.toggle" => {
+			shared
+				.ab
+				.lock()
+				.unwrap_or_else(|poisoned| poisoned.into_inner())
+				.toggle(state);
+
+			// A/B is a compare view, not an edit: an undo step from the other
+			// slot's timeline would restore a state the user cannot see.
+			shared.clear_history();
+			commit(shared, state);
+			Some(command_response(true))
+		},
+		"preset.init" => {
+			let before = std::mem::replace(state, RackState::initial());
+			shared
+				.history
+				.lock()
+				.unwrap_or_else(|poisoned| poisoned.into_inner())
+				.record_replacement(before);
+			commit(shared, state);
+			Some(command_response(true))
+		},
+		"preset.load" => {
+			let imported = serde_json::from_str::<RackState>(raw.trim())
+				.ok()
+				.filter(|incoming| incoming.version <= STATE_VERSION)
+				.and_then(|incoming| import_state(incoming, rate, shared));
+
+			let Some(imported) = imported else {
+				return Some(command_response(false));
+			};
+
+			let before = std::mem::replace(state, imported);
+			shared
+				.history
+				.lock()
+				.unwrap_or_else(|poisoned| poisoned.into_inner())
+				.record_replacement(before);
+			commit(shared, state);
+			Some(command_response(true))
+		},
+		_ => None,
+	}
+}
+
+fn command_response(ok: bool) -> ProtocolResponse {
 	ProtocolResponse::json(format!("{{\"ok\":{ok}}}"))
+}
+
+/// Applies whatever the live state just became to the audio thread.
+fn commit(shared: &RackShared, state: &RackState) {
+	shared.sync_params(state);
+	shared.dirty.store(true, Ordering::Release);
+}
+
+/// Validates a state read from a preset file before it becomes the live rack.
+///
+/// A hand-edited or older preset may miss parameters the current build has, or
+/// carry values outside a control's range; unknown fields are dropped and every
+/// known one is clamped, which is also the migration policy for saved projects.
+fn import_state(
+	mut state: RackState,
+	rate: usize,
+	shared: &RackShared,
+) -> Option<RackState> {
+	if state.version > STATE_VERSION {
+		return None;
+	}
+
+	state.migrate();
+
+	let (low, high) = sanitize(rate, state.split_low, state.split_high);
+	state.split_low = low;
+	state.split_high = high;
+
+	for band in &mut state.bands {
+		band.gain = band.gain.clamp(0.0, 2.0);
+		band.pan = band.pan.clamp(-1.0, 1.0);
+
+		for module in band.slots.iter_mut().flatten() {
+			let controls = shared.schemas.get(&module.kind)?;
+
+			module
+				.params
+				.retain(|id, _| controls.iter().any(|control| &control.id == id));
+
+			for (id, value) in crate::module::default_params(module.kind) {
+				module.params.entry(id).or_insert(value);
+			}
+
+			for (id, value) in &mut module.params {
+				if let Some(control) = controls.iter().find(|control| &control.id == id) {
+					*value = value.clamp(control.min, control.max);
+				}
+			}
+		}
+	}
+
+	for value in &mut state.macros {
+		*value = value.clamp(0.0, 1.0);
+	}
+
+	for value in &mut state.automation_values {
+		*value = value.clamp(0.0, 1.0);
+	}
+
+	for slot in &mut state.source_slots {
+		sanitize_settings(&mut slot.settings);
+	}
+
+	let module_ids = state
+		.bands
+		.iter()
+		.flat_map(|band| band.slots.iter().flatten())
+		.map(|module| module.id)
+		.collect::<Vec<_>>();
+	let source_ids = state
+		.source_slots
+		.iter()
+		.map(|slot| slot.id as usize)
+		.chain(MACRO_BASE..MACRO_BASE + 8)
+		.collect::<Vec<_>>();
+
+	for assignment in &mut state.assignments {
+		let Some(entry) = assignment else {
+			continue;
+		};
+
+		entry.depth = entry.depth.clamp(-1.0, 1.0);
+
+		let source_ok = source_ids.contains(&entry.source);
+		let target_ok = match &entry.target {
+			None => true,
+			Some(Target::Module { module, .. }) => module_ids.contains(module),
+			Some(Target::BandGain(index) | Target::BandPan(index)) => {
+				*index < state.bands.len()
+			},
+		};
+
+		if !source_ok || !target_ok {
+			*assignment = None;
+		}
+	}
+
+	state.normalize_slots();
+	Some(state)
+}
+
+/// Keeps an imported source's knobs inside the ranges the commands enforce.
+fn sanitize_settings(settings: &mut SourceSettings) {
+	settings.lfo_rate = settings.lfo_rate.clamp(0.01, 20.0);
+	settings.lfo_shape = settings.lfo_shape.clamp(0, 4);
+	settings.lfo_beats = settings.lfo_beats.clamp(0.03125, 32.0);
+	settings.env_attack = settings.env_attack.clamp(1.0, 500.0);
+	settings.env_release = settings.env_release.clamp(1.0, 500.0);
+	settings.random_rate = settings.random_rate.clamp(0.01, 20.0);
+	settings.random_smooth = settings.random_smooth.clamp(0.0, 500.0);
+	settings.random_beats = settings.random_beats.clamp(0.03125, 32.0);
+	settings.table_rate = settings.table_rate.clamp(0.01, 20.0);
+	settings.table_shape = settings.table_shape.clamp(0, 3);
+	settings.table_morph = settings.table_morph.clamp(0.0, 1.0);
+	settings.table_beats = settings.table_beats.clamp(0.03125, 32.0);
+	settings.pitch_clarity = settings.pitch_clarity.clamp(0.0, 1.0);
+	settings.pitch_glide = settings.pitch_glide.clamp(0.0, 1_000.0);
+	settings.midi_mode = settings.midi_mode.clamp(0, 1);
+
+	for (time, value, bend) in &mut settings.lfo_points {
+		*time = time.clamp(0.0, 1.0);
+		*value = value.clamp(0.0, 1.0);
+		*bend = bend.clamp(-10.0, 10.0);
+	}
+
+	if settings.lfo_points.len() < 2 {
+		settings.lfo_points = lfo_preset(settings.lfo_shape);
+	}
+
+	for curve in [&mut settings.midi_note_curve, &mut settings.midi_velocity_curve] {
+		for (x, y) in curve.iter_mut() {
+			*x = x.clamp(0.0, 1.0);
+			*y = y.clamp(0.0, 1.0);
+		}
+
+		if curve.len() < 2 {
+			*curve = vec![(0.0, 0.0), (1.0, 1.0)];
+		}
+	}
 }
 
 fn apply_line(
