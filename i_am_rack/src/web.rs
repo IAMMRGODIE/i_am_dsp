@@ -87,10 +87,11 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 				"pan": band.pan,
 				"mute": band.mute,
 				"solo": band.solo,
-				"slots": [
-					band.slots[0].as_ref().map(|module| module.id),
-					band.slots[1].as_ref().map(|module| module.id),
-				],
+				"slots": band
+					.slots
+					.iter()
+					.map(|slot| slot.as_ref().map(|module| module.id))
+					.collect::<Vec<_>>(),
 			})
 		})
 		.collect::<Vec<_>>();
@@ -463,13 +464,33 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 	let Some((band, rest)) = rest.split_once('.') else {
 		return false;
 	};
-	let Some((slot, parameter)) = rest.split_once('.') else {
-		return false;
-	};
 
 	let Ok(band) = band.parse::<usize>() else {
 		return false;
 	};
+
+	if band >= state.bands.len() {
+		return false;
+	}
+
+	if rest == "add" {
+		let Some(kind) = module_kind(raw) else {
+			return false;
+		};
+
+		if state.bands[band].slots.len() >= 8 {
+			return false;
+		}
+
+		let id = state.next_id();
+		state.bands[band].slots.push(Some(ModuleState::new(id, kind)));
+		return true;
+	}
+
+	let Some((slot, parameter)) = rest.split_once('.') else {
+		return false;
+	};
+
 	let Ok(slot) = slot.parse::<usize>() else {
 		return false;
 	};

@@ -204,7 +204,7 @@ struct Lane {
 	smooth_pan: f64,
 	mute: bool,
 	solo: bool,
-	slots: [Option<Module>; 2],
+	slots: Vec<Option<Module>>,
 	/// The latency of the active modules in this lane, in samples.
 	delay: usize,
 	/// The delay that aligns this lane with the slowest lane.
@@ -222,7 +222,7 @@ impl Lane {
 			smooth_pan: 0.0,
 			mute: false,
 			solo: false,
-			slots: [None, None],
+			slots: vec![None, None],
 			delay: 0,
 			compensation: DelayLine::new(0),
 		}
@@ -273,6 +273,7 @@ impl Engine {
 			lane.base_pan = band.pan;
 			lane.mute = band.mute;
 			lane.solo = band.solo;
+			lane.slots.resize_with(band.slots.len(), || None);
 
 			for (slot, edited) in band.slots.iter().enumerate() {
 				match edited {

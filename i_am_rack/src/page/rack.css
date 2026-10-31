@@ -141,6 +141,10 @@ body{
   align-items:center; justify-content:center; gap:8px;
   background:#1b1b1b; border:1px dashed #3a3a3a; border-radius:8px;
 }
+.slot-add-tile{
+  min-height:224px; display:flex; align-items:center; justify-content:center;
+  background:#1b1b1b; border:1px dashed #3a3a3a; border-radius:8px;
+}
 .slot-add{
   appearance:none; -webkit-appearance:none;
   height:30px; min-width:156px; padding:0 28px 0 12px;

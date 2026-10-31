@@ -270,8 +270,8 @@ pub struct BandState {
 	pub mute: bool,
 	/// Solos the band; any solo silences every band that is not soloed.
 	pub solo: bool,
-	/// The two module slots, in processing order.
-	pub slots: [Option<ModuleState>; 2],
+	/// The module slots, in processing order.
+	pub slots: Vec<Option<ModuleState>>,
 }
 
 /// One module in a slot.
@@ -308,7 +308,7 @@ impl BandState {
 			pan: 0.0,
 			mute: false,
 			solo: false,
-			slots: [None, None],
+			slots: vec![None, None],
 		}
 	}
 

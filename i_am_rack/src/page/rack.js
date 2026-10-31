@@ -22,6 +22,10 @@
   };
   var liveTimer = null;
 
+  function slotLetter(index) {
+    return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
+  }
+
   function el(tag, className, text) {
     var node = document.createElement(tag);
     if (className) node.className = className;
@@ -383,7 +387,7 @@
 
   function makeSlot(data, bandIndex, slotIndex, module) {
     var wrap = el("div", "slot");
-    wrap.appendChild(el("div", "slot-label", slotIndex ? "SLOT B" : "SLOT A"));
+    wrap.appendChild(el("div", "slot-label", "SLOT " + slotLetter(slotIndex)));
 
     wrap.addEventListener("dragover", function (event) {
       event.preventDefault();
@@ -442,7 +446,7 @@
 
     var card = window.IAmCard.create({
       title: module.kind,
-      badge: slotIndex ? "B" : "A",
+      badge: slotLetter(slotIndex),
       accent: module.accent,
       hero: module.hero,
       mode: module.mode,
@@ -485,11 +489,38 @@
 
     var slots = el("div", "slots");
 
-    for (var slot = 0; slot < 2; slot++) {
+    for (var slot = 0; slot < band.slots.length; slot++) {
       var module = data.modules.find(function (candidate) {
         return candidate.band === bandIndex && candidate.slot === slot;
       }) || null;
       slots.appendChild(makeSlot(data, bandIndex, slot, module));
+    }
+
+    if (band.slots.length < 8) {
+      var add = el("div", "slot slot-add-tile");
+      var addSelect = document.createElement("select");
+      addSelect.className = "mcard-select slot-add";
+      addSelect.setAttribute("aria-label", "Add module to band");
+
+      var placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "+ Add module";
+      addSelect.appendChild(placeholder);
+
+      (data.kinds || []).forEach(function (kind) {
+        var option = document.createElement("option");
+        option.value = kind.name;
+        option.textContent = kind.name;
+        addSelect.appendChild(option);
+      });
+
+      addSelect.addEventListener("change", function () {
+        if (!addSelect.value) return;
+        sendNow("slot." + bandIndex + ".add", addSelect.value).then(load);
+      });
+
+      add.appendChild(addSelect);
+      slots.appendChild(add);
     }
 
     section.appendChild(slots);

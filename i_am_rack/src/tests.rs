@@ -274,6 +274,25 @@ fn a_slot_can_hold_and_clear_a_compressor() {
 	assert!(rack.state().bands[1].slots[1].is_none());
 }
 
+/// A band can grow past its initial two slots.
+#[test]
+fn a_band_can_add_more_than_two_modules() {
+	let rack = Rack::default();
+
+	let response = command(&rack, "slot.0.add=Filter");
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	assert_eq!(state.bands[0].slots.len(), 3);
+	assert!(state.bands[0].slots[2].is_some());
+
+	let response = command(&rack, "slot.0.add=Gain");
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	assert_eq!(state.bands[0].slots.len(), 4);
+}
+
 /// A module can be dragged into another slot, swapping with whatever is there.
 #[test]
 fn a_slot_can_move_and_swap_modules() {
