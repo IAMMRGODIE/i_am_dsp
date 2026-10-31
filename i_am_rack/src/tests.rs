@@ -1370,3 +1370,18 @@ fn a_version_8_state_migrates() {
 	assert_eq!(state.macro_names[0], "");
 	assert_eq!(state.ab.letter(), "A");
 }
+
+/// A hand-edited state cannot put the A/B index outside its two sides.
+#[test]
+fn an_out_of_range_ab_side_is_clamped() {
+	let mut state = RackState::initial();
+	state.ab.active = 5;
+
+	let mut rack = Rack::default();
+	let bytes = to_binary(&state).expect("the saved state");
+	assert!(rack.set_parameter("rack_state", SetValue::Serialized(bytes)));
+	assert_eq!(rack.state().ab.active, 1);
+
+	command(&rack, "ab.toggle=1");
+	assert_eq!(rack.state().ab.letter(), "A");
+}

@@ -461,6 +461,8 @@ impl RackState {
 			}
 		}
 
+		self.ab.active = self.ab.active.min(1);
+
 		// The other A/B side is a full state, but never a nested comparison.
 		if let Some(other) = self.ab.other.as_deref_mut() {
 			other.ab = AbState::default();

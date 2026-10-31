@@ -596,6 +596,8 @@ fn normalize_state(state: &mut RackState, rate: usize, shared: &RackShared) -> O
 		*value = value.clamp(0.0, 1.0);
 	}
 
+	state.ab.active = state.ab.active.min(1);
+
 	for name in &mut state.macro_names {
 		*name = clean_name(name);
 	}
