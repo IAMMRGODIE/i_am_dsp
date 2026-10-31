@@ -179,10 +179,11 @@ body{
 .mod-card-title{font-size:11px; font-weight:600; margin:0}
 .mod-choice{min-width:84px}
 .mod-hero{
-  height:96px; margin:7px 10px 2px; background:#1a1a1a;
+  position:relative; height:96px; margin:7px 10px 2px; background:#1a1a1a;
   border:1px solid #333; border-radius:4px; overflow:hidden;
 }
 .mod-hero svg{width:100%; height:100%; display:block}
+.mod-live{position:absolute; inset:0; pointer-events:none}
 .mod-hero svg.lfo-editor{cursor:crosshair; touch-action:none}
 .mod-card-controls{
   display:flex; flex-wrap:wrap; justify-content:center;
@@ -193,7 +194,7 @@ body{
 .mod-card-controls .mcard-row{width:100%; justify-content:flex-start; padding:4px 0 0}
 .assignments{display:flex; flex-direction:column; gap:4px; margin-top:10px}
 .assign-row{
-  display:grid; grid-template-columns:24px 112px minmax(0,1fr) 150px 24px;
+  display:grid; grid-template-columns:24px 112px minmax(0,1fr) 26px 150px 24px;
   gap:8px; align-items:center; padding:4px 6px;
   background:#1c1c1c; border:1px solid #303030; border-radius:5px;
 }
@@ -204,6 +205,13 @@ body{
 .assign-depth{width:100%; min-width:0; accent-color:var(--accent); height:14px; cursor:pointer}
 .assign-depth:disabled{opacity:.35; cursor:default}
 .assign-value{width:34px; text-align:right; font-family:var(--mono); font-size:9px; color:var(--text2)}
+.assign-mode{
+  width:22px; height:22px; padding:0; font:inherit; font-size:9px; font-weight:600;
+  color:var(--text3); background:var(--raised); border:1px solid #454545;
+  border-radius:4px; cursor:pointer;
+}
+.assign-mode.from-base{color:#111; background:var(--mod); border-color:var(--mod)}
+.assign-mode:disabled{opacity:.3; cursor:default}
 .assign-clear{
   width:22px; height:22px; padding:0; font:inherit; font-size:14px; line-height:1;
   color:var(--text3); background:transparent; border:0; border-radius:4px; cursor:pointer;
@@ -227,5 +235,5 @@ body{
   .crossover-label{display:none}
   .crossover-viz{min-width:160px}
   .mod-sources{grid-template-columns:1fr}
-  .assign-row{grid-template-columns:20px 100px minmax(0,1fr) 120px 22px}
+  .assign-row{grid-template-columns:20px 100px minmax(0,1fr) 24px 120px 22px}
 }

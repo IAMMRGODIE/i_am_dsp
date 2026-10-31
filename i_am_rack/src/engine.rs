@@ -20,7 +20,7 @@ use i_am_web_gui::{Control, Kind};
 use crate::crossover::Crossover;
 use crate::modulation::Modulation;
 use crate::module::{self, ModuleKind};
-use crate::state::{Assignment, ModuleState, RackState, Target};
+use crate::state::{Assignment, AssignmentMode, ModuleState, RackState, Target};
 
 /// A boxed effect, adapted so Paramed can wrap it.
 pub(crate) struct ModuleEffect(Box<dyn Effect<2>>);
@@ -353,7 +353,16 @@ impl Engine {
 				continue;
 			};
 
-			*sums.entry(target.clone()).or_insert(0.0) += value * assignment.depth;
+			let offset = match assignment.mode {
+				AssignmentMode::Centered => value * assignment.depth,
+				AssignmentMode::FromBase => {
+					let unipolar = assignment.source == 1 || assignment.source >= 4;
+					let unit = if unipolar { *value } else { (value + 1.0) * 0.5 };
+					unit * assignment.depth
+				},
+			};
+
+			*sums.entry(target.clone()).or_insert(0.0) += offset;
 		}
 
 		for (target, offset) in sums {
@@ -402,6 +411,11 @@ impl Engine {
 			.flat_map(|lane| lane.slots.iter_mut())
 			.flatten()
 			.find(|module| module.id == id)
+	}
+
+	/// The live source values and LFO/table phases.
+	pub fn modulation_snapshot(&self) -> ([f32; 4], [f32; 2]) {
+		self.modulation.snapshot()
 	}
 
 	/// The latency of the chain, in samples.

@@ -8,7 +8,7 @@ use i_am_plugin::Plugin;
 use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
 
 use super::*;
-use crate::state::{Assignment, Target};
+use crate::state::{Assignment, AssignmentMode, Target};
 
 fn command(rack: &Rack, body: &str) -> ProtocolResponse {
 	let request = ProtocolRequest {
@@ -372,7 +372,8 @@ source.table.shape=1
 source.table.morph=0.4
 assign.0.source=lfo
 assign.0.target=m0.cutoff
-assign.0.depth=0.5",
+assign.0.depth=0.5
+assign.0.mode=start",
 	);
 
 	assert_eq!(response.body, b"{\"ok\":true}");
@@ -393,6 +394,7 @@ assign.0.depth=0.5",
 
 	assert_eq!(assignment.source, 0);
 	assert_eq!(assignment.depth, 0.5);
+	assert_eq!(assignment.mode, AssignmentMode::FromBase);
 	assert_eq!(
 		assignment.target,
 		Some(Target::Module {
@@ -476,6 +478,17 @@ fn the_rack_route_lists_modulation_targets() {
 	assert!(json["sources"]["table"]["morph"].is_number());
 }
 
+/// The page can read the live source values and phases.
+#[test]
+fn the_modulation_route_reports_live_values() {
+	let rack = Rack::default();
+	let response = get(&rack, "/modulation");
+	let json: serde_json::Value = serde_json::from_slice(&response.body).expect("JSON");
+
+	assert_eq!(json["values"].as_array().expect("values").len(), 4);
+	assert_eq!(json["phases"].as_array().expect("phases").len(), 2);
+}
+
 /// An LFO assignment moves the filter cutoff at the control rate.
 #[test]
 fn an_lfo_modulates_a_filter_cutoff() {
@@ -489,6 +502,7 @@ fn an_lfo_modulates_a_filter_cutoff() {
 			parameter: "cutoff".to_string(),
 		}),
 		depth: 0.8,
+		..Assignment::default()
 	});
 
 	let mut engine = crate::engine::Engine::new(48_000, &state);
@@ -530,6 +544,7 @@ fn a_table_modulates_a_filter_cutoff() {
 			parameter: "cutoff".to_string(),
 		}),
 		depth: 0.8,
+		..Assignment::default()
 	});
 
 	let mut engine = crate::engine::Engine::new(48_000, &state);
@@ -569,6 +584,7 @@ fn a_macro_modulates_a_filter_cutoff() {
 			parameter: "cutoff".to_string(),
 		}),
 		depth: 0.5,
+		..Assignment::default()
 	});
 
 	let mut engine = crate::engine::Engine::new(48_000, &state);
@@ -601,6 +617,7 @@ fn an_envelope_modulates_a_band_gain() {
 		source: 1,
 		target: Some(Target::BandGain(0)),
 		depth: 1.0,
+		..Assignment::default()
 	});
 
 	let mut engine = crate::engine::Engine::new(48_000, &state);

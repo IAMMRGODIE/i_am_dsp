@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
 
 use i_am_web_gui::Control;
 
@@ -23,6 +23,10 @@ pub(crate) struct RackShared {
 	pub dirty: AtomicBool,
 	/// The rate the host announced, for the page readout.
 	pub rate: AtomicUsize,
+	/// The four live modulation values, as f32 bits.
+	pub modulation: [AtomicU32; 4],
+	/// The LFO and table phases, as f32 bits.
+	pub phases: [AtomicU32; 2],
 }
 
 impl RackShared {

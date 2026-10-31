@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 use crate::crossover::sanitize;
 use crate::module::ModuleKind;
 use crate::shared::RackShared;
-use crate::state::{Assignment, ModuleState, RackState, Target, lfo_preset};
+use crate::state::{Assignment, AssignmentMode, ModuleState, RackState, Target, lfo_preset};
 
 /// The names the three bands answer to.
 pub const BAND_NAMES: [&str; 3] = ["Low", "Mid", "High"];
@@ -35,9 +35,25 @@ pub(crate) fn route(
 ) -> Option<ProtocolResponse> {
 	match (request.method, request.path) {
 		("GET", "/rack") => Some(ProtocolResponse::json(rack_json(shared))),
+		("GET", "/modulation") => Some(ProtocolResponse::json(modulation_json(shared))),
 		("POST", "/rack-command") => Some(command(request.body, shared)),
 		_ => None,
 	}
+}
+
+fn modulation_json(shared: &RackShared) -> String {
+	let values: [f32; 4] = std::array::from_fn(|index| {
+		f32::from_bits(shared.modulation[index].load(Ordering::Relaxed))
+	});
+	let phases: [f32; 2] = std::array::from_fn(|index| {
+		f32::from_bits(shared.phases[index].load(Ordering::Relaxed))
+	});
+
+	json!({
+		"values": values,
+		"phases": phases,
+	})
+	.to_string()
 }
 
 pub(crate) fn rack_json(shared: &RackShared) -> String {
@@ -102,6 +118,7 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 				"source": assignment.source,
 				"target": assignment.target.as_ref().map(target_id),
 				"depth": assignment.depth,
+				"mode": assignment.mode,
 			}),
 			None => Value::Null,
 		})
@@ -169,6 +186,7 @@ fn module_json(
 								Some(json!({
 									"source": assignment.source,
 									"depth": assignment.depth,
+									"mode": assignment.mode,
 								}))
 							},
 							_ => None,
@@ -693,6 +711,17 @@ fn apply_assignment(
 			let assignment = state.assignments[slot]
 				.get_or_insert_with(Assignment::default);
 			assignment.depth = value.clamp(-1.0, 1.0) as f32;
+			true
+		},
+		"mode" => {
+			let mode = match raw.to_ascii_lowercase().as_str() {
+				"center" | "centered" => AssignmentMode::Centered,
+				"start" | "frombase" | "from-base" => AssignmentMode::FromBase,
+				_ => return false,
+			};
+			let assignment = state.assignments[slot]
+				.get_or_insert_with(Assignment::default);
+			assignment.mode = mode;
 			true
 		},
 		"clear" => {

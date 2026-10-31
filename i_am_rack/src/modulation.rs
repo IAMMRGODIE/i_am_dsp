@@ -29,6 +29,7 @@ pub(crate) struct Modulation {
 	attack_coeff: f32,
 	release_coeff: f32,
 	random_coeff: f32,
+	values: [f32; 4],
 }
 
 impl Modulation {
@@ -50,6 +51,7 @@ impl Modulation {
 			attack_coeff: 0.0,
 			release_coeff: 0.0,
 			random_coeff: 0.0,
+			values: [0.0; 4],
 		};
 
 		modulation.set_settings(settings);
@@ -100,7 +102,7 @@ impl Modulation {
 
 		self.counter = 0;
 
-		Some([
+		let values = [
 			self.lfo.sample(self.lfo_phase, 0) * 2.0 - 1.0,
 			self.envelope.clamp(0.0, 1.0),
 			self.random_value.clamp(-1.0, 1.0),
@@ -109,7 +111,15 @@ impl Modulation {
 				self.settings.table_morph,
 				self.table_phase,
 			),
-		])
+		];
+
+		self.values = values;
+		Some(values)
+	}
+
+	/// The last values and the LFO/table phases, for the page's live view.
+	pub fn snapshot(&self) -> ([f32; 4], [f32; 2]) {
+		(self.values, [self.lfo_phase, self.table_phase])
 	}
 }
 

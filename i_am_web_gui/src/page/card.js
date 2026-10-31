@@ -38,7 +38,9 @@
       return spec.choices[clamp(Math.round(value), 0, spec.choices.length - 1)];
     }
     if (spec.unit === "hz") {
-      return value >= 1000 ? (value / 1000).toFixed(2) + " kHz" : value.toFixed(0) + " Hz";
+      if (value >= 1000) return (value / 1000).toFixed(2) + " kHz";
+      if (value < 100) return value.toFixed(2) + " Hz";
+      return value.toFixed(0) + " Hz";
     }
     if (spec.unit === "percent") return (value * 100).toFixed(0) + " %";
     if (spec.unit === "db") return (value > 0 ? "+" : "") + value.toFixed(1) + " dB";
@@ -275,10 +277,7 @@
       d: arcPath(32, 32, 25, START, START + SWEEP)
     }));
 
-    var modSpan = 0;
-    (spec.modulations || []).forEach(function (assignment) {
-      modSpan += Math.abs(assignment.depth || 0);
-    });
+    var modulations = spec.modulations || [];
 
     var mod = svg("path", { class: "knob-mod" });
     var fill = svg("path", { class: "knob-arc" });
@@ -302,10 +301,26 @@
       var angle = START + SWEEP * position;
       fill.setAttribute("d", arcPath(32, 32, 25, START, angle));
 
-      if (modSpan > 0) {
-        var from = clamp(position - modSpan, 0, 1);
-        var to = clamp(position + modSpan, 0, 1);
-        mod.setAttribute("d", arcPath(32, 32, 29, START + SWEEP * from, START + SWEEP * to));
+      var low = position;
+      var high = position;
+
+      modulations.forEach(function (assignment) {
+        var depth = assignment.depth || 0;
+        var mode = assignment.mode || "centered";
+
+        if (mode === "frombase" || mode === "from-base" || mode === "start") {
+          var end = clamp(position + depth, 0, 1);
+          low = Math.min(low, end);
+          high = Math.max(high, end);
+        } else {
+          var span = Math.abs(depth);
+          low = Math.min(low, clamp(position - span, 0, 1));
+          high = Math.max(high, clamp(position + span, 0, 1));
+        }
+      });
+
+      if (high - low > 0.0001) {
+        mod.setAttribute("d", arcPath(32, 32, 29, START + SWEEP * low, START + SWEEP * high));
         mod.style.display = "";
       } else {
         mod.style.display = "none";

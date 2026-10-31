@@ -13,6 +13,14 @@
   var rangeLabels = [];
   var paintCrossover = null;
   var collapsedBands = Object.create(null);
+  var livePainters = [];
+  var live = {
+    values: [0, 0, 0, 0],
+    phases: [0, 0],
+    envelope: [],
+    random: []
+  };
+  var liveTimer = null;
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -23,13 +31,13 @@
 
   function queue(address, value) {
     pending[address] = address + "=" + value;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(flush, 60);
+    if (timer) cancelAnimationFrame(timer);
+    timer = requestAnimationFrame(flush);
   }
 
   function flush() {
     if (timer) {
-      clearTimeout(timer);
+      cancelAnimationFrame(timer);
       timer = null;
     }
 
@@ -85,7 +93,11 @@
     return (data.assignments || []).filter(function (assignment) {
       return assignment && assignment.target === target;
     }).map(function (assignment) {
-      return { source: assignment.source, depth: assignment.depth };
+      return {
+        source: assignment.source,
+        depth: assignment.depth,
+        mode: assignment.mode || "centered"
+      };
     });
   }
 
@@ -576,7 +588,7 @@
         x: x,
         y: y,
         time: Math.max(0, Math.min(1, (x - 8) / 284)),
-        value: Math.max(0, Math.min(1, (32 - y) / 22))
+        value: Math.max(0, Math.min(1, (60 - y) / 52))
       };
     }
 
@@ -586,7 +598,7 @@
       for (var i = 0; i < lfo.points.length; i++) {
         var point = lfo.points[i];
         var x = 8 + point.time * 284;
-        var y = 32 - point.value * 22;
+        var y = 60 - point.value * 52;
 
         if (Math.abs(x - position.x) < 9 && Math.abs(y - position.y) < 9) {
           return point;
@@ -608,7 +620,7 @@
         var time = (point.time + next.time) / 2;
         var value = point.value + (next.value - point.value) * lfoBend(0.5, point.bend);
         var x = 8 + time * 284;
-        var y = 32 - value * 22;
+        var y = 60 - value * 52;
 
         if (Math.abs(x - position.x) < 8 && Math.abs(y - position.y) < 8) {
           return point;
@@ -622,7 +634,7 @@
       svg.textContent = "";
 
       svg.appendChild(svgNode("line", {
-        x1: 8, y1: 54, x2: 292, y2: 54,
+        x1: 8, y1: 60, x2: 292, y2: 60,
         stroke: "#333", "stroke-width": "1", "stroke-dasharray": "2 4"
       }));
 
@@ -634,7 +646,7 @@
       for (var i = 0; i < points.length; i++) {
         if (i === 0) {
           path = "M " + (8 + points[i].time * 284).toFixed(1) + " " +
-            (32 - points[i].value * 22).toFixed(1);
+            (60 - points[i].value * 52).toFixed(1);
           continue;
         }
 
@@ -647,7 +659,7 @@
           var value = previous.value +
             (point.value - previous.value) * lfoBend(unit, previous.bend);
           path += " L " + (8 + time * 284).toFixed(1) + " " +
-            (32 - value * 22).toFixed(1);
+            (60 - value * 52).toFixed(1);
         }
       }
 
@@ -661,7 +673,7 @@
       points.forEach(function (point) {
         var circle = svgNode("circle", {
           cx: (8 + point.time * 284).toFixed(1),
-          cy: (32 - point.value * 22).toFixed(1),
+          cy: (60 - point.value * 52).toFixed(1),
           r: "3.5", fill: "#4c8dff", stroke: "#1a1a1a", "stroke-width": "1.5"
         });
         circle.style.pointerEvents = "none";
@@ -676,7 +688,7 @@
           (end.value - start.value) * lfoBend(0.5, start.bend);
         var handle = svgNode("circle", {
           cx: (8 + bendTime * 284).toFixed(1),
-          cy: (32 - bendValue * 22).toFixed(1),
+          cy: (60 - bendValue * 52).toFixed(1),
           r: "2.6", fill: "none", stroke: "#8fb8ff", "stroke-width": "1.4"
         });
         handle.style.pointerEvents = "none";
@@ -769,35 +781,20 @@
     paint();
   }
 
-  function drawEnvelope(svg, env) {
-    var attack = Math.max(1, env.attack || 10);
-    var release = Math.max(1, env.release || 100);
-    var knee = Math.max(0.08, Math.min(0.92, attack / (attack + release)));
-    var values = [];
-
-    for (var i = 0; i < 120; i++) {
-      var t = i / 119;
-      values.push(t <= knee ? t / knee : Math.exp(-4 * (t - knee) / (1 - knee)));
-    }
-
-    paintCurve(svg, values, "#35c77a");
+  function drawEnvelope(svg) {
+    svg.textContent = "";
+    svg.appendChild(svgNode("line", {
+      x1: 8, y1: 58, x2: 292, y2: 58,
+      stroke: "#333", "stroke-width": "1", "stroke-dasharray": "2 4"
+    }));
   }
 
-  function drawRandom(svg, random) {
-    var steps = Math.max(4, Math.min(32, Math.round((random.rate || 4) * 2)));
-    var alpha = 0.08 + 0.65 * Math.exp(-(random.smooth || 0) / 120);
-    var current = 0;
-    var values = [];
-
-    for (var i = 0; i < 120; i++) {
-      var step = Math.floor(i / 120 * steps);
-      var seed = Math.sin(step * 12.9898 + 4.1414) * 43758.5453;
-      var target = (seed - Math.floor(seed)) * 2 - 1;
-      current += (target - current) * alpha;
-      values.push(current);
-    }
-
-    paintCurve(svg, values, "#ff9a3d");
+  function drawRandom(svg) {
+    svg.textContent = "";
+    svg.appendChild(svgNode("line", {
+      x1: 8, y1: 32, x2: 292, y2: 32,
+      stroke: "#333", "stroke-width": "1", "stroke-dasharray": "2 4"
+    }));
   }
 
   function drawTable(svg, table) {
@@ -808,6 +805,68 @@
     }
 
     paintCurve(svg, values, "#c8e04a");
+  }
+
+  function liveTrace(svg, values, color, base, height) {
+    svg.textContent = "";
+    if (values.length < 2) return;
+
+    var path = "";
+
+    for (var i = 0; i < values.length; i++) {
+      var x = 8 + i / (values.length - 1) * 284;
+      var y = base - values[i] * height;
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    svg.appendChild(svgNode("path", {
+      d: path, fill: "none", stroke: color, "stroke-width": "2",
+      "stroke-linecap": "round", "vector-effect": "non-scaling-stroke"
+    }));
+  }
+
+  function drawLiveEnvelope(svg, live) {
+    liveTrace(svg, live.envelope.slice(-120), "#35c77a", 58, 48);
+  }
+
+  function drawLiveRandom(svg, live) {
+    liveTrace(svg, live.random.slice(-120), "#ff9a3d", 32, 22);
+  }
+
+  function drawLiveLfo(svg, live) {
+    svg.textContent = "";
+
+    var phase = live.phases[0] || 0;
+    var value = live.values[0] || 0;
+    var x = 8 + phase * 284;
+    var y = 60 - ((value + 1) / 2) * 52;
+
+    svg.appendChild(svgNode("line", {
+      x1: x.toFixed(1), y1: 6, x2: x.toFixed(1), y2: 60,
+      stroke: "#4c8dff", "stroke-opacity": ".35", "stroke-width": "1"
+    }));
+    svg.appendChild(svgNode("circle", {
+      cx: x.toFixed(1), cy: y.toFixed(1), r: "3.5",
+      fill: "#dce9ff", stroke: "#4c8dff", "stroke-width": "1.5"
+    }));
+  }
+
+  function drawLiveTable(svg, live) {
+    svg.textContent = "";
+
+    var phase = live.phases[1] || 0;
+    var value = live.values[3] || 0;
+    var x = 8 + phase * 284;
+    var y = 32 - value * 22;
+
+    svg.appendChild(svgNode("line", {
+      x1: x.toFixed(1), y1: 6, x2: x.toFixed(1), y2: 60,
+      stroke: "#c8e04a", "stroke-opacity": ".35", "stroke-width": "1"
+    }));
+    svg.appendChild(svgNode("circle", {
+      cx: x.toFixed(1), cy: y.toFixed(1), r: "3.5",
+      fill: "#f4ffd0", stroke: "#c8e04a", "stroke-width": "1.5"
+    }));
   }
 
   function makeMacroBar(data) {
@@ -870,7 +929,7 @@
     head.appendChild(box);
   }
 
-  function makeSourceCard(title, accent, paint, build) {
+  function makeSourceCard(title, accent, paint, build, livePaint) {
     var card = el("div", "mod-card");
     card.style.setProperty("--accent", accent);
 
@@ -886,10 +945,20 @@
     svg.setAttribute("aria-label", title + " modulation shape");
     if (title === "LFO") {
       svg.classList.add("lfo-editor");
-      hero.title = "Click to add a point; drag to move; double-click or right-click to remove";
+      hero.title = "Click to add a point; drag points or the small bend ring; double-click or right-click to remove";
     }
     hero.appendChild(svg);
+
+    var liveSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    liveSvg.setAttribute("viewBox", "0 0 300 64");
+    liveSvg.setAttribute("class", "mod-live");
+    liveSvg.setAttribute("aria-hidden", "true");
+    hero.appendChild(liveSvg);
     card.appendChild(hero);
+
+    if (livePaint) {
+      livePainters.push(function () { livePaint(liveSvg, live); });
+    }
 
     var controls = el("div", "mod-card-controls");
     build(controls, head, function () { paint(svg); });
@@ -951,7 +1020,7 @@
         lfo.rate = value;
         refresh();
       });
-    }));
+    }, drawLiveLfo));
 
     grid.appendChild(makeSourceCard("Envelope", "#35c77a", function (svg) {
       drawEnvelope(svg, env);
@@ -970,7 +1039,7 @@
         env.release = value;
         refresh();
       });
-    }));
+    }, drawLiveEnvelope));
 
     grid.appendChild(makeSourceCard("Random", "#ff9a3d", function (svg) {
       drawRandom(svg, random);
@@ -989,7 +1058,7 @@
         random.smooth = value;
         refresh();
       });
-    }));
+    }, drawLiveRandom));
 
     grid.appendChild(makeSourceCard("Table", "#c8e04a", function (svg) {
       drawTable(svg, table);
@@ -1014,7 +1083,7 @@
         table.morph = value;
         refresh();
       });
-    }));
+    }, drawLiveTable));
 
     section.appendChild(grid);
 
@@ -1095,6 +1164,19 @@
     });
     row.appendChild(target);
 
+    var fromBase = assignment && assignment.mode === "frombase";
+    var mode = el("button", "assign-mode" + (fromBase ? " from-base" : ""), fromBase ? "S" : "C");
+    mode.type = "button";
+    mode.disabled = !assignment;
+    mode.title = fromBase
+      ? "Modulation starts at the current value"
+      : "Modulation is centred on the current value";
+    mode.setAttribute("aria-label", mode.title);
+    mode.addEventListener("click", function () {
+      sendNow("assign." + slot + ".mode", fromBase ? "center" : "start").then(load);
+    });
+    row.appendChild(mode);
+
     var depth = document.createElement("input");
     depth.type = "range";
     depth.className = "assign-depth";
@@ -1134,6 +1216,7 @@
   function render(data) {
     current = data;
     rangeLabels = [];
+    livePainters = [];
     rack.textContent = "";
 
     rack.appendChild(makeMacroBar(data));
@@ -1171,6 +1254,32 @@
       });
   }
 
+  function startLive() {
+    if (liveTimer) clearInterval(liveTimer);
+
+    liveTimer = setInterval(function () {
+      fetch("/modulation", { cache: "no-store" })
+        .then(function (response) {
+          if (!response.ok) throw new Error("modulation " + response.status);
+          return response.json();
+        })
+        .then(function (data) {
+          if (Array.isArray(data.values)) live.values = data.values;
+          if (Array.isArray(data.phases)) live.phases = data.phases;
+
+          live.envelope.push(live.values[1]);
+          live.random.push(live.values[2]);
+          if (live.envelope.length > 160) live.envelope.shift();
+          if (live.random.length > 160) live.random.shift();
+
+          livePainters.forEach(function (paint) { paint(); });
+        })
+        .catch(function () {
+          // The live route is absent in a static preview; the static heroes stay.
+        });
+    }, 50);
+  }
+
   power.addEventListener("click", function () {
     bypassed = !bypassed;
     power.classList.toggle("off", bypassed);
@@ -1179,4 +1288,5 @@
   });
 
   load();
+  startLive();
 })();

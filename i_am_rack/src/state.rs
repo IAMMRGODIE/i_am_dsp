@@ -110,6 +110,17 @@ pub fn lfo_preset(shape: i32) -> Vec<(f32, f32, f32)> {
 		.collect()
 }
 
+/// How an assignment lays its depth over the parameter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AssignmentMode {
+	/// The source moves around the current value, ± depth.
+	#[default]
+	Centered,
+	/// The current value is the start; the source moves from there to one side.
+	FromBase,
+}
+
 /// One source-to-target modulation assignment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assignment {
@@ -119,6 +130,9 @@ pub struct Assignment {
 	pub target: Option<Target>,
 	/// -1..1, applied over the target's normalized range.
 	pub depth: f32,
+	/// Whether depth is centred on the value or starts at it.
+	#[serde(default)]
+	pub mode: AssignmentMode,
 }
 
 impl Default for Assignment {
@@ -127,6 +141,7 @@ impl Default for Assignment {
 			source: 0,
 			target: None,
 			depth: 0.5,
+			mode: AssignmentMode::Centered,
 		}
 	}
 }
