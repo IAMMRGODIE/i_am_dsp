@@ -81,6 +81,14 @@
     });
   }
 
+  function modulationsFor(data, target) {
+    return (data.assignments || []).filter(function (assignment) {
+      return assignment && assignment.target === target;
+    }).map(function (assignment) {
+      return { source: assignment.source, depth: assignment.depth };
+    });
+  }
+
   function makeCrossover(data) {
     var section = el("section", "crossover");
     var controls = el("div", "crossover-controls");
@@ -302,7 +310,8 @@
       min: 0,
       max: 2,
       default: 1,
-      unit: ""
+      unit: "",
+      modulations: modulationsFor(data, "band." + bandIndex + ".gain")
     }, band.gain, function (_, value) {
       band.gain = value;
       queue("band." + bandIndex + ".gain", value);
@@ -316,7 +325,8 @@
       max: 1,
       default: 0,
       unit: "",
-      bipolar: true
+      bipolar: true,
+      modulations: modulationsFor(data, "band." + bandIndex + ".pan")
     }, band.pan, function (_, value) {
       band.pan = value;
       queue("band." + bandIndex + ".pan", value);
@@ -533,6 +543,35 @@
     paintCurve(svg, values, "#c8e04a");
   }
 
+  function makeMacroBar(data) {
+    var section = el("section", "macrobar");
+    section.appendChild(el("span", "macro-label", "MACROS"));
+
+    var controls = el("div", "macro-controls");
+    var macros = data.macros || [];
+
+    for (var index = 0; index < 8; index++) {
+      (function (slot) {
+        var value = typeof macros[slot] === "number" ? macros[slot] : 0;
+
+        controls.appendChild(window.IAmCard.control({
+          id: "macro." + slot,
+          label: "M" + (slot + 1),
+          kind: "float",
+          min: 0,
+          max: 1,
+          default: 0,
+          unit: "percent"
+        }, value, function (_, next) {
+          queue("macro." + slot, next);
+        }));
+      })(index);
+    }
+
+    section.appendChild(controls);
+    return section;
+  }
+
   function sourceControl(card, spec, value, address, onChange) {
     card.appendChild(window.IAmCard.control(spec, value, function (_, next) {
       queue(address, next);
@@ -694,6 +733,11 @@
     var sourceNames = ["LFO", "Envelope", "Random", "Table"];
     var sourceValues = ["lfo", "env", "random", "table"];
 
+    for (var macro = 1; macro <= 8; macro++) {
+      sourceNames.push("Macro " + macro);
+      sourceValues.push("macro" + macro);
+    }
+
     row.appendChild(el("span", "assign-slot", String(slot + 1).padStart(2, "0")));
 
     var source = document.createElement("select");
@@ -791,6 +835,7 @@
     rangeLabels = [];
     rack.textContent = "";
 
+    rack.appendChild(makeMacroBar(data));
     rack.appendChild(makeCrossover(data));
     data.bands.forEach(function (band, index) {
       rack.appendChild(makeBand(data, index));

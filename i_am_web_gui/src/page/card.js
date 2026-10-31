@@ -275,8 +275,15 @@
       d: arcPath(32, 32, 25, START, START + SWEEP)
     }));
 
+    var modSpan = 0;
+    (spec.modulations || []).forEach(function (assignment) {
+      modSpan += Math.abs(assignment.depth || 0);
+    });
+
+    var mod = svg("path", { class: "knob-mod" });
     var fill = svg("path", { class: "knob-arc" });
     var hand = svg("line", { class: "knob-hand" });
+    drawing.appendChild(mod);
     drawing.appendChild(fill);
     drawing.appendChild(hand);
     dial.appendChild(drawing);
@@ -294,6 +301,15 @@
       var position = clamp(norm(spec, current), 0, 1);
       var angle = START + SWEEP * position;
       fill.setAttribute("d", arcPath(32, 32, 25, START, angle));
+
+      if (modSpan > 0) {
+        var from = clamp(position - modSpan, 0, 1);
+        var to = clamp(position + modSpan, 0, 1);
+        mod.setAttribute("d", arcPath(32, 32, 29, START + SWEEP * from, START + SWEEP * to));
+        mod.style.display = "";
+      } else {
+        mod.style.display = "none";
+      }
       var inner = polar(32, 32, 9, angle);
       var tip = polar(32, 32, 25, angle);
       hand.setAttribute("x1", inner.x.toFixed(2));

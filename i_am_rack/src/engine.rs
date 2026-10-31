@@ -202,10 +202,12 @@ impl Lane {
 pub(crate) struct Engine {
 	lanes: [Lane; 3],
 	crossover: Crossover,
-	/// The three control-rate sources.
+	/// The four control-rate sources.
 	modulation: Modulation,
 	/// The eight assignments the page set up.
 	assignments: [Option<Assignment>; 8],
+	/// The eight macro values, used as extra sources.
+	macros: [f32; 8],
 	/// The rate the modules were built for.
 	pub rate: usize,
 }
@@ -218,6 +220,7 @@ impl Engine {
 			crossover: Crossover::new(sample_rate, state.split_low, state.split_high),
 			modulation: Modulation::new(sample_rate),
 			assignments: std::array::from_fn(|_| None),
+			macros: [0.0; 8],
 			rate: sample_rate,
 		};
 
@@ -282,6 +285,7 @@ impl Engine {
 
 		self.modulation.set_settings(state.sources);
 		self.assignments = state.assignments.clone();
+		self.macros = state.macros;
 	}
 
 	/// Splits the frame, runs both slots of every band, and sums what is left.
@@ -294,7 +298,10 @@ impl Engine {
 		let input = (samples[0] + samples[1]) * 0.5;
 
 		if let Some(values) = self.modulation.advance(input) {
-			self.apply_modulation(values);
+			let mut sources = [0.0; 12];
+			sources[..4].copy_from_slice(&values);
+			sources[4..].copy_from_slice(&self.macros);
+			self.apply_modulation(sources);
 		}
 
 		let bands = self.crossover.split(*samples, process_context);
@@ -335,7 +342,7 @@ impl Engine {
 	}
 
 	/// Applies the eight assignments once, at a control tick.
-	fn apply_modulation(&mut self, values: [f32; 4]) {
+	fn apply_modulation(&mut self, values: [f32; 12]) {
 		let mut sums: BTreeMap<Target, f32> = BTreeMap::new();
 
 		for assignment in self.assignments.iter().flatten() {

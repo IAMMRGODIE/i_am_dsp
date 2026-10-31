@@ -52,6 +52,7 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 
 			modules.push(module_json(
 				shared,
+				&state.assignments,
 				module,
 				band_index,
 				slot_index,
@@ -137,16 +138,54 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		"targets": targets,
 		"assignments": assignments,
 		"sources": sources,
+		"macros": state.macros,
 	})
 	.to_string()
 }
 
 fn module_json(
 	shared: &RackShared,
+	assignments: &[Option<Assignment>; 8],
 	module: &ModuleState,
 	band: usize,
 	slot: usize,
 ) -> Value {
+	let controls = shared
+		.schemas
+		.get(&module.kind)
+		.map(|controls| {
+			controls
+				.iter()
+				.map(|control| {
+					let modulations = assignments
+						.iter()
+						.flatten()
+						.filter_map(|assignment| match &assignment.target {
+							Some(Target::Module {
+								module: target_module,
+								parameter,
+							}) if *target_module == module.id && parameter == &control.id => {
+								Some(json!({
+									"source": assignment.source,
+									"depth": assignment.depth,
+								}))
+							},
+							_ => None,
+						})
+						.collect::<Vec<_>>();
+
+					let mut value = serde_json::to_value(control).unwrap_or(Value::Null);
+
+					if let Value::Object(object) = &mut value {
+						object.insert("modulations".to_string(), json!(modulations));
+					}
+
+					value
+				})
+				.collect::<Vec<_>>()
+		})
+		.unwrap_or_default();
+
 	json!({
 		"id": module.id,
 		"band": band,
@@ -159,7 +198,7 @@ fn module_json(
 		"header": module.kind.header(),
 		"visible": module.kind.visible(),
 		"bypass": module.bypass,
-		"controls": shared.schemas.get(&module.kind).cloned().unwrap_or_default(),
+		"controls": controls,
 		"values": &module.params,
 	})
 }
@@ -299,6 +338,8 @@ fn apply_line(
 		apply_split(state, rest, raw, rate)
 	} else if let Some(rest) = key.strip_prefix("slot.") {
 		apply_slot(state, rest, raw)
+	} else if let Some(rest) = key.strip_prefix("macro.") {
+		apply_macro(state, rest, raw)
 	} else if let Some(rest) = key.strip_prefix("source.") {
 		apply_source(state, rest, raw)
 	} else if let Some(rest) = key.strip_prefix("assign.") {
@@ -478,6 +519,23 @@ fn apply_module(
 	true
 }
 
+fn apply_macro(state: &mut RackState, rest: &str, raw: &str) -> bool {
+	let Ok(index) = rest.parse::<usize>() else {
+		return false;
+	};
+
+	let Some(value) = number(raw) else {
+		return false;
+	};
+
+	let Some(macro_value) = state.macros.get_mut(index) else {
+		return false;
+	};
+
+	*macro_value = value.clamp(0.0, 1.0) as f32;
+	true
+}
+
 fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 	let Some((source, parameter)) = rest.split_once('.') else {
 		return false;
@@ -573,7 +631,18 @@ fn apply_assignment(
 }
 
 fn source_index(raw: &str) -> Option<usize> {
-	match raw.to_ascii_lowercase().as_str() {
+	let lower = raw.to_ascii_lowercase();
+
+	let macro_index = lower
+		.strip_prefix("macro")
+		.and_then(|index| index.parse::<usize>().ok())
+		.filter(|index| (1..=8).contains(index));
+
+	if let Some(index) = macro_index {
+		return Some(3 + index);
+	}
+
+	match lower.as_str() {
 		"lfo" => Some(0),
 		"env" | "envelope" => Some(1),
 		"random" => Some(2),

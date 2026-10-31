@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::module::{self, ModuleKind};
 
 /// The version this build writes.
-pub const STATE_VERSION: u32 = 4;
+pub const STATE_VERSION: u32 = 5;
 
 /// The default low/mid crossover.
 pub const DEFAULT_SPLIT_LOW: f32 = 120.0;
@@ -36,6 +36,9 @@ pub struct RackState {
 	/// Eight modulation assignments; empty slots are off.
 	#[serde(default)]
 	pub assignments: [Option<Assignment>; 8],
+	/// Eight macro values, 0..1; assignments can use them as sources.
+	#[serde(default)]
+	pub macros: [f32; 8],
 }
 
 /// The knobs of the four modulation sources.
@@ -81,7 +84,7 @@ impl Default for SourceSettings {
 /// One source-to-target modulation assignment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assignment {
-	/// 0 LFO, 1 envelope, 2 random, 3 table.
+	/// 0 LFO, 1 envelope, 2 random, 3 table, 4..=11 macro 1..8.
 	pub source: usize,
 	/// What it moves; an assignment with no target is inactive.
 	pub target: Option<Target>,
@@ -227,6 +230,7 @@ impl RackState {
 			],
 			sources: SourceSettings::default(),
 			assignments: std::array::from_fn(|_| None),
+			macros: [0.0; 8],
 		}
 	}
 }

@@ -378,6 +378,34 @@ assign.0.depth=0.5",
 	);
 }
 
+/// Macros are values, and assignments can use them as sources.
+#[test]
+fn macro_commands_and_assignments_edit_the_state() {
+	let rack = Rack::default();
+
+	let response = command(
+		&rack,
+		"macro.0=0.75
+assign.2.source=macro1
+assign.2.target=band.0.gain
+assign.2.depth=0.4",
+	);
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+
+	assert!((state.macros[0] - 0.75).abs() < 1e-6);
+
+	let assignment = state.assignments[2]
+		.as_ref()
+		.expect("the third assignment");
+
+	assert_eq!(assignment.source, 4);
+	assert_eq!(assignment.target, Some(Target::BandGain(0)));
+	assert!((assignment.depth - 0.4).abs() < 1e-6);
+}
+
 /// The page gets the list of parameters an assignment can target.
 #[test]
 fn the_rack_route_lists_modulation_targets() {
@@ -392,6 +420,7 @@ fn the_rack_route_lists_modulation_targets() {
 	assert_eq!(json["assignments"].as_array().expect("assignments").len(), 8);
 	assert_eq!(json["sources"]["lfo"]["shape"], 0);
 	assert_eq!(json["sources"]["table"]["shape"], 0);
+	assert_eq!(json["macros"].as_array().expect("macros").len(), 8);
 	assert!(json["sources"]["table"]["morph"].is_number());
 }
 
@@ -472,6 +501,40 @@ fn a_table_modulates_a_filter_cutoff() {
 	assert!(
 		highest - lowest > 100.0,
 		"the table cutoff stayed between {lowest} and {highest}"
+	);
+}
+
+/// A macro value can drive a module parameter just like a source.
+#[test]
+fn a_macro_modulates_a_filter_cutoff() {
+	let mut state = RackState::initial();
+
+	state.macros[0] = 1.0;
+	state.assignments[0] = Some(Assignment {
+		source: 4,
+		target: Some(Target::Module {
+			module: 0,
+			parameter: "cutoff".to_string(),
+		}),
+		depth: 0.5,
+	});
+
+	let mut engine = crate::engine::Engine::new(48_000, &state);
+	let base = engine
+		.module_parameter(0, "cutoff")
+		.expect("the filter cutoff");
+
+	for _ in 0..128 {
+		process_engine(&mut engine, [0.0, 0.0]);
+	}
+
+	let cutoff = engine
+		.module_parameter(0, "cutoff")
+		.expect("the filter cutoff");
+
+	assert!(
+		cutoff > base + 100.0,
+		"the macro left the cutoff at {cutoff} (base {base})"
 	);
 }
 
