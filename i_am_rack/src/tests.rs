@@ -706,6 +706,63 @@ fn a_midi_source_follows_note_and_velocity() {
 	assert!((midi["value"].as_f64().unwrap() - 0.75).abs() < 1e-4);
 }
 
+/// MIDI note and velocity curves shape the source output.
+#[test]
+fn midi_curves_shape_the_output() {
+	let mut rack = Rack::default();
+	assert_eq!(command(&rack, "source.add=midi").body, b"{\"ok\":true}");
+	assert_eq!(
+		command(&rack, "source.4.note_curve=0:0;0.5:1;1:0").body,
+		b"{\"ok\":true}"
+	);
+
+	let note = NoteEvent::NoteOn {
+		channel: 0,
+		note: 64,
+		velocity: 0.25,
+	};
+
+	for _ in 0..128 {
+		process_with(&mut rack, [0.0, 0.0], vec![note.clone()]);
+	}
+
+	let response = get(&rack, "/modulation");
+	let json: serde_json::Value = serde_json::from_slice(&response.body).expect("JSON");
+	let value = json["sources"]
+		.as_array()
+		.expect("sources")
+		.iter()
+		.find(|source| source["id"] == 4)
+		.expect("the MIDI source")["value"]
+		.as_f64()
+		.unwrap();
+
+	assert!(value > 0.9, "curve output {value}");
+
+	assert_eq!(command(&rack, "source.4.mode=1").body, b"{\"ok\":true}");
+	assert_eq!(
+		command(&rack, "source.4.velocity_curve=0:1;1:0").body,
+		b"{\"ok\":true}"
+	);
+
+	for _ in 0..128 {
+		process_with(&mut rack, [0.0, 0.0], vec![note.clone()]);
+	}
+
+	let response = get(&rack, "/modulation");
+	let json: serde_json::Value = serde_json::from_slice(&response.body).expect("JSON");
+	let value = json["sources"]
+		.as_array()
+		.expect("sources")
+		.iter()
+		.find(|source| source["id"] == 4)
+		.expect("the MIDI source")["value"]
+		.as_f64()
+		.unwrap();
+
+	assert!((value - 0.75).abs() < 0.05, "velocity curve output {value}");
+}
+
 /// The source list has no fixed eight-source limit.
 #[test]
 fn source_slots_have_no_fixed_limit() {

@@ -165,6 +165,8 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 				}),
 				SourceKind::Midi => json!({
 					"mode": settings.midi_mode,
+					"note_curve": settings.midi_note_curve,
+					"velocity_curve": settings.midi_velocity_curve,
 				}),
 			};
 
@@ -736,6 +738,23 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		return true;
 	}
 
+	if parameter == "note_curve" || parameter == "velocity_curve" {
+		if kind != SourceKind::Midi {
+			return false;
+		}
+		let Some(points) = parse_curve(raw) else {
+			return false;
+		};
+
+		if parameter == "note_curve" {
+			slot.settings.midi_note_curve = points;
+		} else {
+			slot.settings.midi_velocity_curve = points;
+		}
+
+		return true;
+	}
+
 	let Some(value) = number(raw) else {
 		return false;
 	};
@@ -819,6 +838,37 @@ fn source_kind(raw: &str) -> Option<SourceKind> {
 		"pitch" => Some(SourceKind::Pitch),
 		"midi" => Some(SourceKind::Midi),
 		_ => None,
+	}
+}
+
+fn parse_curve(raw: &str) -> Option<Vec<(f32, f32)>> {
+	let mut points = Vec::new();
+
+	for part in raw.split(';') {
+		let part = part.trim();
+
+		if part.is_empty() {
+			continue;
+		}
+
+		let mut fields = part.split(':');
+		let x = fields.next()?.parse::<f32>().ok()?;
+		let y = fields.next()?.parse::<f32>().ok()?;
+
+		if !x.is_finite() || !y.is_finite() {
+			return None;
+		}
+
+		points.push((x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
+	}
+
+	points.sort_by(|a, b| a.0.total_cmp(&b.0));
+	points.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-4);
+
+	if points.len() < 2 {
+		None
+	} else {
+		Some(points)
 	}
 }
 

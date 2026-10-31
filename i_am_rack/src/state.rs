@@ -97,6 +97,12 @@ pub struct SourceSettings {
 	pub pitch_glide: f32,
 	/// 0 note, 1 velocity.
 	pub midi_mode: i32,
+	/// Note input -> output curve, x/y in 0..1.
+	#[serde(default = "default_midi_curve")]
+	pub midi_note_curve: Vec<(f32, f32)>,
+	/// Velocity input -> output curve, x/y in 0..1.
+	#[serde(default = "default_midi_curve")]
+	pub midi_velocity_curve: Vec<(f32, f32)>,
 }
 
 impl Default for SourceSettings {
@@ -125,6 +131,8 @@ impl Default for SourceSettings {
 			pitch_clarity: 0.5,
 			pitch_glide: 40.0,
 			midi_mode: 0,
+			midi_note_curve: default_midi_curve(),
+			midi_velocity_curve: default_midi_curve(),
 		}
 	}
 }
@@ -195,6 +203,10 @@ pub fn default_source_slots() -> Vec<SourceSlot> {
 		SourceSlot::new(2, SourceKind::Random),
 		SourceSlot::new(3, SourceKind::Table),
 	]
+}
+
+fn default_midi_curve() -> Vec<(f32, f32)> {
+	vec![(0.0, 0.0), (1.0, 1.0)]
 }
 
 fn default_lfo_points() -> Vec<(f32, f32, f32)> {

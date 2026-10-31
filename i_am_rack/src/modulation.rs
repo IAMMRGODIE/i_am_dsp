@@ -193,9 +193,15 @@ impl SourceRuntime {
 			SourceKind::Pitch => self.pitch_value.clamp(0.0, 1.0),
 			SourceKind::Midi => {
 				if self.settings.midi_mode == 1 {
-					self.midi_velocity.clamp(0.0, 1.0)
+					curve_value(
+						&self.settings.midi_velocity_curve,
+						self.midi_velocity.clamp(0.0, 1.0),
+					)
 				} else {
-					(self.midi_note / 127.0).clamp(0.0, 1.0)
+					curve_value(
+						&self.settings.midi_note_curve,
+						(self.midi_note / 127.0).clamp(0.0, 1.0),
+					)
 				}
 			},
 		}
@@ -297,6 +303,32 @@ impl Modulation {
 			.collect();
 		(sources, self.generation)
 	}
+}
+
+/// Piecewise-linear map through sorted x/y points.
+fn curve_value(points: &[(f32, f32)], x: f32) -> f32 {
+	if points.is_empty() {
+		return x.clamp(0.0, 1.0);
+	}
+
+	let x = x.clamp(0.0, 1.0);
+
+	if x <= points[0].0 {
+		return points[0].1.clamp(0.0, 1.0);
+	}
+
+	for pair in points.windows(2) {
+		let (x0, y0) = pair[0];
+		let (x1, y1) = pair[1];
+
+		if x <= x1 {
+			let span = (x1 - x0).max(1e-6);
+			let unit = (x - x0) / span;
+			return (y0 + (y1 - y0) * unit).clamp(0.0, 1.0);
+		}
+	}
+
+	points.last().map_or(x, |point| point.1.clamp(0.0, 1.0))
 }
 
 /// A source rate in hertz, optionally read as a musical period by [`SyncedTime`].

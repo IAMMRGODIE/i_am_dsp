@@ -261,7 +261,8 @@ body{
 }
 .mod-hero svg{width:100%; height:100%; display:block}
 .mod-live{position:absolute; inset:0; pointer-events:none}
-.mod-hero svg.lfo-editor{cursor:crosshair; touch-action:none}
+.mod-hero svg.lfo-editor,
+.mod-hero svg.midi-editor{cursor:crosshair; touch-action:none}
 .mod-card-controls{
   display:flex; flex-wrap:wrap; justify-content:center;
   gap:0 4px; align-items:flex-start; padding:2px 8px 0;
