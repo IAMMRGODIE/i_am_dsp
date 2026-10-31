@@ -451,6 +451,14 @@
     dial.addEventListener("pointerup", stop);
     dial.addEventListener("pointercancel", stop);
     dial.addEventListener("dblclick", function () { set(spec.default, true); });
+    dial.addEventListener("click", function (event) {
+      if (!event.ctrlKey || !modulations.length) return;
+      var next = (modulations[0].mode || "frombase") === "frombase" ? "center" : "start";
+      if (spec.onModeToggle) {
+        spec.onModeToggle(modulations.map(function (modulation) { return modulation.slot; }), next);
+      }
+      event.preventDefault();
+    });
     dial.title = "Drag to change; right-click to type a value";
     dial.addEventListener("contextmenu", function (event) {
       event.preventDefault();

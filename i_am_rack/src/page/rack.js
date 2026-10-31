@@ -106,6 +106,55 @@
     queue("assign." + slot + ".depth", depth);
   }
 
+  function attachHeightResize(handle, target, minimum, maximum, key) {
+    try {
+      var saved = Number(localStorage.getItem(key));
+      if (saved > 0) target.style.height = saved + "px";
+    } catch (ignore) {}
+
+    var drag = null;
+
+    handle.addEventListener("pointerdown", function (event) {
+      if (event.button !== 0) return;
+      drag = {
+        y: event.clientY,
+        height: target.getBoundingClientRect().height
+      };
+      handle.classList.add("dragging");
+      handle.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    handle.addEventListener("pointermove", function (event) {
+      if (!drag) return;
+      var height = Math.max(minimum, Math.min(maximum, drag.height + event.clientY - drag.y));
+      target.style.height = height + "px";
+      event.preventDefault();
+    });
+
+    function stop(event) {
+      if (!drag) return;
+      drag = null;
+      handle.classList.remove("dragging");
+      try { localStorage.setItem(key, String(Math.round(target.getBoundingClientRect().height))); } catch (ignore) {}
+      try { handle.releasePointerCapture(event.pointerId); } catch (ignore) {}
+    }
+
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+    handle.addEventListener("dblclick", function () {
+      target.style.height = "";
+      try { localStorage.removeItem(key); } catch (ignore) {}
+    });
+  }
+
+  function toggleModulationMode(slots, mode) {
+    slots.forEach(function (slot) {
+      queue("assign." + slot + ".mode", mode);
+    });
+    flush().then(load);
+  }
+
   function linkModulation(data, target) {
     var source = "";
 
@@ -361,7 +410,8 @@
       modulations: modulationsFor(data, "band." + bandIndex + ".gain"),
       onModulation: setModulationDepth,
       dropTarget: "band." + bandIndex + ".gain",
-      onModulationDrop: linkModulation
+      onModulationDrop: linkModulation,
+      onModeToggle: toggleModulationMode
     }, band.gain, function (_, value) {
       band.gain = value;
       queue("band." + bandIndex + ".gain", value);
@@ -379,7 +429,8 @@
       modulations: modulationsFor(data, "band." + bandIndex + ".pan"),
       onModulation: setModulationDepth,
       dropTarget: "band." + bandIndex + ".pan",
-      onModulationDrop: linkModulation
+      onModulationDrop: linkModulation,
+      onModeToggle: toggleModulationMode
     }, band.pan, function (_, value) {
       band.pan = value;
       queue("band." + bandIndex + ".pan", value);
@@ -472,6 +523,7 @@
       if (control.kind === "float") {
         control.dropTarget = "m" + module.id + "." + control.id;
         control.onModulationDrop = linkModulation;
+        control.onModeToggle = toggleModulationMode;
       }
     });
 
@@ -522,6 +574,11 @@
 
     var slots = el("div", "slots");
 
+    var resizer = el("div", "band-resizer");
+    resizer.title = "Drag to resize this band";
+    section.appendChild(resizer);
+    attachHeightResize(resizer, slots, 120, 900, "iamrack.bandHeight." + bandIndex);
+
     for (var slot = 0; slot < band.slots.length; slot++) {
       var module = data.modules.find(function (candidate) {
         return candidate.band === bandIndex && candidate.slot === slot;
@@ -534,6 +591,7 @@
     slots.addEventListener("scroll", function () {
       slotScroll[bandIndex] = slots.scrollLeft;
     });
+
     return section;
   }
 
@@ -1607,7 +1665,12 @@
     addCard.appendChild(addSelect);
     grid.appendChild(addCard);
 
+    var resizer = el("div", "mod-resizer");
+    resizer.title = "Drag to resize modulation sources";
+    section.appendChild(resizer);
+    attachHeightResize(resizer, grid, 150, 800, "iamrack.modHeight");
     section.appendChild(grid);
+
     return section;
   }
 

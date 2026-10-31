@@ -119,6 +119,16 @@ body{
 }
 .band.muted .slots{opacity:.45}
 .band.collapsed .slots{display:none}
+.band-resizer,.mod-resizer{
+  flex:0 0 8px; display:flex; align-items:center; justify-content:center;
+  margin-top:2px; cursor:ns-resize; touch-action:none;
+}
+.band-resizer::before,.mod-resizer::before{
+  content:""; width:46px; height:2px; border-radius:1px; background:#3a3a3a;
+}
+.band-resizer:hover::before,.mod-resizer:hover::before,
+.band-resizer.dragging::before,.mod-resizer.dragging::before{background:var(--mod)}
+.band.collapsed .band-resizer{display:none}
 .band.collapsed{padding-bottom:10px}
 .band-collapse{
   width:20px; height:20px; padding:0; flex:0 0 20px;
@@ -156,7 +166,7 @@ body{
 
 .slots{
   display:flex; gap:10px; margin-top:6px; padding-bottom:6px;
-  overflow-x:auto; overflow-y:hidden; scroll-snap-type:x proximity;
+  overflow-x:auto; overflow-y:auto; scroll-snap-type:x proximity;
 }
 .slots::-webkit-scrollbar{height:8px}
 .slots::-webkit-scrollbar-thumb{background:#3a3a3a; border-radius:4px}
@@ -224,7 +234,7 @@ body{
 .mod-spacer{flex:1}
 .add-source{width:118px; height:22px; font-size:10px}
 .mod-sources{
-  display:flex; gap:10px; overflow-x:auto; overflow-y:hidden;
+  display:flex; gap:10px; overflow-x:auto; overflow-y:auto;
   padding-bottom:6px; scroll-snap-type:x proximity; align-items:stretch;
 }
 .mod-card.midi-card{display:flex; flex-direction:column; height:100%; min-height:0}
@@ -240,6 +250,7 @@ body{
 .mod-sources::-webkit-scrollbar-thumb{background:#3a3a3a; border-radius:4px}
 .mod-card{
   flex:0 0 460px; min-width:460px; scroll-snap-align:start;
+  display:flex; flex-direction:column;
   background:#262626; border:1px solid #353535; border-radius:8px;
   padding:0 0 6px; overflow:hidden;
 }
@@ -295,8 +306,8 @@ body{
 .mod-card.bypassed .mod-hero,
 .mod-card.bypassed .mod-card-controls{opacity:.45}
 .mod-hero{
-  position:relative; height:96px; margin:7px 10px 2px; background:#1a1a1a;
-  border:1px solid #333; border-radius:4px; overflow:hidden;
+  position:relative; flex:1 1 auto; min-height:64px; margin:7px 10px 2px;
+  background:#1a1a1a; border:1px solid #333; border-radius:4px; overflow:hidden;
 }
 .mod-hero svg{width:100%; height:100%; display:block}
 .mod-live{position:absolute; inset:0; pointer-events:none}
@@ -362,8 +373,34 @@ body{
 }
 .hint{color:#666}
 
-.rack::-webkit-scrollbar{width:8px}
-.rack::-webkit-scrollbar-thumb{background:#3a3a3a; border-radius:4px}
+.rack::-webkit-scrollbar,
+.panel-body::-webkit-scrollbar,
+.slots::-webkit-scrollbar,
+.mod-sources::-webkit-scrollbar,
+.assignments::-webkit-scrollbar,
+.automation-grid::-webkit-scrollbar{width:8px; height:8px}
+.rack::-webkit-scrollbar-track,
+.panel-body::-webkit-scrollbar-track,
+.slots::-webkit-scrollbar-track,
+.mod-sources::-webkit-scrollbar-track,
+.assignments::-webkit-scrollbar-track,
+.automation-grid::-webkit-scrollbar-track{background:transparent}
+.rack::-webkit-scrollbar-thumb,
+.panel-body::-webkit-scrollbar-thumb,
+.slots::-webkit-scrollbar-thumb,
+.mod-sources::-webkit-scrollbar-thumb,
+.assignments::-webkit-scrollbar-thumb,
+.automation-grid::-webkit-scrollbar-thumb{background:#3a3a3a; border-radius:4px}
+.rack::-webkit-scrollbar-thumb:hover,
+.panel-body::-webkit-scrollbar-thumb:hover,
+.slots::-webkit-scrollbar-thumb:hover,
+.mod-sources::-webkit-scrollbar-thumb:hover,
+.assignments::-webkit-scrollbar-thumb:hover,
+.automation-grid::-webkit-scrollbar-thumb:hover{background:#555}
+.rack::-webkit-scrollbar-corner,
+.panel-body::-webkit-scrollbar-corner,
+.slots::-webkit-scrollbar-corner,
+.mod-sources::-webkit-scrollbar-corner{background:transparent}
 
 @media (max-width:900px){
   .band-range{display:none}

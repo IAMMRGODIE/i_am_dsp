@@ -251,9 +251,9 @@ pub fn lfo_preset(shape: i32) -> Vec<(f32, f32, f32)> {
 #[serde(rename_all = "lowercase")]
 pub enum AssignmentMode {
 	/// The source moves around the current value, ± depth.
-	#[default]
 	Centered,
 	/// The current value is the start; the source moves from there to one side.
+	#[default]
 	FromBase,
 }
 
@@ -277,7 +277,7 @@ impl Default for Assignment {
 			source: 0,
 			target: None,
 			depth: 0.5,
-			mode: AssignmentMode::Centered,
+			mode: AssignmentMode::FromBase,
 		}
 	}
 }
