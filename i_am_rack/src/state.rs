@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use crate::module::{self, ModuleKind};
 
 /// The version this build writes.
-pub const STATE_VERSION: u32 = 6;
+pub const STATE_VERSION: u32 = 7;
+/// Assignment source id offset for the eight macros.
+pub const MACRO_BASE: usize = 1_000_000_000;
 
 /// The default low/mid crossover.
 pub const DEFAULT_SPLIT_LOW: f32 = 120.0;
@@ -89,6 +91,12 @@ pub struct SourceSettings {
 	pub random_bypass: bool,
 	/// Whether the table is bypassed.
 	pub table_bypass: bool,
+	/// Pitch clarity gate, 0..1.
+	pub pitch_clarity: f32,
+	/// Pitch glide in milliseconds.
+	pub pitch_glide: f32,
+	/// 0 note, 1 velocity.
+	pub midi_mode: i32,
 }
 
 impl Default for SourceSettings {
@@ -114,6 +122,9 @@ impl Default for SourceSettings {
 			env_bypass: false,
 			random_bypass: false,
 			table_bypass: false,
+			pitch_clarity: 0.5,
+			pitch_glide: 40.0,
+			midi_mode: 0,
 		}
 	}
 }
@@ -131,6 +142,10 @@ pub enum SourceKind {
 	Random,
 	/// A wavetable oscillator.
 	Table,
+	/// A monophonic pitch tracker on the input.
+	Pitch,
+	/// The last MIDI note or velocity.
+	Midi,
 }
 
 impl SourceKind {
@@ -141,6 +156,8 @@ impl SourceKind {
 			Self::Envelope => "Envelope",
 			Self::Random => "Random",
 			Self::Table => "Table",
+			Self::Pitch => "Pitch",
+			Self::Midi => "MIDI",
 		}
 	}
 }
@@ -329,9 +346,13 @@ impl Default for BandState {
 impl RackState {
 	/// The next free source id, 0..8, or `None` when all slots are used.
 	pub fn next_source_id(&self) -> Option<u32> {
-		(0..8).find(|id| {
-			!self.source_slots.iter().any(|slot| slot.id == *id)
-		})
+		let mut id = 0;
+
+		while self.source_slots.iter().any(|slot| slot.id == id) {
+			id = id.checked_add(1)?;
+		}
+
+		Some(id)
 	}
 
 	/// The source slot with this id.
@@ -360,6 +381,8 @@ impl RackState {
 
 	/// Brings a version-5 file into the source-slot layout.
 	pub fn migrate(&mut self) {
+		let previous = self.version;
+
 		if self.source_slots.is_empty() {
 			let legacy = self.sources.clone();
 			self.source_slots = default_source_slots();
@@ -371,17 +394,21 @@ impl RackState {
 					SourceKind::Envelope => legacy.env_bypass,
 					SourceKind::Random => legacy.random_bypass,
 					SourceKind::Table => legacy.table_bypass,
+					SourceKind::Pitch | SourceKind::Midi => false,
 				};
 			}
+		}
 
+		if previous < 7 {
 			for assignment in self.assignments.iter_mut().flatten() {
 				if assignment.source >= 4 && assignment.source < 100 {
-					assignment.source = 100 + assignment.source - 4;
+					assignment.source = MACRO_BASE + assignment.source - 4;
+				} else if assignment.source >= 100 && assignment.source < MACRO_BASE {
+					assignment.source = MACRO_BASE + assignment.source - 100;
 				}
 			}
 		}
 
-		self.source_slots.truncate(8);
 		self.normalize_slots();
 		self.version = STATE_VERSION;
 	}

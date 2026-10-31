@@ -4,16 +4,15 @@
 //! phase, envelope and random state, so the page can add several LFOs or
 //! envelopes without one slot stepping on another.
 
+use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 
-use i_am_dsp::prelude::{EditableLfo, ProcessInfos, SyncedTime, WaveTable};
+use i_am_dsp::prelude::{EditableLfo, NoteEvent, PitchTracker, ProcessInfos, SyncedTime, WaveTable};
 
 use crate::state::{SourceKind, SourceSettings, SourceSlot};
 
 /// How many samples one modulation update covers.
 pub const CONTROL_INTERVAL: usize = 64;
-/// The number of source ids the shared live view carries.
-pub const MAX_SOURCES: usize = 8;
 
 /// One running source slot.
 struct SourceRuntime {
@@ -32,6 +31,10 @@ struct SourceRuntime {
 	attack_coeff: f32,
 	release_coeff: f32,
 	random_coeff: f32,
+	pitch_tracker: Option<PitchTracker>,
+	pitch_value: f32,
+	midi_note: f32,
+	midi_velocity: f32,
 }
 
 impl SourceRuntime {
@@ -53,6 +56,10 @@ impl SourceRuntime {
 			attack_coeff: 0.0,
 			release_coeff: 0.0,
 			random_coeff: 0.0,
+			pitch_tracker: None,
+			pitch_value: 0.0,
+			midi_note: 0.0,
+			midi_velocity: 0.0,
 		};
 
 		runtime.update(slot, rate);
@@ -67,9 +74,22 @@ impl SourceRuntime {
 		self.attack_coeff = time_coefficient(self.settings.env_attack, rate);
 		self.release_coeff = time_coefficient(self.settings.env_release, rate);
 		self.random_coeff = time_coefficient(self.settings.random_smooth, rate);
+
+		if self.kind == SourceKind::Pitch {
+			self.pitch_tracker
+				.get_or_insert_with(|| PitchTracker::new(rate, 2_048));
+		} else {
+			self.pitch_tracker = None;
+		}
 	}
 
-	fn advance(&mut self, input: f32, infos: &ProcessInfos, rate: usize) {
+	fn advance(
+		&mut self,
+		input: f32,
+		infos: &ProcessInfos,
+		rate: usize,
+		events: &[NoteEvent],
+	) {
 		match self.kind {
 			SourceKind::Lfo => {
 				let frequency = source_rate(
@@ -120,6 +140,39 @@ impl SourceRuntime {
 				);
 				self.table_phase = (self.table_phase + frequency / rate as f32).fract();
 			},
+			SourceKind::Pitch => {
+				let clarity = self.settings.pitch_clarity.clamp(0.0, 1.0);
+				let coefficient = time_coefficient(self.settings.pitch_glide, rate);
+
+				if let Some(tracker) = &mut self.pitch_tracker {
+					tracker.process_sample(input);
+
+					if let Some(estimate) = tracker.last()
+						&& estimate.clarity >= clarity
+					{
+						let target = (estimate.midi_note / 127.0).clamp(0.0, 1.0);
+						self.pitch_value += (target - self.pitch_value) * coefficient;
+					}
+				}
+			},
+			SourceKind::Midi => {
+				for event in events {
+					match event {
+						NoteEvent::NoteOn {
+							note, velocity, ..
+						} => {
+							self.midi_note = *note as f32;
+							self.midi_velocity = velocity.clamp(0.0, 1.0);
+						},
+						NoteEvent::NoteOff { .. }
+						| NoteEvent::Stop { .. }
+						| NoteEvent::ImmediateStop => {
+							self.midi_velocity = 0.0;
+						},
+						_ => {},
+					}
+				}
+			},
 		}
 	}
 
@@ -137,6 +190,14 @@ impl SourceRuntime {
 				self.settings.table_morph,
 				self.table_phase,
 			),
+			SourceKind::Pitch => self.pitch_value.clamp(0.0, 1.0),
+			SourceKind::Midi => {
+				if self.settings.midi_mode == 1 {
+					self.midi_velocity.clamp(0.0, 1.0)
+				} else {
+					(self.midi_note / 127.0).clamp(0.0, 1.0)
+				}
+			},
 		}
 	}
 
@@ -154,8 +215,9 @@ pub(crate) struct Modulation {
 	rate: usize,
 	counter: usize,
 	sources: Vec<SourceRuntime>,
-	values: [f32; MAX_SOURCES],
-	phases: [f32; MAX_SOURCES],
+	values: BTreeMap<u32, f32>,
+	phases: BTreeMap<u32, f32>,
+	generation: u64,
 }
 
 impl Modulation {
@@ -165,8 +227,9 @@ impl Modulation {
 			rate,
 			counter: 0,
 			sources: Vec::new(),
-			values: [0.0; MAX_SOURCES],
-			phases: [0.0; MAX_SOURCES],
+			values: BTreeMap::new(),
+			phases: BTreeMap::new(),
+			generation: 0,
 		}
 	}
 
@@ -196,9 +259,14 @@ impl Modulation {
 	}
 
 	/// Advances one sample. Returns the source values on a control tick.
-	pub fn advance(&mut self, input: f32, infos: &ProcessInfos) -> Option<[f32; MAX_SOURCES]> {
+	pub fn advance(
+		&mut self,
+		input: f32,
+		infos: &ProcessInfos,
+		events: &[NoteEvent],
+	) -> Option<BTreeMap<u32, f32>> {
 		for source in &mut self.sources {
-			source.advance(input, infos, self.rate);
+			source.advance(input, infos, self.rate, events);
 		}
 
 		self.counter += 1;
@@ -208,25 +276,26 @@ impl Modulation {
 		}
 
 		self.counter = 0;
-		self.values = [0.0; MAX_SOURCES];
-		self.phases = [0.0; MAX_SOURCES];
+		self.values.clear();
+		self.phases.clear();
+		self.generation = self.generation.wrapping_add(1);
 
 		for source in &self.sources {
-			let index = source.id as usize;
-			if index >= MAX_SOURCES {
-				continue;
-			}
-
-			self.values[index] = source.value();
-			self.phases[index] = source.phase();
+			self.values.insert(source.id, source.value());
+			self.phases.insert(source.id, source.phase());
 		}
 
-		Some(self.values)
+		Some(self.values.clone())
 	}
 
-	/// The last values and phases, indexed by source id, for the page.
-	pub fn snapshot(&self) -> ([f32; MAX_SOURCES], [f32; MAX_SOURCES]) {
-		(self.values, self.phases)
+	/// The last values/phases and a generation counter for the live view.
+	pub fn snapshot(&self) -> (Vec<(u32, f32, f32)>, u64) {
+		let sources = self
+			.sources
+			.iter()
+			.map(|source| (source.id, source.value(), source.phase()))
+			.collect();
+		(sources, self.generation)
 	}
 }
 

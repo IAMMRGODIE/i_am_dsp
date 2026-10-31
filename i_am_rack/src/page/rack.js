@@ -19,8 +19,8 @@
   var sourceScroll = 0;
   var livePainters = [];
   var live = {
-    values: [],
-    phases: [],
+    values: Object.create(null),
+    phases: Object.create(null),
     history: Object.create(null)
   };
   var liveTimer = null;
@@ -876,6 +876,14 @@
     liveTrace(svg, (live.history[id] || []).slice(-120), "#ff9a3d", 32, 22);
   }
 
+  function drawLivePitch(svg, live, id) {
+    liveTrace(svg, (live.history[id] || []).slice(-120), "#b08cff", 58, 48);
+  }
+
+  function drawLiveMidi(svg, live, id) {
+    liveTrace(svg, (live.history[id] || []).slice(-120), "#ff6f91", 58, 48);
+  }
+
   function drawLiveLfo(svg, live, id) {
     svg.textContent = "";
 
@@ -1104,7 +1112,8 @@
     placeholder.textContent = "+ Add source";
     add.appendChild(placeholder);
 
-    [["lfo", "LFO"], ["envelope", "Envelope"], ["random", "Random"], ["table", "Table"]]
+    [["lfo", "LFO"], ["envelope", "Envelope"], ["random", "Random"], ["table", "Table"],
+      ["pitch", "Pitch"], ["midi", "MIDI"]]
       .forEach(function (entry) {
         var option = document.createElement("option");
         option.value = entry[0];
@@ -1158,7 +1167,9 @@
       var title = source.name + (same.length > 1 ? " " + (same.indexOf(source) + 1) : "");
       var accent = kind === "lfo" ? "#4c8dff" :
         kind === "envelope" ? "#35c77a" :
-          kind === "random" ? "#ff9a3d" : "#c8e04a";
+          kind === "random" ? "#ff9a3d" :
+            kind === "table" ? "#c8e04a" :
+              kind === "pitch" ? "#b08cff" : "#ff6f91";
       var paint = function () {};
       var build = function () {};
       var livePaint = null;
@@ -1350,6 +1361,58 @@
           onBypass: onBypass,
           onRemove: onRemove
         };
+      } else if (kind === "pitch") {
+        var pitch = {
+          clarity: numberOr(settings.clarity, 0.5),
+          glide: numberOr(settings.glide, 40)
+        };
+
+        paint = function (svg) { drawEnvelope(svg); };
+        livePaint = function (svg, live) { drawLivePitch(svg, live, id); };
+        build = function (card) {
+          sourceControl(card, {
+            id: "pitch." + id + ".clarity", label: "Clarity", kind: "float",
+            min: 0, max: 1, default: 0.5, unit: "percent"
+          }, pitch.clarity, "source." + id + ".clarity", function (value) {
+            pitch.clarity = value;
+          });
+          sourceControl(card, {
+            id: "pitch." + id + ".glide", label: "Glide", kind: "float",
+            min: 0, max: 200, default: 40, unit: "ms"
+          }, pitch.glide, "source." + id + ".glide", function (value) {
+            pitch.glide = value;
+          });
+        };
+
+        chrome = {
+          key: "source-" + id,
+          bypass: !!source.bypass,
+          onBypass: onBypass,
+          onRemove: onRemove
+        };
+      } else if (kind === "midi") {
+        var midi = {
+          mode: numberOr(settings.mode, 0)
+        };
+
+        paint = function (svg) { drawEnvelope(svg); };
+        livePaint = function (svg, live) { drawLiveMidi(svg, live, id); };
+        build = function (card) {
+          sourceControl(card, {
+            id: "midi." + id + ".mode", label: "Value", kind: "int",
+            min: 0, max: 1, default: 0, widget: "choice",
+            choices: ["Note", "Velocity"]
+          }, midi.mode, "source." + id + ".mode", function (value) {
+            midi.mode = value;
+          });
+        };
+
+        chrome = {
+          key: "source-" + id,
+          bypass: !!source.bypass,
+          onBypass: onBypass,
+          onRemove: onRemove
+        };
       }
 
       chrome.dragId = id;
@@ -1406,8 +1469,8 @@
     });
 
     if (assignment) {
-      source.value = assignment.source >= 100
-        ? "macro" + (assignment.source - 99)
+      source.value = assignment.source >= 1000000000
+        ? "macro" + (assignment.source - 1000000000 + 1)
         : String(assignment.source);
     }
 
@@ -1555,12 +1618,13 @@
           return response.json();
         })
         .then(function (data) {
-          if (Array.isArray(data.values)) live.values = data.values;
-          if (Array.isArray(data.phases)) live.phases = data.phases;
+          (data.sources || []).forEach(function (source) {
+            var id = String(source.id);
+            live.values[id] = source.value;
+            live.phases[id] = source.phase;
 
-          live.values.forEach(function (value, id) {
             if (!live.history[id]) live.history[id] = [];
-            live.history[id].push(value);
+            live.history[id].push(source.value);
             if (live.history[id].length > 160) live.history[id].shift();
           });
 

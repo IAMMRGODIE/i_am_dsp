@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 use crate::crossover::sanitize;
 use crate::module::ModuleKind;
 use crate::shared::RackShared;
-use crate::state::{Assignment, AssignmentMode, ModuleState, RackState, SourceKind, Target, lfo_preset};
+use crate::state::{Assignment, AssignmentMode, MACRO_BASE, ModuleState, RackState, SourceKind, Target, lfo_preset};
 
 /// The names the three bands answer to.
 pub const BAND_NAMES: [&str; 3] = ["Low", "Mid", "High"];
@@ -42,18 +42,22 @@ pub(crate) fn route(
 }
 
 fn modulation_json(shared: &RackShared) -> String {
-	let values: [f32; 8] = std::array::from_fn(|index| {
-		f32::from_bits(shared.modulation[index].load(Ordering::Relaxed))
-	});
-	let phases: [f32; 8] = std::array::from_fn(|index| {
-		f32::from_bits(shared.phases[index].load(Ordering::Relaxed))
-	});
+	let live = shared
+		.live
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	let sources = live
+		.iter()
+		.map(|(id, value, phase)| {
+			json!({
+				"id": id,
+				"value": value,
+				"phase": phase,
+			})
+		})
+		.collect::<Vec<_>>();
 
-	json!({
-		"values": values,
-		"phases": phases,
-	})
-	.to_string()
+	json!({ "sources": sources }).to_string()
 }
 
 pub(crate) fn rack_json(shared: &RackShared) -> String {
@@ -154,6 +158,13 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 					"morph": settings.table_morph,
 					"sync": settings.table_sync,
 					"beats": settings.table_beats,
+				}),
+				SourceKind::Pitch => json!({
+					"clarity": settings.pitch_clarity,
+					"glide": settings.pitch_glide,
+				}),
+				SourceKind::Midi => json!({
+					"mode": settings.midi_mode,
 				}),
 			};
 
@@ -784,6 +795,15 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		(SourceKind::Table, "beats") => {
 			slot.settings.table_beats = value.clamp(0.03125, 32.0) as f32;
 		},
+		(SourceKind::Pitch, "clarity") => {
+			slot.settings.pitch_clarity = value.clamp(0.0, 1.0) as f32;
+		},
+		(SourceKind::Pitch, "glide") => {
+			slot.settings.pitch_glide = value.clamp(0.0, 1000.0) as f32;
+		},
+		(SourceKind::Midi, "mode") => {
+			slot.settings.midi_mode = (value.round() as i32).clamp(0, 1);
+		},
 		_ => return false,
 	}
 
@@ -796,6 +816,8 @@ fn source_kind(raw: &str) -> Option<SourceKind> {
 		"env" | "envelope" => Some(SourceKind::Envelope),
 		"random" => Some(SourceKind::Random),
 		"table" => Some(SourceKind::Table),
+		"pitch" => Some(SourceKind::Pitch),
+		"midi" => Some(SourceKind::Midi),
 		_ => None,
 	}
 }
@@ -913,7 +935,7 @@ fn source_index(state: &RackState, raw: &str) -> Option<usize> {
 		.filter(|index| (1..=8).contains(index));
 
 	if let Some(index) = macro_index {
-		return Some(99 + index);
+		return Some(MACRO_BASE + index - 1);
 	}
 
 	if let Ok(id) = lower.parse::<u32>() {

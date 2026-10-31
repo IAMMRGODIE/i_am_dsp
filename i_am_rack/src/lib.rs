@@ -23,7 +23,7 @@ mod tests;
 pub use module::ModuleKind;
 pub use state::{ModuleState, RackState};
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp::Processor;
@@ -57,6 +57,7 @@ pub struct Rack {
 	bypass: Arc<AtomicBool>,
 	scope: Arc<Scope>,
 	params: ParamMap,
+	live_generation: u64,
 }
 
 impl Default for Rack {
@@ -73,8 +74,7 @@ impl Default for Rack {
 			schemas,
 			dirty: AtomicBool::new(false),
 			rate: AtomicUsize::new(DEFAULT_SAMPLE_RATE),
-			modulation: std::array::from_fn(|_| AtomicU32::new(0)),
-			phases: std::array::from_fn(|_| AtomicU32::new(0)),
+			live: Mutex::new(Vec::new()),
 		});
 
 		let engine = Engine::new(DEFAULT_SAMPLE_RATE, &state);
@@ -92,6 +92,7 @@ impl Default for Rack {
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(Scope::new()),
 			params,
+			live_generation: 0,
 		}
 	}
 }
@@ -185,14 +186,15 @@ impl Processor for Rack {
 
 		self.engine.process(samples, other, process_context);
 
-		let (values, phases) = self.engine.modulation_snapshot();
+		let (live, generation) = self.engine.modulation_snapshot();
 
-		for (slot, value) in values.iter().enumerate() {
-			self.shared.modulation[slot].store(value.to_bits(), Ordering::Relaxed);
-		}
-
-		for (slot, phase) in phases.iter().enumerate() {
-			self.shared.phases[slot].store(phase.to_bits(), Ordering::Relaxed);
+		if generation != self.live_generation {
+			*self
+				.shared
+				.live
+				.lock()
+				.unwrap_or_else(|poisoned| poisoned.into_inner()) = live;
+			self.live_generation = generation;
 		}
 
 		self.scope.push_stereo(input, *samples, sidechain);
