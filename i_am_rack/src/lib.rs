@@ -144,7 +144,7 @@ impl Parameters for Rack {
 			return false;
 		};
 
-		state.version = crate::state::STATE_VERSION;
+		state.migrate();
 		*self.shared.lock() = state;
 		self.shared.dirty.store(true, Ordering::Release);
 		true

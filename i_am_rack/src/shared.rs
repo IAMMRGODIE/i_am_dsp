@@ -23,10 +23,10 @@ pub(crate) struct RackShared {
 	pub dirty: AtomicBool,
 	/// The rate the host announced, for the page readout.
 	pub rate: AtomicUsize,
-	/// The four live modulation values, as f32 bits.
-	pub modulation: [AtomicU32; 4],
-	/// The LFO and table phases, as f32 bits.
-	pub phases: [AtomicU32; 2],
+	/// The live modulation values, as f32 bits, indexed by source id.
+	pub modulation: [AtomicU32; 8],
+	/// The LFO and table phases, as f32 bits, indexed by source id.
+	pub phases: [AtomicU32; 8],
 }
 
 impl RackShared {

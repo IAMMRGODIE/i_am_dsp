@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 use crate::crossover::sanitize;
 use crate::module::ModuleKind;
 use crate::shared::RackShared;
-use crate::state::{Assignment, AssignmentMode, ModuleState, RackState, Target, lfo_preset};
+use crate::state::{Assignment, AssignmentMode, ModuleState, RackState, SourceKind, Target, lfo_preset};
 
 /// The names the three bands answer to.
 pub const BAND_NAMES: [&str; 3] = ["Low", "Mid", "High"];
@@ -42,10 +42,10 @@ pub(crate) fn route(
 }
 
 fn modulation_json(shared: &RackShared) -> String {
-	let values: [f32; 4] = std::array::from_fn(|index| {
+	let values: [f32; 8] = std::array::from_fn(|index| {
 		f32::from_bits(shared.modulation[index].load(Ordering::Relaxed))
 	});
-	let phases: [f32; 2] = std::array::from_fn(|index| {
+	let phases: [f32; 8] = std::array::from_fn(|index| {
 		f32::from_bits(shared.phases[index].load(Ordering::Relaxed))
 	});
 
@@ -124,36 +124,47 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		})
 		.collect::<Vec<_>>();
 
-	let sources = json!({
-		"lfo": {
-			"rate": state.sources.lfo_rate,
-			"shape": state.sources.lfo_shape,
-			"points": state.sources.lfo_points,
-			"sync": state.sources.lfo_sync,
-			"beats": state.sources.lfo_beats,
-			"bypass": state.sources.lfo_bypass,
-		},
-		"env": {
-			"attack": state.sources.env_attack,
-			"release": state.sources.env_release,
-			"bypass": state.sources.env_bypass,
-		},
-		"random": {
-			"rate": state.sources.random_rate,
-			"smooth": state.sources.random_smooth,
-			"sync": state.sources.random_sync,
-			"beats": state.sources.random_beats,
-			"bypass": state.sources.random_bypass,
-		},
-		"table": {
-			"rate": state.sources.table_rate,
-			"shape": state.sources.table_shape,
-			"morph": state.sources.table_morph,
-			"sync": state.sources.table_sync,
-			"beats": state.sources.table_beats,
-			"bypass": state.sources.table_bypass,
-		},
-	});
+	let sources = state
+		.source_slots
+		.iter()
+		.map(|slot| {
+			let settings = &slot.settings;
+			let body = match slot.kind {
+				SourceKind::Lfo => json!({
+					"rate": settings.lfo_rate,
+					"shape": settings.lfo_shape,
+					"points": settings.lfo_points,
+					"sync": settings.lfo_sync,
+					"beats": settings.lfo_beats,
+				}),
+				SourceKind::Envelope => json!({
+					"attack": settings.env_attack,
+					"release": settings.env_release,
+				}),
+				SourceKind::Random => json!({
+					"rate": settings.random_rate,
+					"smooth": settings.random_smooth,
+					"sync": settings.random_sync,
+					"beats": settings.random_beats,
+				}),
+				SourceKind::Table => json!({
+					"rate": settings.table_rate,
+					"shape": settings.table_shape,
+					"morph": settings.table_morph,
+					"sync": settings.table_sync,
+					"beats": settings.table_beats,
+				}),
+			};
+
+			json!({
+				"id": slot.id,
+				"kind": slot.kind,
+				"name": slot.kind.name(),
+				"bypass": slot.bypass,
+				"settings": body,
+			})
+		})
+		.collect::<Vec<_>>();
 
 	json!({
 		"version": state.version,
@@ -599,16 +610,70 @@ fn apply_macro(state: &mut RackState, rest: &str, raw: &str) -> bool {
 }
 
 fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
+	if rest == "add" {
+		let Some(kind) = source_kind(raw) else {
+			return false;
+		};
+		let Some(id) = state.next_source_id() else {
+			return false;
+		};
+		state.source_slots.push(crate::state::SourceSlot::new(id, kind));
+		return true;
+	}
+
 	let Some((source, parameter)) = rest.split_once('.') else {
 		return false;
 	};
 
-	if source == "lfo" && parameter == "points" {
+	let id = if let Ok(id) = source.parse::<u32>() {
+		id
+	} else {
+		let Some(kind) = source_kind(source) else {
+			return false;
+		};
+		let Some(slot) = state.source_slots.iter().find(|slot| slot.kind == kind) else {
+			return false;
+		};
+		slot.id
+	};
+
+	if parameter == "remove" {
+		state.source_slots.retain(|slot| slot.id != id);
+
+		for assignment in state.assignments.iter_mut() {
+			if assignment.as_ref().is_some_and(|assignment| assignment.source == id as usize) {
+				*assignment = None;
+			}
+		}
+
+		return true;
+	}
+
+	let Some(kind) = state.source_slot(id).map(|slot| slot.kind) else {
+		return false;
+	};
+
+	if parameter == "bypass" {
+		let Some(flag) = boolean(raw) else {
+			return false;
+		};
+		state.source_slot_mut(id).expect("the slot was just checked").bypass = flag;
+		return true;
+	}
+
+	let slot = state
+		.source_slot_mut(id)
+		.expect("the slot was just checked");
+
+	if parameter == "points" {
+		if kind != SourceKind::Lfo {
+			return false;
+		}
 		let Some(points) = parse_lfo_points(raw) else {
 			return false;
 		};
-		state.sources.lfo_points = points;
-		state.sources.lfo_shape = 4;
+		slot.settings.lfo_points = points;
+		slot.settings.lfo_shape = 4;
 		return true;
 	}
 
@@ -616,87 +681,75 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		return false;
 	};
 
-	match (source, parameter) {
-		("lfo", "rate") => state.sources.lfo_rate = value.clamp(0.01, 20.0) as f32,
-		("lfo", "shape") => {
-			state.sources.lfo_shape = (value.round() as i32).clamp(0, 4);
+	match (kind, parameter) {
+		(SourceKind::Lfo, "rate") => slot.settings.lfo_rate = value.clamp(0.01, 20.0) as f32,
+		(SourceKind::Lfo, "shape") => {
+			slot.settings.lfo_shape = (value.round() as i32).clamp(0, 4);
 
-			if state.sources.lfo_shape <= 3 {
-				state.sources.lfo_points = lfo_preset(state.sources.lfo_shape);
+			if slot.settings.lfo_shape <= 3 {
+				slot.settings.lfo_points = lfo_preset(slot.settings.lfo_shape);
 			}
 		},
-		("lfo", "sync") => {
+		(SourceKind::Lfo, "sync") => {
 			let Some(flag) = boolean(raw) else {
 				return false;
 			};
-			state.sources.lfo_sync = flag;
+			slot.settings.lfo_sync = flag;
 		},
-		("lfo", "beats") => {
-			state.sources.lfo_beats = value.clamp(0.03125, 32.0) as f32;
+		(SourceKind::Lfo, "beats") => {
+			slot.settings.lfo_beats = value.clamp(0.03125, 32.0) as f32;
 		},
-		("lfo", "bypass") => {
+		(SourceKind::Envelope, "attack") => {
+			slot.settings.env_attack = value.clamp(1.0, 500.0) as f32;
+		},
+		(SourceKind::Envelope, "release") => {
+			slot.settings.env_release = value.clamp(1.0, 500.0) as f32;
+		},
+		(SourceKind::Random, "rate") => {
+			slot.settings.random_rate = value.clamp(0.01, 20.0) as f32;
+		},
+		(SourceKind::Random, "smooth") => {
+			slot.settings.random_smooth = value.clamp(0.0, 500.0) as f32;
+		},
+		(SourceKind::Random, "sync") => {
 			let Some(flag) = boolean(raw) else {
 				return false;
 			};
-			state.sources.lfo_bypass = flag;
+			slot.settings.random_sync = flag;
 		},
-		("env", "bypass") => {
+		(SourceKind::Random, "beats") => {
+			slot.settings.random_beats = value.clamp(0.03125, 32.0) as f32;
+		},
+		(SourceKind::Table, "rate") => slot.settings.table_rate = value.clamp(0.01, 20.0) as f32,
+		(SourceKind::Table, "shape") => {
+			slot.settings.table_shape = (value.round() as i32).clamp(0, 3);
+		},
+		(SourceKind::Table, "morph") => {
+			slot.settings.table_morph = value.clamp(0.0, 1.0) as f32;
+		},
+		(SourceKind::Table, "sync") => {
 			let Some(flag) = boolean(raw) else {
 				return false;
 			};
-			state.sources.env_bypass = flag;
+			slot.settings.table_sync = flag;
 		},
-		("env", "attack") => state.sources.env_attack = value.clamp(1.0, 500.0) as f32,
-		("env", "release") => {
-			state.sources.env_release = value.clamp(1.0, 500.0) as f32;
-		},
-		("random", "rate") => {
-			state.sources.random_rate = value.clamp(0.01, 20.0) as f32;
-		},
-		("random", "smooth") => {
-			state.sources.random_smooth = value.clamp(0.0, 500.0) as f32;
-		},
-		("random", "sync") => {
-			let Some(flag) = boolean(raw) else {
-				return false;
-			};
-			state.sources.random_sync = flag;
-		},
-		("random", "beats") => {
-			state.sources.random_beats = value.clamp(0.03125, 32.0) as f32;
-		},
-		("random", "bypass") => {
-			let Some(flag) = boolean(raw) else {
-				return false;
-			};
-			state.sources.random_bypass = flag;
-		},
-		("table", "rate") => state.sources.table_rate = value.clamp(0.01, 20.0) as f32,
-		("table", "shape") => {
-			state.sources.table_shape = (value.round() as i32).clamp(0, 3);
-		},
-		("table", "morph") => {
-			state.sources.table_morph = value.clamp(0.0, 1.0) as f32;
-		},
-		("table", "sync") => {
-			let Some(flag) = boolean(raw) else {
-				return false;
-			};
-			state.sources.table_sync = flag;
-		},
-		("table", "beats") => {
-			state.sources.table_beats = value.clamp(0.03125, 32.0) as f32;
-		},
-		("table", "bypass") => {
-			let Some(flag) = boolean(raw) else {
-				return false;
-			};
-			state.sources.table_bypass = flag;
+		(SourceKind::Table, "beats") => {
+			slot.settings.table_beats = value.clamp(0.03125, 32.0) as f32;
 		},
 		_ => return false,
 	}
 
 	true
+}
+
+fn source_kind(raw: &str) -> Option<SourceKind> {
+	match raw.to_ascii_lowercase().as_str() {
+		"lfo" => Some(SourceKind::Lfo),
+		"env" | "envelope" => Some(SourceKind::Envelope),
+		"random" => Some(SourceKind::Random),
+		"table" => Some(SourceKind::Table),
+		_ => None,
+	}
 }
 
 fn parse_lfo_points(raw: &str) -> Option<Vec<(f32, f32, f32)>> {
@@ -753,7 +806,7 @@ fn apply_assignment(
 
 	match field {
 		"source" => {
-			let Some(source) = source_index(raw) else {
+			let Some(source) = source_index(state, raw) else {
 				return false;
 			};
 			let assignment = state.assignments[slot]
@@ -803,7 +856,7 @@ fn apply_assignment(
 	}
 }
 
-fn source_index(raw: &str) -> Option<usize> {
+fn source_index(state: &RackState, raw: &str) -> Option<usize> {
 	let lower = raw.to_ascii_lowercase();
 
 	let macro_index = lower
@@ -812,16 +865,19 @@ fn source_index(raw: &str) -> Option<usize> {
 		.filter(|index| (1..=8).contains(index));
 
 	if let Some(index) = macro_index {
-		return Some(3 + index);
+		return Some(99 + index);
 	}
 
-	match lower.as_str() {
-		"lfo" => Some(0),
-		"env" | "envelope" => Some(1),
-		"random" => Some(2),
-		"table" => Some(3),
-		_ => None,
+	if let Ok(id) = lower.parse::<u32>() {
+		return state.source_slot(id).map(|slot| slot.id as usize);
 	}
+
+	let kind = source_kind(&lower)?;
+	state
+		.source_slots
+		.iter()
+		.find(|slot| slot.kind == kind)
+		.map(|slot| slot.id as usize)
 }
 
 fn number(raw: &str) -> Option<f64> {

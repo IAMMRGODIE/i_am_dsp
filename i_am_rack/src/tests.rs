@@ -8,7 +8,7 @@ use i_am_plugin::Plugin;
 use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
 
 use super::*;
-use crate::state::{Assignment, AssignmentMode, Target};
+use crate::state::{Assignment, AssignmentMode, SourceKind, Target};
 
 fn command(rack: &Rack, body: &str) -> ProtocolResponse {
 	let request = ProtocolRequest {
@@ -380,13 +380,18 @@ assign.0.mode=start",
 
 	let state = rack.state();
 
-	assert!((state.sources.lfo_rate - 2.0).abs() < 1e-6);
-	assert_eq!(state.sources.lfo_shape, 2);
-	assert!((state.sources.env_attack - 5.0).abs() < 1e-6);
-	assert!((state.sources.random_smooth - 120.0).abs() < 1e-6);
-	assert!((state.sources.table_rate - 0.5).abs() < 1e-6);
-	assert_eq!(state.sources.table_shape, 1);
-	assert!((state.sources.table_morph - 0.4).abs() < 1e-6);
+	let lfo = state
+		.source_slots
+		.iter()
+		.find(|slot| slot.kind == SourceKind::Lfo)
+		.expect("the LFO slot");
+	assert!((lfo.settings.lfo_rate - 2.0).abs() < 1e-6);
+	assert_eq!(lfo.settings.lfo_shape, 2);
+	assert!((state.source_slots[1].settings.env_attack - 5.0).abs() < 1e-6);
+	assert!((state.source_slots[2].settings.random_smooth - 120.0).abs() < 1e-6);
+	assert!((state.source_slots[3].settings.table_rate - 0.5).abs() < 1e-6);
+	assert_eq!(state.source_slots[3].settings.table_shape, 1);
+	assert!((state.source_slots[3].settings.table_morph - 0.4).abs() < 1e-6);
 
 	let assignment = state.assignments[0]
 		.as_ref()
@@ -427,7 +432,7 @@ assign.2.depth=0.4",
 		.as_ref()
 		.expect("the third assignment");
 
-	assert_eq!(assignment.source, 4);
+	assert_eq!(assignment.source, 100);
 	assert_eq!(assignment.target, Some(Target::BandGain(0)));
 	assert!((assignment.depth - 0.4).abs() < 1e-6);
 }
@@ -446,18 +451,86 @@ fn lfo_points_and_presets_edit_the_state() {
 
 	let state = rack.state();
 
-	assert_eq!(state.sources.lfo_shape, 4);
-	assert_eq!(state.sources.lfo_points.len(), 5);
-	assert!((state.sources.lfo_points[1].1 - 0.1).abs() < 1e-6);
-	assert!((state.sources.lfo_points[0].2 + 2.5).abs() < 1e-6);
+	let lfo = state
+		.source_slots
+		.iter()
+		.find(|slot| slot.kind == SourceKind::Lfo)
+		.expect("the LFO slot");
+	assert_eq!(lfo.settings.lfo_shape, 4);
+	assert_eq!(lfo.settings.lfo_points.len(), 5);
+	assert!((lfo.settings.lfo_points[1].1 - 0.1).abs() < 1e-6);
+	assert!((lfo.settings.lfo_points[0].2 + 2.5).abs() < 1e-6);
 
 	command(&rack, "source.lfo.shape=1");
 
 	let state = rack.state();
+	let lfo = state
+		.source_slots
+		.iter()
+		.find(|slot| slot.kind == SourceKind::Lfo)
+		.expect("the LFO slot");
 
-	assert_eq!(state.sources.lfo_shape, 1);
-	assert_eq!(state.sources.lfo_points.len(), 3);
-	assert_eq!(state.sources.lfo_points[1], (0.5, 1.0, 0.0));
+	assert_eq!(lfo.settings.lfo_shape, 1);
+	assert_eq!(lfo.settings.lfo_points.len(), 3);
+	assert_eq!(lfo.settings.lfo_points[1], (0.5, 1.0, 0.0));
+}
+
+/// A version-5 flat state becomes four source slots without losing its values.
+#[test]
+fn legacy_sources_migrate_to_slots() {
+	let mut state = RackState::initial();
+	state.source_slots.clear();
+	state.version = 5;
+	state.sources.lfo_rate = 3.0;
+	state.assignments[0] = Some(Assignment {
+		source: 4,
+		target: Some(Target::BandGain(0)),
+		depth: 0.5,
+		..Assignment::default()
+	});
+
+	state.migrate();
+
+	assert_eq!(state.version, 6);
+	assert_eq!(state.source_slots.len(), 4);
+	assert_eq!(state.source_slots[0].kind, SourceKind::Lfo);
+	assert!((state.source_slots[0].settings.lfo_rate - 3.0).abs() < 1e-6);
+	assert_eq!(state.assignments[0].as_ref().unwrap().source, 100);
+}
+
+/// Sources can be added with a free id and removed with their assignments.
+#[test]
+fn modulation_sources_can_be_added_and_removed() {
+	let rack = Rack::default();
+
+	let response = command(&rack, "source.add=lfo");
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	assert_eq!(state.source_slots.len(), 5);
+	assert_eq!(state.source_slots[4].id, 4);
+	assert_eq!(state.source_slots[4].kind, SourceKind::Lfo);
+
+	let response = command(
+		&rack,
+		"source.4.rate=2
+assign.0.source=4
+assign.0.target=band.0.gain
+assign.0.depth=0.4",
+	);
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	assert!((state.source_slots[4].settings.lfo_rate - 2.0).abs() < 1e-6);
+	assert_eq!(state.assignments[0].as_ref().unwrap().source, 4);
+
+	let response = command(&rack, "source.4.remove=1");
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	assert_eq!(state.source_slots.len(), 4);
+	assert!(state.assignments[0].is_none());
 }
 
 /// The page gets the list of parameters an assignment can target.
@@ -472,10 +545,15 @@ fn the_rack_route_lists_modulation_targets() {
 	assert!(targets.iter().any(|target| target["id"] == "m0.cutoff"));
 	assert!(targets.iter().any(|target| target["id"] == "band.0.gain"));
 	assert_eq!(json["assignments"].as_array().expect("assignments").len(), 8);
-	assert_eq!(json["sources"]["lfo"]["shape"], 0);
-	assert_eq!(json["sources"]["table"]["shape"], 0);
+
+	let sources = json["sources"].as_array().expect("sources");
+
+	assert_eq!(sources.len(), 4);
+	assert_eq!(sources[0]["kind"], "lfo");
+	assert_eq!(sources[0]["settings"]["shape"], 0);
+	assert_eq!(sources[3]["kind"], "table");
+	assert!(sources[3]["settings"]["morph"].is_number());
 	assert_eq!(json["macros"].as_array().expect("macros").len(), 8);
-	assert!(json["sources"]["table"]["morph"].is_number());
 }
 
 /// The page can read the live source values and phases.
@@ -485,8 +563,8 @@ fn the_modulation_route_reports_live_values() {
 	let response = get(&rack, "/modulation");
 	let json: serde_json::Value = serde_json::from_slice(&response.body).expect("JSON");
 
-	assert_eq!(json["values"].as_array().expect("values").len(), 4);
-	assert_eq!(json["phases"].as_array().expect("phases").len(), 2);
+	assert_eq!(json["values"].as_array().expect("values").len(), 8);
+	assert_eq!(json["phases"].as_array().expect("phases").len(), 8);
 }
 
 /// An LFO assignment moves the filter cutoff at the control rate.
@@ -578,7 +656,7 @@ fn a_macro_modulates_a_filter_cutoff() {
 
 	state.macros[0] = 1.0;
 	state.assignments[0] = Some(Assignment {
-		source: 4,
+		source: 100,
 		target: Some(Target::Module {
 			module: 0,
 			parameter: "cutoff".to_string(),

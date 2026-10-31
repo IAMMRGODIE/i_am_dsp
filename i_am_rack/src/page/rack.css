@@ -167,6 +167,8 @@ body{
   text-transform:uppercase; white-space:nowrap;
 }
 .mod-hint{font-size:9px; color:#666; white-space:nowrap}
+.mod-spacer{flex:1}
+.add-source{width:118px; height:22px; font-size:10px}
 .mod-sources{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px}
 .mod-card{
   background:#262626; border:1px solid #353535; border-radius:8px;
@@ -185,6 +187,12 @@ body{
 }
 .mod-collapse:hover{background:rgba(255,255,255,.07); color:var(--text1)}
 .mod-sync{height:20px; padding:2px 8px; font-size:9px}
+.mod-remove{
+  width:18px; height:18px; padding:0; flex:0 0 18px;
+  font:inherit; font-size:14px; line-height:1; color:var(--text3);
+  background:transparent; border:0; border-radius:4px; cursor:pointer;
+}
+.mod-remove:hover{color:#ff7a7a; background:rgba(255,255,255,.07)}
 .mod-card.collapsed .mod-hero,
 .mod-card.collapsed .mod-card-controls{display:none}
 .mod-card.collapsed{padding-bottom:0}

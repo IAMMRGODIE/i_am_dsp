@@ -20,7 +20,7 @@ use i_am_web_gui::{Control, Kind};
 use crate::crossover::Crossover;
 use crate::modulation::Modulation;
 use crate::module::{self, ModuleKind};
-use crate::state::{Assignment, AssignmentMode, ModuleState, RackState, Target};
+use crate::state::{Assignment, AssignmentMode, ModuleState, RackState, SourceKind, Target};
 
 /// A boxed effect, adapted so Paramed can wrap it.
 pub(crate) struct ModuleEffect(Box<dyn Effect<2>>);
@@ -239,6 +239,8 @@ pub(crate) struct Engine {
 	assignments: [Option<Assignment>; 8],
 	/// The eight macro values, used as extra sources.
 	macros: [f32; 8],
+	/// The kind of each source id, for bipolar/unipolar placement.
+	source_kinds: [Option<SourceKind>; 8],
 	/// The rate the modules were built for.
 	pub rate: usize,
 }
@@ -252,6 +254,7 @@ impl Engine {
 			modulation: Modulation::new(sample_rate),
 			assignments: std::array::from_fn(|_| None),
 			macros: [0.0; 8],
+			source_kinds: [None; 8],
 			rate: sample_rate,
 		};
 
@@ -312,7 +315,15 @@ impl Engine {
 			lane.compensation.set_length(longest - delays[index]);
 		}
 
-		self.modulation.set_settings(state.sources.clone());
+		self.modulation.set_slots(&state.source_slots);
+		self.source_kinds = [None; 8];
+
+		for slot in &state.source_slots {
+			if let Some(kind) = self.source_kinds.get_mut(slot.id as usize) {
+				*kind = Some(slot.kind);
+			}
+		}
+
 		self.assignments = state.assignments.clone();
 		self.macros = state.macros;
 	}
@@ -330,10 +341,7 @@ impl Engine {
 			let coefficient = 1.0 - (-(64.0 / (0.01 * self.rate as f32))).exp();
 			self.smooth(coefficient);
 
-			let mut sources = [0.0; 12];
-			sources[..4].copy_from_slice(&values);
-			sources[4..].copy_from_slice(&self.macros);
-			self.apply_modulation(sources);
+			self.apply_modulation(&values);
 		}
 
 		let bands = self.crossover.split(*samples, process_context);
@@ -402,11 +410,17 @@ impl Engine {
 	}
 
 	/// Applies the eight assignments once, at a control tick.
-	fn apply_modulation(&mut self, values: [f32; 12]) {
+	fn apply_modulation(&mut self, values: &[f32; 8]) {
 		let mut sums: BTreeMap<Target, f32> = BTreeMap::new();
+		let macros = self.macros;
 
 		for assignment in self.assignments.iter().flatten() {
-			let Some(value) = values.get(assignment.source) else {
+			let value = if assignment.source >= 100 {
+				macros.get(assignment.source - 100)
+			} else {
+				values.get(assignment.source)
+			};
+			let Some(value) = value else {
 				continue;
 			};
 			let Some(target) = assignment.target.as_ref() else {
@@ -414,10 +428,14 @@ impl Engine {
 			};
 
 			let offset = match assignment.mode {
-				AssignmentMode::Centered => value * assignment.depth,
+				AssignmentMode::Centered => *value * assignment.depth,
 				AssignmentMode::FromBase => {
-					let unipolar = assignment.source == 1 || assignment.source >= 4;
-					let unit = if unipolar { *value } else { (value + 1.0) * 0.5 };
+					let unipolar = assignment.source >= 100
+						|| matches!(
+							self.source_kinds.get(assignment.source),
+							Some(Some(SourceKind::Envelope))
+						);
+					let unit = if unipolar { *value } else { (*value + 1.0) * 0.5 };
 					unit * assignment.depth
 				},
 			};
@@ -474,7 +492,7 @@ impl Engine {
 	}
 
 	/// The live source values and LFO/table phases.
-	pub fn modulation_snapshot(&self) -> ([f32; 4], [f32; 2]) {
+	pub fn modulation_snapshot(&self) -> ([f32; 8], [f32; 8]) {
 		self.modulation.snapshot()
 	}
 

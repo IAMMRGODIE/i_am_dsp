@@ -16,10 +16,9 @@
   var collapsedSources = Object.create(null);
   var livePainters = [];
   var live = {
-    values: [0, 0, 0, 0],
-    phases: [0, 0],
-    envelope: [],
-    random: []
+    values: [],
+    phases: [],
+    history: Object.create(null)
   };
   var liveTimer = null;
 
@@ -581,7 +580,7 @@
     return (Math.exp(t * bend) - 1) / (Math.exp(bend) - 1);
   }
 
-  function drawLfo(svg, lfo) {
+  function drawLfo(svg, lfo, id) {
     function eventPoint(event) {
       var x;
       var y;
@@ -715,7 +714,7 @@
     var drag = null;
 
     function commit() {
-      sendNow("source.lfo.points", serializeLfo(lfo.points)).then(load);
+      sendNow("source." + id + ".points", serializeLfo(lfo.points)).then(load);
     }
 
     function removePoint(point) {
@@ -856,19 +855,19 @@
     }));
   }
 
-  function drawLiveEnvelope(svg, live) {
-    liveTrace(svg, live.envelope.slice(-120), "#35c77a", 58, 48);
+  function drawLiveEnvelope(svg, live, id) {
+    liveTrace(svg, (live.history[id] || []).slice(-120), "#35c77a", 58, 48);
   }
 
-  function drawLiveRandom(svg, live) {
-    liveTrace(svg, live.random.slice(-120), "#ff9a3d", 32, 22);
+  function drawLiveRandom(svg, live, id) {
+    liveTrace(svg, (live.history[id] || []).slice(-120), "#ff9a3d", 32, 22);
   }
 
-  function drawLiveLfo(svg, live) {
+  function drawLiveLfo(svg, live, id) {
     svg.textContent = "";
 
-    var phase = live.phases[0] || 0;
-    var value = live.values[0] || 0;
+    var phase = live.phases[id] || 0;
+    var value = live.values[id] || 0;
     var x = 8 + phase * 284;
     var y = 60 - ((value + 1) / 2) * 52;
 
@@ -882,11 +881,11 @@
     }));
   }
 
-  function drawLiveTable(svg, live) {
+  function drawLiveTable(svg, live, id) {
     svg.textContent = "";
 
-    var phase = live.phases[1] || 0;
-    var value = live.values[3] || 0;
+    var phase = live.phases[id] || 0;
+    var value = live.values[id] || 0;
     var x = 8 + phase * 284;
     var y = 32 - value * 22;
 
@@ -965,17 +964,19 @@
     var card = el("div", "mod-card");
     card.style.setProperty("--accent", accent);
 
-    if (collapsedSources[title]) card.classList.add("collapsed");
+    var key = chrome.key || title;
+
+    if (collapsedSources[key]) card.classList.add("collapsed");
 
     var head = el("div", "mod-card-head");
 
-    var collapse = el("button", "mod-collapse", collapsedSources[title] ? "\u25B8" : "\u25BE");
+    var collapse = el("button", "mod-collapse", collapsedSources[key] ? "\u25B8" : "\u25BE");
     collapse.type = "button";
-    collapse.title = collapsedSources[title] ? "Expand source" : "Collapse source";
+    collapse.title = collapsedSources[key] ? "Expand source" : "Collapse source";
     collapse.setAttribute("aria-label", collapse.title);
     collapse.addEventListener("click", function () {
-      var next = !collapsedSources[title];
-      collapsedSources[title] = next;
+      var next = !collapsedSources[key];
+      collapsedSources[key] = next;
       card.classList.toggle("collapsed", next);
       collapse.textContent = next ? "\u25B8" : "\u25BE";
       collapse.title = next ? "Expand source" : "Collapse source";
@@ -1010,7 +1011,7 @@
     svg.setAttribute("viewBox", "0 0 300 64");
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", title + " modulation shape");
-    if (title === "LFO") {
+    if (title.indexOf("LFO") === 0) {
       svg.classList.add("lfo-editor");
       hero.title = "Click to add a point; drag points or the small bend ring; double-click or right-click to remove";
     }
@@ -1041,6 +1042,15 @@
       head.appendChild(sync);
     }
 
+    if (chrome.onRemove) {
+      var remove = el("button", "mod-remove", "\u00D7");
+      remove.type = "button";
+      remove.title = "Remove source";
+      remove.setAttribute("aria-label", remove.title);
+      remove.addEventListener("click", chrome.onRemove);
+      head.appendChild(remove);
+    }
+
     return card;
   }
 
@@ -1049,192 +1059,245 @@
   }
 
   function makeModulation(data) {
-    var sources = data.sources || {};
-    var lfoSource = sources.lfo || {};
-    var envSource = sources.env || {};
-    var randomSource = sources.random || {};
-    var tableSource = sources.table || {};
-    var lfo = {
-      rate: numberOr(lfoSource.rate, 1),
-      shape: numberOr(lfoSource.shape, 0),
-      points: lfoPointsFromJson(lfoSource.points, numberOr(lfoSource.shape, 0)),
-      beats: numberOr(lfoSource.beats, 1),
-      sync: !!lfoSource.sync,
-      bypass: !!lfoSource.bypass
-    };
-    var env = {
-      attack: numberOr(envSource.attack, 10),
-      release: numberOr(envSource.release, 100),
-      bypass: !!envSource.bypass
-    };
-    var random = {
-      rate: numberOr(randomSource.rate, 4),
-      smooth: numberOr(randomSource.smooth, 80),
-      beats: numberOr(randomSource.beats, 1),
-      sync: !!randomSource.sync,
-      bypass: !!randomSource.bypass
-    };
-    var table = {
-      rate: numberOr(tableSource.rate, 1),
-      shape: numberOr(tableSource.shape, 0),
-      morph: numberOr(tableSource.morph, 0),
-      beats: numberOr(tableSource.beats, 1),
-      sync: !!tableSource.sync,
-      bypass: !!tableSource.bypass
-    };
+    var sources = data.sources || [];
     var section = el("section", "modulation");
     var head = el("div", "mod-head");
 
     head.appendChild(el("span", "mod-title", "MODULATION"));
-    head.appendChild(el("span", "mod-hint", "8 slots \u00B7 LFO / envelope / random / table"));
+    head.appendChild(el("span", "mod-hint", "source slots \u00B7 assignments \u00B7 macros"));
+    head.appendChild(el("span", "mod-spacer"));
+
+    var add = document.createElement("select");
+    add.className = "mcard-select add-source";
+    add.setAttribute("aria-label", "Add modulation source");
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "+ Add source";
+    add.appendChild(placeholder);
+
+    [["lfo", "LFO"], ["envelope", "Envelope"], ["random", "Random"], ["table", "Table"]]
+      .forEach(function (entry) {
+        var option = document.createElement("option");
+        option.value = entry[0];
+        option.textContent = entry[1];
+        add.appendChild(option);
+      });
+
+    add.addEventListener("change", function () {
+      if (!add.value) return;
+      sendNow("source.add", add.value).then(load);
+      add.value = "";
+    });
+
+    head.appendChild(add);
     section.appendChild(head);
 
     var grid = el("div", "mod-sources");
 
-    grid.appendChild(makeSourceCard("LFO", "#4c8dff", function (svg) {
-      drawLfo(svg, lfo);
-    }, function (card, head, refresh) {
-      sourceChoice(head, "Shape", ["Sine", "Triangle", "Saw", "Square", "Custom"],
-        lfo.shape, function (value) {
-          lfo.shape = value;
+    sources.forEach(function (source) {
+      var id = source.id;
+      var settings = source.settings || {};
+      var kind = source.kind;
+      var same = sources.filter(function (candidate) { return candidate.kind === kind; });
+      var title = source.name + (same.length > 1 ? " " + (same.indexOf(source) + 1) : "");
+      var accent = kind === "lfo" ? "#4c8dff" :
+        kind === "envelope" ? "#35c77a" :
+          kind === "random" ? "#ff9a3d" : "#c8e04a";
+      var paint = function () {};
+      var build = function () {};
+      var livePaint = null;
+      var chrome;
 
-          if (value <= 3) lfo.points = lfoPreset(value);
-          refresh();
-          queue("source.lfo.shape", value);
-        });
+      var onBypass = function (next) {
+        sendNow("source." + id + ".bypass", next ? 1 : 0).then(load);
+      };
+      var onSync = function (next) {
+        sendNow("source." + id + ".sync", next ? 1 : 0).then(load);
+      };
+      var onRemove = function () {
+        sendNow("source." + id + ".remove", 1).then(load);
+      };
 
-      if (lfo.sync) {
-        sourceControl(card, {
-          id: "lfo.beats", label: "Time", kind: "float",
-          min: 0.03125, max: 32, default: 1, unit: "beats", log: true
-        }, lfo.beats, "source.lfo.beats", function (value) {
-          lfo.beats = value;
-          refresh();
-        });
-      } else {
-        sourceControl(card, {
-          id: "lfo.rate", label: "Rate", kind: "float",
-          min: 0.01, max: 20, default: 1, unit: "hz", log: true
-        }, lfo.rate, "source.lfo.rate", function (value) {
-          lfo.rate = value;
-          refresh();
-        });
-      }
-    }, drawLiveLfo, {
-      sync: lfo.sync,
-      bypass: lfo.bypass,
-      onSync: function (next) {
-        sendNow("source.lfo.sync", next ? 1 : 0).then(load);
-      },
-      onBypass: function (next) {
-        sendNow("source.lfo.bypass", next ? 1 : 0).then(load);
-      }
-    }));
+      if (kind === "lfo") {
+        var lfo = {
+          rate: numberOr(settings.rate, 1),
+          shape: numberOr(settings.shape, 0),
+          points: lfoPointsFromJson(settings.points, numberOr(settings.shape, 0)),
+          sync: !!settings.sync,
+          beats: numberOr(settings.beats, 1)
+        };
 
-    grid.appendChild(makeSourceCard("Envelope", "#35c77a", function (svg) {
-      drawEnvelope(svg, env);
-    }, function (card, head, refresh) {
-      sourceControl(card, {
-        id: "env.attack", label: "Attack", kind: "float",
-        min: 1, max: 500, default: 10, unit: "ms", log: true
-      }, env.attack, "source.env.attack", function (value) {
-        env.attack = value;
-        refresh();
-      });
-      sourceControl(card, {
-        id: "env.release", label: "Release", kind: "float",
-        min: 1, max: 500, default: 100, unit: "ms", log: true
-      }, env.release, "source.env.release", function (value) {
-        env.release = value;
-        refresh();
-      });
-    }, drawLiveEnvelope, {
-      bypass: env.bypass,
-      onBypass: function (next) {
-        sendNow("source.env.bypass", next ? 1 : 0).then(load);
-      }
-    }));
+        paint = function (svg) { drawLfo(svg, lfo, id); };
+        livePaint = function (svg, live) { drawLiveLfo(svg, live, id); };
+        build = function (card, head, refresh) {
+          sourceChoice(head, "Shape", ["Sine", "Triangle", "Saw", "Square", "Custom"],
+            lfo.shape, function (value) {
+              lfo.shape = value;
+              if (value <= 3) lfo.points = lfoPreset(value);
+              refresh();
+              sendNow("source." + id + ".shape", value).then(load);
+            });
 
-    grid.appendChild(makeSourceCard("Random", "#ff9a3d", function (svg) {
-      drawRandom(svg, random);
-    }, function (card, head, refresh) {
-      if (random.sync) {
-        sourceControl(card, {
-          id: "random.beats", label: "Time", kind: "float",
-          min: 0.03125, max: 32, default: 1, unit: "beats", log: true
-        }, random.beats, "source.random.beats", function (value) {
-          random.beats = value;
-          refresh();
-        });
-      } else {
-        sourceControl(card, {
-          id: "random.rate", label: "Rate", kind: "float",
-          min: 0.01, max: 20, default: 4, unit: "hz", log: true
-        }, random.rate, "source.random.rate", function (value) {
-          random.rate = value;
-          refresh();
-        });
-      }
-      sourceControl(card, {
-        id: "random.smooth", label: "Smooth", kind: "float",
-        min: 0, max: 500, default: 80, unit: "ms", log: true
-      }, random.smooth, "source.random.smooth", function (value) {
-        random.smooth = value;
-        refresh();
-      });
-    }, drawLiveRandom, {
-      sync: random.sync,
-      bypass: random.bypass,
-      onSync: function (next) {
-        sendNow("source.random.sync", next ? 1 : 0).then(load);
-      },
-      onBypass: function (next) {
-        sendNow("source.random.bypass", next ? 1 : 0).then(load);
-      }
-    }));
+          if (lfo.sync) {
+            sourceControl(card, {
+              id: "lfo." + id + ".beats", label: "Time", kind: "float",
+              min: 0.03125, max: 32, default: 1, unit: "beats", log: true
+            }, lfo.beats, "source." + id + ".beats", function (value) {
+              lfo.beats = value;
+              refresh();
+            });
+          } else {
+            sourceControl(card, {
+              id: "lfo." + id + ".rate", label: "Rate", kind: "float",
+              min: 0.01, max: 20, default: 1, unit: "hz", log: true
+            }, lfo.rate, "source." + id + ".rate", function (value) {
+              lfo.rate = value;
+              refresh();
+            });
+          }
+        };
 
-    grid.appendChild(makeSourceCard("Table", "#c8e04a", function (svg) {
-      drawTable(svg, table);
-    }, function (card, head, refresh) {
-      sourceChoice(head, "Shape", ["Sine", "Triangle", "Saw", "Square"],
-        table.shape, function (value) {
-          table.shape = value;
-          refresh();
-          queue("source.table.shape", value);
-        });
+        chrome = {
+          key: "source-" + id,
+          sync: lfo.sync,
+          bypass: !!source.bypass,
+          onSync: onSync,
+          onBypass: onBypass,
+          onRemove: onRemove
+        };
+      } else if (kind === "envelope") {
+        var env = {
+          attack: numberOr(settings.attack, 10),
+          release: numberOr(settings.release, 100)
+        };
 
-      if (table.sync) {
-        sourceControl(card, {
-          id: "table.beats", label: "Time", kind: "float",
-          min: 0.03125, max: 32, default: 1, unit: "beats", log: true
-        }, table.beats, "source.table.beats", function (value) {
-          table.beats = value;
-        });
-      } else {
-        sourceControl(card, {
-          id: "table.rate", label: "Rate", kind: "float",
-          min: 0.01, max: 20, default: 1, unit: "hz", log: true
-        }, table.rate, "source.table.rate", function (value) {
-          table.rate = value;
-        });
+        paint = function (svg) { drawEnvelope(svg, env); };
+        livePaint = function (svg, live) { drawLiveEnvelope(svg, live, id); };
+        build = function (card) {
+          sourceControl(card, {
+            id: "env." + id + ".attack", label: "Attack", kind: "float",
+            min: 1, max: 500, default: 10, unit: "ms", log: true
+          }, env.attack, "source." + id + ".attack", function (value) {
+            env.attack = value;
+          });
+          sourceControl(card, {
+            id: "env." + id + ".release", label: "Release", kind: "float",
+            min: 1, max: 500, default: 100, unit: "ms", log: true
+          }, env.release, "source." + id + ".release", function (value) {
+            env.release = value;
+          });
+        };
+
+        chrome = {
+          key: "source-" + id,
+          bypass: !!source.bypass,
+          onBypass: onBypass,
+          onRemove: onRemove
+        };
+      } else if (kind === "random") {
+        var random = {
+          rate: numberOr(settings.rate, 4),
+          smooth: numberOr(settings.smooth, 80),
+          sync: !!settings.sync,
+          beats: numberOr(settings.beats, 1)
+        };
+
+        paint = function (svg) { drawRandom(svg, random); };
+        livePaint = function (svg, live) { drawLiveRandom(svg, live, id); };
+        build = function (card, head, refresh) {
+          if (random.sync) {
+            sourceControl(card, {
+              id: "random." + id + ".beats", label: "Time", kind: "float",
+              min: 0.03125, max: 32, default: 1, unit: "beats", log: true
+            }, random.beats, "source." + id + ".beats", function (value) {
+              random.beats = value;
+              refresh();
+            });
+          } else {
+            sourceControl(card, {
+              id: "random." + id + ".rate", label: "Rate", kind: "float",
+              min: 0.01, max: 20, default: 4, unit: "hz", log: true
+            }, random.rate, "source." + id + ".rate", function (value) {
+              random.rate = value;
+              refresh();
+            });
+          }
+
+          sourceControl(card, {
+            id: "random." + id + ".smooth", label: "Smooth", kind: "float",
+            min: 0, max: 500, default: 80, unit: "ms", log: true
+          }, random.smooth, "source." + id + ".smooth", function (value) {
+            random.smooth = value;
+            refresh();
+          });
+        };
+
+        chrome = {
+          key: "source-" + id,
+          sync: random.sync,
+          bypass: !!source.bypass,
+          onSync: onSync,
+          onBypass: onBypass,
+          onRemove: onRemove
+        };
+      } else if (kind === "table") {
+        var table = {
+          rate: numberOr(settings.rate, 1),
+          shape: numberOr(settings.shape, 0),
+          morph: numberOr(settings.morph, 0),
+          sync: !!settings.sync,
+          beats: numberOr(settings.beats, 1)
+        };
+
+        paint = function (svg) { drawTable(svg, table); };
+        livePaint = function (svg, live) { drawLiveTable(svg, live, id); };
+        build = function (card, head, refresh) {
+          sourceChoice(head, "Shape", ["Sine", "Triangle", "Saw", "Square"],
+            table.shape, function (value) {
+              table.shape = value;
+              refresh();
+              sendNow("source." + id + ".shape", value).then(load);
+            });
+
+          if (table.sync) {
+            sourceControl(card, {
+              id: "table." + id + ".beats", label: "Time", kind: "float",
+              min: 0.03125, max: 32, default: 1, unit: "beats", log: true
+            }, table.beats, "source." + id + ".beats", function (value) {
+              table.beats = value;
+              refresh();
+            });
+          } else {
+            sourceControl(card, {
+              id: "table." + id + ".rate", label: "Rate", kind: "float",
+              min: 0.01, max: 20, default: 1, unit: "hz", log: true
+            }, table.rate, "source." + id + ".rate", function (value) {
+              table.rate = value;
+              refresh();
+            });
+          }
+
+          sourceControl(card, {
+            id: "table." + id + ".morph", label: "Morph", kind: "float",
+            min: 0, max: 1, default: 0, unit: "percent"
+          }, table.morph, "source." + id + ".morph", function (value) {
+            table.morph = value;
+            refresh();
+          });
+        };
+
+        chrome = {
+          key: "source-" + id,
+          sync: table.sync,
+          bypass: !!source.bypass,
+          onSync: onSync,
+          onBypass: onBypass,
+          onRemove: onRemove
+        };
       }
-      sourceControl(card, {
-        id: "table.morph", label: "Morph", kind: "float",
-        min: 0, max: 1, default: 0, unit: "percent"
-      }, table.morph, "source.table.morph", function (value) {
-        table.morph = value;
-        refresh();
-      });
-    }, drawLiveTable, {
-      sync: table.sync,
-      bypass: table.bypass,
-      onSync: function (next) {
-        sendNow("source.table.sync", next ? 1 : 0).then(load);
-      },
-      onBypass: function (next) {
-        sendNow("source.table.bypass", next ? 1 : 0).then(load);
-      }
-    }));
+
+      grid.appendChild(makeSourceCard(title, accent, paint, build, livePaint, chrome));
+    });
 
     section.appendChild(grid);
 
@@ -1251,8 +1314,15 @@
 
   function makeAssignment(data, slot, assignment) {
     var row = el("div", "assign-row");
-    var sourceNames = ["LFO", "Envelope", "Random", "Table"];
-    var sourceValues = ["lfo", "env", "random", "table"];
+    var sources = data.sources || [];
+    var sourceNames = [];
+    var sourceValues = [];
+
+    sources.forEach(function (entry) {
+      var same = sources.filter(function (candidate) { return candidate.kind === entry.kind; });
+      sourceNames.push(entry.name + (same.length > 1 ? " " + (same.indexOf(entry) + 1) : ""));
+      sourceValues.push(String(entry.id));
+    });
 
     for (var macro = 1; macro <= 8; macro++) {
       sourceNames.push("Macro " + macro);
@@ -1276,7 +1346,11 @@
       source.appendChild(option);
     });
 
-    if (assignment) source.value = sourceValues[assignment.source] || "";
+    if (assignment) {
+      source.value = assignment.source >= 100
+        ? "macro" + (assignment.source - 99)
+        : String(assignment.source);
+    }
 
     source.addEventListener("change", function () {
       if (!source.value) {
@@ -1418,10 +1492,11 @@
           if (Array.isArray(data.values)) live.values = data.values;
           if (Array.isArray(data.phases)) live.phases = data.phases;
 
-          live.envelope.push(live.values[1]);
-          live.random.push(live.values[2]);
-          if (live.envelope.length > 160) live.envelope.shift();
-          if (live.random.length > 160) live.random.shift();
+          live.values.forEach(function (value, id) {
+            if (!live.history[id]) live.history[id] = [];
+            live.history[id].push(value);
+            if (live.history[id].length > 160) live.history[id].shift();
+          });
 
           livePainters.forEach(function (paint) { paint(); });
         })

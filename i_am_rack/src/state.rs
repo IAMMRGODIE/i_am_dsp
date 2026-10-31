@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::module::{self, ModuleKind};
 
 /// The version this build writes.
-pub const STATE_VERSION: u32 = 5;
+pub const STATE_VERSION: u32 = 6;
 
 /// The default low/mid crossover.
 pub const DEFAULT_SPLIT_LOW: f32 = 120.0;
@@ -30,9 +30,12 @@ pub struct RackState {
 	pub split_high: f32,
 	/// Low, mid and high, in that order.
 	pub bands: [BandState; 3],
-	/// The four modulation sources: LFO, envelope, random and table.
+	/// The legacy flat source settings, kept so version 5 files still load.
 	#[serde(default)]
 	pub sources: SourceSettings,
+	/// The live modulation-source slots.
+	#[serde(default)]
+	pub source_slots: Vec<SourceSlot>,
 	/// Eight modulation assignments; empty slots are off.
 	#[serde(default)]
 	pub assignments: [Option<Assignment>; 8],
@@ -113,6 +116,68 @@ impl Default for SourceSettings {
 			table_bypass: false,
 		}
 	}
+}
+
+/// What a modulation source does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceKind {
+	/// An editable low-frequency oscillator.
+	#[default]
+	Lfo,
+	/// An envelope follower driven by the input.
+	Envelope,
+	/// A smoothed sample-and-hold random source.
+	Random,
+	/// A wavetable oscillator.
+	Table,
+}
+
+impl SourceKind {
+	/// The name the page shows.
+	pub fn name(self) -> &'static str {
+		match self {
+			Self::Lfo => "LFO",
+			Self::Envelope => "Envelope",
+			Self::Random => "Random",
+			Self::Table => "Table",
+		}
+	}
+}
+
+/// One modulation-source slot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceSlot {
+	/// Stable within a state; assignments address it by this id.
+	pub id: u32,
+	/// What this slot generates.
+	pub kind: SourceKind,
+	/// Whether the source output is forced to zero.
+	pub bypass: bool,
+	/// The settings for every kind; only the fields of `kind` are used.
+	pub settings: SourceSettings,
+}
+
+impl SourceSlot {
+	/// A slot of one kind with its default settings.
+	pub fn new(id: u32, kind: SourceKind) -> Self {
+		Self {
+			id,
+			kind,
+			bypass: false,
+			settings: SourceSettings::default(),
+		}
+	}
+}
+
+/// The four sources a fresh rack starts with.
+pub fn default_source_slots() -> Vec<SourceSlot> {
+	vec![
+		SourceSlot::new(0, SourceKind::Lfo),
+		SourceSlot::new(1, SourceKind::Envelope),
+		SourceSlot::new(2, SourceKind::Random),
+		SourceSlot::new(3, SourceKind::Table),
+	]
 }
 
 fn default_lfo_points() -> Vec<(f32, f32, f32)> {
@@ -262,6 +327,50 @@ impl Default for BandState {
 }
 
 impl RackState {
+	/// The next free source id, 0..8, or `None` when all slots are used.
+	pub fn next_source_id(&self) -> Option<u32> {
+		(0..8).find(|id| {
+			!self.source_slots.iter().any(|slot| slot.id == *id)
+		})
+	}
+
+	/// The source slot with this id.
+	pub fn source_slot(&self, id: u32) -> Option<&SourceSlot> {
+		self.source_slots.iter().find(|slot| slot.id == id)
+	}
+
+	/// The source slot with this id, mutably.
+	pub fn source_slot_mut(&mut self, id: u32) -> Option<&mut SourceSlot> {
+		self.source_slots.iter_mut().find(|slot| slot.id == id)
+	}
+
+	/// Brings a version-5 file into the source-slot layout.
+	pub fn migrate(&mut self) {
+		if self.source_slots.is_empty() {
+			let legacy = self.sources.clone();
+			self.source_slots = default_source_slots();
+
+			for slot in &mut self.source_slots {
+				slot.settings = legacy.clone();
+				slot.bypass = match slot.kind {
+					SourceKind::Lfo => legacy.lfo_bypass,
+					SourceKind::Envelope => legacy.env_bypass,
+					SourceKind::Random => legacy.random_bypass,
+					SourceKind::Table => legacy.table_bypass,
+				};
+			}
+
+			for assignment in self.assignments.iter_mut().flatten() {
+				if assignment.source >= 4 && assignment.source < 100 {
+					assignment.source = 100 + assignment.source - 4;
+				}
+			}
+		}
+
+		self.source_slots.truncate(8);
+		self.version = STATE_VERSION;
+	}
+
 	/// The next unused module id, so a new slot keeps every existing id stable.
 	pub fn next_id(&self) -> u32 {
 		self.bands
@@ -303,6 +412,7 @@ impl RackState {
 				BandState::with(4, ModuleKind::Gain),
 			],
 			sources: SourceSettings::default(),
+			source_slots: default_source_slots(),
 			assignments: std::array::from_fn(|_| None),
 			macros: [0.0; 8],
 		}

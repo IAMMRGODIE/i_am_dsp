@@ -1,22 +1,26 @@
-//! The four control-rate modulation sources: LFO, envelope, random and table.
+//! The control-rate modulation sources.
 //!
-//! The engine asks for a value every 64 samples. The LFO and random phases
-//! advance per sample so their timing does not depend on the control block, and
-//! the envelope follows the input per sample so it can react to transients.
+//! The engine asks for a value every 64 samples. Each source slot keeps its own
+//! phase, envelope and random state, so the page can add several LFOs or
+//! envelopes without one slot stepping on another.
 
 use std::f32::consts::TAU;
 
 use i_am_dsp::prelude::{EditableLfo, ProcessInfos, SyncedTime, WaveTable};
 
-use crate::state::SourceSettings;
+use crate::state::{SourceKind, SourceSettings, SourceSlot};
 
 /// How many samples one modulation update covers.
 pub const CONTROL_INTERVAL: usize = 64;
+/// The number of source ids the shared live view carries.
+pub const MAX_SOURCES: usize = 8;
 
-/// The runtime state of the three sources.
-pub(crate) struct Modulation {
-	rate: usize,
-	counter: usize,
+/// One running source slot.
+struct SourceRuntime {
+	id: u32,
+	kind: SourceKind,
+	bypass: bool,
+	settings: SourceSettings,
 	lfo: EditableLfo,
 	lfo_phase: f32,
 	table_phase: f32,
@@ -25,89 +29,177 @@ pub(crate) struct Modulation {
 	random_target: f32,
 	random_value: f32,
 	seed: u32,
-	settings: SourceSettings,
 	attack_coeff: f32,
 	release_coeff: f32,
 	random_coeff: f32,
-	values: [f32; 4],
 }
 
-impl Modulation {
-	/// A source set at rest for a sample rate.
-	pub fn new(rate: usize) -> Self {
-		let settings = SourceSettings::default();
-		let mut modulation = Self {
-			rate,
-			counter: 0,
-			lfo: EditableLfo::new(),
+impl SourceRuntime {
+	fn new(slot: &SourceSlot, rate: usize) -> Self {
+		let settings = slot.settings.clone();
+		let mut runtime = Self {
+			id: slot.id,
+			kind: slot.kind,
+			bypass: slot.bypass,
+			settings: settings.clone(),
+			lfo: editable_lfo(&settings.lfo_points),
 			lfo_phase: 0.0,
 			table_phase: 0.0,
 			envelope: 0.0,
 			random_phase: 0.0,
 			random_target: 0.0,
 			random_value: 0.0,
-			seed: 0x1234_5678,
-			settings: settings.clone(),
+			seed: 0x1234_5678 ^ slot.id.wrapping_mul(2_654_435_761),
 			attack_coeff: 0.0,
 			release_coeff: 0.0,
 			random_coeff: 0.0,
-			values: [0.0; 4],
 		};
 
-		modulation.set_settings(settings);
-		modulation
+		runtime.update(slot, rate);
+		runtime
 	}
 
-	/// Copies the page's source settings into the running sources.
-	pub fn set_settings(&mut self, settings: SourceSettings) {
-		self.lfo = editable_lfo(&settings.lfo_points);
-		self.attack_coeff = time_coefficient(settings.env_attack, self.rate);
-		self.release_coeff = time_coefficient(settings.env_release, self.rate);
-		self.random_coeff = time_coefficient(settings.random_smooth, self.rate);
-		self.settings = settings;
+	fn update(&mut self, slot: &SourceSlot, rate: usize) {
+		self.kind = slot.kind;
+		self.bypass = slot.bypass;
+		self.settings = slot.settings.clone();
+		self.lfo = editable_lfo(&self.settings.lfo_points);
+		self.attack_coeff = time_coefficient(self.settings.env_attack, rate);
+		self.release_coeff = time_coefficient(self.settings.env_release, rate);
+		self.random_coeff = time_coefficient(self.settings.random_smooth, rate);
 	}
 
-	/// Advances one sample. Returns the four source values on a control tick.
-	pub fn advance(&mut self, input: f32, infos: &ProcessInfos) -> Option<[f32; 4]> {
-		let lfo_rate = source_rate(
-			self.settings.lfo_rate,
-			self.settings.lfo_sync,
-			self.settings.lfo_beats,
-			infos,
-		);
-		self.lfo_phase = (self.lfo_phase + lfo_rate / self.rate as f32).fract();
+	fn advance(&mut self, input: f32, infos: &ProcessInfos, rate: usize) {
+		match self.kind {
+			SourceKind::Lfo => {
+				let frequency = source_rate(
+					self.settings.lfo_rate,
+					self.settings.lfo_sync,
+					self.settings.lfo_beats,
+					infos,
+				);
+				self.lfo_phase = (self.lfo_phase + frequency / rate as f32).fract();
+			},
+			SourceKind::Envelope => {
+				let target = input.abs();
+				let coefficient = if target > self.envelope {
+					self.attack_coeff
+				} else {
+					self.release_coeff
+				};
+				self.envelope += (target - self.envelope) * coefficient;
+			},
+			SourceKind::Random => {
+				let frequency = source_rate(
+					self.settings.random_rate,
+					self.settings.random_sync,
+					self.settings.random_beats,
+					infos,
+				);
+				self.random_phase += frequency / rate as f32;
 
-		let table_rate = source_rate(
-			self.settings.table_rate,
-			self.settings.table_sync,
-			self.settings.table_beats,
-			infos,
-		);
-		self.table_phase = (self.table_phase + table_rate / self.rate as f32).fract();
+				if self.random_phase >= 1.0 {
+					self.random_phase -= 1.0;
+					self.seed = self
+						.seed
+						.wrapping_mul(1_664_525)
+						.wrapping_add(1_013_904_223);
+					self.random_target =
+						(self.seed >> 8) as f32 / 16_777_216.0 * 2.0 - 1.0;
+				}
 
-		let target = input.abs();
-		let coeff = if target > self.envelope {
-			self.attack_coeff
-		} else {
-			self.release_coeff
-		};
-		self.envelope += (target - self.envelope) * coeff;
+				self.random_value +=
+					(self.random_target - self.random_value) * self.random_coeff;
+			},
+			SourceKind::Table => {
+				let frequency = source_rate(
+					self.settings.table_rate,
+					self.settings.table_sync,
+					self.settings.table_beats,
+					infos,
+				);
+				self.table_phase = (self.table_phase + frequency / rate as f32).fract();
+			},
+		}
+	}
 
-		let random_rate = source_rate(
-			self.settings.random_rate,
-			self.settings.random_sync,
-			self.settings.random_beats,
-			infos,
-		);
-		self.random_phase += random_rate / self.rate as f32;
-
-		if self.random_phase >= 1.0 {
-			self.random_phase -= 1.0;
-			self.seed = self.seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-			self.random_target = (self.seed >> 8) as f32 / 16_777_216.0 * 2.0 - 1.0;
+	fn value(&self) -> f32 {
+		if self.bypass {
+			return 0.0;
 		}
 
-		self.random_value += (self.random_target - self.random_value) * self.random_coeff;
+		match self.kind {
+			SourceKind::Lfo => self.lfo.sample(self.lfo_phase, 0) * 2.0 - 1.0,
+			SourceKind::Envelope => self.envelope.clamp(0.0, 1.0),
+			SourceKind::Random => self.random_value.clamp(-1.0, 1.0),
+			SourceKind::Table => table(
+				self.settings.table_shape,
+				self.settings.table_morph,
+				self.table_phase,
+			),
+		}
+	}
+
+	fn phase(&self) -> f32 {
+		match self.kind {
+			SourceKind::Lfo => self.lfo_phase,
+			SourceKind::Table => self.table_phase,
+			_ => 0.0,
+		}
+	}
+}
+
+/// The live source set.
+pub(crate) struct Modulation {
+	rate: usize,
+	counter: usize,
+	sources: Vec<SourceRuntime>,
+	values: [f32; MAX_SOURCES],
+	phases: [f32; MAX_SOURCES],
+}
+
+impl Modulation {
+	/// An empty source set for a sample rate.
+	pub fn new(rate: usize) -> Self {
+		Self {
+			rate,
+			counter: 0,
+			sources: Vec::new(),
+			values: [0.0; MAX_SOURCES],
+			phases: [0.0; MAX_SOURCES],
+		}
+	}
+
+	/// Reconciles the runtimes with the page's slots, preserving the state of a
+	/// slot whose kind did not change.
+	pub fn set_slots(&mut self, slots: &[SourceSlot]) {
+		let mut next = Vec::with_capacity(slots.len());
+
+		for slot in slots {
+			let position = self
+				.sources
+				.iter()
+				.position(|source| source.id == slot.id);
+
+			if let Some(position) = position
+				&& self.sources[position].kind == slot.kind
+			{
+				self.sources[position].update(slot, self.rate);
+				next.push(self.sources.remove(position));
+				continue;
+			}
+
+			next.push(SourceRuntime::new(slot, self.rate));
+		}
+
+		self.sources = next;
+	}
+
+	/// Advances one sample. Returns the source values on a control tick.
+	pub fn advance(&mut self, input: f32, infos: &ProcessInfos) -> Option<[f32; MAX_SOURCES]> {
+		for source in &mut self.sources {
+			source.advance(input, infos, self.rate);
+		}
 
 		self.counter += 1;
 
@@ -116,41 +208,25 @@ impl Modulation {
 		}
 
 		self.counter = 0;
+		self.values = [0.0; MAX_SOURCES];
+		self.phases = [0.0; MAX_SOURCES];
 
-		let values = [
-			if self.settings.lfo_bypass {
-				0.0
-			} else {
-				self.lfo.sample(self.lfo_phase, 0) * 2.0 - 1.0
-			},
-			if self.settings.env_bypass {
-				0.0
-			} else {
-				self.envelope.clamp(0.0, 1.0)
-			},
-			if self.settings.random_bypass {
-				0.0
-			} else {
-				self.random_value.clamp(-1.0, 1.0)
-			},
-			if self.settings.table_bypass {
-				0.0
-			} else {
-				table(
-					self.settings.table_shape,
-					self.settings.table_morph,
-					self.table_phase,
-				)
-			},
-		];
+		for source in &self.sources {
+			let index = source.id as usize;
+			if index >= MAX_SOURCES {
+				continue;
+			}
 
-		self.values = values;
-		Some(values)
+			self.values[index] = source.value();
+			self.phases[index] = source.phase();
+		}
+
+		Some(self.values)
 	}
 
-	/// The last values and the LFO/table phases, for the page's live view.
-	pub fn snapshot(&self) -> ([f32; 4], [f32; 2]) {
-		(self.values, [self.lfo_phase, self.table_phase])
+	/// The last values and phases, indexed by source id, for the page.
+	pub fn snapshot(&self) -> ([f32; MAX_SOURCES], [f32; MAX_SOURCES]) {
+		(self.values, self.phases)
 	}
 }
 
