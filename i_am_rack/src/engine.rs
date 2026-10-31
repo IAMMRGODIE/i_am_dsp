@@ -61,8 +61,12 @@ struct Module {
 	bypass: bool,
 	paramed: Paramed<ModuleEffect>,
 	map: ParamMap,
-	/// The unmodulated values, used as the centre of every modulation.
+	/// The unmodulated target values, used as the centre of every modulation.
 	base: BTreeMap<String, f64>,
+	/// The values the effect currently holds, before modulation.
+	current: BTreeMap<String, f64>,
+	/// Whether a target is still moving toward the base.
+	smoothing: bool,
 	/// Ranges and labels of the controls this module accepts from a page.
 	controls: BTreeMap<String, Control>,
 }
@@ -92,6 +96,8 @@ impl Module {
 			paramed,
 			map,
 			base: state.params.clone(),
+			current: state.params.clone(),
+			smoothing: false,
 			controls,
 		}
 	}
@@ -99,18 +105,38 @@ impl Module {
 	fn update(&mut self, state: &ModuleState) {
 		self.bypass = state.bypass;
 		self.base = state.params.clone();
+		// Rewrite the map at the next control tick, which also clears the
+		// previous modulation when an assignment was removed.
+		self.smoothing = true;
+	}
 
-		for (identifier, value) in &state.params {
+	/// Moves every unmodulated value a little toward its target.
+	fn smooth(&mut self, coefficient: f32) {
+		if !self.smoothing {
+			return;
+		}
+
+		let mut moving = false;
+
+		for (identifier, target) in &self.base {
+			let value = self.current.entry(identifier.clone()).or_insert(*target);
+			let difference = *target - *value;
+
+			if difference.abs() < 1e-5 {
+				*value = *target;
+			} else {
+				*value += difference * coefficient as f64;
+				moving = true;
+			}
+
 			store(&self.map, identifier, *value);
 		}
 
-		// A changed lookahead changes this module's delay, and the engine's
-		// lane compensation reads it.
-		self.paramed.sync_params();
+		self.smoothing = moving;
 	}
 
-	fn base_value(&self, identifier: &str) -> Option<f64> {
-		self.base.get(identifier).copied()
+	fn current_value(&self, identifier: &str) -> Option<f64> {
+		self.current.get(identifier).copied()
 	}
 
 	fn control(&self, identifier: &str) -> Option<&Control> {
@@ -173,6 +199,9 @@ struct Lane {
 	base_gain: f64,
 	/// Pan before modulation, -1..1.
 	base_pan: f64,
+	/// The smoothed gain and pan the modulation is applied to.
+	smooth_gain: f64,
+	smooth_pan: f64,
 	mute: bool,
 	solo: bool,
 	slots: [Option<Module>; 2],
@@ -189,6 +218,8 @@ impl Lane {
 			pan: 0.0,
 			base_gain: 1.0,
 			base_pan: 0.0,
+			smooth_gain: 1.0,
+			smooth_pan: 0.0,
 			mute: false,
 			solo: false,
 			slots: [None, None],
@@ -236,9 +267,7 @@ impl Engine {
 			let lane = &mut self.lanes[index];
 
 			lane.base_gain = band.gain;
-			lane.gain = band.gain;
 			lane.base_pan = band.pan;
-			lane.pan = band.pan;
 			lane.mute = band.mute;
 			lane.solo = band.solo;
 
@@ -296,8 +325,12 @@ impl Engine {
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
 		let input = (samples[0] + samples[1]) * 0.5;
+		let tempo = process_context.infos().tempo.unwrap_or(120.0);
 
-		if let Some(values) = self.modulation.advance(input) {
+		if let Some(values) = self.modulation.advance(input, tempo) {
+			let coefficient = 1.0 - (-(64.0 / (0.01 * self.rate as f32))).exp();
+			self.smooth(coefficient);
+
 			let mut sources = [0.0; 12];
 			sources[..4].copy_from_slice(&values);
 			sources[4..].copy_from_slice(&self.macros);
@@ -341,6 +374,34 @@ impl Engine {
 		*samples = output;
 	}
 
+	/// Moves every base parameter and band control toward its target.
+	fn smooth(&mut self, coefficient: f32) {
+		let coefficient = coefficient as f64;
+
+		for lane in &mut self.lanes {
+			let gain_difference = lane.base_gain - lane.smooth_gain;
+			let pan_difference = lane.base_pan - lane.smooth_pan;
+
+			lane.smooth_gain += gain_difference * coefficient;
+			lane.smooth_pan += pan_difference * coefficient;
+
+			if gain_difference.abs() < 1e-5 {
+				lane.smooth_gain = lane.base_gain;
+			}
+
+			if pan_difference.abs() < 1e-5 {
+				lane.smooth_pan = lane.base_pan;
+			}
+
+			lane.gain = lane.smooth_gain;
+			lane.pan = lane.smooth_pan;
+
+			for module in lane.slots.iter_mut().flatten() {
+				module.smooth(coefficient as f32);
+			}
+		}
+	}
+
 	/// Applies the eight assignments once, at a control tick.
 	fn apply_modulation(&mut self, values: [f32; 12]) {
 		let mut sums: BTreeMap<Target, f32> = BTreeMap::new();
@@ -379,7 +440,7 @@ impl Engine {
 						continue;
 					}
 
-					let base = module.base_value(&parameter).unwrap_or(control.default);
+					let base = module.current_value(&parameter).unwrap_or(control.default);
 					let normalized = normalize(base, &control) + offset as f64;
 					module.set_value(
 						&parameter,
@@ -390,14 +451,14 @@ impl Engine {
 					let Some(lane) = self.lanes.get_mut(index) else {
 						continue;
 					};
-					let normalized = lane.base_gain / 2.0 + offset as f64;
+					let normalized = lane.smooth_gain / 2.0 + offset as f64;
 					lane.gain = normalized.clamp(0.0, 1.0) * 2.0;
 				},
 				Target::BandPan(index) => {
 					let Some(lane) = self.lanes.get_mut(index) else {
 						continue;
 					};
-					let normalized = (lane.base_pan + 1.0) / 2.0 + offset as f64;
+					let normalized = (lane.smooth_pan + 1.0) / 2.0 + offset as f64;
 					lane.pan = normalized.clamp(0.0, 1.0) * 2.0 - 1.0;
 				},
 			}

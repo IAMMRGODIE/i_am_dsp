@@ -344,23 +344,45 @@
     }
 
     var drag = null;
+    var modDrag = null;
 
     dial.addEventListener("pointerdown", function (event) {
       if (event.button !== 0) return;
-      drag = { y: event.clientY, position: norm(spec, current) };
+
+      if (event.altKey && modulations.length) {
+        modDrag = { y: event.clientY, depth: modulations[0].depth || 0 };
+        dial.classList.add("mod-drag");
+      } else {
+        drag = { y: event.clientY, position: norm(spec, current) };
+      }
+
       dial.setPointerCapture(event.pointerId);
       event.preventDefault();
     });
 
     dial.addEventListener("pointermove", function (event) {
+      if (modDrag) {
+        var next = clamp(modDrag.depth + (modDrag.y - event.clientY) / 150, -1, 1);
+        modulations[0].depth = next;
+
+        if (spec.onModulation && modulations[0].slot !== undefined) {
+          spec.onModulation(modulations[0].slot, next);
+        }
+
+        paint();
+        return;
+      }
+
       if (!drag) return;
       var position = clamp(drag.position + (drag.y - event.clientY) / 150, 0, 1);
       set(at(spec, position), true);
     });
 
     function stop(event) {
-      if (!drag) return;
+      if (!drag && !modDrag) return;
       drag = null;
+      modDrag = null;
+      dial.classList.remove("mod-drag");
       try {
         dial.releasePointerCapture(event.pointerId);
       } catch (error) {

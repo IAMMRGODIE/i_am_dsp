@@ -13,6 +13,7 @@
   var rangeLabels = [];
   var paintCrossover = null;
   var collapsedBands = Object.create(null);
+  var collapsedSources = Object.create(null);
   var livePainters = [];
   var live = {
     values: [0, 0, 0, 0],
@@ -89,16 +90,25 @@
     });
   }
 
+  function setModulationDepth(slot, depth) {
+    queue("assign." + slot + ".depth", depth);
+  }
+
   function modulationsFor(data, target) {
-    return (data.assignments || []).filter(function (assignment) {
-      return assignment && assignment.target === target;
-    }).map(function (assignment) {
-      return {
-        source: assignment.source,
-        depth: assignment.depth,
-        mode: assignment.mode || "centered"
-      };
+    var result = [];
+
+    (data.assignments || []).forEach(function (assignment, slot) {
+      if (assignment && assignment.target === target) {
+        result.push({
+          slot: slot,
+          source: assignment.source,
+          depth: assignment.depth,
+          mode: assignment.mode || "centered"
+        });
+      }
     });
+
+    return result;
   }
 
   function makeCrossover(data) {
@@ -323,7 +333,8 @@
       max: 2,
       default: 1,
       unit: "",
-      modulations: modulationsFor(data, "band." + bandIndex + ".gain")
+      modulations: modulationsFor(data, "band." + bandIndex + ".gain"),
+      onModulation: setModulationDepth
     }, band.gain, function (_, value) {
       band.gain = value;
       queue("band." + bandIndex + ".gain", value);
@@ -338,7 +349,8 @@
       default: 0,
       unit: "",
       bipolar: true,
-      modulations: modulationsFor(data, "band." + bandIndex + ".pan")
+      modulations: modulationsFor(data, "band." + bandIndex + ".pan"),
+      onModulation: setModulationDepth
     }, band.pan, function (_, value) {
       band.pan = value;
       queue("band." + bandIndex + ".pan", value);
@@ -424,6 +436,10 @@
     }
 
     var kinds = (data.kinds || []).map(function (kind) { return kind.name; });
+
+    (module.controls || []).forEach(function (control) {
+      control.onModulation = setModulationDepth;
+    });
 
     var card = window.IAmCard.create({
       title: module.kind,
@@ -722,7 +738,20 @@
         var bend = bendAt(event);
 
         if (bend) {
-          drag = { kind: "bend", point: bend };
+          var sorted = lfo.points.slice().sort(function (a, b) {
+            return a.time - b.time;
+          });
+          var index = sorted.indexOf(bend);
+          var next = sorted[index + 1];
+          var position = eventPoint(event);
+
+          drag = {
+            kind: "bend",
+            point: bend,
+            startValue: position.value,
+            startBend: bend.bend,
+            direction: next && next.value > bend.value ? -1 : 1
+          };
         } else {
           var position = eventPoint(event);
           point = { time: position.time, value: position.value, bend: 0 };
@@ -747,7 +776,9 @@
         drag.point.value = position.value;
         lfo.points.sort(function (a, b) { return a.time - b.time; });
       } else {
-        drag.point.bend = position.value * 20 - 10;
+        var delta = position.value - drag.startValue;
+        drag.point.bend = Math.max(-10, Math.min(10,
+          drag.startBend + delta * 20 * drag.direction));
       }
 
       paint();
@@ -929,13 +960,41 @@
     head.appendChild(box);
   }
 
-  function makeSourceCard(title, accent, paint, build, livePaint) {
+  function makeSourceCard(title, accent, paint, build, livePaint, chrome) {
+    chrome = chrome || {};
     var card = el("div", "mod-card");
     card.style.setProperty("--accent", accent);
 
+    if (collapsedSources[title]) card.classList.add("collapsed");
+
     var head = el("div", "mod-card-head");
+
+    var collapse = el("button", "mod-collapse", collapsedSources[title] ? "\u25B8" : "\u25BE");
+    collapse.type = "button";
+    collapse.title = collapsedSources[title] ? "Expand source" : "Collapse source";
+    collapse.setAttribute("aria-label", collapse.title);
+    collapse.addEventListener("click", function () {
+      var next = !collapsedSources[title];
+      collapsedSources[title] = next;
+      card.classList.toggle("collapsed", next);
+      collapse.textContent = next ? "\u25B8" : "\u25BE";
+      collapse.title = next ? "Expand source" : "Collapse source";
+      collapse.setAttribute("aria-label", collapse.title);
+    });
+    head.appendChild(collapse);
+
     head.appendChild(el("span", "mod-card-title", title));
     head.appendChild(el("span", "mcard-spacer"));
+
+    if (chrome.sync !== undefined) {
+      var sync = el("button", "mod-sync" + (chrome.sync ? " on" : ""), "SYNC");
+      sync.type = "button";
+      sync.title = chrome.sync ? "Rate follows the host tempo" : "Rate is in hertz";
+      sync.setAttribute("aria-pressed", chrome.sync ? "true" : "false");
+      sync.addEventListener("click", function () { chrome.onSync(!chrome.sync); });
+      head.appendChild(sync);
+    }
+
     card.appendChild(head);
 
     var hero = el("div", "mod-hero");
@@ -964,6 +1023,24 @@
     build(controls, head, function () { paint(svg); });
     paint(svg);
     card.appendChild(controls);
+
+    if (chrome.onBypass) {
+      if (chrome.bypass) card.classList.add("bypassed");
+
+      var power = document.createElement("button");
+      power.type = "button";
+      power.className = "mcard-power";
+      power.title = chrome.bypass ? "Enable source" : "Bypass source";
+      power.setAttribute("aria-label", power.title);
+      power.setAttribute("aria-pressed", chrome.bypass ? "false" : "true");
+      if (chrome.bypass) power.classList.add("off");
+
+      var dot = el("span", "dot");
+      power.appendChild(dot);
+      power.addEventListener("click", function () { chrome.onBypass(!chrome.bypass); });
+      head.appendChild(power);
+    }
+
     return card;
   }
 
@@ -974,23 +1051,33 @@
   function makeModulation(data) {
     var sources = data.sources || {};
     var lfoSource = sources.lfo || {};
+    var envSource = sources.env || {};
+    var randomSource = sources.random || {};
+    var tableSource = sources.table || {};
     var lfo = {
       rate: numberOr(lfoSource.rate, 1),
       shape: numberOr(lfoSource.shape, 0),
-      points: lfoPointsFromJson(lfoSource.points, numberOr(lfoSource.shape, 0))
+      points: lfoPointsFromJson(lfoSource.points, numberOr(lfoSource.shape, 0)),
+      sync: !!lfoSource.sync,
+      bypass: !!lfoSource.bypass
     };
     var env = {
-      attack: numberOr((sources.env || {}).attack, 10),
-      release: numberOr((sources.env || {}).release, 100)
+      attack: numberOr(envSource.attack, 10),
+      release: numberOr(envSource.release, 100),
+      bypass: !!envSource.bypass
     };
     var random = {
-      rate: numberOr((sources.random || {}).rate, 4),
-      smooth: numberOr((sources.random || {}).smooth, 80)
+      rate: numberOr(randomSource.rate, 4),
+      smooth: numberOr(randomSource.smooth, 80),
+      sync: !!randomSource.sync,
+      bypass: !!randomSource.bypass
     };
     var table = {
-      rate: numberOr((sources.table || {}).rate, 1),
-      shape: numberOr((sources.table || {}).shape, 0),
-      morph: numberOr((sources.table || {}).morph, 0)
+      rate: numberOr(tableSource.rate, 1),
+      shape: numberOr(tableSource.shape, 0),
+      morph: numberOr(tableSource.morph, 0),
+      sync: !!tableSource.sync,
+      bypass: !!tableSource.bypass
     };
     var section = el("section", "modulation");
     var head = el("div", "mod-head");
@@ -1014,13 +1101,22 @@
         });
 
       sourceControl(card, {
-        id: "lfo.rate", label: "Rate", kind: "float",
-        min: 0.01, max: 20, default: 1, unit: "hz", log: true
+        id: "lfo.rate", label: lfo.sync ? "Rate ×beat" : "Rate", kind: "float",
+        min: 0.01, max: 20, default: 1, unit: lfo.sync ? "" : "hz", log: true
       }, lfo.rate, "source.lfo.rate", function (value) {
         lfo.rate = value;
         refresh();
       });
-    }, drawLiveLfo));
+    }, drawLiveLfo, {
+      sync: lfo.sync,
+      bypass: lfo.bypass,
+      onSync: function (next) {
+        sendNow("source.lfo.sync", next ? 1 : 0).then(load);
+      },
+      onBypass: function (next) {
+        sendNow("source.lfo.bypass", next ? 1 : 0).then(load);
+      }
+    }));
 
     grid.appendChild(makeSourceCard("Envelope", "#35c77a", function (svg) {
       drawEnvelope(svg, env);
@@ -1039,14 +1135,19 @@
         env.release = value;
         refresh();
       });
-    }, drawLiveEnvelope));
+    }, drawLiveEnvelope, {
+      bypass: env.bypass,
+      onBypass: function (next) {
+        sendNow("source.env.bypass", next ? 1 : 0).then(load);
+      }
+    }));
 
     grid.appendChild(makeSourceCard("Random", "#ff9a3d", function (svg) {
       drawRandom(svg, random);
     }, function (card, head, refresh) {
       sourceControl(card, {
-        id: "random.rate", label: "Rate", kind: "float",
-        min: 0.01, max: 20, default: 4, unit: "hz", log: true
+        id: "random.rate", label: random.sync ? "Rate ×beat" : "Rate", kind: "float",
+        min: 0.01, max: 20, default: 4, unit: random.sync ? "" : "hz", log: true
       }, random.rate, "source.random.rate", function (value) {
         random.rate = value;
         refresh();
@@ -1058,7 +1159,16 @@
         random.smooth = value;
         refresh();
       });
-    }, drawLiveRandom));
+    }, drawLiveRandom, {
+      sync: random.sync,
+      bypass: random.bypass,
+      onSync: function (next) {
+        sendNow("source.random.sync", next ? 1 : 0).then(load);
+      },
+      onBypass: function (next) {
+        sendNow("source.random.bypass", next ? 1 : 0).then(load);
+      }
+    }));
 
     grid.appendChild(makeSourceCard("Table", "#c8e04a", function (svg) {
       drawTable(svg, table);
@@ -1071,8 +1181,8 @@
         });
 
       sourceControl(card, {
-        id: "table.rate", label: "Rate", kind: "float",
-        min: 0.01, max: 20, default: 1, unit: "hz", log: true
+        id: "table.rate", label: table.sync ? "Rate ×beat" : "Rate", kind: "float",
+        min: 0.01, max: 20, default: 1, unit: table.sync ? "" : "hz", log: true
       }, table.rate, "source.table.rate", function (value) {
         table.rate = value;
       });
@@ -1083,7 +1193,16 @@
         table.morph = value;
         refresh();
       });
-    }, drawLiveTable));
+    }, drawLiveTable, {
+      sync: table.sync,
+      bypass: table.bypass,
+      onSync: function (next) {
+        sendNow("source.table.sync", next ? 1 : 0).then(load);
+      },
+      onBypass: function (next) {
+        sendNow("source.table.bypass", next ? 1 : 0).then(load);
+      }
+    }));
 
     section.appendChild(grid);
 

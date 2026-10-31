@@ -66,6 +66,20 @@ pub struct SourceSettings {
 	pub table_shape: i32,
 	/// How far the table morphs toward the next shape, 0..1.
 	pub table_morph: f32,
+	/// Whether the LFO rate is musical rather than hertz.
+	pub lfo_sync: bool,
+	/// Whether the random rate is musical rather than hertz.
+	pub random_sync: bool,
+	/// Whether the table rate is musical rather than hertz.
+	pub table_sync: bool,
+	/// Whether each source is bypassed.
+	pub lfo_bypass: bool,
+	/// Whether the envelope is bypassed.
+	pub env_bypass: bool,
+	/// Whether random is bypassed.
+	pub random_bypass: bool,
+	/// Whether the table is bypassed.
+	pub table_bypass: bool,
 }
 
 impl Default for SourceSettings {
@@ -81,6 +95,13 @@ impl Default for SourceSettings {
 			table_rate: 1.0,
 			table_shape: 0,
 			table_morph: 0.0,
+			lfo_sync: false,
+			random_sync: false,
+			table_sync: false,
+			lfo_bypass: false,
+			env_bypass: false,
+			random_bypass: false,
+			table_bypass: false,
 		}
 	}
 }

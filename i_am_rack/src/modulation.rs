@@ -68,11 +68,11 @@ impl Modulation {
 	}
 
 	/// Advances one sample. Returns the four source values on a control tick.
-	pub fn advance(&mut self, input: f32) -> Option<[f32; 4]> {
-		let lfo_rate = self.settings.lfo_rate.clamp(0.01, 20.0);
+	pub fn advance(&mut self, input: f32, tempo: f32) -> Option<[f32; 4]> {
+		let lfo_rate = source_rate(self.settings.lfo_rate, self.settings.lfo_sync, tempo);
 		self.lfo_phase = (self.lfo_phase + lfo_rate / self.rate as f32).fract();
 
-		let table_rate = self.settings.table_rate.clamp(0.01, 20.0);
+		let table_rate = source_rate(self.settings.table_rate, self.settings.table_sync, tempo);
 		self.table_phase = (self.table_phase + table_rate / self.rate as f32).fract();
 
 		let target = input.abs();
@@ -83,7 +83,7 @@ impl Modulation {
 		};
 		self.envelope += (target - self.envelope) * coeff;
 
-		let random_rate = self.settings.random_rate.clamp(0.01, 20.0);
+		let random_rate = source_rate(self.settings.random_rate, self.settings.random_sync, tempo);
 		self.random_phase += random_rate / self.rate as f32;
 
 		if self.random_phase >= 1.0 {
@@ -103,14 +103,30 @@ impl Modulation {
 		self.counter = 0;
 
 		let values = [
-			self.lfo.sample(self.lfo_phase, 0) * 2.0 - 1.0,
-			self.envelope.clamp(0.0, 1.0),
-			self.random_value.clamp(-1.0, 1.0),
-			table(
-				self.settings.table_shape,
-				self.settings.table_morph,
-				self.table_phase,
-			),
+			if self.settings.lfo_bypass {
+				0.0
+			} else {
+				self.lfo.sample(self.lfo_phase, 0) * 2.0 - 1.0
+			},
+			if self.settings.env_bypass {
+				0.0
+			} else {
+				self.envelope.clamp(0.0, 1.0)
+			},
+			if self.settings.random_bypass {
+				0.0
+			} else {
+				self.random_value.clamp(-1.0, 1.0)
+			},
+			if self.settings.table_bypass {
+				0.0
+			} else {
+				table(
+					self.settings.table_shape,
+					self.settings.table_morph,
+					self.table_phase,
+				)
+			},
 		];
 
 		self.values = values;
@@ -120,6 +136,17 @@ impl Modulation {
 	/// The last values and the LFO/table phases, for the page's live view.
 	pub fn snapshot(&self) -> ([f32; 4], [f32; 2]) {
 		(self.values, [self.lfo_phase, self.table_phase])
+	}
+}
+
+/// A source rate in hertz, optionally scaled by the host tempo.
+fn source_rate(rate: f32, sync: bool, tempo: f32) -> f32 {
+	let rate = rate.clamp(0.01, 20.0);
+
+	if sync {
+		(tempo.max(1.0) / 60.0 * rate).clamp(0.01, 100.0)
+	} else {
+		rate
 	}
 }
 

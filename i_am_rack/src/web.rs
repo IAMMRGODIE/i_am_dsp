@@ -129,19 +129,26 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 			"rate": state.sources.lfo_rate,
 			"shape": state.sources.lfo_shape,
 			"points": state.sources.lfo_points,
+			"sync": state.sources.lfo_sync,
+			"bypass": state.sources.lfo_bypass,
 		},
 		"env": {
 			"attack": state.sources.env_attack,
 			"release": state.sources.env_release,
+			"bypass": state.sources.env_bypass,
 		},
 		"random": {
 			"rate": state.sources.random_rate,
 			"smooth": state.sources.random_smooth,
+			"sync": state.sources.random_sync,
+			"bypass": state.sources.random_bypass,
 		},
 		"table": {
 			"rate": state.sources.table_rate,
 			"shape": state.sources.table_shape,
 			"morph": state.sources.table_morph,
+			"sync": state.sources.table_sync,
+			"bypass": state.sources.table_bypass,
 		},
 	});
 
@@ -177,19 +184,24 @@ fn module_json(
 				.map(|control| {
 					let modulations = assignments
 						.iter()
-						.flatten()
-						.filter_map(|assignment| match &assignment.target {
-							Some(Target::Module {
-								module: target_module,
-								parameter,
-							}) if *target_module == module.id && parameter == &control.id => {
-								Some(json!({
-									"source": assignment.source,
-									"depth": assignment.depth,
-									"mode": assignment.mode,
-								}))
-							},
-							_ => None,
+						.enumerate()
+						.filter_map(|(slot, assignment)| {
+							let assignment = assignment.as_ref()?;
+
+							match &assignment.target {
+								Some(Target::Module {
+									module: target_module,
+									parameter,
+								}) if *target_module == module.id && parameter == &control.id => {
+									Some(json!({
+										"slot": slot,
+										"source": assignment.source,
+										"depth": assignment.depth,
+										"mode": assignment.mode,
+									}))
+								},
+								_ => None,
+							}
 						})
 						.collect::<Vec<_>>();
 
@@ -610,6 +622,24 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 				state.sources.lfo_points = lfo_preset(state.sources.lfo_shape);
 			}
 		},
+		("lfo", "sync") => {
+			let Some(flag) = boolean(raw) else {
+				return false;
+			};
+			state.sources.lfo_sync = flag;
+		},
+		("lfo", "bypass") => {
+			let Some(flag) = boolean(raw) else {
+				return false;
+			};
+			state.sources.lfo_bypass = flag;
+		},
+		("env", "bypass") => {
+			let Some(flag) = boolean(raw) else {
+				return false;
+			};
+			state.sources.env_bypass = flag;
+		},
 		("env", "attack") => state.sources.env_attack = value.clamp(1.0, 500.0) as f32,
 		("env", "release") => {
 			state.sources.env_release = value.clamp(1.0, 500.0) as f32;
@@ -620,12 +650,36 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		("random", "smooth") => {
 			state.sources.random_smooth = value.clamp(0.0, 500.0) as f32;
 		},
+		("random", "sync") => {
+			let Some(flag) = boolean(raw) else {
+				return false;
+			};
+			state.sources.random_sync = flag;
+		},
+		("random", "bypass") => {
+			let Some(flag) = boolean(raw) else {
+				return false;
+			};
+			state.sources.random_bypass = flag;
+		},
 		("table", "rate") => state.sources.table_rate = value.clamp(0.01, 20.0) as f32,
 		("table", "shape") => {
 			state.sources.table_shape = (value.round() as i32).clamp(0, 3);
 		},
 		("table", "morph") => {
 			state.sources.table_morph = value.clamp(0.0, 1.0) as f32;
+		},
+		("table", "sync") => {
+			let Some(flag) = boolean(raw) else {
+				return false;
+			};
+			state.sources.table_sync = flag;
+		},
+		("table", "bypass") => {
+			let Some(flag) = boolean(raw) else {
+				return false;
+			};
+			state.sources.table_bypass = flag;
 		},
 		_ => return false,
 	}
