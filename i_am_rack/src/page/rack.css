@@ -63,8 +63,8 @@ body{
 .crossover .knob-wrap{width:112px}
 .crossover .knob{width:58px; height:58px}
 .crossover-sep{margin-top:30px; color:#555; font-size:18px}
-.crossover-viz{flex:1; min-width:240px; height:64px; display:flex; align-items:center}
-.crossover-viz svg{width:100%; height:64px; display:block}
+.crossover-viz{flex:1; min-width:240px; height:78px; display:flex; align-items:center}
+.crossover-viz svg{width:100%; height:78px; display:block}
 .crossover-note{
   font-family:var(--mono); font-size:9px; color:var(--text3);
   white-space:nowrap;
@@ -75,6 +75,16 @@ body{
   background:#202020; border:1px solid #333; border-radius:8px;
 }
 .band.muted .slots{opacity:.45}
+.band.collapsed .slots{display:none}
+.band.collapsed{padding-bottom:10px}
+.band-collapse{
+  width:20px; height:20px; padding:0; flex:0 0 20px;
+  font:inherit; font-size:13px; line-height:1;
+  color:var(--text2); background:transparent; border:0; border-radius:4px;
+  cursor:pointer;
+}
+.band-collapse:hover{background:rgba(255,255,255,.07); color:var(--text1)}
+.band-collapse:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
 
 /* The lane and slot label already name the card; keep the rack header compact. */
 .rack .mcard-name,
@@ -132,6 +142,43 @@ body{
 .slot-add:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
 .slot-hint{font-size:9px; color:#666}
 
+.modulation{
+  padding:10px 12px 12px; margin-top:10px;
+  background:#202020; border:1px solid #333; border-radius:8px;
+}
+.mod-head{display:flex; align-items:center; gap:10px; margin-bottom:8px}
+.mod-title{
+  font-size:9px; letter-spacing:.14em; color:var(--text3);
+  text-transform:uppercase; white-space:nowrap;
+}
+.mod-hint{font-size:9px; color:#666; white-space:nowrap}
+.mod-sources{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px}
+.mod-card{background:#262626; border:1px solid #353535; border-radius:8px; padding:8px 10px}
+.mod-card-title{font-size:11px; font-weight:600; margin-bottom:2px}
+.mod-card-controls{display:flex; flex-wrap:wrap; gap:0 6px; align-items:flex-start}
+.mod-card-controls .knob-wrap{width:96px}
+.mod-card-controls .knob{width:52px; height:52px}
+.mod-card-controls .mcard-row{width:100%; justify-content:flex-start; padding:4px 0 0}
+.assignments{display:flex; flex-direction:column; gap:4px; margin-top:10px}
+.assign-row{
+  display:grid; grid-template-columns:24px 112px minmax(0,1fr) 150px 24px;
+  gap:8px; align-items:center; padding:4px 6px;
+  background:#1c1c1c; border:1px solid #303030; border-radius:5px;
+}
+.assign-slot{font-family:var(--mono); font-size:9px; color:var(--text3)}
+.assign-select,.assign-target{width:100%; min-width:0; height:24px; font-size:10px}
+.assign-target{color:var(--text1)}
+.assign-depth-wrap{display:flex; align-items:center; gap:4px; min-width:0}
+.assign-depth{width:100%; min-width:0; accent-color:var(--accent); height:14px; cursor:pointer}
+.assign-depth:disabled{opacity:.35; cursor:default}
+.assign-value{width:34px; text-align:right; font-family:var(--mono); font-size:9px; color:var(--text2)}
+.assign-clear{
+  width:22px; height:22px; padding:0; font:inherit; font-size:14px; line-height:1;
+  color:var(--text3); background:transparent; border:0; border-radius:4px; cursor:pointer;
+}
+.assign-clear:hover:not(:disabled){color:#ff7a7a; background:rgba(255,255,255,.07)}
+.assign-clear:disabled{opacity:.3; cursor:default}
+
 .footer{
   flex:0 0 20px; display:flex; align-items:center; gap:8px;
   padding:0 4px; color:var(--text3); font-size:10px;
@@ -147,4 +194,6 @@ body{
   .crossover-note{display:none}
   .crossover-label{display:none}
   .crossover-viz{min-width:160px}
+  .mod-sources{grid-template-columns:1fr}
+  .assign-row{grid-template-columns:20px 100px minmax(0,1fr) 120px 22px}
 }

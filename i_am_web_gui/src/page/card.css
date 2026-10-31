@@ -1,4 +1,5 @@
 .mcard{
+  position:relative;
   display:flex; flex-direction:column; min-width:0;
   background:var(--card); border:1px solid #353535;
   border-radius:8px; overflow:hidden;
@@ -50,7 +51,9 @@
 .mcard-select:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
 .mcard-mode{min-width:92px}
 .mcard-kind{min-width:96px}
+.mcard.has-remove .mcard-head{padding-right:30px}
 .mcard-remove{
+  position:absolute; top:6px; right:6px; z-index:2;
   width:20px; height:20px; padding:0; font:inherit; font-size:15px; line-height:1;
   color:var(--text3); background:transparent; border:0; border-radius:4px;
   cursor:pointer;

@@ -12,6 +12,7 @@
   var current = null;
   var rangeLabels = [];
   var paintCrossover = null;
+  var collapsedBands = Object.create(null);
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -126,9 +127,9 @@
 
     var viz = el("div", "crossover-viz");
     var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 560 66");
+    svg.setAttribute("viewBox", "0 0 560 78");
     svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", "Low, mid and high bands with the crossover points");
+    svg.setAttribute("aria-label", "Low, mid and high crossover responses");
     viz.appendChild(svg);
     section.appendChild(viz);
 
@@ -146,64 +147,83 @@
       return 8 + position * 544;
     }
 
+    function yFor(decibels) {
+      var top = 8;
+      var height = 48;
+      var high = 3;
+      var low = -48;
+      return top + (high - Math.max(low, Math.min(high, decibels))) /
+        (high - low) * height;
+    }
+
+    function responsePath(kind) {
+      var path = "";
+      var low = current.split_low;
+      var high = current.split_high;
+
+      for (var i = 0; i <= 160; i++) {
+        var frequency = 20 * Math.pow(1000, i / 160);
+        var lowRatio = frequency / low;
+        var highRatio = frequency / high;
+        var lowPower = Math.pow(lowRatio, 4);
+        var highPower = Math.pow(highRatio, 4);
+        var lowPassLow = 1 / (1 + lowPower);
+        var highPassLow = lowPower / (1 + lowPower);
+        var lowPassHigh = 1 / (1 + highPower);
+        var highPassHigh = highPower / (1 + highPower);
+        var magnitude;
+
+        if (kind === "low") magnitude = lowPassLow;
+        else if (kind === "mid") magnitude = highPassLow * lowPassHigh;
+        else magnitude = highPassLow * highPassHigh;
+
+        var decibels = 20 * Math.log10(Math.max(magnitude, 0.0001));
+        path += (i ? " L " : "M ") + xFor(frequency).toFixed(1) +
+          " " + yFor(decibels).toFixed(1);
+      }
+
+      return path;
+    }
+
     function paint() {
       svg.textContent = "";
 
       var lowX = xFor(current.split_low);
       var highX = xFor(current.split_high);
-      var bandTop = 10;
-      var bandHeight = 30;
 
-      function band(left, right, color, label) {
-        if (right - left < 1) return;
-
-        svg.appendChild(node("rect", {
-          x: left.toFixed(1),
-          y: bandTop,
-          width: (right - left).toFixed(1),
-          height: bandHeight,
-          fill: color,
-          "fill-opacity": ".82"
+      [0, -24, -48].forEach(function (decibels) {
+        svg.appendChild(node("line", {
+          x1: 8,
+          y1: yFor(decibels).toFixed(1),
+          x2: 552,
+          y2: yFor(decibels).toFixed(1),
+          stroke: "#333",
+          "stroke-width": "1",
+          "stroke-dasharray": decibels === 0 ? "2 4" : "1 5"
         }));
+      });
 
-        if (right - left < 38) return;
-
-        var text = node("text", {
-          x: ((left + right) / 2).toFixed(1),
-          y: bandTop + 19,
-          "text-anchor": "middle",
-          fill: "#111",
-          "font-size": "8",
-          "font-family": "Segoe UI, system-ui, sans-serif",
-          "letter-spacing": "1"
-        });
-        text.textContent = label;
-        svg.appendChild(text);
-      }
-
-      band(8, lowX, "#4c8dff", "LOW");
-      band(lowX, highX, "#ff9a3d", "MID");
-      band(highX, 552, "#35c77a", "HIGH");
-
-      svg.appendChild(node("rect", {
-        x: 8,
-        y: bandTop,
-        width: 544,
-        height: bandHeight,
-        rx: 3,
-        fill: "none",
-        stroke: "#444",
-        "stroke-width": "1"
-      }));
+      [["low", "#4c8dff"], ["mid", "#ff9a3d"], ["high", "#35c77a"]].forEach(
+        function (entry) {
+          svg.appendChild(node("path", {
+            d: responsePath(entry[0]),
+            fill: "none",
+            stroke: entry[1],
+            "stroke-width": "2",
+            "stroke-linecap": "round",
+            "vector-effect": "non-scaling-stroke"
+          }));
+        }
+      );
 
       [lowX, highX].forEach(function (x, index) {
         svg.appendChild(node("line", {
           x1: x.toFixed(1),
-          y1: 6,
+          y1: 4,
           x2: x.toFixed(1),
-          y2: 44,
+          y2: 60,
           stroke: "#e0e0e0",
-          "stroke-opacity": ".55",
+          "stroke-opacity": ".35",
           "stroke-width": "1",
           "stroke-dasharray": "2 3"
         }));
@@ -211,13 +231,29 @@
         var frequency = index === 0 ? current.split_low : current.split_high;
         var label = node("text", {
           x: Math.max(16, Math.min(544, x)).toFixed(1),
-          y: 58,
+          y: 73,
           "text-anchor": "middle",
           fill: "#9a9a9a",
           "font-size": "9",
           "font-family": "Cascadia Mono, Consolas, monospace"
         });
         label.textContent = formatHz(frequency);
+        svg.appendChild(label);
+      });
+
+      [["LOW", 10, "start", "#4c8dff"],
+       ["MID", (lowX + highX) / 2, "middle", "#ff9a3d"],
+       ["HIGH", 550, "end", "#35c77a"]].forEach(function (entry) {
+        var label = node("text", {
+          x: Math.max(10, Math.min(550, entry[1])).toFixed(1),
+          y: 8,
+          "text-anchor": entry[2],
+          fill: entry[3],
+          "font-size": "8",
+          "font-family": "Segoe UI, system-ui, sans-serif",
+          "letter-spacing": "1"
+        });
+        label.textContent = entry[0];
         svg.appendChild(label);
       });
     }
@@ -229,9 +265,27 @@
     return section;
   }
 
-  function makeBandHeader(data, bandIndex) {
+  function makeBandHeader(data, bandIndex, section) {
     var band = data.bands[bandIndex];
     var head = el("div", "band-head");
+
+    var collapsed = !!collapsedBands[bandIndex];
+    var toggle = el("button", "band-collapse", collapsed ? "\u25B8" : "\u25BE");
+    toggle.type = "button";
+    toggle.title = collapsed ? "Expand band" : "Collapse band";
+    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    toggle.setAttribute("aria-label", toggle.title);
+    toggle.addEventListener("click", function () {
+      var next = !collapsedBands[bandIndex];
+      collapsedBands[bandIndex] = next;
+      section.classList.toggle("collapsed", next);
+      toggle.textContent = next ? "\u25B8" : "\u25BE";
+      toggle.title = next ? "Expand band" : "Collapse band";
+      toggle.setAttribute("aria-expanded", next ? "false" : "true");
+      toggle.setAttribute("aria-label", toggle.title);
+    });
+    head.appendChild(toggle);
+
     head.appendChild(el("span", "band-name", band.name));
 
     var range = el("span", "band-range", bandRange(data, bandIndex));
@@ -367,8 +421,9 @@
 
     if (band.mute || (anySolo && !band.solo)) section.classList.add("muted");
     if (band.solo) section.classList.add("solo");
+    if (collapsedBands[bandIndex]) section.classList.add("collapsed");
 
-    section.appendChild(makeBandHeader(data, bandIndex));
+    section.appendChild(makeBandHeader(data, bandIndex, section));
 
     var slots = el("div", "slots");
 
@@ -383,6 +438,179 @@
     return section;
   }
 
+  function sourceControl(card, spec, value, address) {
+    card.appendChild(window.IAmCard.control(spec, value, function (_, next) {
+      queue(address, next);
+    }));
+  }
+
+  function makeSourceCard(title, build) {
+    var card = el("div", "mod-card");
+    card.appendChild(el("div", "mod-card-title", title));
+    var controls = el("div", "mod-card-controls");
+    build(controls);
+    card.appendChild(controls);
+    return card;
+  }
+
+  function makeModulation(data) {
+    var sources = data.sources || {};
+    var lfo = sources.lfo || {};
+    var env = sources.env || {};
+    var random = sources.random || {};
+    var section = el("section", "modulation");
+    var head = el("div", "mod-head");
+
+    head.appendChild(el("span", "mod-title", "MODULATION"));
+    head.appendChild(el("span", "mod-hint", "8 slots \u00B7 LFO / envelope / random"));
+    section.appendChild(head);
+
+    var grid = el("div", "mod-sources");
+
+    grid.appendChild(makeSourceCard("LFO", function (card) {
+      sourceControl(card, {
+        id: "lfo.rate", label: "Rate", kind: "float",
+        min: 0.01, max: 20, default: 1, unit: "hz", log: true
+      }, lfo.rate === undefined ? 1 : lfo.rate, "source.lfo.rate");
+      sourceControl(card, {
+        id: "lfo.shape", label: "Shape", kind: "int",
+        min: 0, max: 3, default: 0, widget: "choice",
+        choices: ["Sine", "Triangle", "Saw", "Square"]
+      }, lfo.shape === undefined ? 0 : lfo.shape, "source.lfo.shape");
+    }));
+
+    grid.appendChild(makeSourceCard("Envelope", function (card) {
+      sourceControl(card, {
+        id: "env.attack", label: "Attack", kind: "float",
+        min: 1, max: 500, default: 10, unit: "ms", log: true
+      }, env.attack === undefined ? 10 : env.attack, "source.env.attack");
+      sourceControl(card, {
+        id: "env.release", label: "Release", kind: "float",
+        min: 1, max: 500, default: 100, unit: "ms", log: true
+      }, env.release === undefined ? 100 : env.release, "source.env.release");
+    }));
+
+    grid.appendChild(makeSourceCard("Random", function (card) {
+      sourceControl(card, {
+        id: "random.rate", label: "Rate", kind: "float",
+        min: 0.01, max: 20, default: 4, unit: "hz", log: true
+      }, random.rate === undefined ? 4 : random.rate, "source.random.rate");
+      sourceControl(card, {
+        id: "random.smooth", label: "Smooth", kind: "float",
+        min: 0, max: 500, default: 80, unit: "ms", log: true
+      }, random.smooth === undefined ? 80 : random.smooth, "source.random.smooth");
+    }));
+
+    section.appendChild(grid);
+
+    var list = el("div", "assignments");
+    var assignments = data.assignments || [];
+
+    for (var slot = 0; slot < 8; slot++) {
+      list.appendChild(makeAssignment(data, slot, assignments[slot] || null));
+    }
+
+    section.appendChild(list);
+    return section;
+  }
+
+  function makeAssignment(data, slot, assignment) {
+    var row = el("div", "assign-row");
+    var sourceNames = ["LFO", "Envelope", "Random"];
+    var sourceValues = ["lfo", "env", "random"];
+
+    row.appendChild(el("span", "assign-slot", String(slot + 1).padStart(2, "0")));
+
+    var source = document.createElement("select");
+    source.className = "mcard-select assign-select";
+    source.setAttribute("aria-label", "Modulation source");
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "\u2014";
+    source.appendChild(placeholder);
+
+    sourceValues.forEach(function (value, index) {
+      var option = document.createElement("option");
+      option.value = value;
+      option.textContent = sourceNames[index];
+      source.appendChild(option);
+    });
+
+    if (assignment) source.value = sourceValues[assignment.source] || "";
+
+    source.addEventListener("change", function () {
+      if (!source.value) {
+        sendNow("assign." + slot + ".clear", 1).then(load);
+      } else {
+        sendNow("assign." + slot + ".source", source.value).then(load);
+      }
+    });
+    row.appendChild(source);
+
+    var target = document.createElement("select");
+    target.className = "mcard-select assign-target";
+    target.setAttribute("aria-label", "Modulation target");
+    target.disabled = !assignment;
+
+    var targetPlaceholder = document.createElement("option");
+    targetPlaceholder.value = "";
+    targetPlaceholder.textContent = "Target\u2026";
+    target.appendChild(targetPlaceholder);
+
+    (data.targets || []).forEach(function (entry) {
+      var option = document.createElement("option");
+      option.value = entry.id;
+      option.textContent = entry.label;
+      target.appendChild(option);
+    });
+
+    if (assignment && assignment.target) target.value = assignment.target;
+
+    target.addEventListener("change", function () {
+      if (!target.value) {
+        sendNow("assign." + slot + ".clear", 1).then(load);
+      } else {
+        sendNow("assign." + slot + ".target", target.value).then(load);
+      }
+    });
+    row.appendChild(target);
+
+    var depth = document.createElement("input");
+    depth.type = "range";
+    depth.className = "assign-depth";
+    depth.min = "-1";
+    depth.max = "1";
+    depth.step = "0.01";
+    depth.value = String(assignment ? assignment.depth : 0);
+    depth.disabled = !assignment;
+    depth.setAttribute("aria-label", "Modulation depth");
+
+    var value = el("span", "assign-value",
+      assignment ? Math.round(assignment.depth * 100) + "%" : "\u2014");
+
+    var depthWrap = el("div", "assign-depth-wrap");
+    depthWrap.appendChild(depth);
+    depthWrap.appendChild(value);
+    row.appendChild(depthWrap);
+
+    depth.addEventListener("input", function () {
+      value.textContent = Math.round(Number(depth.value) * 100) + "%";
+      queue("assign." + slot + ".depth", depth.value);
+    });
+
+    var clear = el("button", "assign-clear", "\u00D7");
+    clear.type = "button";
+    clear.title = "Clear assignment";
+    clear.setAttribute("aria-label", "Clear assignment");
+    clear.disabled = !assignment;
+    clear.addEventListener("click", function () {
+      sendNow("assign." + slot + ".clear", 1).then(load);
+    });
+    row.appendChild(clear);
+
+    return row;
+  }
+
   function render(data) {
     current = data;
     rangeLabels = [];
@@ -392,11 +620,17 @@
     data.bands.forEach(function (band, index) {
       rack.appendChild(makeBand(data, index));
     });
+    rack.appendChild(makeModulation(data));
 
     updateRanges(data);
 
+    var mods = (data.assignments || []).filter(function (assignment) {
+      return assignment;
+    }).length;
+
     rate.textContent = (data.rate / 1000).toFixed(1) + " kHz";
-    status.textContent = data.modules.length + " modules \u00B7 " + data.bands.length + " bands";
+    status.textContent = data.modules.length + " modules \u00B7 " + data.bands.length +
+      " bands \u00B7 " + mods + " mods";
   }
 
   function load() {

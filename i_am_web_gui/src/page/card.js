@@ -529,6 +529,7 @@
     }
 
     if (options.onRemove) {
+      card.classList.add("has-remove");
       var remove = document.createElement("button");
       remove.type = "button";
       remove.className = "mcard-remove";

@@ -1,15 +1,17 @@
-//! M1 of I Am Multipass: a three-band rack with a state of its own.
+//! M2 of I Am Multipass: a three-band rack with modulation of its own.
 //!
 //! The audio path is a LR4 split into Low / Mid / High, each with two serial
 //! module slots (Filter, Distortion, Compressor, Gain) and a band gain/pan/mute/
-//! solo stage. The host sees exactly one parameter, a serialized RackState; the
-//! page talks to the rack over /rack and /rack-command instead of the host
-//! parameter table. That is the shape the final product needs: module parameters
-//! are too dynamic to be automation lanes, and a single state blob is what a
-//! project save carries.
+//! solo stage. Three control-rate sources (LFO, envelope, random) move eight
+//! assignments across module parameters and band controls. The host sees exactly
+//! one parameter, a serialized RackState; the page talks to the rack over /rack
+//! and /rack-command instead of the host parameter table. That is the shape the
+//! final product needs: module parameters are too dynamic to be automation
+//! lanes, and a single state blob is what a project save carries.
 
 mod crossover;
 mod engine;
+mod modulation;
 mod module;
 mod shared;
 mod state;
@@ -136,10 +138,11 @@ impl Parameters for Rack {
 			return false;
 		};
 
-		let Ok(state) = from_binary::<RackState>(bytes) else {
+		let Ok(mut state) = from_binary::<RackState>(bytes) else {
 			return false;
 		};
 
+		state.version = crate::state::STATE_VERSION;
 		*self.shared.lock() = state;
 		self.shared.dirty.store(true, Ordering::Release);
 		true

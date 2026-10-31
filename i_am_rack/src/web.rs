@@ -18,12 +18,13 @@
 use std::sync::atomic::Ordering;
 
 use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
+use i_am_web_gui::Kind;
 use serde_json::{Value, json};
 
 use crate::crossover::sanitize;
 use crate::module::ModuleKind;
 use crate::shared::RackShared;
-use crate::state::{ModuleState, RackState};
+use crate::state::{Assignment, ModuleState, RackState, Target};
 
 /// The names the three bands answer to.
 pub const BAND_NAMES: [&str; 3] = ["Low", "Mid", "High"];
@@ -88,6 +89,38 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		})
 		.collect::<Vec<_>>();
 
+	let targets = targets_json(&state, shared);
+
+	let assignments = state
+		.assignments
+		.iter()
+		.enumerate()
+		.map(|(slot, assignment)| match assignment {
+			Some(assignment) => json!({
+				"slot": slot,
+				"source": assignment.source,
+				"target": assignment.target.as_ref().map(target_id),
+				"depth": assignment.depth,
+			}),
+			None => Value::Null,
+		})
+		.collect::<Vec<_>>();
+
+	let sources = json!({
+		"lfo": {
+			"rate": state.sources.lfo_rate,
+			"shape": state.sources.lfo_shape,
+		},
+		"env": {
+			"attack": state.sources.env_attack,
+			"release": state.sources.env_release,
+		},
+		"random": {
+			"rate": state.sources.random_rate,
+			"smooth": state.sources.random_smooth,
+		},
+	});
+
 	json!({
 		"version": state.version,
 		"rate": shared.rate.load(Ordering::Relaxed),
@@ -96,6 +129,9 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		"bands": bands,
 		"modules": modules,
 		"kinds": kinds,
+		"targets": targets,
+		"assignments": assignments,
+		"sources": sources,
 	})
 	.to_string()
 }
@@ -120,6 +156,98 @@ fn module_json(
 		"bypass": module.bypass,
 		"controls": shared.schemas.get(&module.kind).cloned().unwrap_or_default(),
 		"values": &module.params,
+	})
+}
+
+/// The parameters a modulation assignment can point at.
+fn targets_json(state: &RackState, shared: &RackShared) -> Vec<Value> {
+	let mut targets = Vec::new();
+
+	for (index, _) in state.bands.iter().enumerate() {
+		targets.push(json!({
+			"id": format!("band.{index}.gain"),
+			"label": format!("{} · Gain", BAND_NAMES[index]),
+			"kind": "band",
+		}));
+		targets.push(json!({
+			"id": format!("band.{index}.pan"),
+			"label": format!("{} · Pan", BAND_NAMES[index]),
+			"kind": "band",
+		}));
+	}
+
+	for (band_index, band) in state.bands.iter().enumerate() {
+		for module in band.slots.iter().flatten() {
+			let Some(controls) = shared.schemas.get(&module.kind) else {
+				continue;
+			};
+
+			for control in controls {
+				if control.kind != Kind::Float {
+					continue;
+				}
+
+				targets.push(json!({
+					"id": format!("m{}.{}", module.id, control.id),
+					"label": format!(
+						"{} · {} · {}",
+						BAND_NAMES[band_index],
+						module.kind.name(),
+						control.label
+					),
+					"kind": "module",
+				}));
+			}
+		}
+	}
+
+	targets
+}
+
+/// The page's stable name for a target.
+fn target_id(target: &Target) -> String {
+	match target {
+		Target::Module { module, parameter } => format!("m{module}.{parameter}"),
+		Target::BandGain(index) => format!("band.{index}.gain"),
+		Target::BandPan(index) => format!("band.{index}.pan"),
+	}
+}
+
+/// Parses a target name the page sent, rejecting a parameter that is not a
+/// modulatable float.
+fn parse_target(raw: &str, state: &RackState, shared: &RackShared) -> Option<Target> {
+	if let Some(rest) = raw.strip_prefix("band.") {
+		let (index, parameter) = rest.split_once('.')?;
+		let index = index.parse::<usize>().ok()?;
+
+		if index >= state.bands.len() {
+			return None;
+		}
+
+		return match parameter {
+			"gain" => Some(Target::BandGain(index)),
+			"pan" => Some(Target::BandPan(index)),
+			_ => None,
+		};
+	}
+
+	let rest = raw.strip_prefix('m')?;
+	let (module, parameter) = rest.split_once('.')?;
+	let module = module.parse::<u32>().ok()?;
+	let state = state.module(module)?;
+	let control = shared
+		.schemas
+		.get(&state.kind)?
+		.iter()
+		.find(|control| control.id == parameter)?;
+
+	if control.kind != Kind::Float {
+		return None;
+	}
+
+	Some(Target::Module {
+		module,
+		parameter: parameter.to_string(),
 	})
 }
 
@@ -166,6 +294,10 @@ fn apply_line(
 		apply_split(state, rest, raw, rate)
 	} else if let Some(rest) = key.strip_prefix("slot.") {
 		apply_slot(state, rest, raw)
+	} else if let Some(rest) = key.strip_prefix("source.") {
+		apply_source(state, rest, raw)
+	} else if let Some(rest) = key.strip_prefix("assign.") {
+		apply_assignment(state, shared, rest, raw)
 	} else {
 		apply_module(state, shared, key, raw)
 	}
@@ -339,6 +471,102 @@ fn apply_module(
 		value.clamp(control.min, control.max),
 	);
 	true
+}
+
+fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
+	let Some((source, parameter)) = rest.split_once('.') else {
+		return false;
+	};
+	let Some(value) = number(raw) else {
+		return false;
+	};
+
+	match (source, parameter) {
+		("lfo", "rate") => state.sources.lfo_rate = value.clamp(0.01, 20.0) as f32,
+		("lfo", "shape") => {
+			state.sources.lfo_shape = (value.round() as i32).clamp(0, 3);
+		},
+		("env", "attack") => state.sources.env_attack = value.clamp(1.0, 500.0) as f32,
+		("env", "release") => {
+			state.sources.env_release = value.clamp(1.0, 500.0) as f32;
+		},
+		("random", "rate") => {
+			state.sources.random_rate = value.clamp(0.01, 20.0) as f32;
+		},
+		("random", "smooth") => {
+			state.sources.random_smooth = value.clamp(0.0, 500.0) as f32;
+		},
+		_ => return false,
+	}
+
+	true
+}
+
+fn apply_assignment(
+	state: &mut RackState,
+	shared: &RackShared,
+	rest: &str,
+	raw: &str,
+) -> bool {
+	let Some((slot, field)) = rest.split_once('.') else {
+		return false;
+	};
+	let Ok(slot) = slot.parse::<usize>() else {
+		return false;
+	};
+
+	if slot >= state.assignments.len() {
+		return false;
+	}
+
+	match field {
+		"source" => {
+			let Some(source) = source_index(raw) else {
+				return false;
+			};
+			let assignment = state.assignments[slot]
+				.get_or_insert_with(Assignment::default);
+			assignment.source = source;
+			true
+		},
+		"target" => {
+			let Some(target) = parse_target(raw, state, shared) else {
+				return false;
+			};
+			let assignment = state.assignments[slot]
+				.get_or_insert_with(Assignment::default);
+			assignment.target = Some(target);
+			true
+		},
+		"depth" => {
+			let Some(value) = number(raw) else {
+				return false;
+			};
+			let assignment = state.assignments[slot]
+				.get_or_insert_with(Assignment::default);
+			assignment.depth = value.clamp(-1.0, 1.0) as f32;
+			true
+		},
+		"clear" => {
+			let Some(clear) = boolean(raw) else {
+				return false;
+			};
+			if clear {
+				state.assignments[slot] = None;
+			}
+			true
+		},
+		_ => false,
+	}
+}
+
+fn source_index(raw: &str) -> Option<usize> {
+	match raw.to_ascii_lowercase().as_str() {
+		"lfo" => Some(0),
+		"env" | "envelope" => Some(1),
+		"random" => Some(2),
+		_ => None,
+	}
 }
 
 fn number(raw: &str) -> Option<f64> {

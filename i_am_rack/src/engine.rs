@@ -8,16 +8,19 @@
 //! The split itself is in crossover.rs. A band is muted/soloed after its
 //! modules and before the sum; the band gain and pan are the last thing applied.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 
 use i_am_dsp::prelude::{
 	Effect, ParamMap, Parameter, Parameters, Paramed, SetValue,
 };
 use i_am_dsp::ProcessContext;
+use i_am_web_gui::{Control, Kind};
 
 use crate::crossover::Crossover;
+use crate::modulation::Modulation;
 use crate::module::{self, ModuleKind};
-use crate::state::{ModuleState, RackState};
+use crate::state::{Assignment, ModuleState, RackState, Target};
 
 /// A boxed effect, adapted so Paramed can wrap it.
 pub(crate) struct ModuleEffect(Box<dyn Effect<2>>);
@@ -58,6 +61,10 @@ struct Module {
 	bypass: bool,
 	paramed: Paramed<ModuleEffect>,
 	map: ParamMap,
+	/// The unmodulated values, used as the centre of every modulation.
+	base: BTreeMap<String, f64>,
+	/// Ranges and labels of the controls this module accepts from a page.
+	controls: BTreeMap<String, Control>,
 }
 
 impl Module {
@@ -73,17 +80,25 @@ impl Module {
 		// Make delay() see the state's lookahead before the first block.
 		paramed.sync_params();
 
+		let controls = i_am_web_gui::controls(&module::schema(state.kind))
+			.into_iter()
+			.map(|control| (control.id.clone(), control))
+			.collect();
+
 		Self {
 			id: state.id,
 			kind: state.kind,
 			bypass: state.bypass,
 			paramed,
 			map,
+			base: state.params.clone(),
+			controls,
 		}
 	}
 
 	fn update(&mut self, state: &ModuleState) {
 		self.bypass = state.bypass;
+		self.base = state.params.clone();
 
 		for (identifier, value) in &state.params {
 			store(&self.map, identifier, *value);
@@ -92,6 +107,18 @@ impl Module {
 		// A changed lookahead changes this module's delay, and the engine's
 		// lane compensation reads it.
 		self.paramed.sync_params();
+	}
+
+	fn base_value(&self, identifier: &str) -> Option<f64> {
+		self.base.get(identifier).copied()
+	}
+
+	fn control(&self, identifier: &str) -> Option<&Control> {
+		self.controls.get(identifier)
+	}
+
+	fn set_value(&self, identifier: &str, value: f64) {
+		store(&self.map, identifier, value);
 	}
 }
 
@@ -142,6 +169,10 @@ impl DelayLine {
 struct Lane {
 	gain: f64,
 	pan: f64,
+	/// Gain before modulation, 0..2.
+	base_gain: f64,
+	/// Pan before modulation, -1..1.
+	base_pan: f64,
 	mute: bool,
 	solo: bool,
 	slots: [Option<Module>; 2],
@@ -156,6 +187,8 @@ impl Lane {
 		Self {
 			gain: 1.0,
 			pan: 0.0,
+			base_gain: 1.0,
+			base_pan: 0.0,
 			mute: false,
 			solo: false,
 			slots: [None, None],
@@ -169,6 +202,10 @@ impl Lane {
 pub(crate) struct Engine {
 	lanes: [Lane; 3],
 	crossover: Crossover,
+	/// The three control-rate sources.
+	modulation: Modulation,
+	/// The eight assignments the page set up.
+	assignments: [Option<Assignment>; 8],
 	/// The rate the modules were built for.
 	pub rate: usize,
 }
@@ -179,6 +216,8 @@ impl Engine {
 		let mut engine = Self {
 			lanes: [Lane::new(), Lane::new(), Lane::new()],
 			crossover: Crossover::new(sample_rate, state.split_low, state.split_high),
+			modulation: Modulation::new(sample_rate),
+			assignments: std::array::from_fn(|_| None),
 			rate: sample_rate,
 		};
 
@@ -193,7 +232,9 @@ impl Engine {
 		for (index, band) in state.bands.iter().enumerate() {
 			let lane = &mut self.lanes[index];
 
+			lane.base_gain = band.gain;
 			lane.gain = band.gain;
+			lane.base_pan = band.pan;
 			lane.pan = band.pan;
 			lane.mute = band.mute;
 			lane.solo = band.solo;
@@ -238,6 +279,9 @@ impl Engine {
 			lane.delay = delays[index];
 			lane.compensation.set_length(longest - delays[index]);
 		}
+
+		self.modulation.set_settings(state.sources);
+		self.assignments = state.assignments.clone();
 	}
 
 	/// Splits the frame, runs both slots of every band, and sums what is left.
@@ -247,6 +291,12 @@ impl Engine {
 		_other: &[[f32; 2]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
+		let input = (samples[0] + samples[1]) * 0.5;
+
+		if let Some(values) = self.modulation.advance(input) {
+			self.apply_modulation(values);
+		}
+
 		let bands = self.crossover.split(*samples, process_context);
 		let any_solo = self.lanes.iter().any(|lane| lane.solo);
 		let mut output = [0.0_f32; 2];
@@ -284,6 +334,69 @@ impl Engine {
 		*samples = output;
 	}
 
+	/// Applies the eight assignments once, at a control tick.
+	fn apply_modulation(&mut self, values: [f32; 3]) {
+		let mut sums: BTreeMap<Target, f32> = BTreeMap::new();
+
+		for assignment in self.assignments.iter().flatten() {
+			let Some(value) = values.get(assignment.source) else {
+				continue;
+			};
+			let Some(target) = assignment.target.as_ref() else {
+				continue;
+			};
+
+			*sums.entry(target.clone()).or_insert(0.0) += value * assignment.depth;
+		}
+
+		for (target, offset) in sums {
+			match target {
+				Target::Module { module, parameter } => {
+					let Some(module) = self.module_mut(module) else {
+						continue;
+					};
+					let Some(control) = module.control(&parameter).cloned() else {
+						continue;
+					};
+
+					if control.kind != Kind::Float {
+						continue;
+					}
+
+					let base = module.base_value(&parameter).unwrap_or(control.default);
+					let normalized = normalize(base, &control) + offset as f64;
+					module.set_value(
+						&parameter,
+						denormalize(normalized.clamp(0.0, 1.0), &control),
+					);
+				},
+				Target::BandGain(index) => {
+					let Some(lane) = self.lanes.get_mut(index) else {
+						continue;
+					};
+					let normalized = lane.base_gain / 2.0 + offset as f64;
+					lane.gain = normalized.clamp(0.0, 1.0) * 2.0;
+				},
+				Target::BandPan(index) => {
+					let Some(lane) = self.lanes.get_mut(index) else {
+						continue;
+					};
+					let normalized = (lane.base_pan + 1.0) / 2.0 + offset as f64;
+					lane.pan = normalized.clamp(0.0, 1.0) * 2.0 - 1.0;
+				},
+			}
+		}
+	}
+
+	/// The module with this id, whichever band and slot holds it.
+	fn module_mut(&mut self, id: u32) -> Option<&mut Module> {
+		self.lanes
+			.iter_mut()
+			.flat_map(|lane| lane.slots.iter_mut())
+			.flatten()
+			.find(|module| module.id == id)
+	}
+
 	/// The latency of the chain, in samples.
 	///
 	/// This is the slowest band; the other bands are padded to match it.
@@ -311,6 +424,30 @@ impl Engine {
 		]
 	}
 
+	/// One module parameter as the audio thread currently holds it, for a test.
+	#[cfg(test)]
+	pub fn module_parameter(&self, id: u32, parameter: &str) -> Option<f32> {
+		let module = self
+			.lanes
+			.iter()
+			.flat_map(|lane| lane.slots.iter())
+			.flatten()
+			.find(|module| module.id == id)?;
+
+		match module.map.get(parameter)?.load(Ordering::SeqCst) {
+			SetValue::Float(value) => Some(value),
+			SetValue::Int(value) => Some(value as f32),
+			SetValue::Bool(value) => Some(if value { 1.0 } else { 0.0 }),
+			_ => None,
+		}
+	}
+
+	/// A band's modulated gain, for a test.
+	#[cfg(test)]
+	pub fn band_gain(&self, index: usize) -> Option<f64> {
+		self.lanes.get(index).map(|lane| lane.gain)
+	}
+
 	/// The populated slots, in band order, for a test.
 	#[cfg(test)]
 	pub fn kinds(&self) -> Vec<ModuleKind> {
@@ -320,6 +457,39 @@ impl Engine {
 			.flatten()
 			.map(|module| module.kind)
 			.collect()
+	}
+}
+
+/// Maps a parameter value into 0..1, respecting a logarithmic range.
+fn normalize(value: f64, control: &Control) -> f64 {
+	let low = control.min;
+	let high = control.max;
+
+	if high <= low {
+		return 0.0;
+	}
+
+	if control.log && low > 0.0 {
+		((value.max(low).ln() - low.ln()) / (high.ln() - low.ln())).clamp(0.0, 1.0)
+	} else {
+		((value - low) / (high - low)).clamp(0.0, 1.0)
+	}
+}
+
+/// Maps 0..1 back into a parameter's units.
+fn denormalize(position: f64, control: &Control) -> f64 {
+	let low = control.min;
+	let high = control.max;
+	let position = position.clamp(0.0, 1.0);
+
+	if high <= low {
+		return low;
+	}
+
+	if control.log && low > 0.0 {
+		low * (high / low).powf(position)
+	} else {
+		low + (high - low) * position
 	}
 }
 

@@ -3,8 +3,8 @@ name = "i_am_rack"
 version = "0.1.0"
 edition = "2024"
 
-# M1 of the Multipass rack: three LR4 bands, two slots per band, a rack state
-# of its own, and a page that draws lane headers and module cards.
+# M2 of the Multipass rack: three LR4 bands, two slots per band, three
+# modulation sources and eight assignments, with a page of their own.
 [features]
 vst3 = ["i_am_plugin/vst3"]
 

@@ -8,6 +8,7 @@ use i_am_plugin::Plugin;
 use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
 
 use super::*;
+use crate::state::{Assignment, Target};
 
 fn command(rack: &Rack, body: &str) -> ProtocolResponse {
 	let request = ProtocolRequest {
@@ -321,4 +322,140 @@ fn compressor_latency_is_reported_and_compensated() {
 	assert_eq!(engine.delay(), 0);
 	assert_eq!(engine.lane_delays(), [0, 0, 0]);
 	assert_eq!(engine.lane_compensations(), [0, 0, 0]);
+}
+
+fn process_engine(engine: &mut crate::engine::Engine, frame: [f32; 2]) -> [f32; 2] {
+	let mut frame = frame;
+	let mut context: Box<dyn ProcessContext> = Box::new(());
+
+	engine.process(&mut frame, &[], &mut context);
+	frame
+}
+
+/// The page can set the three sources and the eight assignment slots.
+#[test]
+fn source_and_assignment_commands_edit_the_state() {
+	let rack = Rack::default();
+
+	let response = command(
+		&rack,
+		"source.lfo.rate=2
+source.lfo.shape=2
+source.env.attack=5
+source.random.smooth=120
+assign.0.source=lfo
+assign.0.target=m0.cutoff
+assign.0.depth=0.5",
+	);
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+
+	assert!((state.sources.lfo_rate - 2.0).abs() < 1e-6);
+	assert_eq!(state.sources.lfo_shape, 2);
+	assert!((state.sources.env_attack - 5.0).abs() < 1e-6);
+	assert!((state.sources.random_smooth - 120.0).abs() < 1e-6);
+
+	let assignment = state.assignments[0]
+		.as_ref()
+		.expect("the first assignment");
+
+	assert_eq!(assignment.source, 0);
+	assert_eq!(assignment.depth, 0.5);
+	assert_eq!(
+		assignment.target,
+		Some(Target::Module {
+			module: 0,
+			parameter: "cutoff".to_string(),
+		})
+	);
+}
+
+/// The page gets the list of parameters an assignment can target.
+#[test]
+fn the_rack_route_lists_modulation_targets() {
+	let rack = Rack::default();
+	let response = get(&rack, "/rack");
+	let json: serde_json::Value = serde_json::from_slice(&response.body).expect("JSON");
+
+	let targets = json["targets"].as_array().expect("targets");
+
+	assert!(targets.iter().any(|target| target["id"] == "m0.cutoff"));
+	assert!(targets.iter().any(|target| target["id"] == "band.0.gain"));
+	assert_eq!(json["assignments"].as_array().expect("assignments").len(), 8);
+	assert_eq!(json["sources"]["lfo"]["shape"], 0);
+}
+
+/// An LFO assignment moves the filter cutoff at the control rate.
+#[test]
+fn an_lfo_modulates_a_filter_cutoff() {
+	let mut state = RackState::initial();
+
+	state.sources.lfo_rate = 8.0;
+	state.assignments[0] = Some(Assignment {
+		source: 0,
+		target: Some(Target::Module {
+			module: 0,
+			parameter: "cutoff".to_string(),
+		}),
+		depth: 0.8,
+	});
+
+	let mut engine = crate::engine::Engine::new(48_000, &state);
+	let base = engine
+		.module_parameter(0, "cutoff")
+		.expect("the filter cutoff");
+	let mut lowest = base;
+	let mut highest = base;
+
+	for _ in 0..4_096 {
+		process_engine(&mut engine, [0.0, 0.0]);
+
+		let cutoff = engine
+			.module_parameter(0, "cutoff")
+			.expect("the filter cutoff");
+
+		lowest = lowest.min(cutoff);
+		highest = highest.max(cutoff);
+	}
+
+	assert!(
+		highest - lowest > 100.0,
+		"the cutoff stayed between {lowest} and {highest}"
+	);
+}
+
+/// An envelope assignment moves the low band's gain.
+#[test]
+fn an_envelope_modulates_a_band_gain() {
+	let mut state = RackState::initial();
+
+	state.sources.env_attack = 1.0;
+	state.sources.env_release = 50.0;
+	state.assignments[0] = Some(Assignment {
+		source: 1,
+		target: Some(Target::BandGain(0)),
+		depth: 1.0,
+	});
+
+	let mut engine = crate::engine::Engine::new(48_000, &state);
+	let mut lowest: f64 = 1.0;
+	let mut highest: f64 = 1.0;
+
+	for index in 0..4_096 {
+		let phase = 2.0 * std::f32::consts::PI * 220.0 * index as f32 / 48_000.0;
+		let sample = phase.sin() * 0.5;
+
+		process_engine(&mut engine, [sample, sample]);
+
+		let gain = engine.band_gain(0).expect("the low band");
+		lowest = lowest.min(gain);
+		highest = highest.max(gain);
+	}
+
+	assert!(
+		highest - lowest > 0.15,
+		"the low band gain stayed between {lowest} and {highest}"
+	);
 }

@@ -1,9 +1,9 @@
 //! The rack's own state, and the binary form a host saves.
 //!
-//! M1 splits the chain into three bands. Every value is stored as f64 and
-//! converted to the parameter's own type by the engine; the host never sees
-//! these as parameters, the whole struct travels inside one serialized
-//! parameter.
+//! M2 splits the chain into three bands and keeps three modulation sources plus
+//! eight assignments. Every value is stored as f64 and converted to the
+//! parameter's own type by the engine; the host never sees these as parameters,
+//! the whole struct travels inside one serialized parameter.
 
 use std::collections::BTreeMap;
 
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::module::{self, ModuleKind};
 
 /// The version this build writes.
-pub const STATE_VERSION: u32 = 3;
+pub const STATE_VERSION: u32 = 4;
 
 /// The default low/mid crossover.
 pub const DEFAULT_SPLIT_LOW: f32 = 120.0;
@@ -30,6 +30,82 @@ pub struct RackState {
 	pub split_high: f32,
 	/// Low, mid and high, in that order.
 	pub bands: [BandState; 3],
+	/// The three modulation sources: LFO, envelope and random.
+	#[serde(default)]
+	pub sources: SourceSettings,
+	/// Eight modulation assignments; empty slots are off.
+	#[serde(default)]
+	pub assignments: [Option<Assignment>; 8],
+}
+
+/// The knobs of the three modulation sources.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SourceSettings {
+	/// LFO rate in hertz.
+	pub lfo_rate: f32,
+	/// 0 sine, 1 triangle, 2 saw, 3 square.
+	pub lfo_shape: i32,
+	/// Envelope attack in milliseconds.
+	pub env_attack: f32,
+	/// Envelope release in milliseconds.
+	pub env_release: f32,
+	/// Random sample-and-hold rate in hertz.
+	pub random_rate: f32,
+	/// Random smoothing in milliseconds.
+	pub random_smooth: f32,
+}
+
+impl Default for SourceSettings {
+	fn default() -> Self {
+		Self {
+			lfo_rate: 1.0,
+			lfo_shape: 0,
+			env_attack: 10.0,
+			env_release: 100.0,
+			random_rate: 4.0,
+			random_smooth: 80.0,
+		}
+	}
+}
+
+/// One source-to-target modulation assignment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Assignment {
+	/// 0 LFO, 1 envelope, 2 random.
+	pub source: usize,
+	/// What it moves; an assignment with no target is inactive.
+	pub target: Option<Target>,
+	/// -1..1, applied over the target's normalized range.
+	pub depth: f32,
+}
+
+impl Default for Assignment {
+	fn default() -> Self {
+		Self {
+			source: 0,
+			target: None,
+			depth: 0.5,
+		}
+	}
+}
+
+/// What an assignment moves.
+#[derive(
+	Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+pub enum Target {
+	/// One float parameter of one module.
+	Module {
+		/// The module id.
+		module: u32,
+		/// The parameter identifier inside that module.
+		parameter: String,
+	},
+	/// A band's linear gain.
+	BandGain(usize),
+	/// A band's pan.
+	BandPan(usize),
 }
 
 /// One band: its gain stage and the two slots in front of it.
@@ -111,6 +187,15 @@ impl RackState {
 	}
 
 	/// The module with this id, whichever band and slot holds it.
+	pub fn module(&self, id: u32) -> Option<&ModuleState> {
+		self.bands
+			.iter()
+			.flat_map(|band| band.slots.iter())
+			.flatten()
+			.find(|module| module.id == id)
+	}
+
+	/// The module with this id, whichever band and slot holds it.
 	pub fn module_mut(&mut self, id: u32) -> Option<&mut ModuleState> {
 		self.bands
 			.iter_mut()
@@ -131,6 +216,8 @@ impl RackState {
 				BandState::with(2, ModuleKind::Distortion),
 				BandState::with(4, ModuleKind::Gain),
 			],
+			sources: SourceSettings::default(),
+			assignments: std::array::from_fn(|_| None),
 		}
 	}
 }
