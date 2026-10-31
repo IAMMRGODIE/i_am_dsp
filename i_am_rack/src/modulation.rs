@@ -6,6 +6,8 @@
 
 use std::f32::consts::TAU;
 
+use i_am_dsp::prelude::{EditableLfo, WaveTable};
+
 use crate::state::SourceSettings;
 
 /// How many samples one modulation update covers.
@@ -15,6 +17,7 @@ pub const CONTROL_INTERVAL: usize = 64;
 pub(crate) struct Modulation {
 	rate: usize,
 	counter: usize,
+	lfo: EditableLfo,
 	lfo_phase: f32,
 	table_phase: f32,
 	envelope: f32,
@@ -35,6 +38,7 @@ impl Modulation {
 		let mut modulation = Self {
 			rate,
 			counter: 0,
+			lfo: EditableLfo::new(),
 			lfo_phase: 0.0,
 			table_phase: 0.0,
 			envelope: 0.0,
@@ -55,6 +59,7 @@ impl Modulation {
 	/// Copies the page's source settings into the running sources.
 	pub fn set_settings(&mut self, settings: SourceSettings) {
 		self.settings = settings;
+		self.lfo = editable_lfo(settings.lfo_shape);
 		self.attack_coeff = time_coefficient(settings.env_attack, self.rate);
 		self.release_coeff = time_coefficient(settings.env_release, self.rate);
 		self.random_coeff = time_coefficient(settings.random_smooth, self.rate);
@@ -96,7 +101,7 @@ impl Modulation {
 		self.counter = 0;
 
 		Some([
-			lfo(self.settings.lfo_shape, self.lfo_phase),
+			self.lfo.sample(self.lfo_phase, 0) * 2.0 - 1.0,
 			self.envelope.clamp(0.0, 1.0),
 			self.random_value.clamp(-1.0, 1.0),
 			table(
@@ -113,6 +118,32 @@ fn table(shape: i32, morph: f32, phase: f32) -> f32 {
 	let first = lfo(shape, phase);
 	let second = lfo(shape + 1, phase);
 	first + (second - first) * morph.clamp(0.0, 1.0)
+}
+
+/// Builds the editable LFO points for one of the four preset shapes.
+fn editable_lfo(shape: i32) -> EditableLfo {
+	let points: &[(f32, f32)] = match shape.rem_euclid(4) {
+		1 => &[(0.0, 0.0), (0.5, 1.0), (1.0, 0.0)],
+		2 => &[(0.0, 0.0), (1.0, 1.0)],
+		3 => &[(0.0, 1.0), (0.5, 1.0), (0.5001, 0.0), (1.0, 0.0)],
+		_ => &[
+			(0.0, 0.5),
+			(0.25, 1.0),
+			(0.5, 0.5),
+			(0.75, 0.0),
+			(1.0, 0.5),
+		],
+	};
+
+	let mut lfo = EditableLfo::new();
+	lfo.lfo_frequency = 1.0;
+	lfo.one_shot = false;
+
+	for (time, value) in points {
+		lfo.add_point(*time, *value, 0.5);
+	}
+
+	lfo
 }
 
 /// One LFO sample, in -1..1.
