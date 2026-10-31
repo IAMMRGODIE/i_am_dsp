@@ -139,7 +139,7 @@ body{
   color:var(--text3); text-transform:uppercase;
 }
 .slot .mcard{width:100%}
-.slot:has(.mcard.collapsed){flex:0 0 56px; min-width:56px; align-self:stretch}
+.slot:has(.mcard.collapsed){flex:0 0 48px; min-width:48px; align-self:stretch}
 .slot .mcard.collapsed{
   flex:1; align-self:stretch; min-height:240px;
   display:flex; flex-direction:column;
@@ -234,7 +234,7 @@ body{
 .mod-card.collapsed .mod-hero,
 .mod-card.collapsed .mod-card-controls{display:none}
 .mod-card.collapsed{
-  padding-bottom:0; flex:0 0 56px; min-width:56px;
+  padding-bottom:0; flex:0 0 48px; min-width:48px;
   align-self:stretch; min-height:240px;
   display:flex; flex-direction:column;
 }
@@ -247,7 +247,11 @@ body{
 .mod-card.collapsed .mod-card-title{
   writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap;
 }
-.mod-card.collapsed .mod-sync{height:18px; padding:1px 4px; font-size:8px}
+.mod-card.collapsed .mod-sync{
+  width:18px; height:auto; min-height:30px; padding:3px 1px;
+  writing-mode:vertical-rl; transform:rotate(180deg);
+  font-size:8px; line-height:1; border-radius:9px;
+}
 .mod-card.collapsed .mod-remove{position:static; margin-top:auto}
 .mod-card.bypassed .mod-hero,
 .mod-card.bypassed .mod-card-controls{opacity:.45}
