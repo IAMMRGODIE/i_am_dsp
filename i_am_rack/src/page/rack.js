@@ -574,11 +574,6 @@
 
     var slots = el("div", "slots");
 
-    var resizer = el("div", "band-resizer");
-    resizer.title = "Drag to resize this band";
-    section.appendChild(resizer);
-    attachHeightResize(resizer, slots, 120, 900, "iamrack.bandHeight." + bandIndex);
-
     for (var slot = 0; slot < band.slots.length; slot++) {
       var module = data.modules.find(function (candidate) {
         return candidate.band === bandIndex && candidate.slot === slot;
@@ -591,6 +586,11 @@
     slots.addEventListener("scroll", function () {
       slotScroll[bandIndex] = slots.scrollLeft;
     });
+
+    var resizer = el("div", "band-resizer");
+    resizer.title = "Drag to resize this band";
+    section.appendChild(resizer);
+    attachHeightResize(resizer, slots, 260, 900, "iamrack.bandHeight." + bandIndex);
 
     return section;
   }
@@ -1638,7 +1638,7 @@
       grid.appendChild(card);
     });
 
-    var addCard = el("div", "mod-card mod-add");
+    var addCard = el("div", "slot-empty mod-add");
     var addSelect = document.createElement("select");
     addSelect.className = "mcard-select";
     addSelect.setAttribute("aria-label", "Add modulation source");
@@ -1665,11 +1665,12 @@
     addCard.appendChild(addSelect);
     grid.appendChild(addCard);
 
+    section.appendChild(grid);
+
     var resizer = el("div", "mod-resizer");
     resizer.title = "Drag to resize modulation sources";
     section.appendChild(resizer);
-    attachHeightResize(resizer, grid, 150, 800, "iamrack.modHeight");
-    section.appendChild(grid);
+    attachHeightResize(resizer, grid, 220, 800, "iamrack.modHeight");
 
     return section;
   }

@@ -701,6 +701,7 @@ fn matrix_rows_can_be_added_dynamically() {
 	let state = rack.state();
 	assert_eq!(state.assignments.len(), 10);
 	assert_eq!(state.assignments[8].as_ref().unwrap().source, 0);
+	assert_eq!(state.assignments[9].as_ref().unwrap().mode, AssignmentMode::FromBase);
 	assert_eq!(
 		state.assignments[8].as_ref().unwrap().target,
 		Some(Target::Module {
