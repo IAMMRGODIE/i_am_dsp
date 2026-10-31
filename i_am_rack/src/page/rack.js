@@ -1542,7 +1542,7 @@
 
     var addCard = el("div", "mod-card mod-add");
     var addSelect = document.createElement("select");
-    addSelect.className = "mcard-select slot-add";
+    addSelect.className = "mcard-select";
     addSelect.setAttribute("aria-label", "Add modulation source");
 
     var addPlaceholder = document.createElement("option");

@@ -763,6 +763,23 @@ fn midi_curves_shape_the_output() {
 	assert!((value - 0.75).abs() < 0.05, "velocity curve output {value}");
 }
 
+/// Moving a source forward lands it after the target, not one slot short.
+#[test]
+fn source_reorder_moves_forward() {
+	let rack = Rack::default();
+
+	assert_eq!(command(&rack, "source.0.move=2").body, b"{\"ok\":true}");
+
+	let ids = rack
+		.state()
+		.source_slots
+		.iter()
+		.map(|slot| slot.id)
+		.collect::<Vec<_>>();
+
+	assert_eq!(ids, vec![1, 2, 0, 3]);
+}
+
 /// The source list has no fixed eight-source limit.
 #[test]
 fn source_slots_have_no_fixed_limit() {

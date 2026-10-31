@@ -688,13 +688,15 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		let Some(position) = state.source_slots.iter().position(|slot| slot.id == id) else {
 			return false;
 		};
-		let slot = state.source_slots.remove(position);
 		let target_position = state
 			.source_slots
 			.iter()
 			.position(|slot| slot.id == target)
 			.unwrap_or(state.source_slots.len());
-		state.source_slots.insert(target_position, slot);
+		let slot = state.source_slots.remove(position);
+		state
+			.source_slots
+			.insert(target_position.min(state.source_slots.len()), slot);
 		return true;
 	}
 
