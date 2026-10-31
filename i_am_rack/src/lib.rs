@@ -60,7 +60,7 @@ fn host_float(value: f32) -> AtomicValue {
 	}
 }
 
-/// The host-facing parameter map: state plus macro and automation controls.
+/// The host-facing automatable map: macro and automation controls.
 fn host_param_map(state: &RackState) -> ParamMap {
 	let mut entries: Vec<(String, Arc<AtomicValue>)> = Vec::new();
 
