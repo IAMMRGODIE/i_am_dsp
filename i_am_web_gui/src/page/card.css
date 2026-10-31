@@ -59,6 +59,13 @@
   cursor:pointer;
 }
 .mcard-remove:hover{color:#ff7a7a; background:rgba(255,255,255,.07)}
+.mcard-drag{
+  width:14px; flex:0 0 14px; text-align:center;
+  font-size:13px; line-height:1; color:var(--text3);
+  cursor:grab; user-select:none;
+}
+.mcard-drag:active{cursor:grabbing}
+.mcard.dragging{opacity:.55}
 .mcard-collapse{
   width:20px; height:20px; padding:0; font:inherit; font-size:13px; line-height:1;
   color:var(--text2); background:transparent; border:0; border-radius:4px;

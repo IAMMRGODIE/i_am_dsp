@@ -469,6 +469,34 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 
 			true
 		},
+		"move" => {
+			let Some((target_band, target_slot)) = raw.split_once('.') else {
+				return false;
+			};
+			let Ok(target_band) = target_band.parse::<usize>() else {
+				return false;
+			};
+			let Ok(target_slot) = target_slot.parse::<usize>() else {
+				return false;
+			};
+
+			if target_band >= state.bands.len()
+				|| target_slot >= state.bands[target_band].slots.len()
+			{
+				return false;
+			}
+
+			if target_band == band && target_slot == slot {
+				return true;
+			}
+
+			let Some(module) = state.bands[band].slots[slot].take() else {
+				return false;
+			};
+			let displaced = state.bands[target_band].slots[target_slot].replace(module);
+			state.bands[band].slots[slot] = displaced;
+			true
+		},
 		_ => false,
 	}
 }

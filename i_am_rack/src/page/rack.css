@@ -134,6 +134,8 @@ body{
   color:var(--text3); text-transform:uppercase;
 }
 .slot .mcard{width:100%}
+.slot.drop .slot-empty,
+.slot.drop .mcard{outline:1px dashed var(--mod); outline-offset:2px}
 .slot-empty{
   flex:1; min-height:224px; display:flex; flex-direction:column;
   align-items:center; justify-content:center; gap:8px;
@@ -166,17 +168,28 @@ body{
 }
 .mod-hint{font-size:9px; color:#666; white-space:nowrap}
 .mod-sources{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px}
-.mod-card{background:#262626; border:1px solid #353535; border-radius:8px; padding:8px 10px}
-.mod-card-title{font-size:11px; font-weight:600; margin-bottom:2px}
+.mod-card{
+  background:#262626; border:1px solid #353535; border-radius:8px;
+  padding:0 0 6px; overflow:hidden;
+}
+.mod-card-head{
+  display:flex; align-items:center; gap:6px; padding:4px 10px;
+  background:#2e2e2e; border-bottom:1px solid #303030; min-height:32px;
+}
+.mod-card-title{font-size:11px; font-weight:600; margin:0}
+.mod-choice{min-width:84px}
 .mod-hero{
-  height:64px; margin:4px 0 2px; background:#1a1a1a;
+  height:96px; margin:7px 10px 2px; background:#1a1a1a;
   border:1px solid #333; border-radius:4px; overflow:hidden;
 }
 .mod-hero svg{width:100%; height:100%; display:block}
 .mod-hero svg.lfo-editor{cursor:crosshair; touch-action:none}
-.mod-card-controls{display:flex; flex-wrap:wrap; gap:0 6px; align-items:flex-start}
-.mod-card-controls .knob-wrap{width:96px}
-.mod-card-controls .knob{width:52px; height:52px}
+.mod-card-controls{
+  display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 4px; align-items:flex-start; padding:2px 8px 0;
+}
+.mod-card-controls .knob-wrap{width:100px}
+.mod-card-controls .knob{width:54px; height:54px}
 .mod-card-controls .mcard-row{width:100%; justify-content:flex-start; padding:4px 0 0}
 .assignments{display:flex; flex-direction:column; gap:4px; margin-top:10px}
 .assign-row{

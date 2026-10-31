@@ -362,6 +362,26 @@
     var wrap = el("div", "slot");
     wrap.appendChild(el("div", "slot-label", slotIndex ? "SLOT B" : "SLOT A"));
 
+    wrap.addEventListener("dragover", function (event) {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      wrap.classList.add("drop");
+    });
+    wrap.addEventListener("dragleave", function () {
+      wrap.classList.remove("drop");
+    });
+    wrap.addEventListener("drop", function (event) {
+      event.preventDefault();
+      wrap.classList.remove("drop");
+
+      if (!event.dataTransfer) return;
+
+      var source = event.dataTransfer.getData("text/plain");
+      if (!source || source === bandIndex + "." + slotIndex) return;
+
+      sendNow("slot." + source + ".move", bandIndex + "." + slotIndex).then(load);
+    });
+
     if (!module) {
       var empty = el("div", "slot-empty");
       var select = document.createElement("select");
@@ -406,6 +426,7 @@
       values: module.values,
       kinds: kinds,
       kind: module.kind,
+      dragData: bandIndex + "." + slotIndex,
       onKind: function (kind) {
         sendNow("slot." + bandIndex + "." + slotIndex + ".kind", kind).then(load);
       },
@@ -529,9 +550,22 @@
 
   function drawLfo(svg, lfo) {
     function eventPoint(event) {
-      var rect = svg.getBoundingClientRect();
-      var x = (event.clientX - rect.left) / rect.width * 300;
-      var y = (event.clientY - rect.top) / rect.height * 64;
+      var x;
+      var y;
+      var matrix = svg.getScreenCTM();
+
+      if (matrix) {
+        var pointer = svg.createSVGPoint();
+        pointer.x = event.clientX;
+        pointer.y = event.clientY;
+        var local = pointer.matrixTransform(matrix.inverse());
+        x = local.x;
+        y = local.y;
+      } else {
+        var rect = svg.getBoundingClientRect();
+        x = (event.clientX - rect.left) / rect.width * 300;
+        y = (event.clientY - rect.top) / rect.height * 64;
+      }
 
       return {
         x: x,
@@ -741,23 +775,53 @@
     }));
   }
 
+  function sourceChoice(head, label, choices, value, onChange) {
+    var box = el("div", "mcard-setting");
+    box.appendChild(el("span", "mcard-setting-label", label));
+
+    var select = document.createElement("select");
+    select.className = "mcard-select mod-choice";
+    select.setAttribute("aria-label", label);
+
+    choices.forEach(function (name, index) {
+      var option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = name;
+      select.appendChild(option);
+    });
+
+    select.value = String(Math.round(value));
+    select.addEventListener("change", function () {
+      onChange(Number(select.value));
+    });
+
+    box.appendChild(select);
+    head.appendChild(box);
+  }
+
   function makeSourceCard(title, accent, paint, build) {
     var card = el("div", "mod-card");
     card.style.setProperty("--accent", accent);
-    card.appendChild(el("div", "mod-card-title", title));
+
+    var head = el("div", "mod-card-head");
+    head.appendChild(el("span", "mod-card-title", title));
+    head.appendChild(el("span", "mcard-spacer"));
+    card.appendChild(head);
 
     var hero = el("div", "mod-hero");
     var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 300 64");
-    svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", title + " modulation shape");
-    if (title === "LFO") svg.classList.add("lfo-editor");
+    if (title === "LFO") {
+      svg.classList.add("lfo-editor");
+      hero.title = "Click to add a point; drag to move; double-click or right-click to remove";
+    }
     hero.appendChild(svg);
     card.appendChild(hero);
 
     var controls = el("div", "mod-card-controls");
-    build(controls, function () { paint(svg); });
+    build(controls, head, function () { paint(svg); });
     paint(svg);
     card.appendChild(controls);
     return card;
@@ -799,7 +863,16 @@
 
     grid.appendChild(makeSourceCard("LFO", "#4c8dff", function (svg) {
       drawLfo(svg, lfo);
-    }, function (card, refresh) {
+    }, function (card, head, refresh) {
+      sourceChoice(head, "Shape", ["Sine", "Triangle", "Saw", "Square", "Custom"],
+        lfo.shape, function (value) {
+          lfo.shape = value;
+
+          if (value <= 3) lfo.points = lfoPreset(value);
+          refresh();
+          queue("source.lfo.shape", value);
+        });
+
       sourceControl(card, {
         id: "lfo.rate", label: "Rate", kind: "float",
         min: 0.01, max: 20, default: 1, unit: "hz", log: true
@@ -807,24 +880,11 @@
         lfo.rate = value;
         refresh();
       });
-      sourceControl(card, {
-        id: "lfo.shape", label: "Shape", kind: "int",
-        min: 0, max: 4, default: 0, widget: "choice",
-        choices: ["Sine", "Triangle", "Saw", "Square", "Custom"]
-      }, lfo.shape, "source.lfo.shape", function (value) {
-        lfo.shape = value;
-
-        if (value <= 3) {
-          lfo.points = lfoPreset(value);
-        }
-
-        refresh();
-      });
     }));
 
     grid.appendChild(makeSourceCard("Envelope", "#35c77a", function (svg) {
       drawEnvelope(svg, env);
-    }, function (card, refresh) {
+    }, function (card, head, refresh) {
       sourceControl(card, {
         id: "env.attack", label: "Attack", kind: "float",
         min: 1, max: 500, default: 10, unit: "ms", log: true
@@ -843,7 +903,7 @@
 
     grid.appendChild(makeSourceCard("Random", "#ff9a3d", function (svg) {
       drawRandom(svg, random);
-    }, function (card, refresh) {
+    }, function (card, head, refresh) {
       sourceControl(card, {
         id: "random.rate", label: "Rate", kind: "float",
         min: 0.01, max: 20, default: 4, unit: "hz", log: true
@@ -862,20 +922,19 @@
 
     grid.appendChild(makeSourceCard("Table", "#c8e04a", function (svg) {
       drawTable(svg, table);
-    }, function (card, refresh) {
+    }, function (card, head, refresh) {
+      sourceChoice(head, "Shape", ["Sine", "Triangle", "Saw", "Square"],
+        table.shape, function (value) {
+          table.shape = value;
+          refresh();
+          queue("source.table.shape", value);
+        });
+
       sourceControl(card, {
         id: "table.rate", label: "Rate", kind: "float",
         min: 0.01, max: 20, default: 1, unit: "hz", log: true
       }, table.rate, "source.table.rate", function (value) {
         table.rate = value;
-      });
-      sourceControl(card, {
-        id: "table.shape", label: "Shape", kind: "int",
-        min: 0, max: 3, default: 0, widget: "choice",
-        choices: ["Sine", "Triangle", "Saw", "Square"]
-      }, table.shape, "source.table.shape", function (value) {
-        table.shape = value;
-        refresh();
       });
       sourceControl(card, {
         id: "table.morph", label: "Morph", kind: "float",

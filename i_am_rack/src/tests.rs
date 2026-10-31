@@ -274,6 +274,30 @@ fn a_slot_can_hold_and_clear_a_compressor() {
 	assert!(rack.state().bands[1].slots[1].is_none());
 }
 
+/// A module can be dragged into another slot, swapping with whatever is there.
+#[test]
+fn a_slot_can_move_and_swap_modules() {
+	let rack = Rack::default();
+
+	let response = command(&rack, "slot.0.0.move=0.1");
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+
+	assert!(state.bands[0].slots[0].is_none());
+	assert_eq!(state.bands[0].slots[1].as_ref().map(|module| module.id), Some(0));
+
+	let response = command(&rack, "slot.1.0.move=0.1");
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+
+	assert_eq!(state.bands[0].slots[1].as_ref().map(|module| module.id), Some(2));
+	assert_eq!(state.bands[1].slots[0].as_ref().map(|module| module.id), Some(0));
+}
+
 /// Replacing a module keeps the id the page addresses.
 #[test]
 fn changing_a_slot_type_keeps_its_id() {

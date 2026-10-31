@@ -475,6 +475,24 @@
     var head = document.createElement("header");
     head.className = "mcard-head";
 
+    if (options.dragData !== undefined) {
+      var handle = document.createElement("span");
+      handle.className = "mcard-drag";
+      handle.textContent = "\u28FF";
+      handle.draggable = true;
+      handle.title = "Drag module";
+      handle.setAttribute("aria-label", "Drag module");
+      handle.addEventListener("dragstart", function (event) {
+        event.dataTransfer.setData("text/plain", String(options.dragData));
+        event.dataTransfer.effectAllowed = "move";
+        card.classList.add("dragging");
+      });
+      handle.addEventListener("dragend", function () {
+        card.classList.remove("dragging");
+      });
+      head.appendChild(handle);
+    }
+
     var collapse = document.createElement("button");
     collapse.type = "button";
     collapse.className = "mcard-collapse";
