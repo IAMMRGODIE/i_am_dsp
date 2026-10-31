@@ -9,6 +9,7 @@
 
   var START = -225;
   var SWEEP = 270;
+  var knobEditor = null;
 
   function clamp(value, low, high) {
     return Math.min(high, Math.max(low, value));
@@ -49,6 +50,63 @@
     if (spec.unit === "beats") return value.toFixed(2) + " beats";
     if (spec.unit === "samples") return Math.round(value) + " smp";
     return spec.kind === "int" ? String(Math.round(value)) : value.toFixed(2);
+  }
+
+  function closeKnobEditor() {
+    if (knobEditor) {
+      knobEditor.remove();
+      knobEditor = null;
+    }
+  }
+
+  /// A small text field over a knob, for entering an exact value.
+  function openKnobEditor(spec, current, set, anchor) {
+    closeKnobEditor();
+
+    var box = document.createElement("div");
+    box.className = "knob-edit";
+
+    var input = document.createElement("input");
+    input.type = "text";
+    input.value = String(Number(current.toFixed(4)));
+    input.spellcheck = false;
+    input.setAttribute("aria-label", spec.label + " value");
+
+    var unit = document.createElement("span");
+    unit.className = "unit";
+    unit.textContent = spec.unit || "";
+
+    box.appendChild(input);
+    box.appendChild(unit);
+    document.body.appendChild(box);
+
+    var rect = anchor.getBoundingClientRect();
+    var width = 118;
+    var top = rect.bottom + 4;
+
+    if (top + 30 > window.innerHeight) top = Math.max(4, rect.top - 30);
+
+    box.style.left = Math.min(window.innerWidth - width, Math.max(4, rect.left)) + "px";
+    box.style.top = top + "px";
+
+    input.focus();
+    input.select();
+
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        var parsed = Number.parseFloat(input.value);
+        if (Number.isFinite(parsed)) set(parsed, true);
+        closeKnobEditor();
+      } else if (event.key === "Escape") {
+        closeKnobEditor();
+      }
+    });
+
+    input.addEventListener("blur", function () {
+      setTimeout(closeKnobEditor, 0);
+    });
+
+    knobEditor = box;
   }
 
   function svg(tag, attributes) {
@@ -393,6 +451,11 @@
     dial.addEventListener("pointerup", stop);
     dial.addEventListener("pointercancel", stop);
     dial.addEventListener("dblclick", function () { set(spec.default, true); });
+    dial.title = "Drag to change; right-click to type a value";
+    dial.addEventListener("contextmenu", function (event) {
+      event.preventDefault();
+      openKnobEditor(spec, current, set, dial);
+    });
 
     dial.addEventListener("keydown", function (event) {
       var step = (spec.max - spec.min) / 100;

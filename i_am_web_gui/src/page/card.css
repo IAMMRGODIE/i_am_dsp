@@ -106,6 +106,18 @@
 .knob-bg{fill:#232323; stroke:#3a3a3a; stroke-width:1.5}
 .knob-track{fill:none; stroke:#343434; stroke-width:4; stroke-linecap:round}
 .knob-arc{fill:none; stroke:var(--accent); stroke-width:4; stroke-linecap:round}
+.knob-edit{
+  position:fixed; z-index:100; display:flex; align-items:center; gap:4px;
+  padding:3px 5px; background:#1b1b1b; border:1px solid #4a4a4a;
+  border-radius:5px; box-shadow:0 6px 18px rgba(0,0,0,.5);
+}
+.knob-edit input{
+  width:64px; height:20px; padding:0 4px; outline:none;
+  color:var(--text1); background:#0b0b0b; border:1px solid #3a3a3a;
+  border-radius:3px; font:inherit; font-size:11px;
+}
+.knob-edit input:focus{border-color:var(--accent)}
+.knob-edit .unit{font-size:9px; color:var(--text3)}
 .knob-mod{fill:none; stroke:var(--mod,#5ad1c8); stroke-width:3; stroke-linecap:round; opacity:.7}
 .knob-hand{stroke:#f0f0f0; stroke-width:2.5; stroke-linecap:round}
 .knob:focus-visible .knob-bg{stroke:var(--accent)}

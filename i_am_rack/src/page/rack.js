@@ -983,17 +983,25 @@
     });
     head.appendChild(collapse);
 
+    if (chrome.onBypass) {
+      if (chrome.bypass) card.classList.add("bypassed");
+
+      var power = document.createElement("button");
+      power.type = "button";
+      power.className = "mcard-power";
+      power.title = chrome.bypass ? "Enable source" : "Bypass source";
+      power.setAttribute("aria-label", power.title);
+      power.setAttribute("aria-pressed", chrome.bypass ? "false" : "true");
+      if (chrome.bypass) power.classList.add("off");
+
+      var dot = el("span", "dot");
+      power.appendChild(dot);
+      power.addEventListener("click", function () { chrome.onBypass(!chrome.bypass); });
+      head.appendChild(power);
+    }
+
     head.appendChild(el("span", "mod-card-title", title));
     head.appendChild(el("span", "mcard-spacer"));
-
-    if (chrome.sync !== undefined) {
-      var sync = el("button", "mod-sync" + (chrome.sync ? " on" : ""), "SYNC");
-      sync.type = "button";
-      sync.title = chrome.sync ? "Rate follows the host tempo" : "Rate is in hertz";
-      sync.setAttribute("aria-pressed", chrome.sync ? "true" : "false");
-      sync.addEventListener("click", function () { chrome.onSync(!chrome.sync); });
-      head.appendChild(sync);
-    }
 
     card.appendChild(head);
 
@@ -1024,21 +1032,13 @@
     paint(svg);
     card.appendChild(controls);
 
-    if (chrome.onBypass) {
-      if (chrome.bypass) card.classList.add("bypassed");
-
-      var power = document.createElement("button");
-      power.type = "button";
-      power.className = "mcard-power";
-      power.title = chrome.bypass ? "Enable source" : "Bypass source";
-      power.setAttribute("aria-label", power.title);
-      power.setAttribute("aria-pressed", chrome.bypass ? "false" : "true");
-      if (chrome.bypass) power.classList.add("off");
-
-      var dot = el("span", "dot");
-      power.appendChild(dot);
-      power.addEventListener("click", function () { chrome.onBypass(!chrome.bypass); });
-      head.appendChild(power);
+    if (chrome.sync !== undefined) {
+      var sync = el("button", "mcard-toggle mod-sync", "Sync");
+      sync.type = "button";
+      sync.title = chrome.sync ? "Rate follows the host tempo" : "Rate is in hertz";
+      sync.setAttribute("aria-pressed", chrome.sync ? "true" : "false");
+      sync.addEventListener("click", function () { chrome.onSync(!chrome.sync); });
+      head.appendChild(sync);
     }
 
     return card;
@@ -1058,6 +1058,7 @@
       rate: numberOr(lfoSource.rate, 1),
       shape: numberOr(lfoSource.shape, 0),
       points: lfoPointsFromJson(lfoSource.points, numberOr(lfoSource.shape, 0)),
+      beats: numberOr(lfoSource.beats, 1),
       sync: !!lfoSource.sync,
       bypass: !!lfoSource.bypass
     };
@@ -1069,6 +1070,7 @@
     var random = {
       rate: numberOr(randomSource.rate, 4),
       smooth: numberOr(randomSource.smooth, 80),
+      beats: numberOr(randomSource.beats, 1),
       sync: !!randomSource.sync,
       bypass: !!randomSource.bypass
     };
@@ -1076,6 +1078,7 @@
       rate: numberOr(tableSource.rate, 1),
       shape: numberOr(tableSource.shape, 0),
       morph: numberOr(tableSource.morph, 0),
+      beats: numberOr(tableSource.beats, 1),
       sync: !!tableSource.sync,
       bypass: !!tableSource.bypass
     };
@@ -1100,13 +1103,23 @@
           queue("source.lfo.shape", value);
         });
 
-      sourceControl(card, {
-        id: "lfo.rate", label: lfo.sync ? "Rate ×beat" : "Rate", kind: "float",
-        min: 0.01, max: 20, default: 1, unit: lfo.sync ? "" : "hz", log: true
-      }, lfo.rate, "source.lfo.rate", function (value) {
-        lfo.rate = value;
-        refresh();
-      });
+      if (lfo.sync) {
+        sourceControl(card, {
+          id: "lfo.beats", label: "Time", kind: "float",
+          min: 0.03125, max: 32, default: 1, unit: "beats", log: true
+        }, lfo.beats, "source.lfo.beats", function (value) {
+          lfo.beats = value;
+          refresh();
+        });
+      } else {
+        sourceControl(card, {
+          id: "lfo.rate", label: "Rate", kind: "float",
+          min: 0.01, max: 20, default: 1, unit: "hz", log: true
+        }, lfo.rate, "source.lfo.rate", function (value) {
+          lfo.rate = value;
+          refresh();
+        });
+      }
     }, drawLiveLfo, {
       sync: lfo.sync,
       bypass: lfo.bypass,
@@ -1145,13 +1158,23 @@
     grid.appendChild(makeSourceCard("Random", "#ff9a3d", function (svg) {
       drawRandom(svg, random);
     }, function (card, head, refresh) {
-      sourceControl(card, {
-        id: "random.rate", label: random.sync ? "Rate ×beat" : "Rate", kind: "float",
-        min: 0.01, max: 20, default: 4, unit: random.sync ? "" : "hz", log: true
-      }, random.rate, "source.random.rate", function (value) {
-        random.rate = value;
-        refresh();
-      });
+      if (random.sync) {
+        sourceControl(card, {
+          id: "random.beats", label: "Time", kind: "float",
+          min: 0.03125, max: 32, default: 1, unit: "beats", log: true
+        }, random.beats, "source.random.beats", function (value) {
+          random.beats = value;
+          refresh();
+        });
+      } else {
+        sourceControl(card, {
+          id: "random.rate", label: "Rate", kind: "float",
+          min: 0.01, max: 20, default: 4, unit: "hz", log: true
+        }, random.rate, "source.random.rate", function (value) {
+          random.rate = value;
+          refresh();
+        });
+      }
       sourceControl(card, {
         id: "random.smooth", label: "Smooth", kind: "float",
         min: 0, max: 500, default: 80, unit: "ms", log: true
@@ -1180,12 +1203,21 @@
           queue("source.table.shape", value);
         });
 
-      sourceControl(card, {
-        id: "table.rate", label: table.sync ? "Rate ×beat" : "Rate", kind: "float",
-        min: 0.01, max: 20, default: 1, unit: table.sync ? "" : "hz", log: true
-      }, table.rate, "source.table.rate", function (value) {
-        table.rate = value;
-      });
+      if (table.sync) {
+        sourceControl(card, {
+          id: "table.beats", label: "Time", kind: "float",
+          min: 0.03125, max: 32, default: 1, unit: "beats", log: true
+        }, table.beats, "source.table.beats", function (value) {
+          table.beats = value;
+        });
+      } else {
+        sourceControl(card, {
+          id: "table.rate", label: "Rate", kind: "float",
+          min: 0.01, max: 20, default: 1, unit: "hz", log: true
+        }, table.rate, "source.table.rate", function (value) {
+          table.rate = value;
+        });
+      }
       sourceControl(card, {
         id: "table.morph", label: "Morph", kind: "float",
         min: 0, max: 1, default: 0, unit: "percent"

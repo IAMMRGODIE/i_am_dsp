@@ -6,7 +6,7 @@
 
 use std::f32::consts::TAU;
 
-use i_am_dsp::prelude::{EditableLfo, WaveTable};
+use i_am_dsp::prelude::{EditableLfo, ProcessInfos, SyncedTime, WaveTable};
 
 use crate::state::SourceSettings;
 
@@ -68,11 +68,21 @@ impl Modulation {
 	}
 
 	/// Advances one sample. Returns the four source values on a control tick.
-	pub fn advance(&mut self, input: f32, tempo: f32) -> Option<[f32; 4]> {
-		let lfo_rate = source_rate(self.settings.lfo_rate, self.settings.lfo_sync, tempo);
+	pub fn advance(&mut self, input: f32, infos: &ProcessInfos) -> Option<[f32; 4]> {
+		let lfo_rate = source_rate(
+			self.settings.lfo_rate,
+			self.settings.lfo_sync,
+			self.settings.lfo_beats,
+			infos,
+		);
 		self.lfo_phase = (self.lfo_phase + lfo_rate / self.rate as f32).fract();
 
-		let table_rate = source_rate(self.settings.table_rate, self.settings.table_sync, tempo);
+		let table_rate = source_rate(
+			self.settings.table_rate,
+			self.settings.table_sync,
+			self.settings.table_beats,
+			infos,
+		);
 		self.table_phase = (self.table_phase + table_rate / self.rate as f32).fract();
 
 		let target = input.abs();
@@ -83,7 +93,12 @@ impl Modulation {
 		};
 		self.envelope += (target - self.envelope) * coeff;
 
-		let random_rate = source_rate(self.settings.random_rate, self.settings.random_sync, tempo);
+		let random_rate = source_rate(
+			self.settings.random_rate,
+			self.settings.random_sync,
+			self.settings.random_beats,
+			infos,
+		);
 		self.random_phase += random_rate / self.rate as f32;
 
 		if self.random_phase >= 1.0 {
@@ -139,15 +154,11 @@ impl Modulation {
 	}
 }
 
-/// A source rate in hertz, optionally scaled by the host tempo.
-fn source_rate(rate: f32, sync: bool, tempo: f32) -> f32 {
-	let rate = rate.clamp(0.01, 20.0);
-
-	if sync {
-		(tempo.max(1.0) / 60.0 * rate).clamp(0.01, 100.0)
-	} else {
-		rate
-	}
+/// A source rate in hertz, optionally read as a musical period by [`SyncedTime`].
+fn source_rate(rate: f32, sync: bool, beats: f32, infos: &ProcessInfos) -> f32 {
+	SyncedTime { sync, beats }
+		.rate_hz(infos, rate.clamp(0.01, 20.0))
+		.clamp(0.01, 100.0)
 }
 
 /// One table sample, morphing from the selected shape to the next one.

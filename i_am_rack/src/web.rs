@@ -130,6 +130,7 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 			"shape": state.sources.lfo_shape,
 			"points": state.sources.lfo_points,
 			"sync": state.sources.lfo_sync,
+			"beats": state.sources.lfo_beats,
 			"bypass": state.sources.lfo_bypass,
 		},
 		"env": {
@@ -141,6 +142,7 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 			"rate": state.sources.random_rate,
 			"smooth": state.sources.random_smooth,
 			"sync": state.sources.random_sync,
+			"beats": state.sources.random_beats,
 			"bypass": state.sources.random_bypass,
 		},
 		"table": {
@@ -148,6 +150,7 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 			"shape": state.sources.table_shape,
 			"morph": state.sources.table_morph,
 			"sync": state.sources.table_sync,
+			"beats": state.sources.table_beats,
 			"bypass": state.sources.table_bypass,
 		},
 	});
@@ -628,6 +631,9 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			};
 			state.sources.lfo_sync = flag;
 		},
+		("lfo", "beats") => {
+			state.sources.lfo_beats = value.clamp(0.03125, 32.0) as f32;
+		},
 		("lfo", "bypass") => {
 			let Some(flag) = boolean(raw) else {
 				return false;
@@ -656,6 +662,9 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			};
 			state.sources.random_sync = flag;
 		},
+		("random", "beats") => {
+			state.sources.random_beats = value.clamp(0.03125, 32.0) as f32;
+		},
 		("random", "bypass") => {
 			let Some(flag) = boolean(raw) else {
 				return false;
@@ -674,6 +683,9 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 				return false;
 			};
 			state.sources.table_sync = flag;
+		},
+		("table", "beats") => {
+			state.sources.table_beats = value.clamp(0.03125, 32.0) as f32;
 		},
 		("table", "bypass") => {
 			let Some(flag) = boolean(raw) else {

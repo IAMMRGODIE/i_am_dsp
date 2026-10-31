@@ -325,9 +325,8 @@ impl Engine {
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
 		let input = (samples[0] + samples[1]) * 0.5;
-		let tempo = process_context.infos().tempo.unwrap_or(120.0);
 
-		if let Some(values) = self.modulation.advance(input, tempo) {
+		if let Some(values) = self.modulation.advance(input, process_context.infos()) {
 			let coefficient = 1.0 - (-(64.0 / (0.01 * self.rate as f32))).exp();
 			self.smooth(coefficient);
 

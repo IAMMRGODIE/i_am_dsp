@@ -68,10 +68,16 @@ pub struct SourceSettings {
 	pub table_morph: f32,
 	/// Whether the LFO rate is musical rather than hertz.
 	pub lfo_sync: bool,
+	/// The LFO period in beats when synced.
+	pub lfo_beats: f32,
 	/// Whether the random rate is musical rather than hertz.
 	pub random_sync: bool,
+	/// The random period in beats when synced.
+	pub random_beats: f32,
 	/// Whether the table rate is musical rather than hertz.
 	pub table_sync: bool,
+	/// The table period in beats when synced.
+	pub table_beats: f32,
 	/// Whether each source is bypassed.
 	pub lfo_bypass: bool,
 	/// Whether the envelope is bypassed.
@@ -96,8 +102,11 @@ impl Default for SourceSettings {
 			table_shape: 0,
 			table_morph: 0.0,
 			lfo_sync: false,
+			lfo_beats: 1.0,
 			random_sync: false,
+			random_beats: 1.0,
 			table_sync: false,
+			table_beats: 1.0,
 			lfo_bypass: false,
 			env_bypass: false,
 			random_bypass: false,

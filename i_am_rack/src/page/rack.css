@@ -184,12 +184,7 @@ body{
   background:transparent; border:0; border-radius:4px; cursor:pointer;
 }
 .mod-collapse:hover{background:rgba(255,255,255,.07); color:var(--text1)}
-.mod-sync{
-  height:20px; padding:0 6px; font:inherit; font-size:8px; font-weight:600;
-  letter-spacing:.06em; color:var(--text3); background:var(--raised);
-  border:1px solid #454545; border-radius:4px; cursor:pointer;
-}
-.mod-sync.on{color:#111; background:var(--mod); border-color:var(--mod)}
+.mod-sync{height:20px; padding:2px 8px; font-size:9px}
 .mod-card.collapsed .mod-hero,
 .mod-card.collapsed .mod-card-controls{display:none}
 .mod-card.collapsed{padding-bottom:0}
