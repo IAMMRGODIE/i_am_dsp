@@ -241,7 +241,7 @@ pub(crate) struct Engine {
 	/// The four control-rate sources.
 	modulation: Modulation,
 	/// The eight assignments the page set up.
-	assignments: [Option<Assignment>; 8],
+	assignments: Vec<Option<Assignment>>,
 	/// The eight macro values, used as extra sources.
 	macros: [f32; 8],
 	/// The kind of each source id, for bipolar/unipolar placement.
@@ -257,7 +257,7 @@ impl Engine {
 			lanes: [Lane::new(), Lane::new(), Lane::new()],
 			crossover: Crossover::new(sample_rate, state.split_low, state.split_high),
 			modulation: Modulation::new(sample_rate),
-			assignments: std::array::from_fn(|_| None),
+			assignments: Vec::new(),
 			macros: [0.0; 8],
 			source_kinds: BTreeMap::new(),
 			rate: sample_rate,
@@ -348,7 +348,7 @@ impl Engine {
 					let Some(control) = module.control(parameter).cloned() else {
 						continue;
 					};
-					let mapped = control.min + (control.max - control.min) * value;
+					let mapped = denormalize(value, &control);
 					module.set_base_target(parameter, mapped);
 				},
 				Target::BandGain(index) => {

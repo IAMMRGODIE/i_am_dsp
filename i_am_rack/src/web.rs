@@ -205,7 +205,7 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 
 fn module_json(
 	shared: &RackShared,
-	assignments: &[Option<Assignment>; 8],
+	assignments: &[Option<Assignment>],
 	module: &ModuleState,
 	band: usize,
 	slot: usize,
@@ -400,7 +400,9 @@ fn apply_line(
 	key: &str,
 	raw: &str,
 ) -> bool {
-	if let Some(rest) = key.strip_prefix("band.") {
+	if key == "assign.add" {
+		apply_assignment_add(state, shared, raw)
+	} else if let Some(rest) = key.strip_prefix("band.") {
 		apply_band(state, rest, raw)
 	} else if let Some(rest) = key.strip_prefix("split.") {
 		apply_split(state, rest, raw, rate)
@@ -960,6 +962,28 @@ fn parse_lfo_points(raw: &str) -> Option<Vec<(f32, f32, f32)>> {
 	} else {
 		Some(points)
 	}
+}
+
+fn apply_assignment_add(state: &mut RackState, shared: &RackShared, raw: &str) -> bool {
+	let mut assignment = Assignment::default();
+
+	if raw != "1" && !raw.is_empty() {
+		let Some((source, target)) = raw.split_once('|') else {
+			return false;
+		};
+		let Some(source) = source_index(state, source) else {
+			return false;
+		};
+		let Some(target) = parse_target(target, state, shared) else {
+			return false;
+		};
+
+		assignment.source = source;
+		assignment.target = Some(target);
+	}
+
+	state.assignments.push(Some(assignment));
+	true
 }
 
 fn apply_assignment(

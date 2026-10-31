@@ -457,6 +457,23 @@
       openKnobEditor(spec, current, set, dial);
     });
 
+    if (spec.dropTarget) {
+      dial.addEventListener("dragover", function (event) {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "link";
+        dial.classList.add("drop-target");
+      });
+      dial.addEventListener("dragleave", function () {
+        dial.classList.remove("drop-target");
+      });
+      dial.addEventListener("drop", function (event) {
+        event.preventDefault();
+        dial.classList.remove("drop-target");
+        var data = event.dataTransfer ? event.dataTransfer.getData("text/plain") : "";
+        if (data && spec.onModulationDrop) spec.onModulationDrop(data, spec.dropTarget);
+      });
+    }
+
     dial.addEventListener("keydown", function (event) {
       var step = (spec.max - spec.min) / 100;
       if (event.key === "ArrowUp" || event.key === "ArrowRight") {

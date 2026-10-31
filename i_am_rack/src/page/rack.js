@@ -5,6 +5,10 @@
   var status = document.getElementById("status");
   var rate = document.getElementById("rate");
   var power = document.getElementById("power");
+  var panelBody = document.getElementById("panel-body");
+  var panelTabs = document.querySelectorAll(".panel-tab");
+  var activePanel = "sources";
+  var panelPages = null;
 
   var pending = Object.create(null);
   var timer = null;
@@ -98,6 +102,19 @@
 
   function setModulationDepth(slot, depth) {
     queue("assign." + slot + ".depth", depth);
+  }
+
+  function linkModulation(data, target) {
+    var source = "";
+
+    if (data.indexOf("source:") === 0) {
+      source = data.slice(7);
+    } else if (data.indexOf("macro:") === 0) {
+      source = "macro" + (Number(data.slice(6)) + 1);
+    }
+
+    if (!source || !target) return;
+    sendNow("assign.add", source + "|" + target).then(load);
   }
 
   function modulationsFor(data, target) {
@@ -340,7 +357,9 @@
       default: 1,
       unit: "",
       modulations: modulationsFor(data, "band." + bandIndex + ".gain"),
-      onModulation: setModulationDepth
+      onModulation: setModulationDepth,
+      dropTarget: "band." + bandIndex + ".gain",
+      onModulationDrop: linkModulation
     }, band.gain, function (_, value) {
       band.gain = value;
       queue("band." + bandIndex + ".gain", value);
@@ -356,7 +375,9 @@
       unit: "",
       bipolar: true,
       modulations: modulationsFor(data, "band." + bandIndex + ".pan"),
-      onModulation: setModulationDepth
+      onModulation: setModulationDepth,
+      dropTarget: "band." + bandIndex + ".pan",
+      onModulationDrop: linkModulation
     }, band.pan, function (_, value) {
       band.pan = value;
       queue("band." + bandIndex + ".pan", value);
@@ -445,6 +466,11 @@
 
     (module.controls || []).forEach(function (control) {
       control.onModulation = setModulationDepth;
+
+      if (control.kind === "float") {
+        control.dropTarget = "m" + module.id + "." + control.id;
+        control.onModulationDrop = linkModulation;
+      }
     });
 
     var card = window.IAmCard.create({
@@ -1063,7 +1089,18 @@
       (function (slot) {
         var value = typeof macros[slot] === "number" ? macros[slot] : 0;
 
-        controls.appendChild(window.IAmCard.control({
+        var item = el("div", "macro-item");
+        var handle = el("span", "macro-drag", "\u28FF");
+        handle.draggable = true;
+        handle.title = "Drag macro to a knob";
+        handle.setAttribute("aria-label", "Drag macro to a knob");
+        handle.addEventListener("dragstart", function (event) {
+          event.dataTransfer.setData("text/plain", "macro:" + slot);
+          event.dataTransfer.effectAllowed = "link";
+        });
+
+        item.appendChild(handle);
+        item.appendChild(window.IAmCard.control({
           id: "macro." + slot,
           label: "M" + (slot + 1),
           kind: "float",
@@ -1074,6 +1111,7 @@
         }, value, function (_, next) {
           queue("macro." + slot, next);
         }));
+        controls.appendChild(item);
       })(index);
     }
 
@@ -1568,12 +1606,40 @@
     grid.appendChild(addCard);
 
     section.appendChild(grid);
+    return section;
+  }
+
+  function makeSourcesPage(data) {
+    var page = el("div", "sources-page");
+    page.appendChild(makeMacroBar(data));
+    page.appendChild(makeModulation(data));
+    return page;
+  }
+
+  function makeMatrix(data) {
+    var section = el("section", "matrix-page");
+    var head = el("div", "mod-head");
+    head.appendChild(el("span", "mod-title", "MODULATION MATRIX"));
+    head.appendChild(el("span", "mod-hint", "drag a source or macro onto a knob to link it"));
+    head.appendChild(el("span", "mod-spacer"));
+
+    var add = el("button", "mcard-toggle", "+ Row");
+    add.type = "button";
+    add.addEventListener("click", function () {
+      sendNow("assign.add", 1).then(load);
+    });
+    head.appendChild(add);
+    section.appendChild(head);
 
     var list = el("div", "assignments");
     var assignments = data.assignments || [];
 
-    for (var slot = 0; slot < 8; slot++) {
-      list.appendChild(makeAssignment(data, slot, assignments[slot] || null));
+    assignments.forEach(function (assignment, slot) {
+      if (assignment) list.appendChild(makeAssignment(data, slot, assignment));
+    });
+
+    if (!list.children.length) {
+      list.appendChild(el("div", "matrix-empty", "No links yet. Drag a source or macro onto any modulatable knob."));
     }
 
     section.appendChild(list);
@@ -1758,26 +1824,42 @@
     return row;
   }
 
+  function showPanel(name) {
+    if (!panelPages) return;
+    activePanel = name;
+    panelTabs.forEach(function (tab) {
+      tab.classList.toggle("on", tab.getAttribute("data-panel") === name);
+    });
+    panelBody.textContent = "";
+    panelBody.appendChild(panelPages[name]);
+
+    if (name === "sources") {
+      var sources = panelBody.querySelector(".mod-sources");
+      if (sources) sources.scrollLeft = sourceScroll;
+    }
+  }
+
   function render(data) {
     current = data;
     rangeLabels = [];
     livePainters = [];
     rack.textContent = "";
 
-    rack.appendChild(makeMacroBar(data));
     rack.appendChild(makeCrossover(data));
     data.bands.forEach(function (band, index) {
       rack.appendChild(makeBand(data, index));
     });
-    rack.appendChild(makeModulation(data));
-    rack.appendChild(makeAutomation(data));
 
     rack.querySelectorAll(".band .slots").forEach(function (element, index) {
       element.scrollLeft = slotScroll[index] || 0;
     });
 
-    var sources = rack.querySelector(".mod-sources");
-    if (sources) sources.scrollLeft = sourceScroll;
+    panelPages = {
+      sources: makeSourcesPage(data),
+      matrix: makeMatrix(data),
+      daw: makeAutomation(data)
+    };
+    showPanel(activePanel);
 
     updateRanges(data);
 
@@ -1834,6 +1916,12 @@
         });
     }, 50);
   }
+
+  panelTabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      showPanel(tab.getAttribute("data-panel"));
+    });
+  });
 
   power.addEventListener("click", function () {
     bypassed = !bypassed;

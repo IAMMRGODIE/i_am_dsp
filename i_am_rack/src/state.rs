@@ -40,9 +40,9 @@ pub struct RackState {
 	/// The live modulation-source slots.
 	#[serde(default)]
 	pub source_slots: Vec<SourceSlot>,
-	/// Eight modulation assignments; empty slots are off.
+	/// Modulation-matrix rows; empty slots are off.
 	#[serde(default)]
-	pub assignments: [Option<Assignment>; 8],
+	pub assignments: Vec<Option<Assignment>>,
 	/// Eight macro values, 0..1; assignments can use them as sources.
 	#[serde(default)]
 	pub macros: [f32; 8],
@@ -479,7 +479,7 @@ impl RackState {
 			],
 			sources: SourceSettings::default(),
 			source_slots: default_source_slots(),
-			assignments: std::array::from_fn(|_| None),
+			assignments: vec![None; 8],
 			macros: [0.0; 8],
 			automation: default_automation(),
 			automation_values: [0.0; AUTOMATION_SLOTS],

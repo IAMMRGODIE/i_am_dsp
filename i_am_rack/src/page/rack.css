@@ -47,14 +47,36 @@ body{
 
 .rack{
   flex:1; min-height:0; overflow-y:auto; overflow-x:hidden;
-  padding:0 2px 12px;
+  padding:0 2px 8px;
 }
+.bottom{
+  flex:0 0 clamp(200px, 32vh, 340px); min-height:0; display:flex; flex-direction:column;
+  background:#202020; border:1px solid #333; border-radius:8px; overflow:hidden;
+}
+.panel-tabs{
+  flex:0 0 30px; display:flex; align-items:stretch; gap:2px;
+  padding:0 6px; background:#262626; border-bottom:1px solid #333;
+}
+.panel-tab{
+  padding:0 12px; font:inherit; font-size:9px; font-weight:600;
+  letter-spacing:.1em; color:var(--text3); background:transparent;
+  border:0; border-bottom:2px solid transparent; cursor:pointer;
+}
+.panel-tab:hover{color:var(--text2)}
+.panel-tab.on{color:var(--text1); border-bottom-color:var(--mod)}
+.panel-body{flex:1; min-height:0; overflow-y:auto; padding:8px 8px 12px}
 
 .macrobar{
   display:flex; align-items:center; gap:10px;
   padding:6px 12px 8px; margin-bottom:10px;
   background:var(--card); border:1px solid #353535; border-radius:8px;
 }
+.macro-item{position:relative; display:flex; justify-content:center}
+.macro-drag{
+  position:absolute; left:2px; top:0; z-index:1;
+  font-size:11px; color:var(--text3); cursor:grab; user-select:none;
+}
+.macro-drag:active{cursor:grabbing}
 .macro-label{
   font-size:9px; letter-spacing:.14em; color:var(--text3);
   text-transform:uppercase; white-space:nowrap;

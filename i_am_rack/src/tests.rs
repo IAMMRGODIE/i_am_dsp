@@ -189,12 +189,13 @@ fn host_parameters_cover_macros_and_automation() {
 
 	assert_eq!(command(&rack, "automation.0.target=m0.cutoff").body, b"{\"ok\":true}");
 
-	for _ in 0..256 {
+	for _ in 0..2_048 {
 		process(&mut rack, [0.0, 0.0]);
 	}
 
 	let cutoff = rack.engine.module_parameter(0, "cutoff").unwrap();
-	assert!(cutoff > 1_000.0, "automated cutoff {cutoff}");
+	// A linear mapping would put 0.5 near 5 kHz; the logarithmic mapping is much lower.
+	assert!(cutoff < 1_000.0, "automated cutoff {cutoff}");
 }
 
 /// A whole-plug-in bypass is the input, untouched.
@@ -687,6 +688,26 @@ fn a_pitch_source_tracks_a_tone() {
 
 	// 440 Hz is MIDI 69; normalized over 127 notes.
 	assert!((value - 69.0 / 127.0).abs() < 0.08, "pitch value {value}");
+}
+
+/// Matrix rows can be added without a fixed ceiling, including from a drop link.
+#[test]
+fn matrix_rows_can_be_added_dynamically() {
+	let rack = Rack::default();
+
+	assert_eq!(command(&rack, "assign.add=0|m0.cutoff").body, b"{\"ok\":true}");
+	assert_eq!(command(&rack, "assign.add=1").body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	assert_eq!(state.assignments.len(), 10);
+	assert_eq!(state.assignments[8].as_ref().unwrap().source, 0);
+	assert_eq!(
+		state.assignments[8].as_ref().unwrap().target,
+		Some(Target::Module {
+			module: 0,
+			parameter: "cutoff".to_string(),
+		})
+	);
 }
 
 /// A MIDI source can follow the note number or its velocity.
