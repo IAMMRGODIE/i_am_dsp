@@ -174,17 +174,31 @@ body{
 .mod-hint{font-size:9px; color:#666; white-space:nowrap}
 .mod-spacer{flex:1}
 .add-source{width:118px; height:22px; font-size:10px}
-.mod-sources{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px}
+.mod-sources{
+  display:flex; gap:10px; overflow-x:auto; overflow-y:hidden;
+  padding-bottom:6px; scroll-snap-type:x proximity; align-items:flex-start;
+}
+.mod-sources::-webkit-scrollbar{height:8px}
+.mod-sources::-webkit-scrollbar-thumb{background:#3a3a3a; border-radius:4px}
 .mod-card{
+  flex:0 0 460px; min-width:460px; scroll-snap-align:start;
   background:#262626; border:1px solid #353535; border-radius:8px;
   padding:0 0 6px; overflow:hidden;
 }
+.mod-card.dragging{opacity:.55}
+.mod-card.drop{outline:1px dashed var(--mod); outline-offset:2px}
 .mod-card-head{
   display:flex; align-items:center; gap:6px; padding:4px 10px;
   background:#2e2e2e; border-bottom:1px solid #303030; min-height:32px;
 }
 .mod-card-title{font-size:11px; font-weight:600; margin:0}
 .mod-choice{min-width:84px}
+.mod-drag{
+  width:14px; flex:0 0 14px; text-align:center;
+  font-size:13px; line-height:1; color:var(--text3);
+  cursor:grab; user-select:none;
+}
+.mod-drag:active{cursor:grabbing}
 .mod-collapse{
   width:18px; height:18px; padding:0; flex:0 0 18px;
   font:inherit; font-size:12px; line-height:1; color:var(--text2);

@@ -14,6 +14,8 @@
   var paintCrossover = null;
   var collapsedBands = Object.create(null);
   var collapsedSources = Object.create(null);
+  var slotScroll = Object.create(null);
+  var sourceScroll = 0;
   var livePainters = [];
   var live = {
     values: [],
@@ -497,6 +499,10 @@
     }
 
     section.appendChild(slots);
+    slots.scrollLeft = slotScroll[bandIndex] || 0;
+    slots.addEventListener("scroll", function () {
+      slotScroll[bandIndex] = slots.scrollLeft;
+    });
     return section;
   }
 
@@ -974,6 +980,22 @@
 
     var head = el("div", "mod-card-head");
 
+    if (chrome.dragId !== undefined) {
+      var handle = el("span", "mod-drag", "\u28FF");
+      handle.draggable = true;
+      handle.title = "Drag source";
+      handle.setAttribute("aria-label", "Drag source");
+      handle.addEventListener("dragstart", function (event) {
+        event.dataTransfer.setData("text/plain", "source:" + chrome.dragId);
+        event.dataTransfer.effectAllowed = "move";
+        card.classList.add("dragging");
+      });
+      handle.addEventListener("dragend", function () {
+        card.classList.remove("dragging");
+      });
+      head.appendChild(handle);
+    }
+
     var collapse = el("button", "mod-collapse", collapsedSources[key] ? "\u25B8" : "\u25BE");
     collapse.type = "button";
     collapse.title = collapsedSources[key] ? "Expand source" : "Collapse source";
@@ -1097,6 +1119,33 @@
     section.appendChild(head);
 
     var grid = el("div", "mod-sources");
+    grid.addEventListener("scroll", function () { sourceScroll = grid.scrollLeft; });
+    grid.addEventListener("dragover", function (event) {
+      var card = event.target.closest(".mod-card");
+      if (!card) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      grid.querySelectorAll(".mod-card.drop").forEach(function (candidate) {
+        candidate.classList.remove("drop");
+      });
+      card.classList.add("drop");
+    });
+    grid.addEventListener("dragleave", function (event) {
+      var card = event.target.closest(".mod-card");
+      if (card) card.classList.remove("drop");
+    });
+    grid.addEventListener("drop", function (event) {
+      event.preventDefault();
+      var card = event.target.closest(".mod-card");
+      if (!card) return;
+      var data = event.dataTransfer ? event.dataTransfer.getData("text/plain") : "";
+      if (!data || data.indexOf("source:") !== 0) return;
+      var from = data.slice(7);
+      var to = card.getAttribute("data-source-id");
+      card.classList.remove("drop");
+      if (!to || from === to) return;
+      sendNow("source." + from + ".move", to).then(load);
+    });
 
     sources.forEach(function (source) {
       var id = source.id;
@@ -1300,7 +1349,10 @@
         };
       }
 
-      grid.appendChild(makeSourceCard(title, accent, paint, build, livePaint, chrome));
+      chrome.dragId = id;
+      var card = makeSourceCard(title, accent, paint, build, livePaint, chrome);
+      card.setAttribute("data-source-id", String(id));
+      grid.appendChild(card);
     });
 
     section.appendChild(grid);
@@ -1454,6 +1506,13 @@
       rack.appendChild(makeBand(data, index));
     });
     rack.appendChild(makeModulation(data));
+
+    rack.querySelectorAll(".band .slots").forEach(function (element, index) {
+      element.scrollLeft = slotScroll[index] || 0;
+    });
+
+    var sources = rack.querySelector(".mod-sources");
+    if (sources) sources.scrollLeft = sourceScroll;
 
     updateRanges(data);
 

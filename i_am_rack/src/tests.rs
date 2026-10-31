@@ -555,6 +555,14 @@ assign.0.depth=0.4",
 	assert!((state.source_slots[4].settings.lfo_rate - 2.0).abs() < 1e-6);
 	assert_eq!(state.assignments[0].as_ref().unwrap().source, 4);
 
+	let response = command(&rack, "source.4.move=0");
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	assert_eq!(state.source_slots[0].id, 4);
+	assert_eq!(state.source_slots[1].id, 0);
+	assert_eq!(state.assignments[0].as_ref().unwrap().source, 4);
+
 	let response = command(&rack, "source.4.remove=1");
 	assert_eq!(response.body, b"{\"ok\":true}");
 

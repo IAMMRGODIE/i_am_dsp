@@ -663,6 +663,28 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		slot.id
 	};
 
+	if parameter == "move" {
+		let Ok(target) = raw.parse::<u32>() else {
+			return false;
+		};
+
+		if target == id || state.source_slot(target).is_none() {
+			return target == id;
+		}
+
+		let Some(position) = state.source_slots.iter().position(|slot| slot.id == id) else {
+			return false;
+		};
+		let slot = state.source_slots.remove(position);
+		let target_position = state
+			.source_slots
+			.iter()
+			.position(|slot| slot.id == target)
+			.unwrap_or(state.source_slots.len());
+		state.source_slots.insert(target_position, slot);
+		return true;
+	}
+
 	if parameter == "remove" {
 		state.source_slots.retain(|slot| slot.id != id);
 
