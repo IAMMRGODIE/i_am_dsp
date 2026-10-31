@@ -198,15 +198,10 @@ impl Plugin for Rack {
 	}
 
 	fn window_options() -> WindowOptions {
-		// The page draws itself at the design size; the window carries a frame
-		// around it, the same fraction the products use.
-		const FACE_FRACTION: f64 = 0.85;
-
+		// The rack is deliberately compact: the host opens it at the design
+		// size instead of the larger frame the single-effect products use.
 		WindowOptions::new()
-			.with_size((
-				WIDTH as f64 / FACE_FRACTION,
-				HEIGHT as f64 / FACE_FRACTION,
-			))
+			.with_size((WIDTH as f64, HEIGHT as f64))
 			.with_title("I Am Multipass")
 			.with_resize_hints(GuiResizeHints {
 				can_resize_horizontally: true,
