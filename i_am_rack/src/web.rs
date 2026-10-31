@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 use crate::crossover::sanitize;
 use crate::module::ModuleKind;
 use crate::shared::RackShared;
-use crate::state::{Assignment, ModuleState, RackState, Target};
+use crate::state::{Assignment, ModuleState, RackState, Target, lfo_preset};
 
 /// The names the three bands answer to.
 pub const BAND_NAMES: [&str; 3] = ["Low", "Mid", "High"];
@@ -111,6 +111,7 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		"lfo": {
 			"rate": state.sources.lfo_rate,
 			"shape": state.sources.lfo_shape,
+			"points": state.sources.lfo_points,
 		},
 		"env": {
 			"attack": state.sources.env_attack,
@@ -540,6 +541,16 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 	let Some((source, parameter)) = rest.split_once('.') else {
 		return false;
 	};
+
+	if source == "lfo" && parameter == "points" {
+		let Some(points) = parse_lfo_points(raw) else {
+			return false;
+		};
+		state.sources.lfo_points = points;
+		state.sources.lfo_shape = 4;
+		return true;
+	}
+
 	let Some(value) = number(raw) else {
 		return false;
 	};
@@ -547,7 +558,11 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 	match (source, parameter) {
 		("lfo", "rate") => state.sources.lfo_rate = value.clamp(0.01, 20.0) as f32,
 		("lfo", "shape") => {
-			state.sources.lfo_shape = (value.round() as i32).clamp(0, 3);
+			state.sources.lfo_shape = (value.round() as i32).clamp(0, 4);
+
+			if state.sources.lfo_shape <= 3 {
+				state.sources.lfo_points = lfo_preset(state.sources.lfo_shape);
+			}
 		},
 		("env", "attack") => state.sources.env_attack = value.clamp(1.0, 500.0) as f32,
 		("env", "release") => {
@@ -570,6 +585,41 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 	}
 
 	true
+}
+
+fn parse_lfo_points(raw: &str) -> Option<Vec<(f32, f32, f32)>> {
+	let mut points = Vec::new();
+
+	for part in raw.split(';') {
+		let part = part.trim();
+
+		if part.is_empty() {
+			continue;
+		}
+
+		let mut fields = part.split(':');
+		let time = fields.next()?.parse::<f32>().ok()?;
+		let value = fields.next()?.parse::<f32>().ok()?;
+		let bend = fields
+			.next()
+			.and_then(|bend| bend.parse::<f32>().ok())
+			.unwrap_or(0.5);
+
+		if !time.is_finite() || !value.is_finite() || !bend.is_finite() {
+			return None;
+		}
+
+		points.push((time.clamp(0.0, 1.0), value.clamp(0.0, 1.0), bend.clamp(0.0, 1.0)));
+	}
+
+	points.sort_by(|a, b| a.0.total_cmp(&b.0));
+	points.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-4);
+
+	if points.len() < 2 {
+		None
+	} else {
+		Some(points)
+	}
 }
 
 fn apply_assignment(

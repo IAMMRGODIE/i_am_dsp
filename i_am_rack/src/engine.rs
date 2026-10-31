@@ -283,7 +283,7 @@ impl Engine {
 			lane.compensation.set_length(longest - delays[index]);
 		}
 
-		self.modulation.set_settings(state.sources);
+		self.modulation.set_settings(state.sources.clone());
 		self.assignments = state.assignments.clone();
 		self.macros = state.macros;
 	}

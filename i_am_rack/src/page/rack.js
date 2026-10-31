@@ -491,15 +491,177 @@
     return first + (second - first) * Math.max(0, Math.min(1, morph));
   }
 
-  function drawLfo(svg, lfo) {
-    var cycles = Math.max(1, Math.min(4, Math.round(lfo.rate || 1)));
-    var values = [];
+  function lfoPreset(shape) {
+    var raw;
 
-    for (var i = 0; i < 120; i++) {
-      values.push(lfoValue(lfo.shape, (i / 120 * cycles) % 1));
+    switch (((shape % 4) + 4) % 4) {
+      case 1: raw = [[0, 0], [0.5, 1], [1, 0]]; break;
+      case 2: raw = [[0, 0], [1, 1]]; break;
+      case 3: raw = [[0, 1], [0.5, 1], [0.5001, 0], [1, 0]]; break;
+      default: raw = [[0, 0.5], [0.25, 1], [0.5, 0.5], [0.75, 0], [1, 0.5]];
     }
 
-    paintCurve(svg, values, "#4c8dff");
+    return raw.map(function (point) {
+      return { time: point[0], value: point[1], bend: 0.5 };
+    });
+  }
+
+  function lfoPointsFromJson(points, shape) {
+    if (Array.isArray(points) && points.length >= 2) {
+      return points.map(function (point) {
+        return {
+          time: Number(point[0]),
+          value: Number(point[1]),
+          bend: Number(point[2] === undefined ? 0.5 : point[2])
+        };
+      });
+    }
+
+    return lfoPreset(shape);
+  }
+
+  function serializeLfo(points) {
+    return points.map(function (point) {
+      return point.time.toFixed(4) + ":" + point.value.toFixed(4) +
+        ":" + point.bend.toFixed(4);
+    }).join(";");
+  }
+
+  function drawLfo(svg, lfo) {
+    function eventPoint(event) {
+      var rect = svg.getBoundingClientRect();
+      var x = (event.clientX - rect.left) / rect.width * 300;
+      var y = (event.clientY - rect.top) / rect.height * 64;
+
+      return {
+        x: x,
+        y: y,
+        time: Math.max(0, Math.min(1, (x - 8) / 284)),
+        value: Math.max(0, Math.min(1, (32 - y) / 22))
+      };
+    }
+
+    function pointAt(event) {
+      var position = eventPoint(event);
+
+      for (var i = 0; i < lfo.points.length; i++) {
+        var point = lfo.points[i];
+        var x = 8 + point.time * 284;
+        var y = 32 - point.value * 22;
+
+        if (Math.abs(x - position.x) < 9 && Math.abs(y - position.y) < 9) {
+          return point;
+        }
+      }
+
+      return null;
+    }
+
+    function paint() {
+      svg.textContent = "";
+      svg.appendChild(svgNode("line", {
+        x1: 8, y1: 32, x2: 292, y2: 32,
+        stroke: "#333", "stroke-width": "1", "stroke-dasharray": "2 4"
+      }));
+
+      var points = lfo.points.slice().sort(function (a, b) {
+        return a.time - b.time;
+      });
+      var path = "";
+
+      for (var i = 0; i < points.length; i++) {
+        var x = 8 + points[i].time * 284;
+        var y = 32 - points[i].value * 22;
+        path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+      }
+
+      if (points.length > 1) {
+        svg.appendChild(svgNode("path", {
+          d: path, fill: "none", stroke: "#4c8dff", "stroke-width": "2",
+          "stroke-linecap": "round", "vector-effect": "non-scaling-stroke"
+        }));
+      }
+
+      points.forEach(function (point) {
+        var circle = svgNode("circle", {
+          cx: (8 + point.time * 284).toFixed(1),
+          cy: (32 - point.value * 22).toFixed(1),
+          r: "3.5", fill: "#4c8dff", stroke: "#1a1a1a", "stroke-width": "1.5"
+        });
+        circle.style.pointerEvents = "none";
+        svg.appendChild(circle);
+      });
+    }
+
+    var drag = null;
+
+    function commit() {
+      sendNow("source.lfo.points", serializeLfo(lfo.points)).then(load);
+    }
+
+    function removePoint(point) {
+      if (lfo.points.length <= 2) return;
+
+      var index = lfo.points.indexOf(point);
+      if (index >= 0) lfo.points.splice(index, 1);
+      paint();
+      commit();
+    }
+
+    svg.onpointerdown = function (event) {
+      if (event.button !== 0) return;
+
+      var point = pointAt(event);
+
+      if (!point) {
+        var position = eventPoint(event);
+        point = { time: position.time, value: position.value, bend: 0.5 };
+        lfo.points.push(point);
+        lfo.points.sort(function (a, b) { return a.time - b.time; });
+      }
+
+      drag = point;
+      svg.setPointerCapture(event.pointerId);
+      paint();
+      event.preventDefault();
+    };
+
+    svg.onpointermove = function (event) {
+      if (!drag) return;
+
+      var position = eventPoint(event);
+      drag.time = position.time;
+      drag.value = position.value;
+      lfo.points.sort(function (a, b) { return a.time - b.time; });
+      paint();
+      event.preventDefault();
+    };
+
+    function finish(event) {
+      if (!drag) return;
+      drag = null;
+      commit();
+      event.preventDefault();
+    }
+
+    svg.onpointerup = finish;
+    svg.onpointercancel = finish;
+    svg.ondblclick = function (event) {
+      var point = pointAt(event);
+      if (point) {
+        removePoint(point);
+        event.preventDefault();
+      }
+    };
+    svg.oncontextmenu = function (event) {
+      var point = pointAt(event);
+      if (point) {
+        removePoint(point);
+        event.preventDefault();
+      }
+    };
+
+    paint();
   }
 
   function drawEnvelope(svg, env) {
@@ -587,8 +749,10 @@
     var hero = el("div", "mod-hero");
     var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 300 64");
+    svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", title + " modulation shape");
+    if (title === "LFO") svg.classList.add("lfo-editor");
     hero.appendChild(svg);
     card.appendChild(hero);
 
@@ -605,9 +769,11 @@
 
   function makeModulation(data) {
     var sources = data.sources || {};
+    var lfoSource = sources.lfo || {};
     var lfo = {
-      rate: numberOr((sources.lfo || {}).rate, 1),
-      shape: numberOr((sources.lfo || {}).shape, 0)
+      rate: numberOr(lfoSource.rate, 1),
+      shape: numberOr(lfoSource.shape, 0),
+      points: lfoPointsFromJson(lfoSource.points, numberOr(lfoSource.shape, 0))
     };
     var env = {
       attack: numberOr((sources.env || {}).attack, 10),
@@ -643,10 +809,15 @@
       });
       sourceControl(card, {
         id: "lfo.shape", label: "Shape", kind: "int",
-        min: 0, max: 3, default: 0, widget: "choice",
-        choices: ["Sine", "Triangle", "Saw", "Square"]
+        min: 0, max: 4, default: 0, widget: "choice",
+        choices: ["Sine", "Triangle", "Saw", "Square", "Custom"]
       }, lfo.shape, "source.lfo.shape", function (value) {
         lfo.shape = value;
+
+        if (value <= 3) {
+          lfo.points = lfoPreset(value);
+        }
+
         refresh();
       });
     }));

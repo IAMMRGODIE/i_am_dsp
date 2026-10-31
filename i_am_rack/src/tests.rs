@@ -406,6 +406,33 @@ assign.2.depth=0.4",
 	assert!((assignment.depth - 0.4).abs() < 1e-6);
 }
 
+/// The page can replace the EditableLfo points, and choosing a preset resets them.
+#[test]
+fn lfo_points_and_presets_edit_the_state() {
+	let rack = Rack::default();
+
+	let response = command(
+		&rack,
+		"source.lfo.points=0:0.5:0.5;0.25:0.1:0.5;0.5:0.9:0.5;0.75:0.2:0.5;1:0.5:0.5",
+	);
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+
+	assert_eq!(state.sources.lfo_shape, 4);
+	assert_eq!(state.sources.lfo_points.len(), 5);
+	assert!((state.sources.lfo_points[1].1 - 0.1).abs() < 1e-6);
+
+	command(&rack, "source.lfo.shape=1");
+
+	let state = rack.state();
+
+	assert_eq!(state.sources.lfo_shape, 1);
+	assert_eq!(state.sources.lfo_points.len(), 3);
+	assert_eq!(state.sources.lfo_points[1], (0.5, 1.0, 0.5));
+}
+
 /// The page gets the list of parameters an assignment can target.
 #[test]
 fn the_rack_route_lists_modulation_targets() {

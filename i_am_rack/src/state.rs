@@ -42,13 +42,16 @@ pub struct RackState {
 }
 
 /// The knobs of the four modulation sources.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SourceSettings {
 	/// LFO rate in hertz.
 	pub lfo_rate: f32,
-	/// 0 sine, 1 triangle, 2 saw, 3 square.
+	/// 0 sine, 1 triangle, 2 saw, 3 square, 4 custom.
 	pub lfo_shape: i32,
+	/// The EditableLfo points: (time 0..1, value 0..1, bend).
+	#[serde(default = "default_lfo_points")]
+	pub lfo_points: Vec<(f32, f32, f32)>,
 	/// Envelope attack in milliseconds.
 	pub env_attack: f32,
 	/// Envelope release in milliseconds.
@@ -70,6 +73,7 @@ impl Default for SourceSettings {
 		Self {
 			lfo_rate: 1.0,
 			lfo_shape: 0,
+			lfo_points: lfo_preset(0),
 			env_attack: 10.0,
 			env_release: 100.0,
 			random_rate: 4.0,
@@ -79,6 +83,31 @@ impl Default for SourceSettings {
 			table_morph: 0.0,
 		}
 	}
+}
+
+fn default_lfo_points() -> Vec<(f32, f32, f32)> {
+	lfo_preset(0)
+}
+
+/// The EditableLfo points for one of the four preset shapes.
+pub fn lfo_preset(shape: i32) -> Vec<(f32, f32, f32)> {
+	let points: &[(f32, f32)] = match shape.rem_euclid(4) {
+		1 => &[(0.0, 0.0), (0.5, 1.0), (1.0, 0.0)],
+		2 => &[(0.0, 0.0), (1.0, 1.0)],
+		3 => &[(0.0, 1.0), (0.5, 1.0), (0.5001, 0.0), (1.0, 0.0)],
+		_ => &[
+			(0.0, 0.5),
+			(0.25, 1.0),
+			(0.5, 0.5),
+			(0.75, 0.0),
+			(1.0, 0.5),
+		],
+	};
+
+	points
+		.iter()
+		.map(|(time, value)| (*time, *value, 0.5))
+		.collect()
 }
 
 /// One source-to-target modulation assignment.

@@ -173,6 +173,7 @@ body{
   border:1px solid #333; border-radius:4px; overflow:hidden;
 }
 .mod-hero svg{width:100%; height:100%; display:block}
+.mod-hero svg.lfo-editor{cursor:crosshair; touch-action:none}
 .mod-card-controls{display:flex; flex-wrap:wrap; gap:0 6px; align-items:flex-start}
 .mod-card-controls .knob-wrap{width:96px}
 .mod-card-controls .knob{width:52px; height:52px}

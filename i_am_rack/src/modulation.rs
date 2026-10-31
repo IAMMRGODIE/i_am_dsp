@@ -46,7 +46,7 @@ impl Modulation {
 			random_target: 0.0,
 			random_value: 0.0,
 			seed: 0x1234_5678,
-			settings,
+			settings: settings.clone(),
 			attack_coeff: 0.0,
 			release_coeff: 0.0,
 			random_coeff: 0.0,
@@ -58,11 +58,11 @@ impl Modulation {
 
 	/// Copies the page's source settings into the running sources.
 	pub fn set_settings(&mut self, settings: SourceSettings) {
-		self.settings = settings;
-		self.lfo = editable_lfo(settings.lfo_shape);
+		self.lfo = editable_lfo(&settings.lfo_points);
 		self.attack_coeff = time_coefficient(settings.env_attack, self.rate);
 		self.release_coeff = time_coefficient(settings.env_release, self.rate);
 		self.random_coeff = time_coefficient(settings.random_smooth, self.rate);
+		self.settings = settings;
 	}
 
 	/// Advances one sample. Returns the four source values on a control tick.
@@ -120,27 +120,14 @@ fn table(shape: i32, morph: f32, phase: f32) -> f32 {
 	first + (second - first) * morph.clamp(0.0, 1.0)
 }
 
-/// Builds the editable LFO points for one of the four preset shapes.
-fn editable_lfo(shape: i32) -> EditableLfo {
-	let points: &[(f32, f32)] = match shape.rem_euclid(4) {
-		1 => &[(0.0, 0.0), (0.5, 1.0), (1.0, 0.0)],
-		2 => &[(0.0, 0.0), (1.0, 1.0)],
-		3 => &[(0.0, 1.0), (0.5, 1.0), (0.5001, 0.0), (1.0, 0.0)],
-		_ => &[
-			(0.0, 0.5),
-			(0.25, 1.0),
-			(0.5, 0.5),
-			(0.75, 0.0),
-			(1.0, 0.5),
-		],
-	};
-
+/// Builds an EditableLfo from the points the page last sent.
+fn editable_lfo(points: &[(f32, f32, f32)]) -> EditableLfo {
 	let mut lfo = EditableLfo::new();
 	lfo.lfo_frequency = 1.0;
 	lfo.one_shot = false;
 
-	for (time, value) in points {
-		lfo.add_point(*time, *value, 0.5);
+	for (time, value, bend) in points {
+		lfo.add_point(*time, *value, *bend);
 	}
 
 	lfo
