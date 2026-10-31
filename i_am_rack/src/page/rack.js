@@ -7,6 +7,8 @@
   var power = document.getElementById("power");
   var panelBody = document.getElementById("panel-body");
   var panelTabs = document.querySelectorAll(".panel-tab");
+  var bottomPanel = document.getElementById("bottom");
+  var splitter = document.getElementById("splitter");
   var activePanel = "sources";
   var panelPages = null;
 
@@ -1916,6 +1918,74 @@
         });
     }, 50);
   }
+
+  function panelLimits() {
+    return { low: 140, high: Math.max(180, window.innerHeight - 150) };
+  }
+
+  function setPanelHeight(height, persist) {
+    var limits = panelLimits();
+    var clamped = Math.max(limits.low, Math.min(limits.high, height));
+    bottomPanel.style.flex = "0 0 " + clamped + "px";
+
+    if (persist) {
+      try { localStorage.setItem("iamrack.panelHeight", String(Math.round(clamped))); } catch (ignore) {}
+    }
+  }
+
+  function resetPanelHeight() {
+    bottomPanel.style.flex = "";
+    try { localStorage.removeItem("iamrack.panelHeight"); } catch (ignore) {}
+  }
+
+  try {
+    var savedPanelHeight = Number(localStorage.getItem("iamrack.panelHeight"));
+    if (savedPanelHeight > 0) setPanelHeight(savedPanelHeight, false);
+  } catch (ignore) {}
+
+  var panelDrag = null;
+
+  splitter.addEventListener("pointerdown", function (event) {
+    if (event.button !== 0) return;
+    panelDrag = {
+      y: event.clientY,
+      height: bottomPanel.getBoundingClientRect().height
+    };
+    splitter.classList.add("dragging");
+    splitter.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  splitter.addEventListener("pointermove", function (event) {
+    if (!panelDrag) return;
+    setPanelHeight(panelDrag.height - (event.clientY - panelDrag.y), false);
+    event.preventDefault();
+  });
+
+  function stopPanelDrag(event) {
+    if (!panelDrag) return;
+    panelDrag = null;
+    splitter.classList.remove("dragging");
+    setPanelHeight(bottomPanel.getBoundingClientRect().height, true);
+    try { splitter.releasePointerCapture(event.pointerId); } catch (ignore) {}
+  }
+
+  splitter.addEventListener("pointerup", stopPanelDrag);
+  splitter.addEventListener("pointercancel", stopPanelDrag);
+  splitter.addEventListener("dblclick", resetPanelHeight);
+  splitter.addEventListener("keydown", function (event) {
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      var delta = event.key === "ArrowUp" ? 20 : -20;
+      setPanelHeight(bottomPanel.getBoundingClientRect().height + delta, true);
+      event.preventDefault();
+    }
+  });
+
+  window.addEventListener("resize", function () {
+    if (bottomPanel.style.flex) {
+      setPanelHeight(bottomPanel.getBoundingClientRect().height, false);
+    }
+  });
 
   panelTabs.forEach(function (tab) {
     tab.addEventListener("click", function () {

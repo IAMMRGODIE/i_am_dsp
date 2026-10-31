@@ -49,6 +49,14 @@ body{
   flex:1; min-height:0; overflow-y:auto; overflow-x:hidden;
   padding:0 2px 8px;
 }
+.splitter{
+  flex:0 0 8px; display:flex; align-items:center; justify-content:center;
+  cursor:ns-resize; touch-action:none;
+}
+.splitter::before{
+  content:""; width:46px; height:2px; border-radius:1px; background:#3a3a3a;
+}
+.splitter:hover::before,.splitter.dragging::before{background:var(--mod)}
 .bottom{
   flex:0 0 clamp(200px, 32vh, 340px); min-height:0; display:flex; flex-direction:column;
   background:#202020; border:1px solid #333; border-radius:8px; overflow:hidden;
