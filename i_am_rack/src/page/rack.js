@@ -14,6 +14,7 @@
   var paintCrossover = null;
   var collapsedBands = Object.create(null);
   var collapsedSources = Object.create(null);
+  var collapsedModules = Object.create(null);
   var slotScroll = Object.create(null);
   var sourceScroll = 0;
   var livePainters = [];
@@ -460,6 +461,8 @@
       kinds: kinds,
       kind: module.kind,
       dragData: bandIndex + "." + slotIndex,
+      collapsed: !!collapsedModules[module.id],
+      onCollapse: function (next) { collapsedModules[module.id] = next; },
       onKind: function (kind) {
         sendNow("slot." + bandIndex + "." + slotIndex + ".kind", kind).then(load);
       },

@@ -563,6 +563,7 @@
     var card = document.createElement("section");
     card.className = "mcard";
     card.style.setProperty("--accent", options.accent || "#8a6aff");
+    if (options.collapsed) card.classList.add("collapsed");
 
     var values = {};
     (options.controls || []).forEach(function (spec) {
@@ -596,14 +597,15 @@
     var collapse = document.createElement("button");
     collapse.type = "button";
     collapse.className = "mcard-collapse";
-    collapse.textContent = "\u25BE";
-    collapse.title = "Collapse";
-    collapse.setAttribute("aria-label", "Collapse");
+    collapse.textContent = options.collapsed ? "\u25B8" : "\u25BE";
+    collapse.title = options.collapsed ? "Expand" : "Collapse";
+    collapse.setAttribute("aria-label", collapse.title);
     collapse.addEventListener("click", function () {
       var collapsed = card.classList.toggle("collapsed");
       collapse.textContent = collapsed ? "\u25B8" : "\u25BE";
       collapse.title = collapsed ? "Expand" : "Collapse";
       collapse.setAttribute("aria-label", collapse.title);
+      if (options.onCollapse) options.onCollapse(collapsed);
     });
     head.appendChild(collapse);
 

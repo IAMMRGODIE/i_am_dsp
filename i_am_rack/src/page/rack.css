@@ -139,6 +139,8 @@ body{
   color:var(--text3); text-transform:uppercase;
 }
 .slot .mcard{width:100%}
+.slot:has(.mcard.collapsed){flex:0 0 220px; min-width:220px}
+.slot .mcard.collapsed .mcard-setting{display:none}
 .slot.drop .slot-empty,
 .slot.drop .mcard{outline:1px dashed var(--mod); outline-offset:2px}
 .slot-empty{
@@ -214,7 +216,8 @@ body{
 .mod-remove:hover{color:#ff7a7a; background:rgba(255,255,255,.07)}
 .mod-card.collapsed .mod-hero,
 .mod-card.collapsed .mod-card-controls{display:none}
-.mod-card.collapsed{padding-bottom:0}
+.mod-card.collapsed{padding-bottom:0; flex:0 0 220px; min-width:220px}
+.mod-card.collapsed .mcard-setting{display:none}
 .mod-card.bypassed .mod-hero,
 .mod-card.bypassed .mod-card-controls{opacity:.45}
 .mod-hero{
