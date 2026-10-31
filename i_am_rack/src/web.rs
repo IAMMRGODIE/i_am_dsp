@@ -25,7 +25,7 @@ use crate::crossover::sanitize;
 use crate::module::ModuleKind;
 use crate::shared::RackShared;
 use crate::state::{
-	Assignment, AssignmentMode, MACRO_BASE, ModuleState, RackState, SourceKind,
+	AbState, Assignment, AssignmentMode, MACRO_BASE, ModuleState, RackState, SourceKind,
 	SourceSettings, STATE_VERSION, Target, lfo_preset,
 };
 
@@ -143,11 +143,6 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		.history
 		.lock()
 		.unwrap_or_else(|poisoned| poisoned.into_inner());
-	let ab = shared
-		.ab
-		.lock()
-		.unwrap_or_else(|poisoned| poisoned.into_inner());
-
 	let sources = state
 		.source_slots
 		.iter()
@@ -211,12 +206,13 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		"assignments": assignments,
 		"sources": sources,
 		"macros": state.macros,
+		"macro_names": state.macro_names,
 		"history": {
 			"undo": history.can_undo(),
 			"redo": history.can_redo(),
 		},
 		"ab": {
-			"active": ab.letter(),
+			"active": state.ab.letter(),
 		},
 		"automation": (0..crate::state::AUTOMATION_SLOTS)
 			.map(|slot| json!({
@@ -481,14 +477,10 @@ fn special_command(
 			Some(command_response(true))
 		},
 		"ab.toggle" => {
-			shared
-				.ab
-				.lock()
-				.unwrap_or_else(|poisoned| poisoned.into_inner())
-				.toggle(state);
+			state.toggle_ab();
 
 			// A/B is a compare view, not an edit: an undo step from the other
-			// slot's timeline would restore a state the user cannot see.
+			// side's timeline would restore a state the user cannot see.
 			shared.clear_history();
 			commit(shared, state);
 			Some(command_response(true))
@@ -551,7 +543,28 @@ fn import_state(
 	}
 
 	state.migrate();
+	normalize_state(&mut state, rate, shared)?;
 
+	// The other A/B side is a full rack too; it gets the same treatment, but
+	// never keeps a comparison of its own.
+	if let Some(mut other) = state.ab.other.take() {
+		if other.version > STATE_VERSION {
+			return None;
+		}
+
+		other.migrate();
+		normalize_state(&mut other, rate, shared)?;
+		other.ab = AbState::default();
+		state.ab.other = Some(other);
+	}
+
+	state.normalize_slots();
+	Some(state)
+}
+
+/// Clamps every editable field of a (possibly old) state to what this build
+/// accepts, and drops references that no longer resolve.
+fn normalize_state(state: &mut RackState, rate: usize, shared: &RackShared) -> Option<()> {
 	let (low, high) = sanitize(rate, state.split_low, state.split_high);
 	state.split_low = low;
 	state.split_high = high;
@@ -581,6 +594,10 @@ fn import_state(
 
 	for value in &mut state.macros {
 		*value = value.clamp(0.0, 1.0);
+	}
+
+	for name in &mut state.macro_names {
+		*name = clean_name(name);
 	}
 
 	for value in &mut state.automation_values {
@@ -625,8 +642,16 @@ fn import_state(
 		}
 	}
 
-	state.normalize_slots();
-	Some(state)
+	Some(())
+}
+
+/// The label and preset form of a macro name: trimmed, printable and short.
+fn clean_name(raw: &str) -> String {
+	raw.trim()
+		.chars()
+		.filter(|character| !character.is_control())
+		.take(24)
+		.collect()
 }
 
 /// Keeps an imported source's knobs inside the ranges the commands enforce.
@@ -963,6 +988,19 @@ fn apply_automation(
 }
 
 fn apply_macro(state: &mut RackState, rest: &str, raw: &str) -> bool {
+	if let Some((index, "name")) = rest.split_once('.') {
+		let Ok(index) = index.parse::<usize>() else {
+			return false;
+		};
+
+		let Some(name) = state.macro_names.get_mut(index) else {
+			return false;
+		};
+
+		*name = clean_name(raw);
+		return true;
+	}
+
 	let Ok(index) = rest.parse::<usize>() else {
 		return false;
 	};

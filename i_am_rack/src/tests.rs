@@ -634,7 +634,7 @@ fn legacy_sources_migrate_to_slots() {
 
 	state.migrate();
 
-	assert_eq!(state.version, 8);
+	assert_eq!(state.version, crate::state::STATE_VERSION);
 	assert_eq!(state.source_slots.len(), 4);
 	assert_eq!(state.source_slots[0].kind, SourceKind::Lfo);
 	assert!((state.source_slots[0].settings.lfo_rate - 3.0).abs() < 1e-6);
@@ -1252,4 +1252,121 @@ fn a_drag_is_one_undo_step() {
 		rack.state().bands[0].slots[0].as_ref().unwrap().params["cutoff"],
 		before
 	);
+}
+
+/// A macro can be renamed, and the name reaches the page and the parameter
+/// metadata while the stable host identifier stays macroN.
+#[test]
+fn macro_names_can_be_changed() {
+	let rack = Rack::default();
+
+	command(&rack, "macro.0.name=Kick");
+
+	assert_eq!(rack.state().macro_names[0], "Kick");
+
+	let json: serde_json::Value =
+		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	assert_eq!(json["macro_names"][0], "Kick");
+
+	let parameters = rack.get_parameters();
+	let macro1 = parameters
+		.iter()
+		.find(|parameter| parameter.identifier == "macro1")
+		.expect("macro1");
+
+	assert_eq!(macro1.meta.display_name.as_deref(), Some("Kick"));
+}
+
+/// An unnamed macro falls back to the page's "M1" label.
+#[test]
+fn clearing_a_macro_name_restores_the_host_name() {
+	let rack = Rack::default();
+
+	command(&rack, "macro.0.name=Kick");
+	command(&rack, "macro.0.name=");
+
+	assert_eq!(rack.state().macro_names[0], "");
+
+	let parameters = rack.get_parameters();
+	let macro1 = parameters
+		.iter()
+		.find(|parameter| parameter.identifier == "macro1")
+		.expect("macro1");
+
+	assert_eq!(macro1.meta.display_name, None);
+}
+
+/// Both A/B sides travel in the host state, so reopening a project keeps them.
+#[test]
+fn ab_is_saved_with_the_state() {
+	let rack = Rack::default();
+
+	command(&rack, "0.cutoff=4000");
+	command(&rack, "ab.toggle=1");
+	command(&rack, "0.cutoff=800");
+
+	let state = rack.state();
+
+	assert_eq!(state.ab.letter(), "B");
+	assert_eq!(
+		state
+			.ab
+			.other
+			.as_ref()
+			.expect("the A side")
+			.bands[0]
+			.slots[0]
+			.as_ref()
+			.unwrap()
+			.params["cutoff"],
+		4_000.0
+	);
+
+	let mut reopened = Rack::default();
+	let bytes = to_binary(&state).expect("the saved state");
+	assert!(reopened.set_parameter("rack_state", SetValue::Serialized(bytes)));
+
+	let reopened = reopened.state();
+
+	assert_eq!(reopened.ab.letter(), "B");
+	assert_eq!(
+		reopened
+			.ab
+			.other
+			.as_ref()
+			.expect("the A side")
+			.bands[0]
+			.slots[0]
+			.as_ref()
+			.unwrap()
+			.params["cutoff"],
+		4_000.0
+	);
+}
+
+/// A version-8 file without macro names or A/B still loads and migrates.
+#[test]
+fn a_version_8_state_migrates() {
+	let rack = Rack::default();
+	let mut preset = RackState::initial();
+	preset.version = 8;
+
+	let mut value = serde_json::to_value(&preset).expect("the state value");
+	let object = value.as_object_mut().expect("the state object");
+	object.remove("macro_names");
+	object.remove("ab");
+
+	let body = format!(
+		"preset.load={}",
+		serde_json::to_string(&value).expect("the preset JSON")
+	);
+	let response = command(&rack, &body);
+
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let state = rack.state();
+
+	assert_eq!(state.version, crate::state::STATE_VERSION);
+	assert_eq!(state.macro_names[0], "");
+	assert_eq!(state.ab.letter(), "A");
 }

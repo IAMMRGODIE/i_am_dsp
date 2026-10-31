@@ -114,48 +114,11 @@ impl EditHistory {
 	}
 }
 
-/// The A/B comparison slots.
-///
-/// The live state is whichever slot is active; the other slot is a snapshot.
-/// Switching stores the live state and loads the other one, so both sides keep
-/// their edits without doubling the state the engine applies.
-#[derive(Default)]
-pub(crate) struct AbCompare {
-	/// 0 is A, 1 is B.
-	pub active: usize,
-	/// What the slot that is not live holds; empty until the first switch.
-	pub other: Option<RackState>,
-}
-
-impl AbCompare {
-	/// Switches sides and returns whether the live state was replaced.
-	pub fn toggle(&mut self, live: &mut RackState) -> bool {
-		match self.other.take() {
-			Some(other) => {
-				self.other = Some(std::mem::replace(live, other));
-			},
-			None => {
-				self.other = Some(live.clone());
-			},
-		}
-
-		self.active = 1 - self.active;
-		true
-	}
-
-	/// The letter the page shows.
-	pub fn letter(&self) -> &'static str {
-		if self.active == 0 { "A" } else { "B" }
-	}
-}
-
 pub(crate) struct RackShared {
 	/// The editable truth. The engine catches up when dirty is set.
 	pub state: Mutex<RackState>,
 	/// Undo/redo snapshots of the state above.
 	pub history: Mutex<EditHistory>,
-	/// The A/B comparison slots.
-	pub ab: Mutex<AbCompare>,
 	/// The controls of each kind, built once from the effect metadata.
 	pub schemas: BTreeMap<ModuleKind, Vec<Control>>,
 	/// Set by a page command, cleared by the audio thread after applying it.
@@ -177,21 +140,8 @@ impl RackShared {
 			.unwrap_or_else(|poisoned| poisoned.into_inner())
 	}
 
-	/// Forgets undo steps and the other A/B side, e.g. when the host loads a
-	/// project over the live state.
-	pub fn reset_edit_slots(&self) {
-		self.history
-			.lock()
-			.unwrap_or_else(|poisoned| poisoned.into_inner())
-			.clear();
-		*self
-			.ab
-			.lock()
-			.unwrap_or_else(|poisoned| poisoned.into_inner()) = AbCompare::default();
-	}
-
-	/// Clears redo (and undo) after an A/B switch, where the other slot's
-	/// timeline would not make sense.
+	/// Forgets every step, e.g. when the host loads a project or an A/B
+	/// switch makes the other side's timeline meaningless.
 	pub fn clear_history(&self) {
 		self.history
 			.lock()

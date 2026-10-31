@@ -9,8 +9,9 @@
 //! is also what a project save carries and what a preset file round-trips.
 //!
 //! The page edits the state over /rack-command and reads it back from /rack.
-//! Undo/redo, A/B compare and preset import live in shared memory beside the
-//! state, so they never leak into the host parameter table.
+//! Undo/redo and preset import live in shared memory beside the state; the A/B
+//! comparison and the macro names are part of the state itself, so a project
+//! save carries them without adding a single host parameter.
 
 mod crossover;
 mod engine;
@@ -109,7 +110,6 @@ impl Default for Rack {
 		let shared = Arc::new(RackShared {
 			state: Mutex::new(state.clone()),
 			history: Mutex::new(shared::EditHistory::default()),
-			ab: Mutex::new(shared::AbCompare::default()),
 			schemas,
 			dirty: AtomicBool::new(false),
 			rate: AtomicUsize::new(DEFAULT_SAMPLE_RATE),
@@ -177,7 +177,20 @@ impl Parameters for Rack {
 			let Some(identifier) = self.params.query_param_id(index) else {
 				continue;
 			};
-			let meta = self.params.query_meta(index).unwrap_or_default();
+			let mut meta = self.params.query_meta(index).unwrap_or_default();
+
+			// A renamed macro travels with the parameter metadata for any host
+			// that reads the parameter table again; the stable identifier stays
+			// `macroN`, so automation lanes survive a rename.
+			if let Some(name) = identifier
+				.strip_prefix("macro")
+				.and_then(|index| index.parse::<usize>().ok())
+				.filter(|index| (1..=8).contains(index))
+				.and_then(|index| state.macro_names.get(index - 1))
+				.filter(|name| !name.is_empty())
+			{
+				meta.display_name = Some(std::borrow::Cow::Owned(name.clone()));
+			}
 
 			let Some(atomic) = self.params.get_by_index(index) else {
 				continue;
@@ -215,7 +228,7 @@ impl Parameters for Rack {
 			};
 
 			state.migrate();
-			self.shared.reset_edit_slots();
+			self.shared.clear_history();
 			self.shared.sync_params(&state);
 			*self.shared.lock() = state;
 			self.shared.dirty.store(true, Ordering::Release);

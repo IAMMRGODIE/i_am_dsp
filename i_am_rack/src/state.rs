@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::module::{self, ModuleKind};
 
 /// The version this build writes.
-pub const STATE_VERSION: u32 = 8;
+pub const STATE_VERSION: u32 = 9;
 /// Assignment source id offset for the eight macros.
 pub const MACRO_BASE: usize = 1_000_000_000;
 /// How many fixed automation parameters the host exposes.
@@ -46,6 +46,12 @@ pub struct RackState {
 	/// Eight macro values, 0..1; assignments can use them as sources.
 	#[serde(default)]
 	pub macros: [f32; 8],
+	/// What each macro is called; empty means the page shows "M1".."M8".
+	#[serde(default = "default_macro_names")]
+	pub macro_names: [String; 8],
+	/// The other side of the A/B comparison.
+	#[serde(default)]
+	pub ab: AbState,
 	/// Fixed host automation bindings.
 	#[serde(default = "default_automation")]
 	pub automation: [Option<Target>; AUTOMATION_SLOTS],
@@ -176,6 +182,28 @@ impl SourceKind {
 			Self::Midi => "MIDI",
 		}
 	}
+}
+
+/// The A/B comparison: the live rack is one side, this holds the other.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AbState {
+	/// 0 is A, 1 is B.
+	pub active: u8,
+	/// The other side, always with its own comparison cleared.
+	#[serde(default)]
+	pub other: Option<Box<RackState>>,
+}
+
+impl AbState {
+	/// The letter the page shows for the live side.
+	pub fn letter(&self) -> &'static str {
+		if self.active == 0 { "A" } else { "B" }
+	}
+}
+
+/// The default, unnamed macro labels.
+fn default_macro_names() -> [String; 8] {
+	std::array::from_fn(|_| String::new())
 }
 
 /// One modulation-source slot.
@@ -433,6 +461,12 @@ impl RackState {
 			}
 		}
 
+		// The other A/B side is a full state, but never a nested comparison.
+		if let Some(other) = self.ab.other.as_deref_mut() {
+			other.ab = AbState::default();
+			other.version = STATE_VERSION;
+		}
+
 		self.normalize_slots();
 		self.version = STATE_VERSION;
 	}
@@ -481,8 +515,43 @@ impl RackState {
 			source_slots: default_source_slots(),
 			assignments: vec![None; 8],
 			macros: [0.0; 8],
+			macro_names: default_macro_names(),
+			ab: AbState::default(),
 			automation: default_automation(),
 			automation_values: [0.0; AUTOMATION_SLOTS],
 		}
+	}
+
+	/// Switches the live state with the other A/B side.
+	///
+	/// The first switch copies the live rack into the other side; later ones
+	/// swap, so each side keeps its own edits. Both sides are plain states, so a
+	/// project save carries the comparison with it.
+	pub fn toggle_ab(&mut self) {
+		let current = self.side_snapshot();
+		let active = 1 - self.ab.active;
+
+		match self.ab.other.take() {
+			Some(other) => {
+				let mut incoming = *other;
+				incoming.ab = AbState {
+					active,
+					other: Some(Box::new(current)),
+				};
+				*self = incoming;
+			},
+			None => {
+				self.ab.other = Some(Box::new(current));
+				self.ab.active = active;
+			},
+		}
+	}
+
+	/// A copy of the live side with comparison metadata cleared, so the other
+	/// side never nests a second comparison.
+	fn side_snapshot(&self) -> Self {
+		let mut copy = self.clone();
+		copy.ab = AbState::default();
+		copy
 	}
 }

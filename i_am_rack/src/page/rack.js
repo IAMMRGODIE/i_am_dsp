@@ -1175,16 +1175,67 @@
     }));
   }
 
+  function makeMacroName(knob, slot, fallback) {
+    var label = knob.querySelector(".knob-label");
+    if (!label) return;
+
+    label.title = "Double-click to rename";
+    label.classList.add("macro-name");
+    label.addEventListener("dblclick", function (event) {
+      event.preventDefault();
+
+      var previous = label.textContent;
+      var input = document.createElement("input");
+      input.className = "macro-rename";
+      input.type = "text";
+      input.maxLength = 24;
+      input.value = previous === fallback ? "" : previous;
+      input.setAttribute("aria-label", "Macro " + (slot + 1) + " name");
+      label.textContent = "";
+      label.appendChild(input);
+      input.focus();
+      input.select();
+
+      var done = false;
+
+      function finish(commit) {
+        if (done) return;
+        done = true;
+
+        var next = input.value.trim().slice(0, 24);
+        label.textContent = commit ? (next || fallback) : previous;
+
+        if (commit) {
+          sendNow("macro." + slot + ".name", next).then(load);
+        }
+      }
+
+      input.addEventListener("blur", function () { finish(true); });
+      input.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          finish(true);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          finish(false);
+        }
+      });
+    });
+  }
+
   function makeMacroBar(data) {
     var section = el("section", "macrobar");
     section.appendChild(el("span", "macro-label", "MACROS"));
 
     var controls = el("div", "macro-controls");
     var macros = data.macros || [];
+    var names = data.macro_names || [];
 
     for (var index = 0; index < 8; index++) {
       (function (slot) {
         var value = typeof macros[slot] === "number" ? macros[slot] : 0;
+        var fallback = "M" + (slot + 1);
+        var name = names[slot] || fallback;
 
         var item = el("div", "macro-item");
         var handle = el("span", "macro-drag", "\u28FF");
@@ -1196,10 +1247,9 @@
           event.dataTransfer.effectAllowed = "link";
         });
 
-        item.appendChild(handle);
-        item.appendChild(window.IAmCard.control({
+        var knob = window.IAmCard.control({
           id: "macro." + slot,
-          label: "M" + (slot + 1),
+          label: name,
           kind: "float",
           min: 0,
           max: 1,
@@ -1207,7 +1257,12 @@
           unit: "percent"
         }, value, function (_, next) {
           queue("macro." + slot, next);
-        }));
+        });
+
+        makeMacroName(knob, slot, fallback);
+
+        item.appendChild(handle);
+        item.appendChild(knob);
         controls.appendChild(item);
       })(index);
     }
@@ -1896,8 +1951,11 @@
       sourceValues.push(String(entry.id));
     });
 
+    var macroNames = data.macro_names || [];
+
     for (var macro = 1; macro <= 8; macro++) {
-      sourceNames.push("Macro " + macro);
+      var macroName = macroNames[macro - 1];
+      sourceNames.push(macroName ? macroName : "Macro " + macro);
       sourceValues.push("macro" + macro);
     }
 

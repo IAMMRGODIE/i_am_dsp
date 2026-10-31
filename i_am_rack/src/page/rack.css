@@ -104,6 +104,15 @@ body{
 .macro-controls{display:flex; flex:1; justify-content:space-between; gap:2px}
 .macro-controls .knob-wrap{width:96px}
 .macro-controls .knob{width:54px; height:54px}
+.macro-controls .knob-label{
+  max-width:92px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  cursor:text;
+}
+.macro-rename{
+  width:78px; padding:0 4px; font:inherit; font-size:11px; line-height:16px;
+  color:var(--text1); background:#1c1c1c; border:1px solid var(--accent);
+  border-radius:3px; text-align:center; outline:none;
+}
 
 .crossover{
   display:flex; align-items:center; gap:14px;
