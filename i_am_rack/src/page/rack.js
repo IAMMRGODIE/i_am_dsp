@@ -523,7 +523,7 @@
     }
 
     return raw.map(function (point) {
-      return { time: point[0], value: point[1], bend: 0.5 };
+      return { time: point[0], value: point[1], bend: 0 };
     });
   }
 
@@ -533,7 +533,7 @@
         return {
           time: Number(point[0]),
           value: Number(point[1]),
-          bend: Number(point[2] === undefined ? 0.5 : point[2])
+          bend: Number(point[2] === undefined ? 0 : point[2])
         };
       });
     }
@@ -546,6 +546,11 @@
       return point.time.toFixed(4) + ":" + point.value.toFixed(4) +
         ":" + point.bend.toFixed(4);
     }).join(";");
+  }
+
+  function lfoBend(t, bend) {
+    if (Math.abs(bend) < 0.0001) return t;
+    return (Math.exp(t * bend) - 1) / (Math.exp(bend) - 1);
   }
 
   function drawLfo(svg, lfo) {
@@ -591,10 +596,33 @@
       return null;
     }
 
+    function bendAt(event) {
+      var position = eventPoint(event);
+      var points = lfo.points.slice().sort(function (a, b) {
+        return a.time - b.time;
+      });
+
+      for (var i = 0; i < points.length - 1; i++) {
+        var point = points[i];
+        var next = points[i + 1];
+        var time = (point.time + next.time) / 2;
+        var value = point.value + (next.value - point.value) * lfoBend(0.5, point.bend);
+        var x = 8 + time * 284;
+        var y = 32 - value * 22;
+
+        if (Math.abs(x - position.x) < 8 && Math.abs(y - position.y) < 8) {
+          return point;
+        }
+      }
+
+      return null;
+    }
+
     function paint() {
       svg.textContent = "";
+
       svg.appendChild(svgNode("line", {
-        x1: 8, y1: 32, x2: 292, y2: 32,
+        x1: 8, y1: 54, x2: 292, y2: 54,
         stroke: "#333", "stroke-width": "1", "stroke-dasharray": "2 4"
       }));
 
@@ -604,9 +632,23 @@
       var path = "";
 
       for (var i = 0; i < points.length; i++) {
-        var x = 8 + points[i].time * 284;
-        var y = 32 - points[i].value * 22;
-        path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+        if (i === 0) {
+          path = "M " + (8 + points[i].time * 284).toFixed(1) + " " +
+            (32 - points[i].value * 22).toFixed(1);
+          continue;
+        }
+
+        var previous = points[i - 1];
+        var point = points[i];
+
+        for (var step = 1; step <= 14; step++) {
+          var unit = step / 14;
+          var time = previous.time + (point.time - previous.time) * unit;
+          var value = previous.value +
+            (point.value - previous.value) * lfoBend(unit, previous.bend);
+          path += " L " + (8 + time * 284).toFixed(1) + " " +
+            (32 - value * 22).toFixed(1);
+        }
       }
 
       if (points.length > 1) {
@@ -625,6 +667,21 @@
         circle.style.pointerEvents = "none";
         svg.appendChild(circle);
       });
+
+      for (var bendIndex = 0; bendIndex < points.length - 1; bendIndex++) {
+        var start = points[bendIndex];
+        var end = points[bendIndex + 1];
+        var bendTime = (start.time + end.time) / 2;
+        var bendValue = start.value +
+          (end.value - start.value) * lfoBend(0.5, start.bend);
+        var handle = svgNode("circle", {
+          cx: (8 + bendTime * 284).toFixed(1),
+          cy: (32 - bendValue * 22).toFixed(1),
+          r: "2.6", fill: "none", stroke: "#8fb8ff", "stroke-width": "1.4"
+        });
+        handle.style.pointerEvents = "none";
+        svg.appendChild(handle);
+      }
     }
 
     var drag = null;
@@ -647,14 +704,22 @@
 
       var point = pointAt(event);
 
-      if (!point) {
-        var position = eventPoint(event);
-        point = { time: position.time, value: position.value, bend: 0.5 };
-        lfo.points.push(point);
-        lfo.points.sort(function (a, b) { return a.time - b.time; });
+      if (point) {
+        drag = { kind: "point", point: point };
+      } else {
+        var bend = bendAt(event);
+
+        if (bend) {
+          drag = { kind: "bend", point: bend };
+        } else {
+          var position = eventPoint(event);
+          point = { time: position.time, value: position.value, bend: 0 };
+          lfo.points.push(point);
+          lfo.points.sort(function (a, b) { return a.time - b.time; });
+          drag = { kind: "point", point: point };
+        }
       }
 
-      drag = point;
       svg.setPointerCapture(event.pointerId);
       paint();
       event.preventDefault();
@@ -664,9 +729,15 @@
       if (!drag) return;
 
       var position = eventPoint(event);
-      drag.time = position.time;
-      drag.value = position.value;
-      lfo.points.sort(function (a, b) { return a.time - b.time; });
+
+      if (drag.kind === "point") {
+        drag.point.time = position.time;
+        drag.point.value = position.value;
+        lfo.points.sort(function (a, b) { return a.time - b.time; });
+      } else {
+        drag.point.bend = position.value * 20 - 10;
+      }
+
       paint();
       event.preventDefault();
     };

@@ -437,7 +437,7 @@ fn lfo_points_and_presets_edit_the_state() {
 
 	let response = command(
 		&rack,
-		"source.lfo.points=0:0.5:0.5;0.25:0.1:0.5;0.5:0.9:0.5;0.75:0.2:0.5;1:0.5:0.5",
+		"source.lfo.points=0:0.5:-2.5;0.25:0.1:3.5;0.5:0.9:0;0.75:0.2:0;1:0.5:0",
 	);
 
 	assert_eq!(response.body, b"{\"ok\":true}");
@@ -447,6 +447,7 @@ fn lfo_points_and_presets_edit_the_state() {
 	assert_eq!(state.sources.lfo_shape, 4);
 	assert_eq!(state.sources.lfo_points.len(), 5);
 	assert!((state.sources.lfo_points[1].1 - 0.1).abs() < 1e-6);
+	assert!((state.sources.lfo_points[0].2 + 2.5).abs() < 1e-6);
 
 	command(&rack, "source.lfo.shape=1");
 
@@ -454,7 +455,7 @@ fn lfo_points_and_presets_edit_the_state() {
 
 	assert_eq!(state.sources.lfo_shape, 1);
 	assert_eq!(state.sources.lfo_points.len(), 3);
-	assert_eq!(state.sources.lfo_points[1], (0.5, 1.0, 0.5));
+	assert_eq!(state.sources.lfo_points[1], (0.5, 1.0, 0.0));
 }
 
 /// The page gets the list of parameters an assignment can target.

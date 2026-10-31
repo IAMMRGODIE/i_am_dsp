@@ -637,7 +637,7 @@ fn parse_lfo_points(raw: &str) -> Option<Vec<(f32, f32, f32)>> {
 			return None;
 		}
 
-		points.push((time.clamp(0.0, 1.0), value.clamp(0.0, 1.0), bend.clamp(0.0, 1.0)));
+		points.push((time.clamp(0.0, 1.0), value.clamp(0.0, 1.0), bend.clamp(-10.0, 10.0)));
 	}
 
 	points.sort_by(|a, b| a.0.total_cmp(&b.0));

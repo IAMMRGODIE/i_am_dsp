@@ -106,7 +106,7 @@ pub fn lfo_preset(shape: i32) -> Vec<(f32, f32, f32)> {
 
 	points
 		.iter()
-		.map(|(time, value)| (*time, *value, 0.5))
+		.map(|(time, value)| (*time, *value, 0.0))
 		.collect()
 }
 
