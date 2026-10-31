@@ -483,7 +483,14 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		}
 
 		let id = state.next_id();
-		state.bands[band].slots.push(Some(ModuleState::new(id, kind)));
+		let module = Some(ModuleState::new(id, kind));
+
+		if let Some(empty) = state.bands[band].slots.iter_mut().find(|slot| slot.is_none()) {
+			*empty = module;
+		} else {
+			state.bands[band].slots.push(module);
+		}
+
 		return true;
 	}
 

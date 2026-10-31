@@ -283,14 +283,15 @@ fn a_band_can_add_more_than_two_modules() {
 	assert_eq!(response.body, b"{\"ok\":true}");
 
 	let state = rack.state();
-	assert_eq!(state.bands[0].slots.len(), 3);
-	assert!(state.bands[0].slots[2].is_some());
+	assert_eq!(state.bands[0].slots.len(), 2);
+	assert!(state.bands[0].slots[1].is_some());
 
 	let response = command(&rack, "slot.0.add=Gain");
 	assert_eq!(response.body, b"{\"ok\":true}");
 
 	let state = rack.state();
-	assert_eq!(state.bands[0].slots.len(), 4);
+	assert_eq!(state.bands[0].slots.len(), 3);
+	assert!(state.bands[0].slots[2].is_some());
 }
 
 /// A module can be dragged into another slot, swapping with whatever is there.
