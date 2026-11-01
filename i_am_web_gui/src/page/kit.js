@@ -968,99 +968,28 @@ var ENV_MAX = 512;
   }
 
   function buildMode(spec) {
-    var el = element("div", "mode");
-    var buttons = [];
+    var el = element("div", "mode mode-drop");
 
     var control = { spec: spec, value: spec.default, el: null, paint: function () {} };
     controls[spec.id] = control;
 
-    var choices = spec.choices || [];
+    var caption = element("span", "header-caption");
+    caption.textContent = spec.label || "";
+    el.appendChild(caption);
 
-    // A long switch is a drop-down: six segments would either squeeze the title
-    // or take a row of their own, and neither is worth the space.
-    if (choices.length > 3) {
-      el.classList.add("mode-drop");
-
-      var caption = element("span", "header-caption");
-      caption.textContent = spec.label || "";
-      el.appendChild(caption);
-
-      if (window.IAmCard && IAmCard.choiceHandle) {
-        var handle = IAmCard.choiceHandle(spec, control.value, function (_, value) {
-          setValue(control, value, true);
-        });
-        handle.el.className = "mcard-select mode-select";
-        handle.el.setAttribute("aria-label", spec.label || "Mode");
-        control.el = el;
-        control.paint = function () {
-          var active = Math.round(control.value);
-          handle.set(active);
-          if (spec.id === face.mode) applyVisibility(active);
-        };
-
-        el.appendChild(handle.el);
-        control.paint();
-        return el;
-      }
-
-      var select = document.createElement("select");
-      select.className = "mode-select";
-      select.setAttribute("aria-label", spec.label || "Mode");
-
-      choices.forEach(function (name, index) {
-        var option = document.createElement("option");
-        option.value = String(index);
-        option.textContent = name;
-        select.appendChild(option);
-      });
-
-      select.addEventListener("change", function () {
-        control.value = parseInt(select.value, 10);
-        control.paint();
-        if (spec.id === face.mode) applyVisibility(control.value);
-        markDirty();
-        if (window.ipc) window.ipc.postMessage(spec.id + "=" + control.value);
-      });
-
-      control.el = el;
-      control.paint = function () {
-        var active = Math.round(control.value);
-        select.value = String(active);
-        if (spec.id === face.mode) applyVisibility(active);
-      };
-
-      el.appendChild(select);
-      control.paint();
-      return el;
-    }
-
+    var handle = IAmCard.choiceHandle(spec, control.value, function (_, value) {
+      setValue(control, value, true);
+    });
+    handle.el.className = "mcard-select mode-select";
+    handle.el.setAttribute("aria-label", spec.label || "Mode");
+    control.el = el;
     control.paint = function () {
       var active = Math.round(control.value);
-
-      buttons.forEach(function (button, index) {
-        button.classList.toggle("active", index === active);
-        button.setAttribute("aria-pressed", index === active ? "true" : "false");
-      });
-
+      handle.set(active);
       if (spec.id === face.mode) applyVisibility(active);
     };
 
-    (spec.choices || []).forEach(function (name, index) {
-      var button = element("button", "mode-choice");
-      button.type = "button";
-      button.textContent = name;
-      button.addEventListener("click", function () {
-        control.value = index;
-        control.paint();
-        if (spec.id === face.mode) applyVisibility(index);
-        markDirty();
-        if (window.ipc) window.ipc.postMessage(spec.id + "=" + index);
-      });
-      buttons.push(button);
-      el.appendChild(button);
-    });
-
-    control.el = el;
+    el.appendChild(handle.el);
     control.paint();
     return el;
   }
