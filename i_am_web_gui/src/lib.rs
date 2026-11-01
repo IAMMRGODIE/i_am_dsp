@@ -498,3 +498,81 @@ macro_rules! web_plugin {
 #[cfg(test)]
 #[unsafe(no_mangle)]
 static clap_entry: [u8; 64] = [0; 64];
+
+#[cfg(test)]
+mod ui_contract_tests {
+	use super::*;
+
+	/// Both pages must load the same card assets, and the card first: the
+	/// faceplate script delegates to the card, so the card has to exist before
+	/// the page's own script runs.
+	#[test]
+	fn both_pages_load_the_shared_card() {
+		let face = PageAssets::FACEPLATE.html;
+
+		assert!(face.contains("/card.css"));
+		assert!(face.contains("/card.js"));
+		assert!(
+			face.find("/card.js").unwrap() < face.find("/kit.js").unwrap(),
+			"card.js must load before kit.js"
+		);
+	}
+
+	/// The faceplate no longer owns a control implementation; every widget is
+	/// a card handle. Catching an accidental re-implementation here is cheaper
+	/// than noticing the two pages drift apart in a screenshot.
+	#[test]
+	fn the_faceplate_only_delegates_controls() {
+		for handle in [
+			"IAmCard.controlHandle",
+			"IAmCard.switchHandle",
+			"IAmCard.choiceHandle",
+			"IAmCard.sliderHandle",
+		] {
+			assert!(SCRIPT.contains(handle), "missing {handle}");
+		}
+
+		for legacy in [
+			"function knobGeometry",
+			"function arcPath",
+			"function open_knob_editor",
+			"class=\"mode-choice\"",
+		] {
+			assert!(!SCRIPT.contains(legacy), "legacy faceplate code: {legacy}");
+		}
+
+		assert!(
+			!SCRIPT.contains("IAmCard.registerHero"),
+			"hero renderers live in card.js"
+		);
+	}
+
+	/// The card is the public surface both pages draw through.
+	#[test]
+	fn the_card_exposes_every_shared_control() {
+		for export in [
+			"controlHandle:",
+			"switchHandle:",
+			"choiceHandle:",
+			"sliderHandle:",
+			"hero:",
+			"registerHero:",
+			"bandsOf:",
+			"smoothBands:",
+			"bandsPath:",
+		] {
+			assert!(CARD_SCRIPT.contains(export), "missing card export {export}");
+		}
+	}
+
+	/// A mode is a choice: two options and seven options use the same control.
+	#[test]
+	fn a_mode_is_the_shared_select() {
+		let start = SCRIPT.find("function buildMode").expect("buildMode");
+		let end = SCRIPT[start..].find("function buildFace").expect("buildFace") + start;
+		let mode = &SCRIPT[start..end];
+
+		assert!(mode.contains("IAmCard.choiceHandle"));
+		assert!(!mode.contains("mode-choice"));
+	}
+}

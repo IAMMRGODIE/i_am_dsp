@@ -1862,3 +1862,18 @@ fn a_phaser_module_exposes_its_controls() {
 		assert!(out[0].is_finite() && out[1].is_finite());
 	}
 }
+
+/// The rack page loads the same card assets the product pages use.
+#[test]
+fn the_rack_page_loads_the_shared_controls() {
+	let html = include_str!("page/rack.html");
+
+	assert!(html.contains("/card.css"));
+	assert!(html.contains("/card.js"));
+	assert!(html.contains("/kit.css"));
+	assert!(html.contains("/kit.js"));
+	assert!(
+		html.find("/card.js").unwrap() < html.find("/kit.js").unwrap(),
+		"card.js must load before the page script"
+	);
+}

@@ -1301,11 +1301,6 @@ var ENV_MAX = 512;
     }).observe(app);
   }
 
-  // The product page has richer, live heroes for the kinds the rack only draws
-  // statically; register them over the card's defaults.
-  if (window.IAmCard && IAmCard.registerHero) {
-  }
-
   fetch("/face", { cache: "no-store" })
     .then(function (response) {
       if (!response.ok) throw new Error("face " + response.status);
