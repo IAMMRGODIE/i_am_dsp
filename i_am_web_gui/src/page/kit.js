@@ -1480,62 +1480,6 @@ var ENV_MAX = 512;
     );
   }
 
-  /// A group-delay bump around the disperser's cutoff: the wider the bandwidth,
-  /// the broader the region the allpass chain delays.
-  function phaseSvg() {
-    var cutoff = Math.max(valueOf("cutoff", 440), 10);
-    var bandwidth = Math.max(valueOf("bandwidth", 1000), 10);
-    var amount = clamp(valueOf("amount", 0.5), 0, 1);
-    var width = Math.max(0.15, Math.abs(Math.log2(bandwidth / cutoff)) * 0.35);
-    var strength = 0.35 + 0.65 * amount;
-    var path = "";
-
-    for (var i = 0; i <= 120; i++) {
-      var frequency = 20 * Math.pow(1000, i / 120);
-      var octaves = Math.log2(frequency / cutoff);
-      var delay = 1 / (1 + Math.pow(octaves / width, 2)) * strength;
-      var x = 20 + i / 120 * 480;
-      var y = 150 - delay * 120;
-      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
-    }
-
-    return heroSvg(
-      '<line x1="20" y1="150" x2="500" y2="150" stroke="#2a2a2a"/>' +
-      '<path d="' + path + ' L 500 150 L 20 150 Z" fill="' + accent + '" fill-opacity=".08"/>' +
-      '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
-        'vector-effect="non-scaling-stroke"/>'
-    );
-  }
-
-  /// Two channel gains as meters; balance is independent left and right levels.
-  function balanceSvg() {
-    var left = clamp(valueOf("left_gain", 1), 0, 4);
-    var right = clamp(valueOf("right_gain", 1), 0, 4);
-    var base = 140;
-    var top = 20;
-    var full = base - top;
-    var height = function (gain) { return Math.max(4, clamp(gain / 2, 0, 1) * full); };
-    var lh = height(left);
-    var rh = height(right);
-    var unity = base - height(1);
-
-    var meter = function (x, value) {
-      return '<rect x="' + x + '" y="' + top + '" width="50" height="' + full +
-        '" rx="3" fill="#242424"/>' +
-        '<rect x="' + x + '" y="' + (base - value).toFixed(1) + '" width="50" height="' +
-        value.toFixed(1) + '" rx="3" fill="' + accent + '" fill-opacity=".22" stroke="' +
-        accent + '" stroke-width="1.4"/>';
-    };
-
-    return heroSvg(
-      '<line x1="20" y1="' + unity.toFixed(1) + '" x2="500" y2="' + unity.toFixed(1) +
-        '" stroke="#3a3a3a" stroke-dasharray="3 5"/>' +
-      '<line x1="20" y1="' + base + '" x2="500" y2="' + base + '" stroke="#3d3d3d"/>' +
-      meter(190, lh) +
-      meter(280, rh)
-    );
-  }
-
   /// The delay's repeats as a short time line. Synced repeats follow the beats at
   /// 120 BPM for the picture; the audio, of course, follows the host's tempo.
   function tapsSvg() {
@@ -3185,8 +3129,6 @@ var ENV_MAX = 512;
     IAmCard.registerHero("transfer", function () { return transferSvg() + rmsBadge(); });
     IAmCard.registerHero("spectrum", spectrumSvg);
     IAmCard.registerHero("spectra", spectraSvg);
-    IAmCard.registerHero("phase", phaseSvg);
-    IAmCard.registerHero("balance", balanceSvg);
     IAmCard.registerHero("stereo", stereoSvg);
     IAmCard.registerHero("particles", particlesSvg);
     IAmCard.registerHero("pitch", function () { return pitchSvg() + pitchBadge(); });
