@@ -556,6 +556,63 @@
       '<div class="hero-label" style="top:68%">amplitude</div>';
   }
 
+  function ottHero(values, context) {
+    var bands = context && context.ott && context.ott.bands ? context.ott.bands : [0, 0, 0];
+    var grid = '<line x1="260" y1="10" x2="260" y2="150" stroke="#2f2f2f"/>';
+    var bars = "";
+
+    for (var i = 0; i < 3; i++) {
+      var y = 30 + i * 45;
+      var db = bands[i] || 0;
+      var x = db >= 0
+        ? 260 + Math.min(db, 60) / 60 * 230
+        : 260 + Math.max(db, -24) / 24 * 100;
+      var left = Math.min(260, x);
+      var width = Math.abs(x - 260);
+      var color = db >= 0 ? "var(--accent)" : "var(--negative, #9a8fbf)";
+
+      bars += '<rect x="' + left.toFixed(1) + '" y="' + (y - 7) +
+        '" width="' + width.toFixed(1) + '" height="14" fill="' + color +
+        '" fill-opacity=".55" rx="2"/>';
+    }
+
+    return heroSvg(grid + bars) +
+      '<div class="hero-label" style="left:2%;top:12%">LOW</div>' +
+      '<div class="hero-label" style="left:2%;top:40%">MID</div>' +
+      '<div class="hero-label" style="left:2%;top:68%">HIGH</div>';
+  }
+
+  function vocoderHero(values, context) {
+    var state = context && context.vocoder;
+    var bands = state && state.bands ? Math.min(state.bands, 128) : 24;
+    var input = state && state.input ? state.input : [];
+    var output = state && state.output ? state.output : [];
+    var grid = '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f"/>';
+    var bars = "";
+    var slot = 480 / bands;
+    var bandwidth = clamp(valueOf(values, "bandwidth", 1.0), 0.25, 4.0);
+    var bar_width = Math.max(1, slot * bandwidth - 1);
+
+    for (var i = 0; i < bands; i++) {
+      var x = 20 + (i + 0.5) * slot - bar_width / 2;
+      var in_height = Math.sqrt(clamp(input[i] || 0, 0, 1)) * 60;
+      var out_height = Math.sqrt(clamp(output[i] || 0, 0, 1)) * 60;
+
+      bars += '<rect x="' + x.toFixed(1) + '" y="' + (80 - in_height).toFixed(1) +
+        '" width="' + bar_width.toFixed(1) + '" height="' + in_height.toFixed(1) +
+        '" fill="#8a8a8a" fill-opacity=".5"/>';
+      bars += '<rect x="' + x.toFixed(1) + '" y="80" width="' + bar_width.toFixed(1) +
+        '" height="' + out_height.toFixed(1) + '" fill="var(--accent)" ' +
+        'fill-opacity=".65"/>';
+    }
+
+    var source = valueOf(values, "sidechain", 1) ? "SIDECHAIN" : "SELF";
+
+    return heroSvg(grid + bars) +
+      '<div class="hero-label" style="left:2%;top:3%">IN ' + source + '</div>' +
+      '<div class="hero-label" style="left:2%;top:55%">OUTPUT</div>';
+  }
+
   function stereoHero(values, context) {
     var scope = (context && context.stereo) || {};
     var cx = 160;
@@ -855,6 +912,8 @@
   registerHero("particles", particlesHero);
   registerHero("curve", curveHero);
   registerHero("mapping", mappingHero);
+  registerHero("ott", ottHero);
+  registerHero("vocodex", vocoderHero);
   registerHero("stereo", stereoHero);
   registerHero("tail", tailHero);
   registerHero("taps", tapsHero);
