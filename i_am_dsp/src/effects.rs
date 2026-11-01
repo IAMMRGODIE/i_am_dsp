@@ -1,6 +1,8 @@
 //! Build-in effects library for DSP
 
 pub mod prelude;
+pub mod ott;
+pub mod schroeder;
 pub mod filter;
 pub mod multimode;
 pub mod disperser;
