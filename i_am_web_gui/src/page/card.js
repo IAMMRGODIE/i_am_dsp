@@ -317,6 +317,61 @@
     );
   }
 
+  /// The FDN tail: a pre-delay gap, a few early reflections, then a T60 decay
+  /// with a lighter high-frequency trace.
+  function tailHero(values) {
+    var decay = clamp(valueOf(values, "decay_time", 2200), 100, 10000);
+    var pre = clamp(valueOf(values, "pre_delay", 20), 0, 200);
+    var size = clamp(valueOf(values, "size", 10), 1, 50);
+    var damping = clamp(valueOf(values, "damping", 8000), 200, 20000);
+    var diffusion = clamp(valueOf(values, "diffusion", 0.7), 0, 1);
+    var total = Math.max(pre + decay * 1.15, 100) * 1.02;
+    var xAt = function (ms) { return 20 + ms / total * 480; };
+    var yAt = function (level) { return 150 - level * 140; };
+    var preX = xAt(pre);
+    var ticks = "";
+    var tail = "";
+    var high = "";
+
+    for (var k = 0; k < 5; k++) {
+      var at = pre + size * (0.35 + k * 0.55);
+      if (at >= total) break;
+      var height = (0.55 - k * 0.08) * (0.65 + diffusion * 0.35);
+      ticks += '<line x1="' + xAt(at).toFixed(1) + '" y1="150" x2="' + xAt(at).toFixed(1) +
+        '" y2="' + yAt(height).toFixed(1) + '" stroke="var(--accent)" ' +
+        'stroke-width="2" opacity="' + (0.35 + k * 0.1).toFixed(2) + '"/>';
+    }
+
+    for (var i = 0; i <= 180; i++) {
+      var t = pre + (total - pre) * i / 180;
+      var level = Math.exp(-6.9 * (t - pre) / decay);
+      tail += (i ? " L " : "M ") + xAt(t).toFixed(1) + " " + yAt(level).toFixed(1);
+    }
+
+    var hfDecay = decay * (0.35 + 0.65 * clamp(damping / 20000, 0.1, 1));
+
+    for (var j = 0; j <= 180; j++) {
+      var ht = pre + (total - pre) * j / 180;
+      var hlevel = Math.exp(-6.9 * (ht - pre) / hfDecay);
+      high += (j ? " L " : "M ") + xAt(ht).toFixed(1) + " " + yAt(hlevel).toFixed(1);
+    }
+
+    return heroSvg(
+      '<line x1="20" y1="150" x2="500" y2="150" stroke="#3a3a3a"/>' +
+      (pre > 0
+        ? '<line x1="20" y1="150" x2="' + preX.toFixed(1) + '" y2="150" stroke="#343434"/>'
+        : "") +
+      '<path d="' + tail + ' L ' + xAt(total).toFixed(1) + ' 150 L ' + xAt(pre).toFixed(1) +
+        ' 150 Z" fill="var(--accent)" fill-opacity=".07"/>' +
+      '<path d="' + tail + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
+        'vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + high + '" fill="none" stroke="#ffffff" stroke-opacity=".22" ' +
+        'stroke-width="1" vector-effect="non-scaling-stroke"/>' +
+      ticks
+    ) + (pre > 0 ? '<div class="hero-label" style="left:4.6%;top:88%">pre</div>' : "") +
+      '<div class="hero-badge">T60 ' + (decay / 1000).toFixed(1) + ' s</div>';
+  }
+
   function tapsHero(values) {
     var sync = !!valueOf(values, "tempo.sync", 0);
     var beats = Math.max(valueOf(values, "tempo.beats", 1), 0.03125);
@@ -458,6 +513,7 @@
   registerHero("spectrum", spectrumHero);
   registerHero("transfer", transferHero);
   registerHero("compressor", compressorHero);
+  registerHero("tail", tailHero);
   registerHero("taps", tapsHero);
   registerHero("lfo", lfoHero);
   registerHero("phase", phaseHero);
