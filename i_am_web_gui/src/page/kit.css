@@ -350,3 +350,11 @@ body.preview #app{
   margin-top:calc(5px * var(--scale)); font-size:calc(11px * var(--scale));
 }
 .face-knob .knob-value{font-size:calc(12px * var(--scale))}
+
+/* Faceplate sizing for the shared switch. */
+.toggle .face-switch{width:calc(30px * var(--scale)); height:calc(16px * var(--scale))}
+.toggle .face-switch i{
+  top:calc(2px * var(--scale)); left:calc(2px * var(--scale));
+  width:calc(10px * var(--scale)); height:calc(10px * var(--scale));
+}
+.toggle .face-switch.on i{left:calc(16px * var(--scale))}

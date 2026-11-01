@@ -536,6 +536,29 @@ var ENV_MAX = 512;
 
   function buildToggle(control) {
     var spec = control.spec;
+
+    if (window.IAmCard && IAmCard.switchHandle) {
+      var handle = IAmCard.switchHandle(spec, control.value, function (_, value) {
+        setValue(control, value, true);
+      });
+      var el = element("div", "toggle");
+      var label = element("div", "label");
+      label.textContent = spec.label;
+      var readout = element("div", "readout");
+      handle.el.classList.add("face-switch");
+
+      control.paint = function () {
+        handle.set(control.value, false);
+        readout.textContent = format(spec, control.value);
+      };
+
+      el.appendChild(handle.el);
+      el.appendChild(label);
+      el.appendChild(readout);
+      control.paint();
+      return el;
+    }
+
     var el = element("div", "toggle");
     var track = element("div", "switch");
     track.appendChild(element("i"));

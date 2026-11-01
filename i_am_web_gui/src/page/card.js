@@ -561,20 +561,39 @@
     return select;
   }
 
-  function makeToggle(spec, value, onEdit) {
+  function makeSwitch(spec, value, onEdit) {
     var button = document.createElement("button");
     button.type = "button";
-    button.className = "mcard-toggle";
+    button.className = "mcard-switch";
     var current = !!value;
-    button.textContent = current ? "On" : "Off";
-    button.setAttribute("aria-pressed", current ? "true" : "false");
+    var thumb = document.createElement("i");
+    button.appendChild(thumb);
+    button.setAttribute("role", "switch");
+    button.setAttribute("aria-label", spec.label);
+    button.setAttribute("aria-checked", current ? "true" : "false");
+    button.classList.toggle("on", current);
+
+    function paint() {
+      button.classList.toggle("on", current);
+      button.setAttribute("aria-checked", current ? "true" : "false");
+    }
+
+    function set(value, send) {
+      current = !!value;
+      paint();
+      if (send && onEdit) onEdit(spec.id, current ? 1 : 0);
+    }
+
     button.addEventListener("click", function () {
-      current = !current;
-      button.textContent = current ? "On" : "Off";
-      button.setAttribute("aria-pressed", current ? "true" : "false");
-      if (onEdit) onEdit(spec.id, current ? 1 : 0);
+      set(!current, true);
     });
-    return button;
+
+    paint();
+    return { el: button, set: set };
+  }
+
+  function makeToggle(spec, value, onEdit) {
+    return makeSwitch(spec, value, onEdit).el;
   }
 
   function makeBodyControl(spec, value, onEdit) {
@@ -585,7 +604,7 @@
       toggleLabel.className = "mcard-row-label";
       toggleLabel.textContent = spec.label;
       row.appendChild(toggleLabel);
-      row.appendChild(makeToggle(spec, value, onEdit));
+      row.appendChild(makeSwitch(spec, value, onEdit).el);
       return row;
     }
 
@@ -837,6 +856,7 @@
     create: create,
     control: control,
     controlHandle: controlHandle,
+    switchHandle: makeSwitch,
     hero: hero,
     format: format,
     norm: norm,
