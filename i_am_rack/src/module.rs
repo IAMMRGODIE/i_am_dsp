@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use i_am_dsp::prelude::{
-	Compressor, Crusher, Distortion, Effect, Gain, Multimode, Parameter, PureDelay,
-	RectifyEnvelope, Unit, Value,
+	Chorus, Compressor, Crusher, Distortion, Effect, Gain, Multimode, Parameter, PureDelay,
+	RectifyEnvelope, SineWave, Unit, Value,
 };
 
 /// The controls each Multimode algorithm reads; everything else is hidden.
@@ -62,17 +62,20 @@ pub enum ModuleKind {
 	Delay,
 	/// A disperser, saturator and amplitude modulation in one.
 	Crusher,
+	/// A modulated short delay.
+	Chorus,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 6] = [
+	pub const ALL: [Self; 7] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
 		Self::Gain,
 		Self::Delay,
 		Self::Crusher,
+		Self::Chorus,
 	];
 
 	/// The name a card shows.
@@ -84,6 +87,7 @@ impl ModuleKind {
 			Self::Gain => "Gain",
 			Self::Delay => "Delay",
 			Self::Crusher => "Crusher",
+			Self::Chorus => "Chorus",
 		}
 	}
 
@@ -96,6 +100,7 @@ impl ModuleKind {
 			Self::Gain => "#35c77a",
 			Self::Delay => "#c77dff",
 			Self::Crusher => "#ff5f9e",
+			Self::Chorus => "#5ad1c8",
 		}
 	}
 
@@ -108,6 +113,7 @@ impl ModuleKind {
 			Self::Gain => "waveform",
 			Self::Delay => "waveform",
 			Self::Crusher => "transfer",
+			Self::Chorus => "waveform",
 		}
 	}
 
@@ -115,7 +121,7 @@ impl ModuleKind {
 	pub const fn mode(self) -> Option<&'static str> {
 		match self {
 			Self::Filter | Self::Distortion => Some("mode"),
-			Self::Compressor | Self::Gain | Self::Delay | Self::Crusher => None,
+			Self::Compressor | Self::Gain | Self::Delay | Self::Crusher | Self::Chorus => None,
 		}
 	}
 
@@ -132,7 +138,7 @@ impl ModuleKind {
 		match self {
 			Self::Filter => Some(FILTER_VISIBLE),
 			Self::Distortion => Some(DISTORTION_VISIBLE),
-			Self::Compressor | Self::Gain | Self::Delay | Self::Crusher => None,
+			Self::Compressor | Self::Gain | Self::Delay | Self::Crusher | Self::Chorus => None,
 		}
 	}
 }
@@ -157,6 +163,12 @@ pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> 
 			sample_rate,
 		)),
 		ModuleKind::Crusher => Box::new(Crusher::<2>::new(sample_rate)),
+		ModuleKind::Chorus => Box::new(Chorus::<SineWave, 2>::new(
+			sample_rate / 20 + 8,
+			3,
+			sample_rate,
+			SineWave,
+		)),
 	}
 }
 
@@ -174,6 +186,16 @@ pub(crate) fn schema(kind: ModuleKind) -> Vec<Parameter> {
 						*range = 0.0..=2_000.0;
 					}
 				},
+				"tempo.sync" => parameter.meta.display_name = Some("Sync".into()),
+				"tempo.beats" => parameter.meta.display_name = Some("Time".into()),
+				_ => {},
+			}
+		}
+
+		parameters
+	} else if kind == ModuleKind::Chorus {
+		for parameter in &mut parameters {
+			match parameter.identifier.as_str() {
 				"tempo.sync" => parameter.meta.display_name = Some("Sync".into()),
 				"tempo.beats" => parameter.meta.display_name = Some("Time".into()),
 				_ => {},
