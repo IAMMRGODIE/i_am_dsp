@@ -724,10 +724,6 @@ var ENV_MAX = 512;
     return '<svg viewBox="0 0 520 160" preserveAspectRatio="xMidYMid meet">' + content + '</svg>';
   }
 
-  function heroSvgMeter(content) {
-    return '<svg viewBox="0 0 320 200" preserveAspectRatio="xMidYMid meet">' + content + '</svg>';
-  }
-
   function wavePath(amplitude, middle, cycles) {
     var path = "";
     for (var i = 0; i <= 180; i++) {
@@ -1111,141 +1107,6 @@ var ENV_MAX = 512;
   /// A stereo meter: input and output L/R plotted on one goniometer. The x axis
   /// is the side field (L - R) and y is the mid field (L + R); a wider Width
   /// opens the accent cloud horizontally. Grey is before, accent is after.
-  function correlation(left, right) {
-    if (!left || !right || left.length < 2) return 0;
-
-    var n = Math.min(left.length, right.length);
-    var sumLeft = 0;
-    var sumRight = 0;
-
-    for (var i = 0; i < n; i++) {
-      sumLeft += left[i];
-      sumRight += right[i];
-    }
-
-    var meanLeft = sumLeft / n;
-    var meanRight = sumRight / n;
-    var covariance = 0;
-    var leftEnergy = 0;
-    var rightEnergy = 0;
-
-    for (var j = 0; j < n; j++) {
-      var dl = left[j] - meanLeft;
-      var dr = right[j] - meanRight;
-      covariance += dl * dr;
-      leftEnergy += dl * dl;
-      rightEnergy += dr * dr;
-    }
-
-    var denominator = Math.sqrt(leftEnergy * rightEnergy);
-    return denominator > 1e-12
-      ? Math.max(-1, Math.min(1, covariance / denominator))
-      : 0;
-  }
-
-  /// The particle wider's schematic: one pair of L/R lines per bin, each
-  /// scattered by a fresh random factor inside the Low/High band. Depth and
-  /// Side set how far they jump, and Negative lets a line cross the axis.
-  function stereoSvg() {
-    var cx = 160;
-    var cy = 72;
-    var radius = 62;
-    var grid = "";
-
-    for (var r = 20; r <= 60; r += 20) {
-      grid += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
-        '" fill="none" stroke="#3a3a3a" stroke-width="1"/>';
-    }
-
-    grid += '<line x1="' + (cx - 62) + '" y1="' + cy + '" x2="' + (cx + 62) + '" y2="' +
-      cy + '" stroke="#2f2f2f"/>' +
-      '<line x1="' + cx + '" y1="' + (cy - 62) + '" x2="' + cx + '" y2="' + (cy + 62) +
-      '" stroke="#2f2f2f"/>';
-
-    var diagonal = 62 / Math.SQRT2;
-    grid += '<line x1="' + (cx - diagonal).toFixed(1) + '" y1="' + (cy - diagonal).toFixed(1) +
-      '" x2="' + (cx + diagonal).toFixed(1) + '" y2="' + (cy + diagonal).toFixed(1) +
-      '" stroke="#2a2a2a"/>' +
-      '<line x1="' + (cx - diagonal).toFixed(1) + '" y1="' + (cy + diagonal).toFixed(1) +
-      '" x2="' + (cx + diagonal).toFixed(1) + '" y2="' + (cy - diagonal).toFixed(1) +
-      '" stroke="#2a2a2a"/>';
-
-    var input = "";
-    var output = "";
-    var labels = "";
-    var points = stereoScope.inputLeft ? stereoScope.inputLeft.length : 0;
-
-    if (points > 1) {
-      // Keep a quiet signal from filling the meter, but let a loud one use it.
-      var peak = 0.4;
-
-      for (var p = 0; p < points; p += 2) {
-        peak = Math.max(
-          peak,
-          Math.abs(stereoScope.inputLeft[p]),
-          Math.abs(stereoScope.inputRight[p]),
-          Math.abs(stereoScope.outputLeft[p]),
-          Math.abs(stereoScope.outputRight[p])
-        );
-      }
-
-      var scale = radius / peak;
-      var step = Math.max(1, Math.floor(points / 512));
-
-      for (var i = 0; i < points; i += step) {
-        var il = stereoScope.inputLeft[i];
-        var ir = stereoScope.inputRight[i];
-        var ol = stereoScope.outputLeft[i];
-        var or = stereoScope.outputRight[i];
-
-        input += '<circle cx="' + (cx + (il - ir) * 0.5 * scale).toFixed(1) +
-          '" cy="' + (cy - (il + ir) * 0.5 * scale).toFixed(1) +
-          '" r="1.1" fill="#a8a8a8" fill-opacity=".42"/>';
-        output += '<circle cx="' + (cx + (ol - or) * 0.5 * scale).toFixed(1) +
-          '" cy="' + (cy - (ol + or) * 0.5 * scale).toFixed(1) +
-          '" r="1.2" fill="' + accent + '" fill-opacity=".52"/>';
-      }
-
-      labels =
-        '<text x="238" y="24" fill="#8a8a8a" font-size="8">IN</text>' +
-        '<text x="278" y="24" fill="' + accent + '" font-size="8">OUT</text>';
-    }
-
-    var corrInput = correlation(stereoScope.inputLeft, stereoScope.inputRight);
-    var corrOutput = correlation(stereoScope.outputLeft, stereoScope.outputRight);
-    var barX = 60;
-    var barY = 164;
-    var barWidth = 200;
-    var barHeight = 8;
-    var bar =
-      '<text x="' + barX + '" y="' + (barY - 6) +
-        '" fill="#8a8a8a" font-size="7">CORR</text>' +
-      '<text x="' + (barX + 42) + '" y="' + (barY - 6) +
-        '" fill="#a8a8a8" font-size="7">IN ' + corrInput.toFixed(2) + '</text>' +
-      '<text x="' + (barX + 126) + '" y="' + (barY - 6) +
-        '" fill="' + accent + '" font-size="7">OUT ' + corrOutput.toFixed(2) + '</text>' +
-      '<rect x="' + barX + '" y="' + barY + '" width="' + barWidth + '" height="' + barHeight +
-        '" rx="4" fill="#0b0b0b" stroke="#3a3a3a"/>' +
-      '<rect x="' + (barX + 1) + '" y="' + (barY + 1) + '" width="' + (barWidth - 2) +
-        '" height="' + (barHeight - 2) + '" rx="3" fill="#050505"/>' +
-      '<line x1="' + (barX + barWidth / 2) + '" y1="' + barY + '" x2="' + (barX + barWidth / 2) +
-        '" y2="' + (barY + barHeight) + '" stroke="#3a3a3a"/>';
-
-    bar +=
-      '<circle cx="' + (barX + (corrInput + 1) * 0.5 * barWidth).toFixed(1) + '" cy="' +
-        (barY + barHeight / 2) + '" r="2.2" fill="#a8a8a8"/>' +
-      '<circle cx="' + (barX + (corrOutput + 1) * 0.5 * barWidth).toFixed(1) + '" cy="' +
-        (barY + barHeight / 2) + '" r="2.2" fill="' + accent + '"/>' +
-      '<text x="' + barX + '" y="' + (barY + 20) +
-        '" fill="#6a6a6a" font-size="7">-1</text>' +
-      '<text x="' + (barX + barWidth / 2 - 3) + '" y="' + (barY + 20) +
-        '" fill="#6a6a6a" font-size="7">0</text>' +
-      '<text x="' + (barX + barWidth - 8) + '" y="' + (barY + 20) +
-        '" fill="#6a6a6a" font-size="7">+1</text>';
-
-    return heroSvgMeter(grid + input + output + labels + bar);
-  }
-
   /// A semitone ruler: the pitch factor is a ratio, so the picture reads it as
   /// the semitones a person actually hears.
   /// A frequency mapping: input to output frequency on a log/log plot at the top,
@@ -1780,7 +1641,9 @@ var ENV_MAX = 512;
     heroes.forEach(function (hero) {
       if (!window.IAmCard || !IAmCard.hero) return;
 
-      var content = IAmCard.hero(hero.kind, null, { ir: irState, curve: curveState });
+      var content = IAmCard.hero(hero.kind, null, {
+        ir: irState, curve: curveState, stereo: stereoScope
+      });
       if (content) hero.el.innerHTML = content;
     });
   }
@@ -2815,7 +2678,6 @@ var ENV_MAX = 512;
     IAmCard.registerHero("transfer", function () { return transferSvg() + rmsBadge(); });
     IAmCard.registerHero("spectrum", spectrumSvg);
     IAmCard.registerHero("spectra", spectraSvg);
-    IAmCard.registerHero("stereo", stereoSvg);
     IAmCard.registerHero("ott", ottSvg);
     IAmCard.registerHero("vocodex", vocoderSvg);
   }

@@ -172,6 +172,44 @@
       '</svg>';
   }
 
+  function heroSvgMeter(inner) {
+    return '<svg class="mcard-graph" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid meet">' +
+      inner +
+      '</svg>';
+  }
+
+  function correlation(left, right) {
+    if (!left || !right || left.length < 2) return 0;
+
+    var n = Math.min(left.length, right.length);
+    var sumLeft = 0;
+    var sumRight = 0;
+
+    for (var i = 0; i < n; i++) {
+      sumLeft += left[i];
+      sumRight += right[i];
+    }
+
+    var meanLeft = sumLeft / n;
+    var meanRight = sumRight / n;
+    var covariance = 0;
+    var leftEnergy = 0;
+    var rightEnergy = 0;
+
+    for (var j = 0; j < n; j++) {
+      var dl = left[j] - meanLeft;
+      var dr = right[j] - meanRight;
+      covariance += dl * dr;
+      leftEnergy += dl * dl;
+      rightEnergy += dr * dr;
+    }
+
+    var denominator = Math.sqrt(leftEnergy * rightEnergy);
+    return denominator > 1e-12
+      ? Math.max(-1, Math.min(1, covariance / denominator))
+      : 0;
+  }
+
   function heroSvgMeet(inner) {
     return '<svg class="mcard-graph" viewBox="0 0 520 160" preserveAspectRatio="xMidYMid meet">' +
       inner +
@@ -518,6 +556,106 @@
       '<div class="hero-label" style="top:68%">amplitude</div>';
   }
 
+  function stereoHero(values, context) {
+    var scope = (context && context.stereo) || {};
+    var cx = 160;
+    var cy = 72;
+    var radius = 62;
+    var grid = "";
+
+    for (var r = 20; r <= 60; r += 20) {
+      grid += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
+        '" fill="none" stroke="#3a3a3a" stroke-width="1"/>';
+    }
+
+    grid += '<line x1="' + (cx - 62) + '" y1="' + cy + '" x2="' + (cx + 62) + '" y2="' +
+      cy + '" stroke="#2f2f2f"/>' +
+      '<line x1="' + cx + '" y1="' + (cy - 62) + '" x2="' + cx + '" y2="' + (cy + 62) +
+      '" stroke="#2f2f2f"/>';
+
+    var diagonal = 62 / Math.SQRT2;
+    grid += '<line x1="' + (cx - diagonal).toFixed(1) + '" y1="' + (cy - diagonal).toFixed(1) +
+      '" x2="' + (cx + diagonal).toFixed(1) + '" y2="' + (cy + diagonal).toFixed(1) +
+      '" stroke="#2a2a2a"/>' +
+      '<line x1="' + (cx - diagonal).toFixed(1) + '" y1="' + (cy + diagonal).toFixed(1) +
+      '" x2="' + (cx + diagonal).toFixed(1) + '" y2="' + (cy - diagonal).toFixed(1) +
+      '" stroke="#2a2a2a"/>';
+
+    var input = "";
+    var output = "";
+    var labels = "";
+    var points = scope.inputLeft ? scope.inputLeft.length : 0;
+
+    if (points > 1) {
+      var peak = 0.4;
+
+      for (var p = 0; p < points; p += 2) {
+        peak = Math.max(
+          peak,
+          Math.abs(scope.inputLeft[p]),
+          Math.abs(scope.inputRight[p]),
+          Math.abs(scope.outputLeft[p]),
+          Math.abs(scope.outputRight[p])
+        );
+      }
+
+      var scale = radius / peak;
+      var step = Math.max(1, Math.floor(points / 512));
+
+      for (var i = 0; i < points; i += step) {
+        var il = scope.inputLeft[i];
+        var ir = scope.inputRight[i];
+        var ol = scope.outputLeft[i];
+        var or = scope.outputRight[i];
+
+        input += '<circle cx="' + (cx + (il - ir) * 0.5 * scale).toFixed(1) +
+          '" cy="' + (cy - (il + ir) * 0.5 * scale).toFixed(1) +
+          '" r="1.1" fill="#a8a8a8" fill-opacity=".42"/>';
+        output += '<circle cx="' + (cx + (ol - or) * 0.5 * scale).toFixed(1) +
+          '" cy="' + (cy - (ol + or) * 0.5 * scale).toFixed(1) +
+          '" r="1.2" fill="var(--accent)" fill-opacity=".52"/>';
+      }
+
+      labels =
+        '<text x="238" y="24" fill="#8a8a8a" font-size="8">IN</text>' +
+        '<text x="278" y="24" fill="var(--accent)" font-size="8">OUT</text>';
+    }
+
+    var corrInput = correlation(scope.inputLeft, scope.inputRight);
+    var corrOutput = correlation(scope.outputLeft, scope.outputRight);
+    var barX = 60;
+    var barY = 164;
+    var barWidth = 200;
+    var barHeight = 8;
+    var bar =
+      '<text x="' + barX + '" y="' + (barY - 6) +
+        '" fill="#8a8a8a" font-size="7">CORR</text>' +
+      '<text x="' + (barX + 42) + '" y="' + (barY - 6) +
+        '" fill="#a8a8a8" font-size="7">IN ' + corrInput.toFixed(2) + '</text>' +
+      '<text x="' + (barX + 126) + '" y="' + (barY - 6) +
+        '" fill="var(--accent)" font-size="7">OUT ' + corrOutput.toFixed(2) + '</text>' +
+      '<rect x="' + barX + '" y="' + barY + '" width="' + barWidth + '" height="' + barHeight +
+        '" rx="4" fill="#0b0b0b" stroke="#3a3a3a"/>' +
+      '<rect x="' + (barX + 1) + '" y="' + (barY + 1) + '" width="' + (barWidth - 2) +
+        '" height="' + (barHeight - 2) + '" rx="3" fill="#050505"/>' +
+      '<line x1="' + (barX + barWidth / 2) + '" y1="' + barY + '" x2="' + (barX + barWidth / 2) +
+        '" y2="' + (barY + barHeight) + '" stroke="#3a3a3a"/>';
+
+    bar +=
+      '<circle cx="' + (barX + (corrInput + 1) * 0.5 * barWidth).toFixed(1) + '" cy="' +
+        (barY + barHeight / 2) + '" r="2.2" fill="#a8a8a8"/>' +
+      '<circle cx="' + (barX + (corrOutput + 1) * 0.5 * barWidth).toFixed(1) + '" cy="' +
+        (barY + barHeight / 2) + '" r="2.2" fill="var(--accent)"/>' +
+      '<text x="' + barX + '" y="' + (barY + 20) +
+        '" fill="#6a6a6a" font-size="7">-1</text>' +
+      '<text x="' + (barX + barWidth / 2 - 3) + '" y="' + (barY + 20) +
+        '" fill="#6a6a6a" font-size="7">0</text>' +
+      '<text x="' + (barX + barWidth - 8) + '" y="' + (barY + 20) +
+        '" fill="#6a6a6a" font-size="7">+1</text>';
+
+    return heroSvgMeter(grid + input + output + labels + bar);
+  }
+
   function tailHero(values) {
     var decay = clamp(valueOf(values, "decay_time", 2200), 100, 10000);
     var pre = clamp(valueOf(values, "pre_delay", 20), 0, 200);
@@ -717,6 +855,7 @@
   registerHero("particles", particlesHero);
   registerHero("curve", curveHero);
   registerHero("mapping", mappingHero);
+  registerHero("stereo", stereoHero);
   registerHero("tail", tailHero);
   registerHero("taps", tapsHero);
   registerHero("lfo", lfoHero);
