@@ -567,13 +567,23 @@ mod ui_contract_tests {
 
 	/// The utility products' pictures are part of the shared registry too.
 	#[test]
-	fn the_resonator_and_formant_heroes_are_registered() {
-		for kind in ["resonator", "formant"] {
+	fn the_new_product_heroes_are_registered() {
+		for kind in ["resonator", "formant", "autotune"] {
 			assert!(
 				CARD_SCRIPT.contains(&format!("registerHero(\"{kind}\"")),
 				"missing {kind} hero"
 			);
 		}
+		assert!(CARD_SCRIPT.contains("notePickerHandle"), "the note picker handle is missing");
+		assert!(CARD_STYLE.contains(".mcard-note.on"), "the note picker needs a selected state");
+		assert!(
+			include_str!("page/kit.js").contains("buildNotePicker"),
+			"the faceplate does not build the note picker"
+		);
+		assert!(
+			include_str!("page/kit.css").contains(".face-notes"),
+			"the faceplate does not size the note picker"
+		);
 	}
 
 	/// Hover feedback belongs to the shared controls, not to one page.

@@ -1656,6 +1656,30 @@
       '<div class="hero-badge">' + (shift > 0 ? "+" : "") + shift.toFixed(0) + ' st</div>';
   }
 
+  function autotuneHero(values) {
+    var labels = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    var mask = Math.round(valueOf(values, "notes", 4095)) & 4095;
+    var strength = clamp(valueOf(values, "strength", 1), 0, 1);
+    var cells = "";
+
+    labels.forEach(function (label, index) {
+      var on = (mask & (1 << index)) !== 0;
+      var sharp = label.length > 1;
+      var x = 20 + index * 40;
+      cells += '<rect x="' + x + '" y="26" width="36" height="104" rx="4" ' +
+        'fill="' + (on ? "var(--accent)" : (sharp ? "#202020" : "#2a2a2a")) + '" ' +
+        'stroke="' + (on ? "var(--accent)" : "#414141") + '"/>' +
+        '<text x="' + (x + 18) + '" y="142" text-anchor="middle" fill="' +
+        (on ? "var(--accent)" : "var(--text3)") + '" font-size="8">' + label + '</text>';
+    });
+
+    return heroSvg(
+      '<line x1="20" y1="20" x2="500" y2="20" stroke="#2b2b2b"/>' +
+      cells
+    ) + '<div class="hero-label" style="left:2%;top:2%">ALLOWED NOTES</div>' +
+      '<div class="hero-badge">' + Math.round(strength * 100) + '%</div>';
+  }
+
   var HEROES = Object.create(null);
 
   function registerHero(kind, renderer) {
@@ -1691,6 +1715,7 @@
   registerHero("waveform", waveformHero);
   registerHero("resonator", resonatorHero);
   registerHero("formant", formantHero);
+  registerHero("autotune", autotuneHero);
 
   function makeKnob(spec, value, onEdit) {
     var wrap = document.createElement("div");
@@ -2056,7 +2081,57 @@
     return makeSwitch(spec, value, onEdit).el;
   }
 
+  function makeNotePickerHandle(spec, value, onEdit) {
+    var labels = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    var mask = Math.round(Number(value) || 0) & 4095;
+    var wrap = document.createElement("div");
+    wrap.className = "mcard-notes";
+    wrap.setAttribute("role", "group");
+    wrap.setAttribute("aria-label", spec.label);
+    var buttons = [];
+
+    function paint() {
+      buttons.forEach(function (button, index) {
+        var on = (mask & (1 << index)) !== 0;
+        button.classList.toggle("on", on);
+        button.setAttribute("aria-checked", on ? "true" : "false");
+      });
+    }
+
+    function set(next) {
+      mask = Math.round(Number(next) || 0) & 4095;
+      paint();
+    }
+
+    labels.forEach(function (label, index) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "mcard-note" + (label.length > 1 ? " sharp" : "");
+      button.textContent = label;
+      button.setAttribute("role", "checkbox");
+      button.setAttribute("aria-label", label);
+      button.addEventListener("click", function () {
+        mask ^= 1 << index;
+        paint();
+        if (onEdit) onEdit(spec.id, mask);
+      });
+      buttons.push(button);
+      wrap.appendChild(button);
+    });
+
+    paint();
+    return { el: wrap, set: set };
+  }
+
+  function makeNotePicker(spec, value, onEdit) {
+    return makeNotePickerHandle(spec, value, onEdit).el;
+  }
+
   function makeBodyControl(spec, value, onEdit) {
+    if (spec.widget === "notes") {
+      return makeNotePicker(spec, value, onEdit);
+    }
+
     if (spec.kind === "bool") {
       var row = document.createElement("div");
       row.className = "mcard-row";
@@ -2321,6 +2396,7 @@
     control: control,
     controlHandle: controlHandle,
     switchHandle: makeSwitch,
+    notePickerHandle: makeNotePickerHandle,
     choiceHandle: makeChoiceHandle,
     sliderHandle: makeSliderHandle,
     hero: hero,

@@ -170,6 +170,20 @@
 .mcard-switch.on i{left:16px; background:var(--text1)}
 .mcard-switch:focus-visible{outline:1px solid var(--accent); outline-offset:2px}
 
+.mcard-notes{
+  display:flex; width:100%; gap:3px; padding:0 2px; align-items:stretch;
+}
+.mcard-note{
+  flex:1 1 0; min-width:0; height:34px; padding:0 1px; font:inherit; font-size:10px;
+  color:var(--text2); background:var(--raised); border:1px solid #414141;
+  border-radius:4px; cursor:pointer;
+  transition:background .12s, border-color .12s, color .12s;
+}
+.mcard-note.sharp{background:#202020; color:var(--text3)}
+.mcard-note:hover{background:#303030; border-color:#585858; color:var(--text1)}
+.mcard-note.on{background:var(--accent); border-color:var(--accent); color:#111}
+.mcard-note:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+
 .mcard-slider{
   width:150px; min-width:0; display:flex; flex-direction:column; gap:5px;
 }

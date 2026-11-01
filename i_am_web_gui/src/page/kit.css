@@ -340,6 +340,14 @@ body.preview #app{
 
 /* Faceplate sizing for the shared card knob: the card's own sizes are fixed for
    the rack, while a product page scales with the window. */
+.face-notes{
+  flex:1 0 100%; width:100%; padding:calc(2px * var(--scale)) 0;
+}
+.face-notes .mcard-note{
+  height:calc(34px * var(--scale)); font-size:calc(10px * var(--scale));
+  border-radius:calc(4px * var(--scale));
+}
+
 .face-knob{width:auto; min-width:calc(64px * var(--scale))}
 .face-knob .knob{
   display:block; width:calc(56px * var(--scale)); height:calc(56px * var(--scale));

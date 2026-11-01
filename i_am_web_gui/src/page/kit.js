@@ -184,6 +184,7 @@ var ENV_MAX = 512;
     var el;
 
     if (header && spec.kind === "bool") el = buildHeaderDot(control);
+    else if (spec.widget === "notes") el = buildNotePicker(control);
     else if (spec.widget === "toggle" || spec.kind === "bool") el = buildToggle(control);
     else if (spec.widget === "choice") el = buildChoice(control);
     else if (spec.widget === "slider") el = buildSlider(control);
@@ -227,6 +228,16 @@ var ENV_MAX = 512;
 
     handle.el.classList.add("face-knob");
     control.paint = function () { handle.set(control.value, false); };
+    control.paint();
+    return handle.el;
+  }
+
+  function buildNotePicker(control) {
+    var handle = IAmCard.notePickerHandle(control.spec, control.value, function (_, value) {
+      setValue(control, value, true);
+    });
+    handle.el.classList.add("face-notes");
+    control.paint = function () { handle.set(control.value); };
     control.paint();
     return handle.el;
   }

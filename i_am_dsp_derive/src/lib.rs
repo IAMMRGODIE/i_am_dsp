@@ -369,6 +369,7 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 					LayoutWidget::Slider => quote!(i_am_dsp::prelude::ParamWidget::Slider),
 					LayoutWidget::Toggle => quote!(i_am_dsp::prelude::ParamWidget::Toggle),
 					LayoutWidget::Choice => quote!(i_am_dsp::prelude::ParamWidget::Choice),
+					LayoutWidget::Notes => quote!(i_am_dsp::prelude::ParamWidget::Notes),
 				};
 				let size = match config.layout.size.unwrap_or(LayoutSize::Medium) {
 					LayoutSize::Small => quote!(i_am_dsp::prelude::ParamSize::Small),
@@ -994,6 +995,7 @@ enum LayoutWidget {
 	Slider,
 	Toggle,
 	Choice,
+	Notes,
 }
 
 #[cfg(feature = "layout")]
@@ -1052,7 +1054,8 @@ fn parse_layout_attribute(attr: &Attribute) -> Result<ParamLayoutConfig> {
 				"slider" => LayoutWidget::Slider,
 				"toggle" => LayoutWidget::Toggle,
 				"choice" => LayoutWidget::Choice,
-				other => return Err(Error::new_spanned(&ident, format!("unknown widget {other}: expected auto, knob, slider, toggle or choice"))),
+				"notes" => LayoutWidget::Notes,
+				other => return Err(Error::new_spanned(&ident, format!("unknown widget {other}: expected auto, knob, slider, toggle, choice or notes"))),
 			});
 		} else if meta.path.is_ident("size") {
 			let ident: Ident = meta.value()?.parse()?;

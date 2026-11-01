@@ -16,6 +16,7 @@ pub use super::phaser::*;
 pub use super::reverb::*;
 pub use super::pitch_shifter::*;
 pub use super::psola::*;
+pub use super::autotune::*;
 pub use super::visual::*;
 pub use super::phase_vocoder::*;
 pub use super::crusher::*;

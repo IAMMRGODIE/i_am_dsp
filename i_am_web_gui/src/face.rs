@@ -277,6 +277,7 @@ fn control(parameter: &Parameter) -> Option<Control> {
 		i_am_dsp::prelude::ParamWidget::Slider => "slider",
 		i_am_dsp::prelude::ParamWidget::Toggle => "toggle",
 		i_am_dsp::prelude::ParamWidget::Choice => "choice",
+		i_am_dsp::prelude::ParamWidget::Notes => "notes",
 		i_am_dsp::prelude::ParamWidget::Knob => "knob",
 		// Auto, and anything a newer build knows about.
 		_ => match kind {

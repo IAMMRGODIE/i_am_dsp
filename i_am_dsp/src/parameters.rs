@@ -142,6 +142,8 @@ pub enum ParamWidget {
 	Toggle,
 	/// One of a few named choices.
 	Choice,
+	/// A multi-select note mask, one bit per pitch class.
+	Notes,
 }
 
 #[cfg(feature = "layout")]

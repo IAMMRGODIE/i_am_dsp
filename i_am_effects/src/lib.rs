@@ -67,8 +67,8 @@ pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
 ];
 
 use i_am_dsp::prelude::{
-	Chorus, Crusher, Delay, Distortion, Expander, Flanger, FormantFilter, Gain as GainDsp, Gate,
-	Limiter, LrControl, Multimode, ParametricEq, Phaser, Resonator, SineWave, StereoController,
+	AutoTune, Chorus, Crusher, Delay, Distortion, Expander, Flanger, FormantFilter,
+	Gain as GainDsp, Gate, Limiter, LrControl, Multimode, ParametricEq, Phaser, Resonator, SineWave, StereoController,
 	StereoRouter, TapeStopEffect, TransientShaper,
 };
 use i_am_web_gui::Switch;
@@ -161,6 +161,17 @@ web_plugin!(
 	mode = "algorithm",
 	visible = PITCH_VISIBLE,
 	header = &["window_size"]
+);
+
+web_plugin!(
+	AutoTuneWeb,
+	AutoTune<2>,
+	AutoTune::<2>::new,
+	"iamdsp.effects.autotune.web",
+	"I Am Autotune",
+	(700.0, 420.0),
+	"#ff6fae",
+	midi = &[i_am_plugin::MidiPort { name: "Notes" }]
 );
 
 web_plugin!(
@@ -520,6 +531,7 @@ export_clap!(
 	AllpassWeb,
 	WidthWeb,
 	PitchWeb,
+	AutoTuneWeb,
 	ShifterWeb,
 	DisperserWeb,
 	BalanceWeb,
@@ -652,6 +664,7 @@ mod tests {
 		assert!(AllpassWeb::new().editor().is_some());
 		assert!(WidthWeb::new().editor().is_some());
 		assert!(PitchWeb::new().editor().is_some());
+		assert!(AutoTuneWeb::new().editor().is_some());
 		assert!(ShifterWeb::new().editor().is_some());
 		assert!(DisperserWeb::new().editor().is_some());
 		assert!(BalanceWeb::new().editor().is_some());
@@ -873,6 +886,30 @@ mod tests {
 			assert!(face.contains("\"id\":\"window_size\""), "{face}");
 			assert!(face.contains("[1,[\"pitch_shift_factor\",\"window_size\"]]") || face.contains("[1,[\"shift_freq\",\"window_size\"]]"), "{face}");
 		}
+	}
+
+	/// Autotune has three engines, a note mask and a MIDI note port.
+	#[test]
+	fn the_autotune_has_a_note_picker_and_three_engines() {
+		let face = i_am_web_gui::face_json(
+			&AutoTuneWeb::new(),
+			&Faceplate::new("I Am Autotune", "#ff6fae", (700.0, 420.0)),
+		);
+
+		assert!(face.contains("\"hero\":\"autotune\""), "{face}");
+		for id in ["algorithm", "strength", "speed", "notes"] {
+			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
+		}
+		assert!(face.contains("\"widget\":\"notes\""), "{face}");
+		assert!(
+			face.contains("\"choices\":[\"Time\",\"Phase Vocoder\",\"PSOLA\"]"),
+			"{face}"
+		);
+		assert_eq!(
+			<AutoTuneWeb as i_am_plugin::Plugin>::INPUT_MIDI_PORTS.len(),
+			1,
+			"autotune needs a note port"
+		);
 	}
 
 	/// The Unstablizer uses the spectra hero and a header window size.
