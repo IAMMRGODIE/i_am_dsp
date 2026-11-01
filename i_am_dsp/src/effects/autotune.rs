@@ -43,11 +43,11 @@ fn nearest_allowed_note(detected: f32, mask: u16) -> Option<f32> {
 	best.map(|(note, _)| note as f32)
 }
 
-/// An autotune with Time, Phase Vocoder and PSOLA engines.
+/// An autotune with WSOLA, Phase Vocoder and PSOLA engines.
 #[derive(Parameters)]
 pub struct AutoTune<const CHANNELS: usize = 2> {
 	/// The pitch-shifting engine.
-	#[choices("Time", "Phase Vocoder", "PSOLA")]
+	#[choices("WSOLA", "Phase Vocoder", "PSOLA")]
 	#[default(0)]
 	#[id(display = "Algorithm")]
 	#[layout(group = "Tune", order = 0, widget = choice)]
@@ -68,6 +68,13 @@ pub struct AutoTune<const CHANNELS: usize = 2> {
 	#[id(display = "Speed")]
 	#[layout(group = "Tune", order = 2, widget = knob)]
 	pub speed: f32,
+
+	/// The phase-vocoder window size, shown only for that engine.
+	#[choices("512", "1024", "2048", "4096")]
+	#[default(2)]
+	#[id(display = "Window Size")]
+	#[layout(group = "Tune", order = 3, widget = choice)]
+	pub window_size: i32,
 
 	/// Allowed pitch classes, one bit each; C is bit 0.
 	#[range(min = 0, max = 4095)]
@@ -90,6 +97,8 @@ pub struct AutoTune<const CHANNELS: usize = 2> {
 	held_notes: Vec<usize>,
 	#[skip]
 	ratio: f32,
+	#[skip]
+	last_window_size: i32,
 }
 
 impl<const CHANNELS: usize> AutoTune<CHANNELS> {
@@ -102,6 +111,7 @@ impl<const CHANNELS: usize> AutoTune<CHANNELS> {
 			algorithm: 0,
 			strength: 1.0,
 			speed: 10.0,
+			window_size: 2,
 			notes: ALL_NOTES as i32,
 			sample_rate: sample_rate.max(1) as f32,
 			tracker: PitchTracker::new(sample_rate, 2_048),
@@ -110,6 +120,7 @@ impl<const CHANNELS: usize> AutoTune<CHANNELS> {
 			psola: Psola::<CHANNELS>::new(sample_rate),
 			held_notes: Vec::new(),
 			ratio: 1.0,
+			last_window_size: 2,
 		}
 	}
 
@@ -130,7 +141,9 @@ impl<const CHANNELS: usize> AutoTune<CHANNELS> {
 		}
 	}
 
-	fn allowed_mask(&self) -> u16 {
+	/// The pitch-class mask the tuner is using right now: MIDI held notes if
+	/// there are any, otherwise the faceplate mask.
+	pub fn allowed_mask(&self) -> u16 {
 		if self.held_notes.is_empty() {
 			(self.notes as u16) & ALL_NOTES
 		} else {
@@ -190,6 +203,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for AutoTune<CHANNELS> {
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
+		if self.algorithm == 1 && self.window_size != self.last_window_size {
+			let size = [512, 1_024, 2_048, 4_096][self.window_size.clamp(0, 3) as usize];
+			if self.vocoder.renew_window_size(size).is_some() {
+				self.vocoder.gain = 1.0 / overlap_add_gain(self.vocoder.window_factor);
+			}
+			self.last_window_size = self.window_size;
+		}
+
 		let mono = samples.iter().copied().sum::<f32>() / CHANNELS as f32;
 		let target = self.target_ratio(mono, process_context);
 

@@ -28,6 +28,9 @@ pub struct Scope {
 	output_right: Box<[AtomicU32]>,
 	/// The last held MIDI note, or -1.
 	note: std::sync::atomic::AtomicI32,
+	/// The mask of notes an autotune is currently using, or -1 when it has no
+	/// such state.
+	allowed_notes: std::sync::atomic::AtomicI32,
 	write: AtomicUsize,
 }
 
@@ -56,6 +59,7 @@ impl Scope {
 			output_left: empty(),
 			output_right: empty(),
 			note: std::sync::atomic::AtomicI32::new(-1),
+			allowed_notes: std::sync::atomic::AtomicI32::new(-1),
 			write: AtomicUsize::new(0),
 		}
 	}
@@ -68,6 +72,16 @@ impl Scope {
 	/// Records the last held note.
 	pub fn set_note(&self, note: i32) {
 		self.note.store(note, Ordering::Relaxed);
+	}
+
+	/// The note mask an autotune is currently using, or -1 when not an autotune.
+	pub fn allowed_notes(&self) -> i32 {
+		self.allowed_notes.load(Ordering::Relaxed)
+	}
+
+	/// Records the note mask an autotune is currently using.
+	pub fn set_allowed_notes(&self, notes: i32) {
+		self.allowed_notes.store(notes, Ordering::Relaxed);
 	}
 
 	/// Records one mono frame. Called from the audio thread. Without a separate

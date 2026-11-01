@@ -236,6 +236,9 @@ pub fn editor_with_page<P: Plugin>(
 				body: scope.stereo_snapshot(),
 			},
 			"/note" => ProtocolResponse::json(format!("{{\"note\":{}}}", scope.note())),
+			"/allowed" => {
+				ProtocolResponse::json(format!("{{\"notes\":{}}}", scope.allowed_notes()))
+			}
 			"/meter" => {
 				let (input, sidechain) = scope.meter();
 				ProtocolResponse::json(format!(
@@ -302,7 +305,7 @@ pub fn apply_command<P: Plugin>(processor: &P, body: &str) -> bool {
 /// ```
 #[macro_export]
 macro_rules! web_plugin {
-	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, curves = $curves:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)? $(, clear = $clear:literal)?) => {
+	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, curves = $curves:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)? $(, telemetry = $telemetry:expr)? $(, clear = $clear:literal)?) => {
 		#[doc = concat!("The ", $title, " plug-in, with a web faceplate.")]
 		pub struct $name {
 			processor: i_am_plugin::processor::EffectProcessor<$effect>,
@@ -407,6 +410,10 @@ macro_rules! web_plugin {
 				}
 
 				i_am_dsp::Processor::process(&mut self.processor, samples, other, process_context);
+
+				$(
+					($telemetry)(self.processor.effect(), &self.scope);
+				)?
 
 				let output = *samples;
 				self.scope.push_stereo(input, output, sidechain);

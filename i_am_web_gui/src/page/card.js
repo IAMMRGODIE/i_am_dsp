@@ -1656,9 +1656,10 @@
       '<div class="hero-badge">' + (shift > 0 ? "+" : "") + shift.toFixed(0) + ' st</div>';
   }
 
-  function autotuneHero(values) {
+  function autotuneHero(values, context) {
     var labels = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-    var mask = Math.round(valueOf(values, "notes", 4095)) & 4095;
+    var live = context && context.autotune && context.autotune.notes;
+    var mask = Math.round(live >= 0 ? live : valueOf(values, "notes", 4095)) & 4095;
     var strength = clamp(valueOf(values, "strength", 1), 0, 1);
     var cells = "";
 
@@ -1666,17 +1667,19 @@
       var on = (mask & (1 << index)) !== 0;
       var sharp = label.length > 1;
       var x = 20 + index * 40;
+      var fill = on ? "var(--accent)" : (sharp ? "#202020" : "#2a2a2a");
+      var opacity = on && sharp ? ' fill-opacity=".5"' : "";
+      var text = on ? (sharp ? "var(--text1)" : "#111") : "var(--text3)";
+
       cells += '<rect x="' + x + '" y="26" width="36" height="104" rx="4" ' +
-        'fill="' + (on ? "var(--accent)" : (sharp ? "#202020" : "#2a2a2a")) + '" ' +
-        'stroke="' + (on ? "var(--accent)" : "#414141") + '"/>' +
-        '<text x="' + (x + 18) + '" y="142" text-anchor="middle" fill="' +
-        (on ? "var(--accent)" : "var(--text3)") + '" font-size="8">' + label + '</text>';
+        'fill="' + fill + '"' + opacity +
+        ' stroke="' + (on ? "var(--accent)" : "#414141") + '"/>' +
+        '<text x="' + (x + 18) + '" y="142" text-anchor="middle" fill="' + text +
+        '" font-size="8">' + label + '</text>';
     });
 
-    return heroSvg(
-      '<line x1="20" y1="20" x2="500" y2="20" stroke="#2b2b2b"/>' +
-      cells
-    ) + '<div class="hero-label" style="left:2%;top:2%">ALLOWED NOTES</div>' +
+    return heroSvg(cells) +
+      '<div class="hero-label" style="left:2%;top:2%">ALLOWED NOTES</div>' +
       '<div class="hero-badge">' + Math.round(strength * 100) + '%</div>';
   }
 

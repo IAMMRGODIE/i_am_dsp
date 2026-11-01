@@ -17,7 +17,8 @@ use i_am_effects::{
 	ConvolverWeb, DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
 	OttWeb, ScriptDistortionWeb, ScriptMapperWeb, VocoderWeb, StftVocoderWeb,
 	TapeStopWeb, GateWeb, ExpanderWeb, LimiterWeb, TransientWeb, RouterWeb, EqWeb,
-	AutoTuneWeb, FormantFilterWeb, ParticleWiderWeb, PitchWeb, ResonatorWeb, ReverbWeb, SchroederWeb, ShifterWeb,
+	AutoTuneWeb, FormantFilterWeb, ParticleWiderWeb, PitchWeb, ResonatorWeb, ReverbWeb, SchroederWeb,
+	ShifterWeb, AUTOTUNE_VISIBLE,
 	UnstablizerWeb, WidthWeb, CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
 	PITCH_VISIBLE, SHIFTER_CURVES, SHIFTER_VISIBLE,
@@ -154,7 +155,9 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Autotune", "#ff6fae", (700.0, 420.0)),
+					&Faceplate::new("I Am Autotune", "#ff6fae", (700.0, 420.0))
+						.with_mode("algorithm")
+						.with_visible(AUTOTUNE_VISIBLE),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

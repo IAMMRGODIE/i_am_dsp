@@ -52,6 +52,14 @@ use shifter::ShifterEffect;
 use unstablizer::UnstablizerEffect;
 pub use shifter::{SHIFTER_CURVES, SHIFTER_VISIBLE};
 pub use pitch::PITCH_VISIBLE;
+
+/// The controls each autotune engine reads; the note mask lives in its own
+/// section and is always visible.
+pub const AUTOTUNE_VISIBLE: &[(i32, &[&str])] = &[
+	(0, &["strength", "speed", "notes"]),
+	(1, &["strength", "speed", "window_size", "notes"]),
+	(2, &["strength", "speed", "notes"]),
+];
 /// The parameters the page draws in the header, beside the mode.
 pub const FILTER_HEADER: &[&str] = &["stages"];
 
@@ -171,7 +179,12 @@ web_plugin!(
 	"I Am Autotune",
 	(700.0, 420.0),
 	"#ff6fae",
-	midi = &[i_am_plugin::MidiPort { name: "Notes" }]
+	mode = "algorithm",
+	visible = AUTOTUNE_VISIBLE,
+	midi = &[i_am_plugin::MidiPort { name: "Notes" }],
+	telemetry = |tuner: &AutoTune<2>, scope: &i_am_web_gui::Scope| {
+		scope.set_allowed_notes(tuner.allowed_mask() as i32)
+	}
 );
 
 web_plugin!(
@@ -572,6 +585,33 @@ mod tests {
 	use i_am_plugin::Plugin;
 	use i_am_web_gui::Faceplate;
 
+	struct NoteContext {
+		events: Vec<i_am_dsp::NoteEvent>,
+		infos: i_am_dsp::ProcessInfos,
+	}
+
+	impl i_am_dsp::ProcessContext for NoteContext {
+		fn infos(&self) -> &i_am_dsp::ProcessInfos {
+			&self.infos
+		}
+
+		fn next_event(&mut self) -> Option<i_am_dsp::NoteEvent> {
+			if self.events.is_empty() { None } else { Some(self.events.remove(0)) }
+		}
+
+		fn send_event(&mut self, event: i_am_dsp::NoteEvent) {
+			self.events.push(event);
+		}
+
+		fn events(&self) -> &[i_am_dsp::NoteEvent] {
+			&self.events
+		}
+
+		fn clear_events(&mut self) {
+			self.events.clear();
+		}
+	}
+
 	fn gain_face() -> String {
 		i_am_web_gui::face_json(
 			&GainWeb::new(),
@@ -876,7 +916,7 @@ mod tests {
 		);
 
 		assert!(
-			pitch.contains("\"choices\":[\"Time\",\"Phase Vocoder\",\"PSOLA\"]"),
+			pitch.contains("\"choices\":[\"WSOLA\",\"Phase Vocoder\",\"PSOLA\"]"),
 			"{pitch}"
 		);
 
@@ -893,16 +933,23 @@ mod tests {
 	fn the_autotune_has_a_note_picker_and_three_engines() {
 		let face = i_am_web_gui::face_json(
 			&AutoTuneWeb::new(),
-			&Faceplate::new("I Am Autotune", "#ff6fae", (700.0, 420.0)),
+			&Faceplate::new("I Am Autotune", "#ff6fae", (700.0, 420.0))
+				.with_mode("algorithm")
+				.with_visible(AUTOTUNE_VISIBLE),
 		);
 
 		assert!(face.contains("\"hero\":\"autotune\""), "{face}");
-		for id in ["algorithm", "strength", "speed", "notes"] {
+		assert!(face.contains("\"mode\":\"algorithm\""), "{face}");
+		for id in ["strength", "speed", "window_size", "notes"] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
 		}
 		assert!(face.contains("\"widget\":\"notes\""), "{face}");
 		assert!(
-			face.contains("\"choices\":[\"Time\",\"Phase Vocoder\",\"PSOLA\"]"),
+			face.contains("\"choices\":[\"WSOLA\",\"Phase Vocoder\",\"PSOLA\"]"),
+			"{face}"
+		);
+		assert!(
+			face.contains("[1,[\"strength\",\"speed\",\"window_size\",\"notes\"]]"),
 			"{face}"
 		);
 		assert_eq!(
@@ -910,6 +957,24 @@ mod tests {
 			1,
 			"autotune needs a note port"
 		);
+	}
+
+	/// The autotune publishes the live mask for its hero; MIDI is the override.
+	#[test]
+	fn the_autotune_publishes_its_live_mask() {
+		let mut plugin = AutoTuneWeb::new();
+		let mut context: Box<dyn i_am_dsp::ProcessContext> = Box::new(NoteContext {
+			events: vec![
+				i_am_dsp::NoteEvent::NoteOn { channel: 0, note: 60, velocity: 1.0 },
+				i_am_dsp::NoteEvent::NoteOn { channel: 0, note: 64, velocity: 1.0 },
+			],
+			infos: i_am_dsp::ProcessInfos::default(),
+		});
+		let mut frame = [0.0_f32, 0.0];
+
+		i_am_dsp::Processor::process(&mut plugin, &mut frame, &[], &mut context);
+
+		assert_eq!(plugin.scope.allowed_notes(), (1 << 0) | (1 << 4));
 	}
 
 	/// The Unstablizer uses the spectra hero and a header window size.

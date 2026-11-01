@@ -95,6 +95,12 @@ impl<E: Parameters + 'static> EffectProcessor<E> {
 		}
 	}
 
+	/// The effect itself, for a faceplate that publishes state the parameter map
+	/// does not carry.
+	pub fn effect(&self) -> &E {
+		&self.effect.value
+	}
+
 	/// The rate the effect is currently built for.
 	pub fn sample_rate(&self) -> usize {
 		self.sample_rate

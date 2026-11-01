@@ -15,7 +15,7 @@ pub const PITCH_VISIBLE: &[(i32, &[&str])] = &[
 #[derive(Parameters)]
 pub struct PitchEffect {
 	/// The engine.
-	#[choices("Time", "Phase Vocoder", "PSOLA")]
+	#[choices("WSOLA", "Phase Vocoder", "PSOLA")]
 	#[default(0)]
 	#[id(display = "Algorithm")]
 	#[layout(group = "Pitch", order = 0, widget = choice)]

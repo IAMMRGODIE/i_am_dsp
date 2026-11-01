@@ -17,6 +17,8 @@
   var powerButton = null;
   var modeSpec = null;
   var wantsScope = false;
+var wantsAutotune = false;
+var autotuneState = { notes: -1 };
 var wantsMeter = false;
 var wantsStereo = false;
 var wantsParticles = false;
@@ -435,7 +437,8 @@ var ENV_MAX = 512;
         ir: irState, curve: curveState, stereo: stereoScope, scope: scope,
         rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,
-        ott: ottState, vocoder: vocoderState, eqSpectrum: eqSpectrum
+        ott: ottState, vocoder: vocoderState, eqSpectrum: eqSpectrum,
+        autotune: autotuneState
       });
       if (content) hero.el.innerHTML = content;
     });
@@ -567,6 +570,34 @@ var ENV_MAX = 512;
   }
 
   /// The note the host last sent, shown beside the title. A product without
+  /// The autotune publishes the mask it is actually using: MIDI held notes win
+  /// over the faceplate mask. The preview server has no /allowed and the hero
+  /// falls back to the note control.
+  function pollAllowed() {
+    if (!wantsAutotune) return;
+    if (isPreview || document.hidden) {
+      setTimeout(pollAllowed, 100);
+      return;
+    }
+
+    fetch("/allowed", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (data) {
+        if (data && typeof data.notes === "number") {
+          autotuneState.notes = data.notes;
+          updateHeroes();
+        }
+      })
+      .catch(function () {
+        autotuneState.notes = -1;
+      })
+      .then(function () {
+        setTimeout(pollAllowed, 100);
+      });
+  }
+
   /// note input answers with -1 and the badge stays hidden.
   function pollNote() {
     if (document.hidden || !noteBadge) {
@@ -1334,7 +1365,11 @@ var ENV_MAX = 512;
     })
     .then(function (page) {
       face = page;
+      wantsAutotune = page.sections.some(function (section) {
+        return section.hero === "autotune";
+      });
       buildFace();
+      pollAllowed();
     })
     .catch(function (error) {
       app.textContent = "faceplate unavailable";
