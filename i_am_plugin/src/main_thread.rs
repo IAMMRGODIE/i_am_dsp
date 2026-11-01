@@ -40,11 +40,45 @@ pub struct PluginMain<P: Plugin> {
 	/// The open GUI, if it is open.
 	pub(crate) editor: Option<Box<dyn Editor<P>>>,
 	pub(crate) message_receivers: Vec<Receiver<P::Message>>,
+	/// True while `open` is inside the editor's own open call.
+	///
+	/// WebView2 pumps the host's message loop while it creates its controller, so
+	/// a host can re-enter `show`, `hide`, `set_parent` or `destroy` before the
+	/// editor has been stored. These flags turn those re-entrant calls into a
+	/// small pending-state queue instead of a second editor.
+	pub(crate) opening: bool,
+	pub(crate) close_requested: bool,
+	pub(crate) parent_dirty: bool,
+	pub(crate) geometry_dirty: bool,
+	pub(crate) hide_requested: bool,
 }
 
 impl<P: Plugin> PluginMain<P> {
+	fn scale_value(&self) -> f64 {
+		if self.scale_factor.is_finite() && self.scale_factor > 0.0 {
+			self.scale_factor.clamp(0.25, 4.0)
+		} else {
+			1.0
+		}
+	}
+
+	fn reset_pending(&mut self) {
+		self.close_requested = false;
+		self.parent_dirty = false;
+		self.geometry_dirty = false;
+		self.hide_requested = false;
+	}
+
 	/// Open the plugin GUI in the window the host provided.
 	pub fn open(&mut self) -> Result<(), PluginError> {
+		if self.opening {
+			crate::log::note("gui.open: ignored, already opening");
+			return Ok(());
+		}
+		if self.editor.is_some() {
+			return Ok(());
+		}
+
 		let Some(parent) = self.parent else {
 			return Err(PluginError::Message("No parent window provided"));
 		};
@@ -59,34 +93,119 @@ impl<P: Plugin> PluginMain<P> {
 			size: self.window_size,
 			// A host that never reported a scale leaves the window at the platform's own
 			// DPI, which is the same choice the processor's view makes.
-			scale_factor: self.scale_set.then_some(self.scale_factor),
+			scale_factor: self.scale_set.then(|| self.scale_value()),
 			title: self.title.clone(),
 			resizable: self.resize_hints.is_some(),
 			messages: message_sender,
 		};
 
-		editor.open(context).map_err(|error| PluginError::Error(Box::new(error)))?;
+		self.opening = true;
+		self.reset_pending();
+		crate::log::note(&format!(
+			"gui.open: start parent={parent:?} size={}x{} scale={:?}",
+			self.window_size.width, self.window_size.height, context.scale_factor
+		));
+
+		let opened = editor.open(context);
+		self.opening = false;
+
+		if let Err(error) = opened {
+			self.reset_pending();
+			crate::log::note(&format!("gui.open: failed: {error}"));
+			return Err(PluginError::Error(Box::new(error)));
+		}
+
+		crate::log::note("gui.open: editor opened");
+		self.finish_open(editor, message_receiver)
+	}
+
+	fn finish_open(
+		&mut self,
+		mut editor: Box<dyn Editor<P>>,
+		message_receiver: crossbeam_channel::Receiver<P::Message>,
+	) -> Result<(), PluginError> {
+		if self.close_requested {
+			self.reset_pending();
+			crate::log::note("gui.open: host closed while opening");
+			editor.close();
+			return Ok(());
+		}
+
+		if self.parent_dirty {
+			if let Some(parent) = self.parent {
+				crate::log::note("gui.open: applying a parent change");
+				if let Err(error) = editor.set_parent(parent) {
+					return Err(self.fail_open(editor, error));
+				}
+			}
+			self.parent_dirty = false;
+		}
+
+		if self.geometry_dirty {
+			crate::log::note("gui.open: applying a size or scale change");
+			if self.scale_set
+				&& let Err(error) = editor.set_scale_factor(self.scale_factor)
+			{
+				return Err(self.fail_open(editor, error));
+			}
+			if let Err(error) = editor.set_size(self.window_size) {
+				return Err(self.fail_open(editor, error));
+			}
+			self.geometry_dirty = false;
+		}
+
+		if self.hide_requested {
+			let _ = editor.hide();
+			self.hide_requested = false;
+		}
 
 		// Only a GUI that is actually running has messages worth collecting; a failed
 		// open leaves no receiver behind for it.
 		self.message_receivers.push(message_receiver);
 		self.editor = Some(editor);
+		crate::log::note("gui.open: done");
 		Ok(())
+	}
+
+	fn fail_open(
+		&mut self,
+		mut editor: Box<dyn Editor<P>>,
+		error: crate::EditorError,
+	) -> PluginError {
+		self.reset_pending();
+		crate::log::note(&format!("gui.open: setup failed: {error}"));
+		editor.close();
+		PluginError::Error(Box::new(error))
 	}
 
 	/// Destroy the plugin GUI and its state.
 	///
 	/// Hiding only leaves the window off screen; this is what the host calls
-	/// `destroy` for, and it is the only place the GUI is thrown away.
+	/// destroy for, and it is the only place the GUI is thrown away.
 	pub fn close(&mut self) {
-		if let Some(mut editor) = self.editor.take() {
-			editor.close();
+		if self.opening {
+			self.close_requested = true;
+			crate::log::note("gui.close: deferred until open returns");
+			return;
 		}
+
+		if let Some(mut editor) = self.editor.take() {
+			crate::log::note("gui.close: closing editor");
+			editor.close();
+			crate::log::note("gui.close: editor closed");
+		}
+		self.message_receivers.clear();
 	}
 
 	/// Hide the plugin GUI, keeping it ready to be shown again.
 	pub fn hide(&mut self) -> Result<(), PluginError> {
+		if self.opening {
+			self.hide_requested = true;
+			crate::log::note("gui.hide: deferred until open returns");
+			return Ok(());
+		}
 		if let Some(editor) = &mut self.editor {
+			crate::log::note("gui.hide");
 			editor.hide().map_err(|error| PluginError::Error(Box::new(error)))?;
 		}
 
@@ -99,12 +218,19 @@ impl<P: Plugin> PluginMain<P> {
 	/// window it was taken from exactly as long as the host keeps that window open.
 	pub fn set_parent(&mut self, parent: GuiWindow<'_>) -> Result<(), PluginError> {
 		// SAFETY: the handle is borrowed only long enough to copy the platform window out
-		// of it; `ParentWindow` owns what it needs from then on.
+		// of it; ParentWindow owns what it needs from then on.
 		let handle = unsafe { parent.borrow_handle_unchecked() }
 			.map_err(|_| PluginError::Message("Unsupported window API"))?;
 		let parent = ParentWindow::new(handle.as_raw());
+		let raw = parent.as_win32_hwnd().map(|hwnd| hwnd as usize);
 
 		self.parent = Some(parent);
+		crate::log::note(&format!("gui.set_parent: hwnd={raw:?} opening={}", self.opening));
+
+		if self.opening {
+			self.parent_dirty = true;
+			return Ok(());
+		}
 
 		if let Some(editor) = &mut self.editor {
 			editor.set_parent(parent).map_err(|error| PluginError::Error(Box::new(error)))?;
@@ -137,12 +263,25 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 	}
 
 	fn set_scale(&mut self, scale: f64) -> Result<(), clack_plugin::prelude::PluginError> {
+		let scale = if scale.is_finite() {
+			scale.clamp(0.25, 4.0)
+		} else {
+			1.0
+		};
 		self.scale_factor = scale;
 		self.scale_set = true;
+		crate::log::note(&format!(
+			"gui.set_scale: {scale} (opening={})",
+			self.opening
+		));
 
 		// A backend decides how its own window has to change: on one platform the
 		// window keeps its pixel size and the view zooms, on another the window grows
 		// and the view stays put.
+		if self.opening {
+			self.geometry_dirty = true;
+			return Ok(());
+		}
 		if let Some(editor) = &mut self.editor {
 			editor.set_scale_factor(scale).map_err(|error| PluginError::Error(Box::new(error)))?;
 		}
@@ -159,20 +298,29 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 	}
 
 	fn get_size(&mut self) -> Option<clack_extensions::gui::GuiSize> {
+		let scale = self.scale_value();
 		Some(clack_extensions::gui::GuiSize {
-			width: (self.window_size.width as f64 * self.scale_factor) as u32,
-			height: (self.window_size.height as f64 * self.scale_factor) as u32,
+			width: (self.window_size.width as f64 * scale)
+				.round()
+				.clamp(1.0, 32768.0) as u32,
+			height: (self.window_size.height as f64 * scale)
+				.round()
+				.clamp(1.0, 32768.0) as u32,
 		})
 	}
 
 	fn set_size(&mut self, size: clack_extensions::gui::GuiSize) -> Result<(), clack_plugin::prelude::PluginError> {
-		let scale_factor = if self.scale_factor > 0.0 { self.scale_factor } else { 1.0 };
+		let scale = self.scale_value();
 		let logical = WindowSize::new(
-			(size.width as f64 / scale_factor) as f32,
-			(size.height as f64 / scale_factor) as f32,
+			(size.width as f64 / scale) as f32,
+			(size.height as f64 / scale) as f32,
 		);
 		self.window_size = logical;
 
+		if self.opening {
+			self.geometry_dirty = true;
+			return Ok(());
+		}
 		if let Some(editor) = &mut self.editor {
 			editor.set_size(logical).map_err(|error| PluginError::Error(Box::new(error)))?;
 		}
@@ -185,13 +333,21 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 		Ok(())
 	}
 
-	fn set_transient(&mut self, window: clack_extensions::gui::Window) -> Result<(), clack_plugin::prelude::PluginError> {
-		PluginMain::set_parent(self, window)?;
+	fn set_transient(&mut self, _window: clack_extensions::gui::Window) -> Result<(), clack_plugin::prelude::PluginError> {
+		// CLAP only defines a transient window for floating GUIs, and this backend
+		// is embedded-only. Treating it as set_parent used to move the editor onto
+		// FL Studio's main window when a wrapper passed it through anyway.
+		crate::log::note("gui.set_transient: ignored (embedded only)");
 		Ok(())
 	}
 
 	fn show(&mut self) -> Result<(), clack_plugin::prelude::PluginError> {
+		if self.opening {
+			crate::log::note("gui.show: ignored while opening");
+			return Ok(());
+		}
 		if let Some(editor) = &mut self.editor {
+			crate::log::note("gui.show");
 			return editor.show().map_err(|error| PluginError::Error(Box::new(error)));
 		}
 
@@ -203,15 +359,24 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 	}
 
 	fn adjust_size(&mut self, size: clack_extensions::gui::GuiSize) -> Option<clack_extensions::gui::GuiSize> {
-		let scale_factor = if self.scale_factor > 0.0 { self.scale_factor } else { 1.0 };
+		let scale = self.scale_value();
 		self.window_size = WindowSize::new(
-			(size.width as f64 / scale_factor) as f32,
-			(size.height as f64 / scale_factor) as f32,
+			(size.width as f64 / scale) as f32,
+			(size.height as f64 / scale) as f32,
 		);
+		if self.opening {
+			self.geometry_dirty = true;
+		}
 		Some(size)
 	}
 
 	fn suggest_title(&mut self, title: &str) {
 		self.title = title.to_string();
+	}
+}
+
+impl<P: Plugin> Drop for PluginMain<P> {
+	fn drop(&mut self) {
+		self.close();
 	}
 }

@@ -5,17 +5,22 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
 use crossbeam_channel::Sender;
+use crate::log::{clear_error, note};
 use crate::{Editor, EditorContext, EditorError, ParentWindow, Plugin, WindowSize};
-use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, GetLastError, HWND};
+use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, GetLastError, HWND, SetLastError};
 use windows_sys::Win32::Graphics::Gdi::COLOR_WINDOW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-	CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, RegisterClassW, SetParent,
-	SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, WNDCLASSW,
-	WS_CHILD, WS_CLIPCHILDREN, WS_VISIBLE,
+	CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, IsWindow, RegisterClassW,
+	SetParent, SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW,
+	WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_VISIBLE,
 };
-use wry::dpi::{LogicalPosition, LogicalSize};
+use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::WebViewBuilderExtWindows;
+
+/// COM already initialized on this thread with another apartment model.
+const RPC_E_CHANGED_MODE: i32 = 0x8001_0106u32 as i32;
 
 use super::{ProtocolRequest, ProtocolResponse};
 
@@ -105,7 +110,7 @@ thread_local! {
 
 /// The profile layout version. Bump it when the browser options below change,
 /// so an older plug-in build with different options cannot share the folder.
-const PROFILE_VERSION: u32 = 1;
+const PROFILE_VERSION: u32 = 2;
 
 /// Browser switches for the embedded WebView2.
 ///
@@ -114,7 +119,7 @@ const PROFILE_VERSION: u32 = 1;
 /// over a gigabyte. The code and shader caches are turned off, and the HTTP and
 /// media caches are capped. This string is also part of the profile identity:
 /// change it and bump [PROFILE_VERSION].
-const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disk-cache-size=134217728 --media-cache-size=33554432 --disable-gpu-shader-disk-cache --disable-gpu-program-cache --disable-background-networking --disable-component-update --no-first-run --disable-sync --disable-breakpad";
+const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disk-cache-size=67108864 --media-cache-size=16777216 --disable-gpu-shader-disk-cache --disable-gpu-program-cache --disable-background-networking --disable-component-update --no-first-run --disable-sync --disable-breakpad";
 
 /// Where WebView2 keeps its profile when the plug-in does not choose.
 ///
@@ -140,6 +145,11 @@ fn profile_name() -> String {
 	}
 }
 
+/// A profile above this size is worth reporting, even though the browser args
+/// already cap the HTTP and media caches. The rest is code/GPU cache that
+/// WebView2 maintains itself.
+const MAX_PROFILE_BYTES: u64 = 256 * 1024 * 1024;
+
 fn default_data_directory() -> Option<PathBuf> {
 	clean_stale_profiles_once();
 
@@ -157,9 +167,103 @@ fn default_data_directory() -> Option<PathBuf> {
 			.join(profile_name()),
 	);
 
-	candidates
+	let directory = candidates
 		.into_iter()
-		.find(|directory| std::fs::create_dir_all(directory).is_ok())
+		.find(|directory| std::fs::create_dir_all(directory).is_ok())?;
+
+	clean_old_profile_versions(&directory);
+	log_profile_size(&directory);
+	Some(directory)
+}
+
+/// Remove old profile-version folders once they have been idle for a week.
+///
+/// A stale profile can be hundreds of megabytes after a browser update. The
+/// current version is never touched, and a folder with a live WebView2 process
+/// keeps files open, so the removal simply fails and is retried next time.
+fn clean_old_profile_versions(current: &Path) {
+	use std::sync::Once;
+	use std::time::{Duration, SystemTime};
+
+	static ONCE: Once = Once::new();
+	ONCE.call_once(|| {
+		let Some(base) = current.parent() else {
+			return;
+		};
+		let Some(current_name) = current.file_name().and_then(|name| name.to_str()) else {
+			return;
+		};
+		let Ok(entries) = std::fs::read_dir(base) else {
+			return;
+		};
+		let now = SystemTime::now();
+
+		for entry in entries.flatten() {
+			let name = entry.file_name();
+			let Some(name) = name.to_str() else {
+				continue;
+			};
+			if name == current_name || !name.starts_with("WebView2-v") {
+				continue;
+			}
+			let Ok(metadata) = entry.metadata() else {
+				continue;
+			};
+			let Ok(modified) = metadata.modified() else {
+				continue;
+			};
+			let Ok(age) = now.duration_since(modified) else {
+				continue;
+			};
+			if age < Duration::from_secs(7 * 24 * 60 * 60) {
+				continue;
+			}
+
+			if std::fs::remove_dir_all(entry.path()).is_ok() {
+				note(&format!("profile: removed old version {name}"));
+			}
+		}
+	});
+}
+
+/// Record the profile size once per process; it is a diagnostic, not a hot path.
+fn log_profile_size(directory: &Path) {
+	use std::sync::Once;
+
+	static ONCE: Once = Once::new();
+	ONCE.call_once(|| {
+		let mut bytes = 0u64;
+		let mut files = 0u32;
+		size_of_tree(directory, &mut bytes, &mut files);
+		note(&format!(
+			"profile: {} ({:.1} MiB, {files} files)",
+			directory.display(),
+			bytes as f64 / 1_048_576.0
+		));
+		if bytes > MAX_PROFILE_BYTES {
+			note("profile: above the 256 MiB soft cap; old cache should be cleaned");
+		}
+	});
+}
+
+fn size_of_tree(directory: &Path, bytes: &mut u64, files: &mut u32) {
+	let Ok(entries) = std::fs::read_dir(directory) else {
+		return;
+	};
+	for entry in entries.flatten() {
+		if *files > 20_000 {
+			return;
+		}
+		let Ok(metadata) = entry.metadata() else {
+			continue;
+		};
+		if metadata.is_dir() {
+			size_of_tree(&entry.path(), bytes, files);
+		} else {
+			*bytes = bytes.saturating_add(metadata.len());
+			*files = files.saturating_add(1);
+		}
+	}
 }
 
 /// Runs the old-profile cleanup once per process.
@@ -224,53 +328,13 @@ fn process_is_alive(pid: u32) -> bool {
 	true
 }
 
-/// Where [report_error] writes its note. The temp directory is always writable.
-fn error_log_path() -> PathBuf {
-	std::env::temp_dir()
-		.join("i_am_plugin_wry")
-		.join("last-error.log")
-}
-
 /// Record why an editor could not open, where a host's log cannot be read.
 ///
 /// A DAW swallows the error a plug-in's GUI open returns, so the blank window gives no
-/// clue. The file is `%LOCALAPPDATA%\i_am_plugin_wry\last-error.log`, and a successful
-/// open removes it.
+/// clue. The error log lives in the temp directory and is capped by the log module.
 fn report_error(error: &EditorError) {
 	eprintln!("i_am_plugin_wry: WebView2 editor failed: {error}");
-
-	let path = error_log_path();
-	if let Some(directory) = path.parent() {
-		let _ = std::fs::create_dir_all(directory);
-	}
-	let _ = std::fs::write(path, format!("{error}\n"));
-	note(&format!("error: {error}"));
-}
-
-/// Append a line to the open log next to the error log.
-///
-/// A host swallows what a plug-in's GUI open returns, so a blank editor in a DAW
-/// leaves nothing to read. This records how far an open got: whether it was called,
-/// which profile folder it chose, and whether WebView2 came up.
-fn note(message: &str) {
-	use std::io::Write;
-
-	let path = error_log_path().with_file_name("open.log");
-	if let Some(directory) = path.parent() {
-		let _ = std::fs::create_dir_all(directory);
-	}
-
-	if let Ok(mut file) = std::fs::OpenOptions::new()
-		.create(true)
-		.append(true)
-		.open(&path)
-	{
-		let _ = writeln!(file, "{message}");
-	}
-}
-
-fn clear_error_log() {
-	let _ = std::fs::remove_file(error_log_path());
+	crate::log::error(&format!("error: {error}"));
 }
 
 /// Record panic messages (including ones that happen on WebView2 threads) in
@@ -410,10 +474,15 @@ impl<P: Plugin> WryEditor<P> {
 	///
 	/// They are logical: wry asks the window for its DPI and converts to physical
 	/// pixels itself, exactly as it does for the iced backend's window.
-	fn bounds(size: WindowSize) -> wry::Rect {
+	fn bounds(size: WindowSize, scale: f64) -> wry::Rect {
+		// Use physical pixels here: the host window is created in physical pixels
+		// too, and FL Studio's GUI scale does not always match the monitor DPI.
+		// Letting wry convert a logical size would then scale the page twice.
+		let width = (size.width as f64 * scale).round().clamp(1.0, 32768.0) as u32;
+		let height = (size.height as f64 * scale).round().clamp(1.0, 32768.0) as u32;
 		wry::Rect {
-			position: LogicalPosition::new(0.0, 0.0).into(),
-			size: LogicalSize::new(size.width as f64, size.height as f64).into(),
+			position: PhysicalPosition::new(0, 0).into(),
+			size: PhysicalSize::new(width, height).into(),
 		}
 	}
 
@@ -421,6 +490,33 @@ impl<P: Plugin> WryEditor<P> {
 		self.webview
 			.as_ref()
 			.ok_or_else(|| "the wry editor has no webview".into())
+	}
+
+	/// Tear down the WebView2 controller before the window it lives in.
+	///
+	/// This is used by both `close` and `Drop`: a host that drops the editor
+	/// without an explicit destroy must not leave a visible child window behind.
+	fn shutdown(&mut self) {
+		if self.webview.is_none() && self.window.is_none() {
+			return;
+		}
+
+		note("close: start");
+		let _ = self.webview.take();
+
+		if let Some(window) = self.window.take() {
+			let destroyed = unsafe { DestroyWindow(window) };
+			let last_error = if destroyed == 0 {
+				unsafe { GetLastError() }
+			} else {
+				0
+			};
+			note(&format!(
+				"close: DestroyWindow={destroyed} last_error={last_error}"
+			));
+		}
+
+		note("close: done");
 	}
 }
 
@@ -458,7 +554,7 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		} = context;
 
 		self.size = size;
-		self.scale = scale_factor.unwrap_or(1.0).max(0.1);
+		self.scale = scale_factor.unwrap_or(1.0).clamp(0.25, 4.0);
 
 		note(&format!(
 			"open: {}x{} scale={:?}",
@@ -480,6 +576,9 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 			.clone()
 			.or_else(default_data_directory);
 		note(&format!("profile: {data_directory:?}"));
+		if let Some(directory) = &data_directory {
+			log_profile_size(directory);
+		}
 
 		// WebView2 wants a COM apartment on the thread it is created from. The
 		// host usually owns this thread's COM mode; logging it tells a crash in
@@ -493,30 +592,62 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 				CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32)
 			};
 			note(&format!("com: {result:#x}"));
+
+			if result == RPC_E_CHANGED_MODE {
+				let error = EditorError::from(
+					"the GUI thread is already in a multi-threaded COM apartment; WebView2 needs STA",
+				);
+				report_error(&error);
+				return Err(error);
+			} else if result < 0 {
+				let error = EditorError::from(format!("CoInitializeEx failed: {result:#x}"));
+				report_error(&error);
+				return Err(error);
+			}
 		}
 
 		let parent_hwnd = parent
 			.as_win32_hwnd()
 			.ok_or("the wry editor needs a Win32 parent window")?;
 
+		if unsafe { IsWindow(parent_hwnd) } == 0 {
+			let error = EditorError::from("the host parent window is gone");
+			report_error(&error);
+			return Err(error);
+		}
+
 		// The host's window is the truth for the visible area: a DAW may size the
 		// plug-in window differently from the design size the wrapper reports.
 		// The child and the WebView2 fill that client rectangle.
 		let mut client = unsafe { std::mem::zeroed() };
-		let size = if unsafe { GetClientRect(parent_hwnd, &mut client) } != 0
+		let parent_size = if unsafe { GetClientRect(parent_hwnd, &mut client) } != 0
 			&& client.right > client.left
 			&& client.bottom > client.top
 		{
-			WindowSize::new(
-				(client.right - client.left) as f32 / self.scale as f32,
-				(client.bottom - client.top) as f32 / self.scale as f32,
-			)
+			Some((
+				(client.right - client.left) as f64,
+				(client.bottom - client.top) as f64,
+			))
 		} else {
-			size
+			None
+		};
+		let size = match parent_size {
+			Some((width, height)) => WindowSize::new(
+				(width / self.scale) as f32,
+				(height / self.scale) as f32,
+			),
+			None => size,
 		};
 		self.size = size;
+		let scale = self.scale;
 
-		let window = create_host_window(parent_hwnd, size, self.scale)?;
+		let dpi = unsafe { GetDpiForWindow(parent_hwnd) };
+		note(&format!(
+			"parent: hwnd={parent_hwnd:?} client={:?} dpi={dpi} scale={scale}",
+			parent_size
+		));
+
+		let window = create_host_window(parent_hwnd, size, scale)?;
 		note(&format!("window: created {}x{} logical", size.width, size.height));
 		let outer_parent = ParentWindow::from_win32_hwnd(window)
 			.ok_or("the host window handle was invalid")?;
@@ -527,60 +658,71 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		// The WebView2 runs inside our own child window; the host's editor window
 		// only has to host that child. Creating the controller directly in the
 		// host's window is what crashed some DAWs at build time.
-		let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-			WEB_CONTEXT.with(move |shared| {
-				let mut shared = shared.borrow_mut();
+		let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+			move || -> Result<wry::WebView, EditorError> {
+				WEB_CONTEXT.with(move |shared| {
+					let mut shared = shared.try_borrow_mut().map_err(|_| {
+						EditorError::from(
+							"WebView2 context is already in use; re-entrant GUI open",
+						)
+					})?;
 
-				if shared.is_none() {
-					note("context: creating");
-					*shared = Some(wry::WebContext::new(data_directory.clone()));
-					note("context: created");
-				}
+					if shared.is_none() {
+						note("context: creating");
+						*shared = Some(wry::WebContext::new(data_directory.clone()));
+						note("context: created");
+					}
 
-				let context = shared
-					.as_mut()
-					.expect("the WebView2 context was just created");
-				note("build: creating");
-				let mut builder = wry::WebViewBuilder::new_with_web_context(context);
+					let context = shared
+						.as_mut()
+						.expect("the WebView2 context was just created");
+					note("build: creating");
+					let mut builder = wry::WebViewBuilder::new_with_web_context(context);
 
-				for (name, handler) in protocols {
-					builder = builder.with_custom_protocol(name, move |_id, request| {
-						let request = ProtocolRequest {
-							method: request.method().as_str(),
-							path: request.uri().path(),
-							query: request.uri().query(),
-							body: request.body(),
-						};
+					for (name, handler) in protocols {
+						builder = builder.with_custom_protocol(name, move |_id, request| {
+							let request = ProtocolRequest {
+								method: request.method().as_str(),
+								path: request.uri().path(),
+								query: request.uri().query(),
+								body: request.body(),
+							};
 
-						to_wry(handler(&request))
-					});
-				}
+							to_wry(handler(&request))
+						});
+					}
 
-				// A page served from a custom protocol has to be loaded by URL: that
-				// is its origin, and a fetch of the same protocol is then same-origin.
-				let builder = match url {
-					Some(url) => builder.with_url(url),
-					None => builder.with_html(html),
-				};
+					// A page served from a custom protocol has to be loaded by URL: that
+					// is its origin, and a fetch of the same protocol is then same-origin.
+					let builder = match url {
+						Some(url) => builder.with_url(url),
+						None => builder.with_html(html),
+					};
 
-				builder
-					// The same arguments are part of the profile identity: a build
-					// with different arguments must use another profile version.
-					.with_additional_browser_args(BROWSER_ARGS)
-					// The page is the whole of the control, and the host owns the
-					// sizing: the title is only a suggestion, and WebView2 has no
-					// chrome of its own.
-					.with_bounds(Self::bounds(size))
-					.with_ipc_handler(move |request: wry::http::Request<String>| {
-						if let Some(message) = on_ipc(request.body()) {
-							// The receiver is drained on the host's main thread by the
-							// wrapper, just like a message an iced view produces.
-							let _ = sender.send(message);
-						}
-					})
-					.build_as_child(&outer_parent)
-			})
-		}));
+					let webview = builder
+						// The same arguments are part of the profile identity: a build
+						// with different arguments must use another profile version.
+						.with_additional_browser_args(BROWSER_ARGS)
+						// A hidden editor should stop painting and running timers.
+						.with_background_throttling(wry::BackgroundThrottlingPolicy::Suspend)
+						// The page is the whole of the control, and the host owns the
+						// sizing: the title is only a suggestion, and WebView2 has no
+						// chrome of its own.
+						.with_bounds(Self::bounds(size, scale))
+						.with_ipc_handler(move |request: wry::http::Request<String>| {
+							if let Some(message) = on_ipc(request.body()) {
+								// The receiver is drained on the host's main thread by the
+								// wrapper, just like a message an iced view produces.
+								let _ = sender.send(message);
+							}
+						})
+						.build_as_child(&outer_parent)
+						.map_err(EditorError::new)?;
+
+					Ok(webview)
+				})
+			},
+		));
 
 		let webview = match opened {
 			Ok(Ok(webview)) => webview,
@@ -588,7 +730,6 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 				unsafe {
 					DestroyWindow(window);
 				}
-				let error = EditorError::new(error);
 				report_error(&error);
 				return Err(error);
 			}
@@ -606,13 +747,28 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 
 		note("build: created");
 
-		webview.set_visible(true).map_err(|error| {
+		if unsafe { IsWindow(parent_hwnd) } == 0 {
+			let error = EditorError::from("the host parent window disappeared while opening");
+			note("open: parent gone after build");
+			drop(webview);
+			unsafe {
+				DestroyWindow(window);
+			}
+			report_error(&error);
+			return Err(error);
+		}
+
+		if let Err(error) = webview.set_visible(true) {
 			let error = EditorError::new(error);
 			report_error(&error);
-			error
-		})?;
+			drop(webview);
+			unsafe {
+				DestroyWindow(window);
+			}
+			return Err(error);
+		}
 
-		clear_error_log();
+		clear_error();
 		note("open: ok");
 
 		// Keep the title around only to make the intent explicit: WebView2 is a
@@ -630,7 +786,13 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 				ShowWindow(window, SW_SHOW);
 			}
 		}
-		self.webview()?.set_visible(true).map_err(EditorError::new)
+		note("show");
+		let webview = self.webview()?;
+		webview.set_visible(true).map_err(EditorError::new)?;
+		// FL Studio focuses the wrapper window, not the WebView2 child. Without
+		// this the page does not see the keyboard until the user clicks it.
+		let _ = webview.focus();
+		Ok(())
 	}
 
 	fn hide(&mut self) -> Result<(), EditorError> {
@@ -639,35 +801,85 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 				ShowWindow(window, SW_HIDE);
 			}
 		}
+		note("hide");
 		self.webview()?.set_visible(false).map_err(EditorError::new)
 	}
 
 	fn close(&mut self) {
-		// Drop the WebView2 controller before destroying the window it lives in.
-		let _ = self.webview.take();
-
-		if let Some(window) = self.window.take() {
-			unsafe {
-				DestroyWindow(window);
-			}
-		}
+		self.shutdown();
 	}
 
 	fn set_parent(&mut self, parent: ParentWindow) -> Result<(), EditorError> {
-		if let (Some(window), Some(parent)) = (self.window, parent.as_win32_hwnd()) {
-			unsafe {
-				SetParent(window, parent);
+		let Some(parent_hwnd) = parent.as_win32_hwnd() else {
+			return Ok(());
+		};
+		let Some(window) = self.window else {
+			return Ok(());
+		};
+
+		note(&format!(
+			"set_parent: from={:?} to={parent_hwnd:?}",
+			self.window
+		));
+		unsafe {
+			SetLastError(0);
+		}
+		let previous = unsafe { SetParent(window, parent_hwnd) };
+		if previous.is_null() {
+			let last_error = unsafe { GetLastError() };
+			if last_error != 0 {
+				let error = EditorError::from(format!(
+					"SetParent failed: {last_error}"
+				));
+				report_error(&error);
+				return Err(error);
 			}
+		}
+
+		// Moving the host window does not resize it. FL Studio can detach and
+		// reattach a plug-in, and the new parent may have a different client area.
+		let mut client = unsafe { std::mem::zeroed() };
+		if unsafe { GetClientRect(parent_hwnd, &mut client) } != 0
+			&& client.right > client.left
+			&& client.bottom > client.top
+		{
+			let size = WindowSize::new(
+				((client.right - client.left) as f64 / self.scale) as f32,
+				((client.bottom - client.top) as f64 / self.scale) as f32,
+			);
+			self.size = size;
+			let width = (size.width as f64 * self.scale).round() as i32;
+			let height = (size.height as f64 * self.scale).round() as i32;
+			unsafe {
+				SetWindowPos(
+					window,
+					std::ptr::null_mut(),
+					0,
+					0,
+					width,
+					height,
+					SWP_NOZORDER | SWP_NOACTIVATE,
+				);
+			}
+			if self.webview.is_some() {
+				self.webview()?
+					.set_bounds(Self::bounds(size, self.scale))
+					.map_err(EditorError::new)?;
+			}
+			note(&format!("set_parent: resized to {}x{}", size.width, size.height));
 		}
 
 		Ok(())
 	}
 
 	fn set_scale_factor(&mut self, scale_factor: f64) -> Result<(), EditorError> {
-		self.scale = scale_factor.max(0.1);
+		self.scale = if scale_factor.is_finite() {
+			scale_factor.clamp(0.25, 4.0)
+		} else {
+			1.0
+		};
+		note(&format!("set_scale: {}", self.scale));
 
-		// The WebView2 parent is a Win32 window, so its pixel size has to follow
-		// the DPI; the WebView2 itself keeps taking logical bounds.
 		if let Some(window) = self.window {
 			let width = (self.size.width as f64 * self.scale).round() as i32;
 			let height = (self.size.height as f64 * self.scale).round() as i32;
@@ -686,7 +898,7 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 
 		if self.webview.is_some() {
 			self.webview()?
-				.set_bounds(Self::bounds(self.size))
+				.set_bounds(Self::bounds(self.size, self.scale))
 				.map_err(EditorError::new)?;
 		}
 
@@ -714,11 +926,18 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 
 		if self.webview.is_some() {
 			self.webview()?
-				.set_bounds(Self::bounds(size))
+				.set_bounds(Self::bounds(size, self.scale))
 				.map_err(EditorError::new)?;
 		}
 
 		Ok(())
+	}
+}
+
+impl<P: Plugin> Drop for WryEditor<P> {
+	fn drop(&mut self) {
+		note("drop: editor");
+		self.shutdown();
 	}
 }
 
@@ -742,7 +961,7 @@ mod tests {
 		std::fs::create_dir_all(directory.join("WebView2-4294967295")).unwrap();
 		std::fs::create_dir_all(directory.join(format!("WebView2-{}", std::process::id())))
 			.unwrap();
-		std::fs::create_dir_all(directory.join("WebView2-v1")).unwrap();
+		std::fs::create_dir_all(directory.join("WebView2-v2")).unwrap();
 
 		clean_stale_profiles(&directory);
 
@@ -752,7 +971,7 @@ mod tests {
 				.join(format!("WebView2-{}", std::process::id()))
 				.exists()
 		);
-		assert!(directory.join("WebView2-v1").exists());
+		assert!(directory.join("WebView2-v2").exists());
 
 		let _ = std::fs::remove_dir_all(&directory);
 	}

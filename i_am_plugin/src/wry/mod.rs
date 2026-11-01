@@ -17,14 +17,17 @@
 //!
 //! WebView2 needs a writable profile folder. Unless the plug-in picks one with
 //! `WryEditor::with_data_directory`, the editor uses
-//! `%LOCALAPPDATA%\i_am_plugin_wry\WebView2-v1` and falls back to `%TEMP%`; the
+//! `%LOCALAPPDATA%\i_am_plugin_wry\WebView2-v2` and falls back to `%TEMP%`; the
 //! default next to a host's executable is often under Program Files and cannot be
 //! written, which leaves a blank editor in a DAW. The folder is shared by all
 //! instances of this build; the version suffix changes when the browser options do.
 //! Old per-process `WebView2-<pid>` folders are deleted on the first open, and the
 //! disk caches are bounded. `I_AM_PLUGIN_WRY_PER_PROCESS_PROFILE=1` restores the
 //! per-process layout if a host disagrees with sharing. An open failure is written
-//! to `%TEMP%\i_am_plugin_wry\last-error.log`, and `open.log` records how far it got.
+//! to `%TEMP%\i_am_plugin_wry\last-error.log`, and a timestamped `open.log` records
+//! how far it got. The logs rotate at 256 KiB (`I_AM_PLUGIN_WRY_LOG_BYTES`), the
+//! WebView2 caches are capped, and profile folders from older builds are removed
+//! after a week.
 //!
 //! ```ignore
 //! use i_am_plugin::{EditorContext, Plugin};

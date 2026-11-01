@@ -74,6 +74,11 @@ impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> {
 			parent: None,
 			editor: None,
 			message_receivers: vec![],
+			opening: false,
+			close_requested: false,
+			parent_dirty: false,
+			geometry_dirty: false,
+			hide_requested: false,
 		};
 		main.request_callback();
 		Ok(main)

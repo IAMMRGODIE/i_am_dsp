@@ -155,6 +155,7 @@ mod entry;
 mod events;
 mod factory;
 mod latency;
+mod log;
 mod main_thread;
 mod plugin;
 mod shared;
