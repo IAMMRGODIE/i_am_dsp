@@ -340,9 +340,9 @@ body.preview #app{
 
 /* Faceplate sizing for the shared card knob: the card's own sizes are fixed for
    the rack, while a product page scales with the window. */
-.face-knob{width:calc(112px * var(--scale))}
+.face-knob{width:auto; min-width:calc(64px * var(--scale))}
 .face-knob .knob{
-  display:block; width:calc(68px * var(--scale)); height:calc(68px * var(--scale));
+  display:block; width:calc(56px * var(--scale)); height:calc(56px * var(--scale));
   margin:0 auto; padding:0; border-radius:50%; background:transparent;
 }
 .face-knob .knob:hover{background:transparent}

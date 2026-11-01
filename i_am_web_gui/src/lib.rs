@@ -565,6 +565,17 @@ mod ui_contract_tests {
 		}
 	}
 
+	/// A faceplate knob keeps the footprint it had before the shared-card
+	/// migration: a 56 px dial in a 64 px slot, not the rack's 112 px slot. The
+	/// larger slot changes the row count and squeezes the hero out.
+	#[test]
+	fn a_faceplate_knob_keeps_its_old_footprint() {
+		let css = PageAssets::FACEPLATE.css;
+
+		assert!(css.contains(".face-knob{width:auto; min-width:calc(64px * var(--scale))}"));
+		assert!(css.contains("width:calc(56px * var(--scale)); height:calc(56px * var(--scale))"));
+	}
+
 	/// The shared renderers need the page's current parameter values; passing
 	/// null silently falls back to every default and detaches a hero from its knobs.
 	#[test]
