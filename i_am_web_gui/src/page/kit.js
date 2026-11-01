@@ -1248,44 +1248,6 @@ var ENV_MAX = 512;
 
   /// A semitone ruler: the pitch factor is a ratio, so the picture reads it as
   /// the semitones a person actually hears.
-  function impulseSvg() {
-    if (!irState || !irState.peaks || !irState.peaks.length) {
-      var failed = irState && irState.error;
-      var pending = irState && irState.pending;
-      var message = failed
-        ? irState.error
-        : (pending ? "Choosing an impulse response..." : "Click to load an impulse response");
-      var color = failed ? "#ff7a6b" : (pending ? accent : "#8a8a8a");
-
-      return heroSvg(
-        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c"/>'
-      ) + '<div class="hero-empty" style="color:' + color + '">' +
-        escapeXml(message) + '</div>';
-    }
-
-    var peaks = irState.peaks;
-    var last = Math.max(peaks.length - 1, 1);
-    var top = "M 20 80";
-    var bottom = "";
-
-    for (var i = 0; i < peaks.length; i++) {
-      var x = 20 + i / last * 480;
-      var low = clamp(peaks[i][0], -1, 1);
-      var high = clamp(peaks[i][1], -1, 1);
-      top += " L " + x.toFixed(1) + " " + (80 - high * 62).toFixed(1);
-      bottom = " L " + x.toFixed(1) + " " + (80 - low * 62).toFixed(1) + bottom;
-    }
-
-    var seconds = irState.rate ? irState.samples / irState.rate : 0;
-    var label = (irState.name || "impulse") + "  -  " + seconds.toFixed(2) + " s";
-
-    return heroSvg(
-      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f"/>' +
-      '<path d="' + top + bottom + ' Z" fill="' + accent + '" fill-opacity=".14" stroke="' +
-        accent + '" stroke-width="1" vector-effect="non-scaling-stroke"/>'
-    ) + '<div class="hero-label" style="top:2%">' + escapeXml(label) + '</div>';
-  }
-
   /// A frequency mapping: input to output frequency on a log/log plot at the top,
   /// and the amplitude the script returns along the bottom.
   function mappingSvg() {
@@ -1889,7 +1851,7 @@ var ENV_MAX = 512;
     heroes.forEach(function (hero) {
       if (!window.IAmCard || !IAmCard.hero) return;
 
-      var content = IAmCard.hero(hero.kind);
+      var content = IAmCard.hero(hero.kind, null, { ir: irState });
       if (content) hero.el.innerHTML = content;
     });
   }
@@ -2925,7 +2887,6 @@ var ENV_MAX = 512;
     IAmCard.registerHero("spectrum", spectrumSvg);
     IAmCard.registerHero("spectra", spectraSvg);
     IAmCard.registerHero("stereo", stereoSvg);
-    IAmCard.registerHero("impulse", impulseSvg);
     IAmCard.registerHero("curve", curveSvg);
     IAmCard.registerHero("mapping", mappingSvg);
     IAmCard.registerHero("ott", ottSvg);

@@ -325,6 +325,55 @@
 
   /// The FDN tail: a pre-delay gap, a few early reflections, then a T60 decay
   /// with a lighter high-frequency trace.
+  function escapeXml(text) {
+    return String(text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+  }
+
+  function impulseHero(values, context) {
+    var ir = context && context.ir;
+
+    if (!ir || !ir.peaks || !ir.peaks.length) {
+      var failed = ir && ir.error;
+      var pending = ir && ir.pending;
+      var message = failed
+        ? ir.error
+        : (pending ? "Choosing an impulse response..." : "Click to load an impulse response");
+      var color = failed ? "#ff7a6b" : (pending ? "var(--accent)" : "#8a8a8a");
+
+      return heroSvg(
+        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c"/>'
+      ) + '<div class="hero-empty" style="color:' + color + '">' +
+        escapeXml(message) + '</div>';
+    }
+
+    var peaks = ir.peaks;
+    var last = Math.max(peaks.length - 1, 1);
+    var top = "M 20 80";
+    var bottom = "";
+
+    for (var i = 0; i < peaks.length; i++) {
+      var x = 20 + i / last * 480;
+      var low = clamp(peaks[i][0], -1, 1);
+      var high = clamp(peaks[i][1], -1, 1);
+      top += " L " + x.toFixed(1) + " " + (80 - high * 62).toFixed(1);
+      bottom = " L " + x.toFixed(1) + " " + (80 - low * 62).toFixed(1) + bottom;
+    }
+
+    var seconds = ir.rate ? ir.samples / ir.rate : 0;
+    var label = (ir.name || "impulse") + "  -  " + seconds.toFixed(2) + " s";
+
+    return heroSvg(
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f"/>' +
+      '<path d="' + top + bottom + ' Z" fill="var(--accent)" fill-opacity=".14" stroke="' +
+        'var(--accent)" stroke-width="1" vector-effect="non-scaling-stroke"/>'
+    ) + '<div class="hero-label" style="top:2%">' + escapeXml(label) + '</div>';
+  }
+
   function pitchHero(values) {
     var factor = clamp(valueOf(values, "pitch_shift_factor", 1), 0.25, 4);
     var semitones = 12 * Math.log2(factor);
@@ -586,14 +635,15 @@
     HEROES[kind] = renderer;
   }
 
-  function hero(kind, values) {
+  function hero(kind, values, context) {
     var renderer = HEROES[kind];
-    return renderer ? renderer(values) : "";
+    return renderer ? renderer(values, context) : "";
   }
 
   registerHero("spectrum", spectrumHero);
   registerHero("transfer", transferHero);
   registerHero("compressor", compressorHero);
+  registerHero("impulse", impulseHero);
   registerHero("pitch", pitchHero);
   registerHero("particles", particlesHero);
   registerHero("tail", tailHero);
