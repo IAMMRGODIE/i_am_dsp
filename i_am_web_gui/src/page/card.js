@@ -579,7 +579,105 @@
     ) + (context && context.scope ? rmsBadge(context.scope) : "");
   }
 
-  function compressorHero(values) {
+  function compressorHero(values, context) {
+    var meterState = context && context.meter;
+    var env = context && context.envHistory;
+
+    if (!meterState || !env) return compressorSimpleHero(values);
+
+    var threshold = clamp(valueOf(values, "threshold", -24), -60, 0);
+    var ratio = Math.max(valueOf(values, "ratio", 4), 1);
+    var makeup = valueOf(values, "makeup_db", 0);
+    var sidechainOn = !!valueOf(values, "sidechain", 0);
+    var level = sidechainOn ? meterState.sidechain : meterState.input;
+    var window = (context && context.envWindow) || 128;
+    var path = "";
+
+    for (var i = 0; i <= 120; i++) {
+      var input = -60 + i / 120 * 60;
+      var output = input <= threshold ? input : threshold + (input - threshold) / ratio;
+      output = clamp(output + makeup, -60, 0);
+      var x = 8 + i / 120 * 124;
+      var y = 132 - (output + 60) / 60 * 124;
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    var knee = 8 + (threshold + 60) / 60 * 124;
+    var marker = "";
+
+    if (level !== null && level !== undefined && isFinite(level)) {
+      var db = clamp(level, -60, 0);
+      var mx = 8 + (db + 60) / 60 * 124;
+      var out = db <= threshold ? db : threshold + (db - threshold) / ratio;
+      out = clamp(out + makeup, -60, 0);
+      var my = 132 - (out + 60) / 60 * 124;
+      var tag = sidechainOn ? "SC " : "IN ";
+      var textX = mx > 92 ? mx - 4 : mx + 4;
+      var anchor = mx > 92 ? "end" : "start";
+
+      marker =
+        '<line x1="' + mx.toFixed(1) + '" y1="8" x2="' + mx.toFixed(1) + '" y2="132" stroke="var(--accent)" stroke-opacity=".22" stroke-dasharray="2 4"/>' +
+        '<line x1="8" y1="' + my.toFixed(1) + '" x2="132" y2="' + my.toFixed(1) + '" stroke="var(--accent)" stroke-opacity=".12" stroke-dasharray="2 4"/>' +
+        '<circle cx="' + mx.toFixed(1) + '" cy="' + my.toFixed(1) + '" r="2.4" fill="var(--accent)"/>' +
+        '<text x="' + textX.toFixed(1) + '" y="17" fill="var(--accent)" font-size="7" text-anchor="' + anchor + '">' + tag + db.toFixed(1) + ' dB</text>';
+    }
+
+    var left =
+      '<svg viewBox="0 0 140 140" preserveAspectRatio="xMidYMid meet">' +
+        '<rect x="8" y="8" width="124" height="124" fill="none" stroke="#2a2a2a"/>' +
+        '<line x1="8" y1="132" x2="132" y2="8" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+        '<line x1="' + knee.toFixed(1) + '" y1="8" x2="' + knee.toFixed(1) + '" y2="132" stroke="#343434" stroke-dasharray="3 5"/>' +
+        '<line x1="8" y1="132" x2="132" y2="132" stroke="#3a3a3a"/>' +
+        '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' +
+        marker +
+      '</svg>';
+
+    var right = "";
+    var count = Math.min(window, env.input.length);
+
+    if (count > 1) {
+      var loudest = 1e-6;
+
+      for (var k = 0; k < count; k++) {
+        var index = env.input.length - count + k;
+        loudest = Math.max(loudest, env.input[index], env.output[index]);
+      }
+
+      var inPath = "";
+      var outPath = "";
+
+      for (var s = 0; s < count; s++) {
+        var idx = env.input.length - count + s;
+        var px = 8 + s / (count - 1) * 384;
+        var iy = 132 - env.input[idx] / loudest * 124;
+        var oy = 132 - env.output[idx] / loudest * 124;
+        inPath += (s ? " L " : "M ") + px.toFixed(1) + " " + iy.toFixed(1);
+        outPath += (s ? " L " : "M ") + px.toFixed(1) + " " + oy.toFixed(1);
+      }
+
+      right =
+        '<path d="' + outPath + ' L 392 132 L 8 132 Z" fill="var(--accent)" fill-opacity=".06"/>' +
+        '<path d="' + inPath + '" fill="none" stroke="#8a8a8a" stroke-width="1.1" opacity=".65" vector-effect="non-scaling-stroke"/>' +
+        '<path d="' + outPath + '" fill="none" stroke="var(--accent)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>';
+    } else {
+      right = '<line x1="8" y1="132" x2="392" y2="132" stroke="#3a3a3a"/>';
+    }
+
+    var seconds = (window * 0.05).toFixed(1);
+
+    return '<div class="compressor-hero">' +
+      '<div class="transfer-box">' + left + '</div>' +
+      '<div class="env-box" title="Scroll to change the envelope time window">' +
+        '<svg viewBox="0 0 400 140" preserveAspectRatio="none">' + right + '</svg>' +
+        (count > 1
+          ? '<div class="hero-label" style="left:4%;top:2%">IN</div>' +
+            '<div class="hero-label" style="left:13%;top:2%;color:var(--accent)">OUT</div>'
+          : "") +
+        '<div class="hero-badge">' + seconds + ' s</div></div>' +
+      '</div>';
+  }
+
+  function compressorSimpleHero(values) {
     var threshold = clamp(valueOf(values, "threshold", -24), -60, 0);
     var ratio = clamp(valueOf(values, "ratio", 4), 1, 20);
     var makeup = clamp(valueOf(values, "gain_linear", 1), 0.01, 4);
