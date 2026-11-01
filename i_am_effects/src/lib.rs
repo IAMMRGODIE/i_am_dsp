@@ -76,7 +76,8 @@ pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
 
 use i_am_dsp::prelude::{
 	AutoTune, Chorus, Crusher, Delay, Distortion, Expander, Flanger, FormantFilter,
-	Gain as GainDsp, Gate, Limiter, LrControl, Multimode, ParametricEq, Phaser, Resonator, SineWave, StereoController,
+	Gain as GainDsp, Gate, Limiter, LrControl, Multimode, ParametricEq, Phaser, Resonator,
+	SpectralRetuneEffect, SineWave, StereoController,
 	StereoRouter, TapeStopEffect, TransientShaper,
 };
 use i_am_web_gui::Switch;
@@ -181,10 +182,22 @@ web_plugin!(
 	"#ff6fae",
 	mode = "algorithm",
 	visible = AUTOTUNE_VISIBLE,
+	header = &["window_size"],
 	midi = &[i_am_plugin::MidiPort { name: "Notes" }],
 	telemetry = |tuner: &AutoTune<2>, scope: &i_am_web_gui::Scope| {
 		scope.set_allowed_notes(tuner.allowed_mask() as i32)
 	}
+);
+
+web_plugin!(
+	SpectralRetuneWeb,
+	SpectralRetuneEffect,
+	SpectralRetuneEffect::new,
+	"iamdsp.effects.spectral_retune.web",
+	"I Am Spectral Retune",
+	(700.0, 400.0),
+	"#5fd0c8",
+	header = &["window_size"]
 );
 
 web_plugin!(
@@ -545,6 +558,7 @@ export_clap!(
 	WidthWeb,
 	PitchWeb,
 	AutoTuneWeb,
+	SpectralRetuneWeb,
 	ShifterWeb,
 	DisperserWeb,
 	BalanceWeb,
@@ -705,6 +719,7 @@ mod tests {
 		assert!(WidthWeb::new().editor().is_some());
 		assert!(PitchWeb::new().editor().is_some());
 		assert!(AutoTuneWeb::new().editor().is_some());
+		assert!(SpectralRetuneWeb::new().editor().is_some());
 		assert!(ShifterWeb::new().editor().is_some());
 		assert!(DisperserWeb::new().editor().is_some());
 		assert!(BalanceWeb::new().editor().is_some());
@@ -935,11 +950,13 @@ mod tests {
 			&AutoTuneWeb::new(),
 			&Faceplate::new("I Am Autotune", "#ff6fae", (700.0, 420.0))
 				.with_mode("algorithm")
-				.with_visible(AUTOTUNE_VISIBLE),
+				.with_visible(AUTOTUNE_VISIBLE)
+				.with_header(&["window_size"]),
 		);
 
 		assert!(face.contains("\"hero\":\"autotune\""), "{face}");
 		assert!(face.contains("\"mode\":\"algorithm\""), "{face}");
+		assert!(face.contains("\"header\":[\"window_size\"]"), "{face}");
 		for id in ["strength", "speed", "window_size", "notes"] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
 		}
@@ -975,6 +992,23 @@ mod tests {
 		i_am_dsp::Processor::process(&mut plugin, &mut frame, &[], &mut context);
 
 		assert_eq!(plugin.scope.allowed_notes(), (1 << 0) | (1 << 4));
+	}
+
+	/// Spectral Retune exposes the band, the strength/speed and the same note mask.
+	#[test]
+	fn the_spectral_retune_has_its_band_and_notes() {
+		let face = i_am_web_gui::face_json(
+			&SpectralRetuneWeb::new(),
+			&Faceplate::new("I Am Spectral Retune", "#5fd0c8", (700.0, 400.0))
+				.with_header(&["window_size"]),
+		);
+
+		assert!(face.contains("\"hero\":\"autotune\""), "{face}");
+		for id in ["strength", "speed", "low_frequency", "high_frequency", "notes", "window_size"] {
+			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
+		}
+		assert!(face.contains("\"widget\":\"notes\""), "{face}");
+		assert!(face.contains("\"header\":[\"window_size\"]"), "{face}");
 	}
 
 	/// The Unstablizer uses the spectra hero and a header window size.

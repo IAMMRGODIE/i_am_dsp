@@ -21,7 +21,7 @@ use crate::{
 const ALL_NOTES: u16 = 0x0fff;
 
 /// The nearest allowed MIDI note to a detected fractional note.
-fn nearest_allowed_note(detected: f32, mask: u16) -> Option<f32> {
+pub(crate) fn nearest_allowed_note(detected: f32, mask: u16) -> Option<f32> {
 	if mask == 0 {
 		return None;
 	}

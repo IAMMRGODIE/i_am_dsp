@@ -20,6 +20,7 @@ pub mod reverb;
 pub mod pitch_shifter;
 pub mod psola;
 pub mod autotune;
+pub mod spectral_retune;
 pub mod visual;
 pub mod phase_vocoder;
 pub mod crusher;
