@@ -1250,46 +1250,6 @@ var ENV_MAX = 512;
   /// the semitones a person actually hears.
   /// A frequency mapping: input to output frequency on a log/log plot at the top,
   /// and the amplitude the script returns along the bottom.
-  function mappingSvg() {
-    var grid =
-      '<rect x="20" y="12" width="480" height="82" fill="none" stroke="#2a2a2a"/>' +
-      '<line x1="20" y1="94" x2="500" y2="12" stroke="#3a3a3a" stroke-dasharray="3 5"/>' +
-      '<line x1="20" y1="148" x2="500" y2="148" stroke="#2f2f2f"/>' +
-      '<line x1="20" y1="116" x2="500" y2="116" stroke="#242424"/>';
-    var points = curveState && curveState.points;
-
-    if (!points || points.length < 2) {
-      return heroSvg(grid) +
-        '<div class="hero-empty">Waiting for the script...</div>';
-    }
-
-    var span = Math.log(1000);
-    var frequencyPath = "";
-    var amplitudePath = "";
-
-    for (var i = 0; i < points.length; i++) {
-      var input = clamp(points[i][0], 20, 20000);
-      var mapped = clamp(points[i][1], 20, 20000);
-      var amplitude = clamp(points[i][2], 0, 2);
-      var x = 20 + Math.log(input / 20) / span * 480;
-      var y = 94 - Math.log(mapped / 20) / span * 82;
-      var amp = 148 - amplitude / 2 * 32;
-
-      frequencyPath += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
-      amplitudePath += (i ? " L " : "M ") + x.toFixed(1) + " " + amp.toFixed(1);
-    }
-
-    return heroSvg(
-      grid +
-      '<path d="' + frequencyPath + '" fill="none" stroke="' + accent + '" stroke-width="1.6" ' +
-      'vector-effect="non-scaling-stroke"/>' +
-      '<path d="' + amplitudePath + '" fill="none" stroke="#9a9a9a" stroke-width="1.2" ' +
-      'vector-effect="non-scaling-stroke"/>'
-    ) +
-      '<div class="hero-label" style="top:3%">frequency in / out</div>' +
-      '<div class="hero-label" style="top:68%">amplitude</div>';
-  }
-
   function escapeXml(value) {
     return String(value === null || value === undefined ? "" : value)
       .replace(/&/g, "&amp;")
@@ -1300,37 +1260,6 @@ var ENV_MAX = 512;
 
   /// The scripted transfer function: a shaped curve over the input range, with
   /// the identity line for reference.
-  function curveSvg() {
-    var grid =
-      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f"/>' +
-      '<line x1="260" y1="14" x2="260" y2="146" stroke="#2a2a2a"/>' +
-      '<line x1="20" y1="142" x2="500" y2="18" stroke="#3a3a3a" stroke-dasharray="3 5"/>';
-    var points = curveState && curveState.points;
-
-    if (!points || points.length < 2) {
-      return heroSvg(grid) +
-        '<div class="hero-empty">Waiting for the script...</div>';
-    }
-
-    var path = "";
-
-    for (var i = 0; i < points.length; i++) {
-      var x = clamp(points[i][0], -1, 1);
-      var y = clamp(points[i][1], -2, 2);
-      var px = 20 + (x + 1) * 0.5 * 480;
-      var py = 80 - y / 2 * 62;
-      path += (i ? " L " : "M ") + px.toFixed(1) + " " + py.toFixed(1);
-    }
-
-    return heroSvg(
-      grid +
-      '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="1.8" ' +
-      'vector-effect="non-scaling-stroke"/>'
-    ) + '<div class="hero-label" style="top:2%">in -1..1 / out -2..2</div>';
-  }
-
-  /// Before and after spectra only: a frequency shifter has no response curve to
-  /// draw, and the two traces are the whole story.
   function spectraSvg() {
     if (!scope.input || !scope.output) {
       return heroSvg(
@@ -1851,7 +1780,7 @@ var ENV_MAX = 512;
     heroes.forEach(function (hero) {
       if (!window.IAmCard || !IAmCard.hero) return;
 
-      var content = IAmCard.hero(hero.kind, null, { ir: irState });
+      var content = IAmCard.hero(hero.kind, null, { ir: irState, curve: curveState });
       if (content) hero.el.innerHTML = content;
     });
   }
@@ -2887,8 +2816,6 @@ var ENV_MAX = 512;
     IAmCard.registerHero("spectrum", spectrumSvg);
     IAmCard.registerHero("spectra", spectraSvg);
     IAmCard.registerHero("stereo", stereoSvg);
-    IAmCard.registerHero("curve", curveSvg);
-    IAmCard.registerHero("mapping", mappingSvg);
     IAmCard.registerHero("ott", ottSvg);
     IAmCard.registerHero("vocodex", vocoderSvg);
   }
