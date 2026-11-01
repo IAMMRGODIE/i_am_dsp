@@ -28,6 +28,7 @@ pub struct Dispersion {
 	#[default(440.0)]
 	#[id(display = "Cutoff")]
 	#[layout(group = "Dispersion", order = 1, widget = knob)]
+	#[logarithmic]
 	pub cutoff: f32,
 	/// How wide the dispersed region is, in Hz.
 	#[range(min = 10.0, max = 10000.0)]
@@ -35,6 +36,7 @@ pub struct Dispersion {
 	#[default(1000.0)]
 	#[id(display = "Spread")]
 	#[layout(group = "Dispersion", order = 2, widget = knob)]
+	#[logarithmic]
 	pub bandwidth: f32,
 
 	#[skip]
