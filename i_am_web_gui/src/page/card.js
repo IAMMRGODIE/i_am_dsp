@@ -691,6 +691,18 @@
       head.appendChild(kindSelect);
     }
 
+    if (options.onDuplicate) {
+      card.classList.add("has-duplicate");
+      var duplicate = document.createElement("button");
+      duplicate.type = "button";
+      duplicate.className = "mcard-duplicate";
+      duplicate.textContent = "\u29C9";
+      duplicate.title = "Duplicate module";
+      duplicate.setAttribute("aria-label", "Duplicate module");
+      duplicate.addEventListener("click", function () { options.onDuplicate(); });
+      head.appendChild(duplicate);
+    }
+
     if (options.onRemove) {
       card.classList.add("has-remove");
       var remove = document.createElement("button");

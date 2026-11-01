@@ -138,6 +138,10 @@ body{
   padding:10px 12px 12px; margin-bottom:10px;
   background:#202020; border:1px solid #333; border-radius:8px;
 }
+
+/* The rack header is tight: the selects already say what they are, and the
+   duplicate/remove buttons need the room the labels were using. */
+.band .mcard-head .mcard-setting-label{display:none}
 .band.muted .slots{opacity:.45}
 .band.collapsed .slots{display:none}
 .band-resizer,.mod-resizer{

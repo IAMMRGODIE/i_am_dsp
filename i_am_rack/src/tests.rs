@@ -1459,3 +1459,78 @@ fn midi_transpose_and_fine_are_clamped() {
 	assert_eq!(midi["settings"]["transpose"], 24);
 	assert_eq!(midi["settings"]["fine"], 100.0);
 }
+
+/// Duplicating a module keeps its kind and values and gives it a fresh id.
+#[test]
+fn a_module_can_be_duplicated() {
+	let rack = Rack::default();
+
+	command(&rack, "0.cutoff=2500");
+	command(&rack, "slot.0.0.duplicate=1");
+
+	let state = rack.state();
+	let band = &state.bands[0];
+
+	assert_eq!(band.slots.len(), 3);
+
+	let original = band.slots[0].as_ref().expect("the original");
+	let copy = band.slots[1].as_ref().expect("the copy");
+
+	assert_eq!(copy.kind, original.kind);
+	assert_ne!(copy.id, original.id);
+	assert_eq!(copy.params["cutoff"], 2_500.0);
+	assert_eq!(band.slots[2], None);
+}
+
+/// An empty slot has nothing to copy.
+#[test]
+fn duplicating_an_empty_slot_is_rejected() {
+	let rack = Rack::default();
+	let before = rack.state();
+
+	let response = command(&rack, "slot.0.1.duplicate=1");
+
+	assert_eq!(response.body, b"{\"ok\":false}");
+	assert_eq!(rack.state(), before);
+}
+
+/// The copy owns its parameters: editing it leaves the original alone.
+#[test]
+fn a_duplicate_has_its_own_parameters() {
+	let rack = Rack::default();
+
+	command(&rack, "0.cutoff=2500");
+	command(&rack, "slot.0.0.duplicate=1");
+
+	let copy_id = rack.state().bands[0].slots[1]
+		.as_ref()
+		.expect("the copy")
+		.id;
+
+	command(&rack, &format!("{copy_id}.cutoff=800"));
+
+	let state = rack.state();
+
+	assert_eq!(
+		state.bands[0].slots[0].as_ref().unwrap().params["cutoff"],
+		2_500.0
+	);
+	assert_eq!(
+		state.bands[0].slots[1].as_ref().unwrap().params["cutoff"],
+		800.0
+	);
+}
+
+/// Duplicating a bypassed module keeps the bypass on the copy.
+#[test]
+fn a_duplicate_keeps_the_bypass_state() {
+	let rack = Rack::default();
+
+	command(&rack, "0.__bypass=1");
+	command(&rack, "slot.0.0.duplicate=1");
+
+	let state = rack.state();
+
+	assert!(state.bands[0].slots[0].as_ref().unwrap().bypass);
+	assert!(state.bands[0].slots[1].as_ref().unwrap().bypass);
+}

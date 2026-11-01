@@ -870,6 +870,15 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 
 			true
 		},
+		"duplicate" => {
+			let Some(mut copy) = state.bands[band].slots[slot].clone() else {
+				return false;
+			};
+
+			copy.id = state.next_id();
+			state.bands[band].slots.insert(slot + 1, Some(copy));
+			true
+		},
 		"move" => {
 			let Some((target_band, target_slot)) = raw.split_once('.') else {
 				return false;

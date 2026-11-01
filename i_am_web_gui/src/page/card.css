@@ -59,6 +59,16 @@
   cursor:pointer;
 }
 .mcard-remove:hover{color:#ff7a7a; background:rgba(255,255,255,.07)}
+.mcard.has-duplicate .mcard-head{padding-right:30px}
+.mcard.has-remove.has-duplicate .mcard-head{padding-right:54px}
+.mcard-duplicate{
+  position:absolute; top:6px; right:6px; z-index:2;
+  width:20px; height:20px; padding:0; font:inherit; font-size:13px; line-height:1;
+  color:var(--text3); background:transparent; border:0; border-radius:4px;
+  cursor:pointer;
+}
+.mcard.has-remove .mcard-duplicate{right:30px}
+.mcard-duplicate:hover{color:var(--text1); background:rgba(255,255,255,.07)}
 .mcard-drag{
   width:14px; flex:0 0 14px; text-align:center;
   font-size:13px; line-height:1; color:var(--text3);

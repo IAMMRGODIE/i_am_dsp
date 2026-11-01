@@ -583,6 +583,9 @@
       onKind: function (kind) {
         sendNow("slot." + bandIndex + "." + slotIndex + ".kind", kind).then(load);
       },
+      onDuplicate: function () {
+        sendNow("slot." + bandIndex + "." + slotIndex + ".duplicate", 1).then(load);
+      },
       onRemove: function () {
         sendNow("slot." + bandIndex + "." + slotIndex + ".clear", 1).then(load);
       },
