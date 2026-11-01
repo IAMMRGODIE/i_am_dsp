@@ -2,6 +2,7 @@
 
 pub mod prelude;
 pub mod allpass;
+pub mod ott_effect;
 pub mod comb;
 pub mod pitch;
 pub mod schroeder;
