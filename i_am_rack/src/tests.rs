@@ -1732,3 +1732,39 @@ fn a_broken_group_is_cleared() {
 	assert!(state.bands[0].slots[0].as_ref().unwrap().group.is_none());
 	assert!(state.bands[1].slots[1].as_ref().unwrap().group.is_none());
 }
+
+/// Copying a module to another lane keeps the source and clones the settings.
+#[test]
+fn a_module_can_be_copied_to_another_lane() {
+	let rack = Rack::default();
+
+	assert_eq!(command(&rack, "slot.0.add=Gain").body, b"{\"ok\":true}");
+
+	let source_id = rack.state().bands[0].slots[1]
+		.as_ref()
+		.expect("the added gain")
+		.id;
+
+	assert_eq!(
+		command(&rack, &format!("{source_id}.gain=0.5")).body,
+		b"{\"ok\":true}"
+	);
+
+	let source = rack.state().bands[0].slots[1]
+		.as_ref()
+		.expect("the source")
+		.clone();
+
+	assert_eq!(command(&rack, "slot.0.1.copy=1.1").body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	let original = state.bands[0].slots[1].as_ref().expect("the original");
+	let copy = state.bands[1].slots[1].as_ref().expect("the copy");
+
+	assert_eq!(original.id, source.id);
+	assert_eq!(original.params["gain"], 0.5);
+	assert_ne!(copy.id, source.id);
+	assert_eq!(copy.kind, source.kind);
+	assert_eq!(copy.params["gain"], 0.5);
+	assert!(copy.group.is_none());
+}

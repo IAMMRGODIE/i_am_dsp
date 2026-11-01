@@ -946,6 +946,40 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			target.slots.insert(slot + 1, Some(copy));
 			true
 		},
+		"copy" => {
+			let Some((target_band, target_slot)) = raw.split_once('.') else {
+				return false;
+			};
+			let Ok(target_band) = target_band.parse::<usize>() else {
+				return false;
+			};
+			let Ok(target_slot) = target_slot.parse::<usize>() else {
+				return false;
+			};
+
+			let Some(mut copy) = lane(state, band)
+				.and_then(|lane| lane.slots.get(slot))
+				.and_then(|slot| slot.clone())
+			else {
+				return false;
+			};
+			let Some(target_lane) = lane(state, target_band) else {
+				return false;
+			};
+
+			if target_slot >= target_lane.slots.len() {
+				return false;
+			}
+
+			copy.id = state.next_id();
+			copy.group = None;
+
+			let Some(target) = lane_mut(state, target_band) else {
+				return false;
+			};
+			target.slots.insert(target_slot, Some(copy));
+			true
+		},
 		"move" => {
 			let Some((target_band, target_slot)) = raw.split_once('.') else {
 				return false;

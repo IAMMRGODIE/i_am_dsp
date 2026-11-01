@@ -579,6 +579,7 @@
   function makeSlot(data, bandIndex, slotIndex, module) {
     var wrap = el("div", "slot");
     wrap.appendChild(el("div", "slot-label", "SLOT " + slotLetter(slotIndex)));
+    wrap.title = "Drop a module here; hold Alt or Ctrl to copy";
 
     wrap.addEventListener("dragover", function (event) {
       event.preventDefault();
@@ -595,9 +596,12 @@
       if (!event.dataTransfer) return;
 
       var source = event.dataTransfer.getData("text/plain");
-      if (!source || source === bandIndex + "." + slotIndex) return;
+      var target = bandIndex + "." + slotIndex;
+      if (!source || source === target) return;
 
-      sendNow("slot." + source + ".move", bandIndex + "." + slotIndex).then(load);
+      // Alt/Ctrl turns the drag into a copy instead of a move.
+      var copy = event.altKey || event.ctrlKey || event.metaKey;
+      sendNow("slot." + source + (copy ? ".copy" : ".move"), target).then(load);
     });
 
     if (!module) {
