@@ -9,7 +9,6 @@ fn delay_samples(rate: usize, milliseconds: f32) -> usize {
 		.max(16.0) as usize
 }
 
-/// A single feedback allpass, with delay and coefficient as controls.
 #[derive(Parameters)]
 pub struct AllpassEffect {
 	/// The feedback delay.
@@ -36,7 +35,6 @@ pub struct AllpassEffect {
 }
 
 impl AllpassEffect {
-	/// Builds the effect for a sample rate.
 	pub fn new(sample_rate: usize) -> Self {
 		let delay_ms = 23.0;
 		let filter = AllpassFilter::new(0.7, delay_samples(sample_rate, delay_ms));

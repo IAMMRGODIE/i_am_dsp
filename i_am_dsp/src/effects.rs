@@ -1,19 +1,6 @@
 //! Build-in effects library for DSP
 
 pub mod prelude;
-pub mod allpass;
-pub mod ott_effect;
-pub mod comb;
-pub mod pitch;
-pub mod schroeder;
-pub mod shifter;
-pub mod ir_reverb;
-pub mod compressor_effect;
-pub mod dispersion;
-pub mod particle_wider_effect;
-pub mod reverb_effect;
-pub mod unstablizer_effect;
-
 pub mod filter;
 pub mod multimode;
 pub mod disperser;

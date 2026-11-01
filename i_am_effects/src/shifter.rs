@@ -6,16 +6,13 @@ use i_am_dsp::prelude::{
 };
 use i_am_dsp_derive::Parameters;
 
-/// The parameter curves the Shifter page draws.
 pub const SHIFTER_CURVES: &[(&str, &str)] = &[("shift_freq", "atan")];
 
-/// The controls each frequency-shift algorithm reads.
 pub const SHIFTER_VISIBLE: &[(i32, &[&str])] = &[
 	(0, &["shift_freq"]),
 	(1, &["shift_freq", "window_size"]),
 ];
 
-/// The Shifter product: IIR Hilbert or phase-vocoder frequency shifting.
 #[derive(Parameters)]
 pub struct ShifterEffect {
 	/// The engine.
@@ -49,7 +46,6 @@ pub struct ShifterEffect {
 }
 
 impl ShifterEffect {
-	/// Builds the effect for a sample rate.
 	pub fn new(sample_rate: usize) -> Self {
 		Self {
 			algorithm: 0,
