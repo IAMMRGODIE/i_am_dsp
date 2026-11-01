@@ -172,6 +172,12 @@
       '</svg>';
   }
 
+  function heroSvgMeet(inner) {
+    return '<svg class="mcard-graph" viewBox="0 0 520 160" preserveAspectRatio="xMidYMid meet">' +
+      inner +
+      '</svg>';
+  }
+
   function wavePath(amplitude, middle, cycles) {
     var path = "";
     for (var i = 0; i <= 180; i++) {
@@ -319,6 +325,81 @@
 
   /// The FDN tail: a pre-delay gap, a few early reflections, then a T60 decay
   /// with a lighter high-frequency trace.
+  function pitchHero(values) {
+    var factor = clamp(valueOf(values, "pitch_shift_factor", 1), 0.25, 4);
+    var semitones = 12 * Math.log2(factor);
+    var marker = 40 + (semitones + 24) / 48 * 440;
+    var ticks = "";
+
+    for (var step = -24; step <= 24; step += 3) {
+      var x = 40 + (step + 24) / 48 * 440;
+      var major = step % 12 === 0;
+      ticks += '<line x1="' + x.toFixed(1) + '" y1="' + (major ? 58 : 66) + '" x2="' +
+        x.toFixed(1) + '" y2="' + (major ? 102 : 94) + '" stroke="' +
+        (major ? "#4a4a4a" : "#333") + '" stroke-width="1"/>';
+    }
+
+    var sign = semitones > 0.05 ? "+" : "";
+
+    return heroSvg(
+      '<line x1="40" y1="80" x2="480" y2="80" stroke="#3a3a3a" stroke-width="1"/>' +
+      ticks +
+      '<line x1="' + marker.toFixed(1) + '" y1="30" x2="' + marker.toFixed(1) +
+        '" y2="130" stroke="var(--accent)" stroke-width="2"/>' +
+      '<circle cx="' + marker.toFixed(1) + '" cy="80" r="4" fill="var(--accent)"/>'
+    ) + '<div class="hero-badge">' + sign + semitones.toFixed(1) + ' st</div>';
+  }
+
+  function particlesHero(values) {
+    var depth = clamp(valueOf(values, "depth", 0.5), 0, 1);
+    var low = clamp(valueOf(values, "low_frequency", 200), 20, 20000);
+    var high = clamp(valueOf(values, "high_frequency", 8000), 20, 20000);
+    var side = clamp(valueOf(values, "side_gain", 1), 0, 2);
+    var allowNegative = !!valueOf(values, "allow_negative", false);
+    var fftIndex = clamp(Math.round(valueOf(values, "fft_size", 2)), 0, 3);
+    var windowSize = [512, 1024, 2048, 4096][fftIndex];
+    var count = Math.max(16, Math.min(128, windowSize / 32));
+    var left = "";
+    var right = "";
+    var lower = Math.min(low, high);
+    var upper = Math.max(low, high);
+    var frequencyToX = function (frequency) {
+      return 30 + Math.log(frequency / 20) / Math.log(1000) * 460;
+    };
+    var bandLeft = frequencyToX(lower);
+    var bandRight = frequencyToX(upper);
+    var grid =
+      '<line x1="18" y1="80" x2="502" y2="80" stroke="#343434"/>' +
+      '<line x1="260" y1="14" x2="260" y2="146" stroke="#2a2a2a"/>' +
+      '<rect x="' + bandLeft.toFixed(1) + '" y="22" width="' +
+        (bandRight - bandLeft).toFixed(1) + '" height="116" fill="var(--accent)" fill-opacity=".05"/>' +
+      '<line x1="' + bandLeft.toFixed(1) + '" y1="22" x2="' + bandLeft.toFixed(1) +
+        '" y2="138" stroke="var(--accent)" stroke-opacity=".25"/>' +
+      '<line x1="' + bandRight.toFixed(1) + '" y1="22" x2="' + bandRight.toFixed(1) +
+        '" y2="138" stroke="var(--accent)" stroke-opacity=".25"/>';
+
+    for (var index = 0; index < count; index++) {
+      var x = 30 + index / (count - 1) * 460;
+      var frequency = 20 * Math.pow(1000, index / (count - 1));
+      var active = frequency >= lower && frequency <= upper;
+      var range = (0.12 + 0.88 * depth) * (0.25 + 0.75 * Math.min(side, 2) / 2);
+      var signLeft = allowNegative ? Math.random() * 2 - 1 : Math.random();
+      var signRight = allowNegative ? Math.random() * 2 - 1 : Math.random();
+      var jumpLeft = active ? signLeft * range * 60 : 0;
+      var jumpRight = active ? signRight * range * 60 : 0;
+
+      left += '<line x1="' + x.toFixed(1) + '" y1="80" x2="' + x.toFixed(1) +
+        '" y2="' + (80 - jumpLeft).toFixed(1) + '" stroke="var(--accent)" ' +
+        'stroke-width="1.4" opacity="' + (active ? 0.7 : 0.18) + '"/>';
+      right += '<line x1="' + (x + 1.5).toFixed(1) + '" y1="80" x2="' +
+        (x + 1.5).toFixed(1) + '" y2="' + (80 - jumpRight).toFixed(1) +
+        '" stroke="#b7f0e2" stroke-width="1.1" opacity="' + (active ? 0.5 : 0.12) +
+        '"/>';
+    }
+
+    return heroSvgMeet(grid + left + right);
+  }
+
   function tailHero(values) {
     var decay = clamp(valueOf(values, "decay_time", 2200), 100, 10000);
     var pre = clamp(valueOf(values, "pre_delay", 20), 0, 200);
@@ -513,6 +594,8 @@
   registerHero("spectrum", spectrumHero);
   registerHero("transfer", transferHero);
   registerHero("compressor", compressorHero);
+  registerHero("pitch", pitchHero);
+  registerHero("particles", particlesHero);
   registerHero("tail", tailHero);
   registerHero("taps", tapsHero);
   registerHero("lfo", lfoHero);
