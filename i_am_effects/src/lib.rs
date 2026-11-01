@@ -67,7 +67,7 @@ pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
 ];
 
 use i_am_dsp::prelude::{
-	Chorus, Crusher, Delay, Distortion, Expander, Flanger, FormantShifter, Gain as GainDsp, Gate,
+	Chorus, Crusher, Delay, Distortion, Expander, Flanger, FormantFilter, Gain as GainDsp, Gate,
 	Limiter, LrControl, Multimode, ParametricEq, Phaser, Resonator, SineWave, StereoController,
 	StereoRouter, TapeStopEffect, TransientShaper,
 };
@@ -473,11 +473,11 @@ web_plugin!(
 );
 
 web_plugin!(
-	FormantShifterWeb,
-	FormantShifter<2>,
-	FormantShifter::<2>::new,
-	"iamdsp.effects.formant_shifter.web",
-	"I Am Formant Shifter",
+	FormantFilterWeb,
+	FormantFilter<2>,
+	FormantFilter::<2>::new,
+	"iamdsp.effects.formant_filter.web",
+	"I Am Formant Filter",
 	(520.0, 340.0),
 	"#ff9f6e"
 );
@@ -545,7 +545,7 @@ export_clap!(
 	ExpanderWeb,
 	LimiterWeb,
 	ResonatorWeb,
-	FormantShifterWeb,
+	FormantFilterWeb,
 	TransientWeb,
 	RouterWeb,
 	EqWeb
@@ -672,7 +672,7 @@ mod tests {
 		assert!(ExpanderWeb::new().editor().is_some());
 		assert!(LimiterWeb::new().editor().is_some());
 		assert!(ResonatorWeb::new().editor().is_some());
-		assert!(FormantShifterWeb::new().editor().is_some());
+		assert!(FormantFilterWeb::new().editor().is_some());
 		assert!(TransientWeb::new().editor().is_some());
 		assert!(RouterWeb::new().editor().is_some());
 	}
@@ -860,6 +860,11 @@ mod tests {
 				.with_mode("algorithm")
 				.with_visible(SHIFTER_VISIBLE)
 				.with_header(&["window_size"]),
+		);
+
+		assert!(
+			pitch.contains("\"choices\":[\"Time\",\"Phase Vocoder\",\"PSOLA\"]"),
+			"{pitch}"
 		);
 
 		for face in [pitch, shifter] {
@@ -1107,14 +1112,14 @@ mod tests {
 	/// The resonator follows MIDI notes and the formant shifter exposes a vowel
 	/// and a formant shift.
 	#[test]
-	fn the_resonator_and_formant_shifter_have_their_controls() {
+	fn the_resonator_and_formant_filter_have_their_controls() {
 		let resonator = i_am_web_gui::face_json(
 			&ResonatorWeb::new(),
 			&Faceplate::new("I Am Resonator", "#b98cff", (460.0, 300.0)),
 		);
 		let formant = i_am_web_gui::face_json(
-			&FormantShifterWeb::new(),
-			&Faceplate::new("I Am Formant Shifter", "#ff9f6e", (520.0, 340.0)),
+			&FormantFilterWeb::new(),
+			&Faceplate::new("I Am Formant Filter", "#ff9f6e", (520.0, 340.0)),
 		);
 
 		assert!(resonator.contains("\"hero\":\"resonator\""), "{resonator}");

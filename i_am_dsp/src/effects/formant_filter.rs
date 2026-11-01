@@ -3,7 +3,8 @@
 //! Three parallel band-pass resonators impose a vowel's first three formants on
 //! the input. The shift control moves all three formants together, in semitones,
 //! which changes the apparent vocal tract size without changing the pitch of the
-//! source. It is the small, playable formant tool: no pitch tracking, no vocoder.
+//! source. It is a formant filter, not a pitch-preserving spectral formant
+//! shifter: the input's own resonances are not separated from the vowel bank.
 
 use i_am_dsp_derive::Parameters;
 
@@ -29,7 +30,7 @@ const BANDWIDTHS: [[f32; 3]; 5] = [
 
 /// A three-formant vowel filter with a semitone formant shift.
 #[derive(Parameters)]
-pub struct FormantShifter<const CHANNELS: usize = 2> {
+pub struct FormantFilter<const CHANNELS: usize = 2> {
 	/// The vowel whose formants are imposed on the input.
 	#[range(min = 0, max = 4)]
 	#[choices("A", "E", "I", "O", "U")]
@@ -69,7 +70,7 @@ pub struct FormantShifter<const CHANNELS: usize = 2> {
 	settings: Option<(i32, f32, f32)>,
 }
 
-impl<const CHANNELS: usize> FormantShifter<CHANNELS> {
+impl<const CHANNELS: usize> FormantFilter<CHANNELS> {
 	/// A formant filter on A with no shift.
 	pub fn new(sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -108,7 +109,7 @@ impl<const CHANNELS: usize> FormantShifter<CHANNELS> {
 	}
 }
 
-impl<const CHANNELS: usize> Effect<CHANNELS> for FormantShifter<CHANNELS> {
+impl<const CHANNELS: usize> Effect<CHANNELS> for FormantFilter<CHANNELS> {
 	fn delay(&self) -> usize {
 		0
 	}
@@ -168,7 +169,7 @@ mod tests {
 	}
 
 	fn render(vowel: i32, shift: f32) -> Vec<f32> {
-		let mut shifter = FormantShifter::<1>::new(48_000);
+		let mut shifter = FormantFilter::<1>::new(48_000);
 		shifter.vowel = vowel;
 		shifter.shift = shift;
 		let mut context: Box<dyn ProcessContext> = Box::new(TestContext);

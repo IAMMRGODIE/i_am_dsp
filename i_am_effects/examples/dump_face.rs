@@ -17,7 +17,7 @@ use i_am_effects::{
 	ConvolverWeb, DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
 	OttWeb, ScriptDistortionWeb, ScriptMapperWeb, VocoderWeb, StftVocoderWeb,
 	TapeStopWeb, GateWeb, ExpanderWeb, LimiterWeb, TransientWeb, RouterWeb, EqWeb,
-	FormantShifterWeb, ParticleWiderWeb, PitchWeb, ResonatorWeb, ReverbWeb, SchroederWeb, ShifterWeb,
+	FormantFilterWeb, ParticleWiderWeb, PitchWeb, ResonatorWeb, ReverbWeb, SchroederWeb, ShifterWeb,
 	UnstablizerWeb, WidthWeb, CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
 	PITCH_VISIBLE, SHIFTER_CURVES, SHIFTER_VISIBLE,
@@ -341,12 +341,12 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		},
-		"formant" | "formant_shifter" => {
-			let plugin = FormantShifterWeb::new();
+		"formant" | "formant_filter" => {
+			let plugin = FormantFilterWeb::new();
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Formant Shifter", "#ff9f6e", (520.0, 340.0)),
+					&Faceplate::new("I Am Formant Filter", "#ff9f6e", (520.0, 340.0)),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

@@ -15,6 +15,7 @@ pub use super::delay::*;
 pub use super::phaser::*;
 pub use super::reverb::*;
 pub use super::pitch_shifter::*;
+pub use super::psola::*;
 pub use super::visual::*;
 pub use super::phase_vocoder::*;
 pub use super::crusher::*;
@@ -29,7 +30,7 @@ pub use super::tape_stop::*;
 pub use super::router::*;
 pub use super::eq::*;
 pub use super::resonator::*;
-pub use super::formant_shifter::*;
+pub use super::formant_filter::*;
 pub use super::ott::*;
 
 pub use super::schroeder::*;
