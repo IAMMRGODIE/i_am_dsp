@@ -5,6 +5,42 @@ use crate::plugin::{Plugin};
 use crate::main_thread::{PluginMain};
 use crate::audio::{AudioProcessor};
 
+/// The logarithmic range a host should see as 0..1.
+///
+/// CLAP has no logarithmic flag: a host only knows the min and max it is given.
+/// Exposing such a parameter as 0..1 makes the host draw its automation linearly
+/// in the normalized domain, and the plugin maps that back to the logarithmic
+/// frequency/value here. Parameters without the flag keep their plain range.
+fn log_range(param: &AtomicValue) -> Option<(f64, f64)> {
+	let AtomicValue::Float { range, logarithmic, .. } = param else {
+		return None;
+	};
+
+	let low = *range.start() as f64;
+	let high = *range.end() as f64;
+	(*logarithmic && low > 0.0 && high > low).then_some((low, high))
+}
+
+fn to_host_value(param: &AtomicValue, actual: f64) -> f64 {
+	let Some((low, high)) = log_range(param) else {
+		return actual;
+	};
+
+	if actual <= low {
+		0.0
+	} else {
+		((actual / low).ln() / (high / low).ln()).clamp(0.0, 1.0)
+	}
+}
+
+fn from_host_value(param: &AtomicValue, normalized: f64) -> f64 {
+	let Some((low, high)) = log_range(param) else {
+		return normalized;
+	};
+
+	low * (high / low).powf(normalized.clamp(0.0, 1.0))
+}
+
 pub(crate) fn note_event_to_clap<'a>(to_send: &mut OutputEvents<'a>, offset: usize, note_event: i_am_dsp::NoteEvent) -> Result<(), PluginError> {
 	match note_event {
 		i_am_dsp::NoteEvent::NoteOn { channel, note, velocity } => {
@@ -109,12 +145,19 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 			ParamInfoFlags::IS_AUTOMATABLE | ParamInfoFlags::IS_ENUM
 		};
 
-		let (min_value, max_value) = match &*param {
+		let (plain_min, plain_max) = match &*param {
 			AtomicValue::Bool { .. } => (0.0, 1.0),
 			AtomicValue::Nothing => (0.0, 0.0),
 			AtomicValue::Float { range, .. } => (*range.start() as f64, *range.end() as f64),
 			AtomicValue::Int { range, .. } => (*range.start() as f64, *range.end() as f64),
 			_ => (0.0, 0.0),
+		};
+		// A logarithmic parameter is exposed as a 0..1 normalized range: CLAP has no
+		// logarithmic flag, so this is the only way the host can draw a useful curve.
+		let (min_value, max_value) = if log_range(&param).is_some() {
+			(0.0, 1.0)
+		} else {
+			(plain_min, plain_max)
 		};
 
 		// A parameter that declares what it starts at says so; the ones that do not — a delay
@@ -122,7 +165,8 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 		let meta = self.param_map.query_meta(index).unwrap_or_default();
 		let default_value = meta
 			.default
-			.map(|default| default.clamp(min_value, max_value))
+			.map(|default| default.clamp(plain_min, plain_max))
+			.map(|default| to_host_value(&param, default))
 			.unwrap_or(min_value);
 
 		info.set(&ParamInfo {
@@ -140,13 +184,14 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 	fn get_value(&mut self, param_id: clack_plugin::prelude::ClapId) -> Option<f64> {
 		let param = self.param_map.get_by_stable_id(param_id.get())?;
 		let current = param.load(std::sync::atomic::Ordering::SeqCst);
-		match current {
+		let value = match current {
 			SetValue::Bool(val) => if val { Some(1.0) } else { Some(0.0) },
 			SetValue::Int(val) => Some(val as f64),
 			SetValue::Float(val) => Some(val as f64),
 			SetValue::Nothing => None,
 			SetValue::Serialized(_) => None,
-		}
+		};
+		value.map(|value| to_host_value(&param, value))
 	}
 
 	fn value_to_text(
@@ -164,6 +209,11 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 		// The unit is what turns `0.5` into `1/8` for a synced time, or adds `ms` to a length.
 		// A parameter that declares nothing keeps the plain number it has always shown.
 		let unit = self.param_map.query_meta(index).unwrap_or_default().unit;
+		let value = self
+			.param_map
+			.get_by_index(index)
+			.map(|param| from_host_value(&param, value))
+			.unwrap_or(value);
 		write!(writer, "{}", unit.format(value))
 	}
 
@@ -173,7 +223,13 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 		let text = text.to_str().ok()?;
 		// What the unit wrote, it can read back: `1/8 dotted`, `250 ms`, or a plain number.
 		let unit = self.param_map.query_meta(index).unwrap_or_default().unit;
-		unit.parse(text).or_else(|| text.parse::<f64>().ok())
+		let actual = unit.parse(text).or_else(|| text.parse::<f64>().ok())?;
+		let value = self
+			.param_map
+			.get_by_index(index)
+			.map(|param| to_host_value(&param, actual))
+			.unwrap_or(actual);
+		Some(value)
 	}
 
 	fn flush(
@@ -196,6 +252,7 @@ pub(crate) fn handle_param_value_event(
 				inner.store(value as i32, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 			}else if inner.is_float() {
+				let value = from_host_value(&inner, value as f64) as f32;
 				inner.store(value, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 			}else if inner.is_bool() {
@@ -218,8 +275,13 @@ pub(crate) fn handle_param_mod_event(
 				inner.store(amount, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 			}else if inner.is_float() {
-				let amount = inner.load(std::sync::atomic::Ordering::SeqCst).float().unwrap() + value;
-				inner.store(amount, std::sync::atomic::Ordering::SeqCst);
+				let current = inner.load(std::sync::atomic::Ordering::SeqCst).float().unwrap();
+				let amount = if log_range(&inner).is_some() {
+					from_host_value(&inner, to_host_value(&inner, current as f64) + value as f64)
+				} else {
+					(current + value) as f64
+				};
+				inner.store(amount as f32, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 			}
 		}
@@ -239,7 +301,7 @@ pub(crate) fn sync_params(
 			let value = match val.load(std::sync::atomic::Ordering::SeqCst) {
 				SetValue::Bool(v) => if v { 1.0 } else { 0.0 },
 				SetValue::Int(v) => v as f64,
-				SetValue::Float(v) => v as f64,
+				SetValue::Float(v) => to_host_value(val, v as f64),
 				_ => continue
 			};
 
@@ -318,5 +380,43 @@ impl<'a, P: Plugin> PluginAudioProcessorParams for AudioProcessor<'a, P> {
 		output_parameter_changes: &mut OutputEvents,
 	) {
 		flush(input_parameter_changes, output_parameter_changes, &self.param_map);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use i_am_dsp::prelude::Value;
+
+	fn logarithmic() -> AtomicValue {
+		Value::Float {
+			value: 1_000.0,
+			range: 20.0..=20_000.0,
+			logarithmic: true,
+		}
+		.to_atomic_value()
+	}
+
+	#[test]
+	fn a_logarithmic_parameter_uses_a_normalized_host_range() {
+		let param = logarithmic();
+
+		// Halfway through the host's 0..1 range is the geometric centre, not 10 kHz.
+		let middle = from_host_value(&param, 0.5);
+		assert!((middle - 632.455).abs() < 0.01, "got {middle}");
+		assert!((to_host_value(&param, middle) - 0.5).abs() < 1e-5);
+	}
+
+	#[test]
+	fn a_plain_parameter_keeps_its_value() {
+		let param = Value::Float {
+			value: 0.5,
+			range: 0.0..=1.0,
+			logarithmic: false,
+		}
+		.to_atomic_value();
+
+		assert!((from_host_value(&param, 0.5) - 0.5).abs() < f64::EPSILON);
+		assert!((to_host_value(&param, 0.5) - 0.5).abs() < f64::EPSILON);
 	}
 }
