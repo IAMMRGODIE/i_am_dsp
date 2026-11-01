@@ -282,19 +282,82 @@
     );
   }
 
-  function transferHero(values) {
+  function trace(samples, middle, amplitude, stride) {
+    stride = stride || 1;
+
+    var last = samples.length - 1;
+    var path = "";
+    var point = function (index) {
+      var x = 20 + index / last * 480;
+      var y = middle - clamp(samples[index], -1.2, 1.2) / 1.2 * amplitude;
+      return (path ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    };
+
+    for (var i = 0; i <= last; i += stride) {
+      path += point(i);
+    }
+
+    if (last % stride !== 0) path += point(last);
+
+    return path;
+  }
+
+  function rmsOf(samples) {
+    if (!samples || samples.length === 0) return 0;
+
+    var sum = 0;
+    for (var i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+
+    return Math.sqrt(sum / samples.length);
+  }
+
+  function dbText(rms) {
+    if (!(rms > 1e-6)) return "-inf";
+    return (20 * Math.log10(rms)).toFixed(1);
+  }
+
+  function rmsBadge(scope) {
+    if (!scope || !scope.input || !scope.output) {
+      return '<div class="hero-badge">RMS --</div>';
+    }
+
+    return '<div class="hero-badge">RMS ' + dbText(rmsOf(scope.input)) +
+      ' \u2192 ' + dbText(rmsOf(scope.output)) + ' dB</div>';
+  }
+
+  function transferHero(values, context) {
     var mode = Math.round(valueOf(values, "mode", 0));
     var threshold = clamp(valueOf(values, "threshold", 0.8), 0.01, 4);
     var gain = valueOf(values, "gain", 1);
+    var path = "";
+    var bands = "";
+    var scope = context && context.scope;
+
+    if (scope && scope.input && scope.output) {
+      var inputRms = Math.min(rmsOf(scope.input), 2);
+      var outputRms = Math.min(rmsOf(scope.output), 2);
+
+      if (inputRms > 0.0005) {
+        var left = 20 + (-inputRms + 2) / 4 * 480;
+        var right = 20 + (inputRms + 2) / 4 * 480;
+        bands += '<rect x="' + left.toFixed(1) + '" y="0" width="' +
+          (right - left).toFixed(1) + '" height="160" fill="#9a9a9a" fill-opacity=".10"/>';
+      }
+
+      if (outputRms > 0.0005) {
+        var top = 80 - outputRms / 2 * 66;
+        var bottom = 80 + outputRms / 2 * 66;
+        bands += '<rect x="0" y="' + top.toFixed(1) + '" width="520" height="' +
+          (bottom - top).toFixed(1) + '" fill="var(--accent)" fill-opacity=".08"/>';
+      }
+    }
+
     var alpha = Math.max(valueOf(values, "alpha", 0.5), 0.01);
     var k = valueOf(values, "k", 2);
     var a = Math.max(valueOf(values, "a", 1), 0.01);
     var p = valueOf(values, "p", 2);
     var bits = Math.max(1, valueOf(values, "bits", 8));
-    var path = "";
 
-    // The domain is wider than the clip point on purpose: a hard clipper's curve
-    // only shows its knees when the flat part has somewhere to run.
     for (var i = 0; i <= 140; i++) {
       var x = -2 + i / 140 * 4;
       var shaped;
@@ -315,13 +378,14 @@
     }
 
     return heroSvg(
+      bands +
       '<path d="M 20 146 L 500 14" stroke="#333" stroke-width="1" stroke-dasharray="3 5" ' +
-      'vector-effect="non-scaling-stroke"/>' +
+        'vector-effect="non-scaling-stroke"/>' +
       '<line x1="260" y1="12" x2="260" y2="148" stroke="#2b2b2b"/>' +
       '<line x1="20" y1="80" x2="500" y2="80" stroke="#2b2b2b"/>' +
       '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2.4" ' +
-      'vector-effect="non-scaling-stroke"/>'
-    );
+        'vector-effect="non-scaling-stroke"/>'
+    ) + (context && context.scope ? rmsBadge(context.scope) : "");
   }
 
   function compressorHero(values) {
@@ -877,7 +941,19 @@
     );
   }
 
-  function waveformHero(values) {
+  function waveformHero(values, context) {
+    var scope = context && context.scope;
+
+    if (scope && scope.input && scope.output) {
+      return heroSvg(
+        '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>' +
+        '<path d="' + trace(scope.input, 80, 58, 8) + '" fill="none" stroke="#6a6a6a" ' +
+          'stroke-width="1.5" vector-effect="non-scaling-stroke"/>' +
+        '<path d="' + trace(scope.output, 80, 58, 8) + '" fill="none" stroke="var(--accent)" ' +
+          'stroke-width="2" vector-effect="non-scaling-stroke"/>'
+      );
+    }
+
     var gain = valueOf(values, "gain", 1);
     var db = 20 * Math.log10(Math.max(gain, 1e-4));
     var output = clamp(20 * Math.pow(10, db / 20), 3, 58);
@@ -887,9 +963,9 @@
       '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>' +
       '<path d="' + input + ' L 500 80 L 20 80 Z" fill="#8a8a8a" fill-opacity=".14"/>' +
       '<path d="' + input + '" fill="none" stroke="#6a6a6a" stroke-width="1.5" ' +
-      'vector-effect="non-scaling-stroke"/>' +
+        'vector-effect="non-scaling-stroke"/>' +
       '<path d="' + wavePath(output, 80, 3) + '" fill="none" stroke="var(--accent)" ' +
-      'stroke-width="2" vector-effect="non-scaling-stroke"/>'
+        'stroke-width="2" vector-effect="non-scaling-stroke"/>'
     );
   }
 

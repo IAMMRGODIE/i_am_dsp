@@ -734,143 +734,6 @@ var ENV_MAX = 512;
     return path;
   }
 
-  function trace(samples, middle, amplitude, stride) {
-    stride = stride || 1;
-
-    var last = samples.length - 1;
-    var path = "";
-    var point = function (index) {
-      var x = 20 + index / last * 480;
-      var y = middle - clamp(samples[index], -1.2, 1.2) / 1.2 * amplitude;
-      return (path ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
-    };
-
-    for (var i = 0; i <= last; i += stride) {
-      path += point(i);
-    }
-
-    if (last % stride !== 0) path += point(last);
-
-    return path;
-  }
-
-  function waveformSvg() {
-    if (scope.input && scope.output) {
-      return heroSvg(
-        '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>' +
-        '<path d="' + trace(scope.input, 80, 58, 8) + '" fill="none" stroke="#6a6a6a" ' +
-          'stroke-width="1.5" vector-effect="non-scaling-stroke"/>' +
-        '<path d="' + trace(scope.output, 80, 58, 8) + '" fill="none" stroke="' + accent + '" ' +
-          'stroke-width="2" vector-effect="non-scaling-stroke"/>'
-      );
-    }
-
-    var gain = valueOf("gain", 1);
-    var db = 20 * Math.log10(Math.max(gain, 1e-4));
-    var output = clamp(20 * Math.pow(10, db / 20), 3, 58);
-    var input = wavePath(16, 80, 3);
-
-    return heroSvg(
-      '<line x1="0" y1="80" x2="520" y2="80" stroke="#2c2c2c" stroke-width="1"/>' +
-      // The input is an area, not a second line: at unity the two traces coincide,
-      // and a line under a line is invisible.
-      '<path d="' + input + ' L 500 80 L 20 80 Z" fill="#8a8a8a" fill-opacity=".14"/>' +
-      '<path d="' + input + '" fill="none" stroke="#6a6a6a" stroke-width="1.5" ' +
-        'vector-effect="non-scaling-stroke"/>' +
-      '<path d="' + wavePath(output, 80, 3) + '" fill="none" stroke="' + accent + '" ' +
-        'stroke-width="2" vector-effect="non-scaling-stroke"/>'
-    );
-  }
-
-  function rmsOf(samples) {
-    if (!samples || samples.length === 0) return 0;
-
-    var sum = 0;
-    for (var i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
-
-    return Math.sqrt(sum / samples.length);
-  }
-
-  function dbText(rms) {
-    if (!(rms > 1e-6)) return "-inf";
-    return (20 * Math.log10(rms)).toFixed(1);
-  }
-
-  function rmsBadge() {
-    if (!scope.input || !scope.output) {
-      return '<div class="hero-badge">RMS --</div>';
-    }
-
-    return '<div class="hero-badge">RMS ' + dbText(rmsOf(scope.input)) +
-      ' \u2192 ' + dbText(rmsOf(scope.output)) + ' dB</div>';
-  }
-
-  function transferSvg() {
-    var mode = Math.round(valueOf("mode", 0));
-    var threshold = clamp(valueOf("threshold", 0.8), 0.01, 4);
-    var gain = valueOf("gain", 1);
-    var path = "";
-    var bands = "";
-
-    // Where the signal actually lives: a vertical band for how far the input
-    // swings, a horizontal one for the output, both behind the curve.
-    if (scope.input && scope.output) {
-      var inputRms = Math.min(rmsOf(scope.input), 2);
-      var outputRms = Math.min(rmsOf(scope.output), 2);
-
-      if (inputRms > 0.0005) {
-        var left = 20 + (-inputRms + 2) / 4 * 480;
-        var right = 20 + (inputRms + 2) / 4 * 480;
-        bands += '<rect x="' + left.toFixed(1) + '" y="0" width="' +
-          (right - left).toFixed(1) + '" height="160" fill="#9a9a9a" fill-opacity=".10"/>';
-      }
-
-      if (outputRms > 0.0005) {
-        var top = 80 - outputRms / 2 * 66;
-        var bottom = 80 + outputRms / 2 * 66;
-        bands += '<rect x="0" y="' + top.toFixed(1) + '" width="520" height="' +
-          (bottom - top).toFixed(1) + '" fill="' + accent + '" fill-opacity=".08"/>';
-      }
-    }
-
-    var alpha = Math.max(valueOf("alpha", 0.5), 0.01);
-    var k = valueOf("k", 2);
-    var a = Math.max(valueOf("a", 1), 0.01);
-    var p = valueOf("p", 2);
-    var bits = Math.max(1, valueOf("bits", 8));
-
-    // The domain is wider than the clip point on purpose: a hard clipper's curve
-    // only shows its knees when the flat part has somewhere to run.
-    for (var i = 0; i <= 140; i++) {
-      var x = -2 + i / 140 * 4;
-      var shaped;
-
-      if (mode === 1) shaped = Math.tanh(x / alpha);
-      else if (mode === 2) shaped = 2 / (1 + Math.exp(-x * k)) - 1;
-      else if (mode === 3) {
-        var factor = 1 + 1 / Math.pow(a, p);
-        var norm = Math.pow(Math.abs(x) / a, p);
-        shaped = (x / (1 + norm)) * factor;
-      } else if (mode === 4) shaped = Math.round(bits * x) / bits;
-      else if (mode === 5) shaped = x;
-      else shaped = clamp(x, -threshold, threshold);
-
-      var y = clamp(shaped * gain, -2, 2);
-      path += (i ? " L " : "M ") + (20 + (x + 2) / 4 * 480).toFixed(1) +
-              " " + (80 - y / 2 * 66).toFixed(1);
-    }
-
-    return heroSvg(
-      bands +
-      '<path d="M 20 146 L 500 14" stroke="#333" stroke-width="1" stroke-dasharray="3 5" ' +
-        'vector-effect="non-scaling-stroke"/>' +
-      '<line x1="260" y1="12" x2="260" y2="148" stroke="#2b2b2b"/>' +
-      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2b2b2b"/>' +
-      '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2.4" ' +
-        'vector-effect="non-scaling-stroke"/>'
-    );
-  }
-
   var BANDS = 96;
 
   function fft(real, imag) {
@@ -1642,7 +1505,7 @@ var ENV_MAX = 512;
       if (!window.IAmCard || !IAmCard.hero) return;
 
       var content = IAmCard.hero(hero.kind, null, {
-        ir: irState, curve: curveState, stereo: stereoScope,
+        ir: irState, curve: curveState, stereo: stereoScope, scope: scope,
         ott: ottState, vocoder: vocoderState
       });
       if (content) hero.el.innerHTML = content;
@@ -2616,8 +2479,6 @@ var ENV_MAX = 512;
     IAmCard.registerHero("gate", function () { return dynamicsSvg("gate"); });
     IAmCard.registerHero("expander", function () { return dynamicsSvg("expander"); });
     IAmCard.registerHero("limiter", function () { return dynamicsSvg("limiter"); });
-    IAmCard.registerHero("waveform", waveformSvg);
-    IAmCard.registerHero("transfer", function () { return transferSvg() + rmsBadge(); });
     IAmCard.registerHero("spectrum", spectrumSvg);
     IAmCard.registerHero("spectra", spectraSvg);
   }
