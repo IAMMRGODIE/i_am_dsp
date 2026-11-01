@@ -1892,3 +1892,26 @@ fn the_band_header_keeps_its_trim_controls_compact() {
 	assert!(js.contains("format: function (value)"), "band trims lost their readout");
 	assert!(js.contains("name.title"), "the hidden narrow range needs a tooltip");
 }
+
+/// The LFO appends points deliberately on double-click, leaving a single click
+/// for dragging an existing point or bend handle.
+#[test]
+fn the_lfo_adds_points_on_double_click() {
+	let js = include_str!("page/rack.js");
+
+	assert!(js.contains("svg.ondblclick"), "the LFO needs a double-click handler");
+	assert!(js.contains("Double-click to add a point"), "the LFO hint is stale");
+	assert!(js.contains("if (!drag) return;"), "an empty single click should not capture the pointer");
+}
+
+/// Bypass dims the editable surfaces, while the top bar stays available so the
+/// user can turn it back on.
+#[test]
+fn bypass_dims_the_rack_surfaces() {
+	let css = include_str!("page/rack.css");
+	let js = include_str!("page/rack.js");
+
+	assert!(css.contains("body.bypassed .rack"), "the rack is not dimmed");
+	assert!(css.contains("body.bypassed .bottom"), "the bottom panel is not dimmed");
+	assert!(js.contains("document.body.classList.toggle(\"bypassed\""), "bypass does not reach the page");
+}

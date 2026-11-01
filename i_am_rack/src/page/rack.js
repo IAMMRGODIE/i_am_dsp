@@ -1132,14 +1132,10 @@
             startBend: bend.bend,
             direction: next && next.value > bend.value ? -1 : 1
           };
-        } else {
-          var position = eventPoint(event);
-          point = { time: position.time, value: position.value, bend: 0 };
-          lfo.points.push(point);
-          lfo.points.sort(function (a, b) { return a.time - b.time; });
-          drag = { kind: "point", point: point };
         }
       }
+
+      if (!drag) return;
 
       svg.setPointerCapture(event.pointerId);
       paint();
@@ -1175,11 +1171,19 @@
     svg.onpointerup = finish;
     svg.onpointercancel = finish;
     svg.ondblclick = function (event) {
-      var point = pointAt(event);
-      if (point) {
-        removePoint(point);
-        event.preventDefault();
-      }
+      // Adding is deliberate: a single click starts a drag on a point or bend,
+      // while an empty double-click appends a new point. Right-click still
+      // removes an existing point.
+      if (pointAt(event)) return;
+
+      var position = eventPoint(event);
+      if (position.x < 8 || position.x > 292 || position.y < 8 || position.y > 60) return;
+      var point = { time: position.time, value: position.value, bend: 0 };
+      lfo.points.push(point);
+      lfo.points.sort(function (a, b) { return a.time - b.time; });
+      paint();
+      commit();
+      event.preventDefault();
     };
     svg.oncontextmenu = function (event) {
       var point = pointAt(event);
@@ -1486,7 +1490,7 @@
     svg.setAttribute("aria-label", title + " modulation shape");
     if (title.indexOf("LFO") === 0) {
       svg.classList.add("lfo-editor");
-      hero.title = "Click to add a point; drag points or the small bend ring; double-click or right-click to remove";
+      hero.title = "Double-click to add a point; drag points or the small bend ring; right-click to remove";
     } else if (title.indexOf("MIDI") === 0) {
       svg.classList.add("midi-editor");
       hero.title = "Click to add a curve point; drag to move; double-click or right-click to remove";
@@ -2370,6 +2374,7 @@
     bypassed = !bypassed;
     power.classList.toggle("off", bypassed);
     power.setAttribute("aria-pressed", bypassed ? "true" : "false");
+    document.body.classList.toggle("bypassed", bypassed);
     if (window.ipc) window.ipc.postMessage("__bypass=" + (bypassed ? 1 : 0));
   });
 
