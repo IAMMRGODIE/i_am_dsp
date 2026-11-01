@@ -569,6 +569,107 @@
     return makeChoiceHandle(spec, value, onEdit, className).el;
   }
 
+  function makeSliderHandle(spec, value, onEdit) {
+    var wrap = document.createElement("div");
+    wrap.className = "mcard-slider";
+
+    var top = document.createElement("div");
+    top.className = "mcard-slider-top";
+    var label = document.createElement("span");
+    label.className = "mcard-row-label";
+    label.textContent = spec.label;
+    var readout = document.createElement("span");
+    readout.className = "mcard-slider-value";
+    top.appendChild(label);
+    top.appendChild(readout);
+    wrap.appendChild(top);
+
+    var track = document.createElement("div");
+    track.className = "mcard-slider-track";
+    track.tabIndex = 0;
+    track.setAttribute("role", "slider");
+    track.setAttribute("aria-label", spec.label);
+    track.setAttribute("aria-valuemin", String(spec.min));
+    track.setAttribute("aria-valuemax", String(spec.max));
+
+    var fill = document.createElement("div");
+    fill.className = "mcard-slider-fill";
+    var knob = document.createElement("div");
+    knob.className = "mcard-slider-handle";
+    track.appendChild(fill);
+    track.appendChild(knob);
+    wrap.appendChild(track);
+
+    var zero = spec.bipolar ? clamp(norm(spec, 0), 0, 1) : 0;
+    var current = clamp(value, spec.min, spec.max);
+
+    function paint() {
+      var position = clamp(norm(spec, current), 0, 1);
+      fill.style.left = (Math.min(zero, position) * 100) + "%";
+      fill.style.width = (Math.abs(position - zero) * 100) + "%";
+      knob.style.left = (position * 100) + "%";
+      readout.textContent = format(spec, current);
+      track.setAttribute("aria-valuenow", String(current));
+      track.setAttribute("aria-valuetext", format(spec, current));
+    }
+
+    function set(next, send) {
+      current = clamp(next, spec.min, spec.max);
+      if (spec.kind === "int") current = Math.round(current);
+      paint();
+      if (send && onEdit) onEdit(spec.id, current);
+    }
+
+    function apply(event) {
+      var box = track.getBoundingClientRect();
+      var position = box.width > 0 ? (event.clientX - box.left) / box.width : 0;
+      set(at(spec, position), true);
+    }
+
+    var drag = false;
+    track.addEventListener("pointerdown", function (event) {
+      if (event.button !== 0) return;
+      drag = true;
+      track.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      apply(event);
+    });
+    track.addEventListener("pointermove", function (event) {
+      if (drag) apply(event);
+    });
+    function stop(event) {
+      if (!drag) return;
+      drag = false;
+      try { track.releasePointerCapture(event.pointerId); } catch (error) {}
+    }
+    track.addEventListener("pointerup", stop);
+    track.addEventListener("pointercancel", stop);
+    track.addEventListener("wheel", function (event) {
+      event.preventDefault();
+      var step = spec.step && spec.step > 0 ? spec.step : (spec.max - spec.min) / 100;
+      set(current + (event.deltaY < 0 ? step : -step) * (event.shiftKey ? 0.1 : 1), true);
+    }, { passive: false });
+    track.addEventListener("keydown", function (event) {
+      var step = spec.step && spec.step > 0 ? spec.step : (spec.max - spec.min) / 100;
+      if (event.key === "ArrowUp" || event.key === "ArrowRight") {
+        set(current + step, true);
+        event.preventDefault();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowLeft") {
+        set(current - step, true);
+        event.preventDefault();
+      } else if (event.key === "Home") {
+        set(spec.min, true);
+        event.preventDefault();
+      } else if (event.key === "End") {
+        set(spec.max, true);
+        event.preventDefault();
+      }
+    });
+
+    paint();
+    return { el: wrap, set: set };
+  }
+
   function makeSwitch(spec, value, onEdit) {
     var button = document.createElement("button");
     button.type = "button";
@@ -614,6 +715,10 @@
       row.appendChild(toggleLabel);
       row.appendChild(makeSwitch(spec, value, onEdit).el);
       return row;
+    }
+
+    if (spec.widget === "slider") {
+      return makeSliderHandle(spec, value, onEdit).el;
     }
 
     if (spec.widget === "choice" || (spec.kind === "int" && spec.choices && spec.choices.length)) {
@@ -866,6 +971,7 @@
     controlHandle: controlHandle,
     switchHandle: makeSwitch,
     choiceHandle: makeChoiceHandle,
+    sliderHandle: makeSliderHandle,
     hero: hero,
     format: format,
     norm: norm,

@@ -632,6 +632,19 @@ var ENV_MAX = 512;
 
   function buildSlider(control) {
     var spec = control.spec;
+
+    if (window.IAmCard && IAmCard.sliderHandle) {
+      var handle = IAmCard.sliderHandle(spec, control.value, function (_, value) {
+        setValue(control, value, true);
+      });
+      var el = element("div", "slider");
+      handle.el.classList.add("face-slider");
+      control.paint = function () { handle.set(control.value, false); };
+      el.appendChild(handle.el);
+      control.paint();
+      return el;
+    }
+
     var zero = spec.bipolar ? clamp(norm(spec, 0), 0, 1) : 0;
 
     var el = element("div", "slider");

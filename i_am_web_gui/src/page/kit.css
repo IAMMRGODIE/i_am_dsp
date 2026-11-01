@@ -377,3 +377,11 @@ body.preview #app{
   background-repeat:no-repeat;
   font-size:calc(10px * var(--scale));
 }
+
+/* Faceplate sizing for the shared slider. */
+.face-slider{width:calc(150px * var(--scale))}
+.face-slider .mcard-slider-track{height:calc(6px * var(--scale))}
+.face-slider .mcard-slider-handle{
+  width:calc(12px * var(--scale)); height:calc(12px * var(--scale));
+  margin:calc(-6px * var(--scale)) 0 0 calc(-6px * var(--scale));
+}

@@ -159,3 +159,26 @@
 }
 .mcard-switch.on i{left:16px; background:var(--text1)}
 .mcard-switch:focus-visible{outline:1px solid var(--accent); outline-offset:2px}
+
+.mcard-slider{
+  width:150px; min-width:0; display:flex; flex-direction:column; gap:5px;
+}
+.mcard-slider-top{
+  display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+}
+.mcard-slider-value{
+  color:var(--text1); font-family:var(--mono); font-size:10px;
+  white-space:nowrap;
+}
+.mcard-slider-track{
+  position:relative; height:6px; border-radius:3px; background:var(--track);
+  cursor:ew-resize; touch-action:none; outline:none;
+}
+.mcard-slider-track:focus-visible{outline:1px solid var(--accent); outline-offset:3px}
+.mcard-slider-fill{
+  position:absolute; top:0; bottom:0; border-radius:3px; background:var(--accent);
+}
+.mcard-slider-handle{
+  position:absolute; top:50%; width:12px; height:12px; margin:-6px 0 0 -6px;
+  border-radius:50%; background:var(--text1); box-shadow:0 0 0 2px var(--card);
+}
