@@ -572,6 +572,13 @@ mod ui_contract_tests {
 		}
 	}
 
+	/// A control can replace its formatted readout without changing its unit.
+	#[test]
+	fn a_control_can_override_its_readout() {
+		assert!(CARD_SCRIPT.contains("function display(spec, value)"));
+		assert!(CARD_SCRIPT.contains("typeof spec.format === \"function\""));
+	}
+
 	/// The utility products' pictures are part of the shared registry too.
 	#[test]
 	fn the_new_product_heroes_are_registered() {

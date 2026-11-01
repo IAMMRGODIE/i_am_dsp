@@ -56,6 +56,11 @@
     return clamp(value, low, high);
   }
 
+  /// A control can override its readout without changing its unit metadata.
+  function display(spec, value) {
+    return typeof spec.format === "function" ? spec.format(value) : format(spec, value);
+  }
+
   function format(spec, value) {
     if (spec.kind === "bool") return value ? "On" : "Off";
     if (spec.kind === "int" && spec.choices && spec.choices.length) {
@@ -1793,9 +1798,9 @@
       hand.setAttribute("y1", inner.y.toFixed(2));
       hand.setAttribute("x2", tip.x.toFixed(2));
       hand.setAttribute("y2", tip.y.toFixed(2));
-      readout.textContent = format(spec, current);
+      readout.textContent = display(spec, current);
       dial.setAttribute("aria-valuenow", String(current));
-      dial.setAttribute("aria-valuetext", format(spec, current));
+      dial.setAttribute("aria-valuetext", display(spec, current));
     }
 
     function set(value, send) {
@@ -1987,9 +1992,9 @@
       fill.style.left = (Math.min(zero, position) * 100) + "%";
       fill.style.width = (Math.abs(position - zero) * 100) + "%";
       knob.style.left = (position * 100) + "%";
-      readout.textContent = format(spec, current);
+      readout.textContent = display(spec, current);
       track.setAttribute("aria-valuenow", String(current));
-      track.setAttribute("aria-valuetext", format(spec, current));
+      track.setAttribute("aria-valuetext", display(spec, current));
     }
 
     function set(next, send) {

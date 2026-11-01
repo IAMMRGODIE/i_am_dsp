@@ -405,7 +405,7 @@
     paintCrossover = paint;
     paint();
 
-    section.appendChild(el("span", "crossover-note", "LR4 \u00B7 3 bands"));
+    section.appendChild(el("span", "crossover-note", "LR4 \u00B7 4 lanes"));
     return section;
   }
 
@@ -430,9 +430,12 @@
     });
     head.appendChild(toggle);
 
-    head.appendChild(el("span", "band-name", band.name));
+    var rangeText = bandRange(data, bandIndex);
+    var name = el("span", "band-name", band.name);
+    name.title = band.name + " \u00B7 " + rangeText;
+    head.appendChild(name);
 
-    var range = el("span", "band-range", bandRange(data, bandIndex));
+    var range = el("span", "band-range", rangeText);
     rangeLabels[bandIndex] = range;
     head.appendChild(range);
     head.appendChild(el("span", "band-spacer"));
@@ -451,7 +454,11 @@
       onModulation: setModulationDepth,
       dropTarget: "band." + bandIndex + ".gain",
       onModulationDrop: linkModulation,
-      onModeToggle: toggleModulationMode
+      onModeToggle: toggleModulationMode,
+      format: function (value) {
+        if (value <= 0) return "-\u221E dB";
+        return (20 * Math.log10(value)).toFixed(1) + " dB";
+      }
     }, band.gain, function (_, value) {
       band.gain = value;
       queue("band." + bandIndex + ".gain", value);
@@ -470,7 +477,11 @@
       onModulation: setModulationDepth,
       dropTarget: "band." + bandIndex + ".pan",
       onModulationDrop: linkModulation,
-      onModeToggle: toggleModulationMode
+      onModeToggle: toggleModulationMode,
+      format: function (value) {
+        if (Math.abs(value) < 0.005) return "C";
+        return (value < 0 ? "L" : "R") + Math.round(Math.abs(value) * 100);
+      }
     }, band.pan, function (_, value) {
       band.pan = value;
       queue("band." + bandIndex + ".pan", value);
@@ -2148,7 +2159,7 @@
 
     rate.textContent = (data.rate / 1000).toFixed(1) + " kHz";
     status.textContent = data.modules.length + " modules \u00B7 " + data.bands.length +
-      " bands \u00B7 " + mods + " mods";
+      " lanes \u00B7 " + mods + " mods";
     refreshEditSlots(data);
   }
 

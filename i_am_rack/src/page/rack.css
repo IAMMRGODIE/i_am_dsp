@@ -70,7 +70,7 @@ body{
 }
 .splitter:hover::before,.splitter.dragging::before{background:var(--mod)}
 .bottom{
-  flex:0 0 clamp(200px, 32vh, 340px); min-height:0; display:flex; flex-direction:column;
+  flex:0 0 clamp(170px, 26vh, 320px); min-height:0; display:flex; flex-direction:column;
   background:#202020; border:1px solid #333; border-radius:8px; overflow:hidden;
 }
 .panel-tabs{
@@ -135,7 +135,7 @@ body{
 }
 
 .band{
-  padding:10px 12px 12px; margin-bottom:10px;
+  padding:8px 10px 10px; margin-bottom:8px;
   background:#202020; border:1px solid #333; border-radius:8px;
 }
 
@@ -170,15 +170,20 @@ body{
 .rack .mcard-head .mcard-spacer{display:none}
 .rack .mcard-head{gap:6px; padding:6px 8px}
 .band-head{
-  display:flex; align-items:center; gap:10px; min-height:78px;
+  display:flex; align-items:center; gap:8px; min-height:52px;
 }
-.band-name{font-size:13px; font-weight:600; letter-spacing:.02em; width:42px}
-.band-range{font-family:var(--mono); font-size:10px; color:var(--text3); white-space:nowrap}
+.band-name{font-size:12px; font-weight:600; letter-spacing:.02em; width:38px}
+.band-range{font-family:var(--mono); font-size:9px; color:var(--text3); white-space:nowrap}
 .band-spacer{flex:1}
-.band-controls{display:flex; gap:2px}
-.band-controls .knob-wrap{width:102px}
-.band-controls .knob{width:56px; height:56px}
-.band-buttons{display:flex; gap:4px; margin-left:6px}
+.band-controls{display:flex; align-items:center; gap:9px}
+.band-controls .knob-wrap{
+  display:flex; flex-direction:row; align-items:center; gap:5px;
+  width:auto; min-width:0; padding:0; text-align:left;
+}
+.band-controls .knob{width:36px; height:36px; margin:0; flex:0 0 36px}
+.band-controls .knob-label{margin:0; font-size:9px; color:var(--text3)}
+.band-controls .knob-value{margin:0; font-size:10px; color:var(--text1); font-family:var(--mono)}
+.band-buttons{display:flex; gap:4px; margin-left:2px}
 .band-button{
   width:26px; height:22px; padding:0;
   font:inherit; font-size:10px; font-weight:600;

@@ -1877,3 +1877,18 @@ fn the_rack_page_loads_the_shared_controls() {
 		"card.js must load before the page script"
 	);
 }
+
+/// The band header keeps its trims on the same line as the band name instead of
+/// taking a full knob column of vertical space.
+#[test]
+fn the_band_header_keeps_its_trim_controls_compact() {
+	let css = include_str!("page/rack.css");
+	let js = include_str!("page/rack.js");
+
+	assert!(css.contains("min-height:52px"), "band header height changed");
+	assert!(css.contains(".band-controls .knob-wrap{"), "band control wrapper missing");
+	assert!(css.contains("flex-direction:row"), "band controls are not inline");
+	assert!(css.contains(".band-controls .knob{width:36px"), "band knob size changed");
+	assert!(js.contains("format: function (value)"), "band trims lost their readout");
+	assert!(js.contains("name.title"), "the hidden narrow range needs a tooltip");
+}
