@@ -175,7 +175,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[0]["hero"], "spectrum");
 
 	let kinds = json["kinds"].as_array().expect("kinds");
-	assert_eq!(kinds.len(), 7);
+	assert_eq!(kinds.len(), 8);
 	assert!(kinds.iter().any(|kind| kind["name"] == "Compressor"));
 	assert!(
 		modules[0]["controls"]
@@ -1821,6 +1821,36 @@ fn a_chorus_module_exposes_its_controls() {
 	let controls = chorus["controls"].as_array().expect("controls");
 
 	for id in ["center_delay_time", "lfo_frequency", "lfo_amplitude"] {
+		assert!(
+			controls.iter().any(|control| control["id"] == id),
+			"missing {id}"
+		);
+	}
+
+	for _ in 0..256 {
+		let out = process(&mut rack, [0.25, 0.25]);
+		assert!(out[0].is_finite() && out[1].is_finite());
+	}
+}
+
+/// The Phaser kind exposes its sweep, feedback and mix controls.
+#[test]
+fn a_phaser_module_exposes_its_controls() {
+	let mut rack = Rack::default();
+
+	assert_eq!(command(&rack, "slot.3.add=Phaser").body, b"{\"ok\":true}");
+
+	let json: serde_json::Value =
+		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let phaser = json["modules"]
+		.as_array()
+		.expect("modules")
+		.iter()
+		.find(|module| module["kind"] == "Phaser")
+		.expect("the Phaser module");
+	let controls = phaser["controls"].as_array().expect("controls");
+
+	for id in ["lfo_freq", "min_freq", "max_freq", "feedback_gain"] {
 		assert!(
 			controls.iter().any(|control| control["id"] == id),
 			"missing {id}"

@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use i_am_dsp::prelude::{
-	Chorus, Compressor, Crusher, Distortion, Effect, Gain, Multimode, Parameter, PureDelay,
-	RectifyEnvelope, SineWave, Unit, Value,
+	Chorus, Compressor, Crusher, Distortion, Effect, Gain, Multimode, Parameter, Phaser,
+	PureDelay, RectifyEnvelope, SineWave, Unit, Value,
 };
 
 /// The controls each Multimode algorithm reads; everything else is hidden.
@@ -64,11 +64,13 @@ pub enum ModuleKind {
 	Crusher,
 	/// A modulated short delay.
 	Chorus,
+	/// A swept allpass stack.
+	Phaser,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 7] = [
+	pub const ALL: [Self; 8] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
@@ -76,6 +78,7 @@ impl ModuleKind {
 		Self::Delay,
 		Self::Crusher,
 		Self::Chorus,
+		Self::Phaser,
 	];
 
 	/// The name a card shows.
@@ -88,6 +91,7 @@ impl ModuleKind {
 			Self::Delay => "Delay",
 			Self::Crusher => "Crusher",
 			Self::Chorus => "Chorus",
+			Self::Phaser => "Phaser",
 		}
 	}
 
@@ -101,6 +105,7 @@ impl ModuleKind {
 			Self::Delay => "#c77dff",
 			Self::Crusher => "#ff5f9e",
 			Self::Chorus => "#5ad1c8",
+			Self::Phaser => "#ffd166",
 		}
 	}
 
@@ -114,6 +119,7 @@ impl ModuleKind {
 			Self::Delay => "waveform",
 			Self::Crusher => "transfer",
 			Self::Chorus => "waveform",
+			Self::Phaser => "spectrum",
 		}
 	}
 
@@ -121,7 +127,12 @@ impl ModuleKind {
 	pub const fn mode(self) -> Option<&'static str> {
 		match self {
 			Self::Filter | Self::Distortion => Some("mode"),
-			Self::Compressor | Self::Gain | Self::Delay | Self::Crusher | Self::Chorus => None,
+			Self::Compressor
+			| Self::Gain
+			| Self::Delay
+			| Self::Crusher
+			| Self::Chorus
+			| Self::Phaser => None,
 		}
 	}
 
@@ -138,7 +149,12 @@ impl ModuleKind {
 		match self {
 			Self::Filter => Some(FILTER_VISIBLE),
 			Self::Distortion => Some(DISTORTION_VISIBLE),
-			Self::Compressor | Self::Gain | Self::Delay | Self::Crusher | Self::Chorus => None,
+			Self::Compressor
+			| Self::Gain
+			| Self::Delay
+			| Self::Crusher
+			| Self::Chorus
+			| Self::Phaser => None,
 		}
 	}
 }
@@ -169,6 +185,7 @@ pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> 
 			sample_rate,
 			SineWave,
 		)),
+		ModuleKind::Phaser => Box::new(Phaser::<SineWave, 2>::new(SineWave, 4, sample_rate)),
 	}
 }
 
@@ -193,7 +210,7 @@ pub(crate) fn schema(kind: ModuleKind) -> Vec<Parameter> {
 		}
 
 		parameters
-	} else if kind == ModuleKind::Chorus {
+	} else if matches!(kind, ModuleKind::Phaser | ModuleKind::Chorus) {
 		for parameter in &mut parameters {
 			match parameter.identifier.as_str() {
 				"tempo.sync" => parameter.meta.display_name = Some("Sync".into()),
