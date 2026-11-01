@@ -6,11 +6,13 @@ use i_am_dsp::prelude::{
 };
 use i_am_dsp_derive::Parameters;
 
+/// The controls each pitch algorithm reads.
 pub const PITCH_VISIBLE: &[(i32, &[&str])] = &[
 	(0, &["pitch_shift_factor"]),
 	(1, &["pitch_shift_factor", "window_size"]),
 ];
 
+/// The Pitch product: WSOLA or phase-vocoder pitch shifting.
 #[derive(Parameters)]
 pub struct PitchEffect {
 	/// The engine.
@@ -45,6 +47,7 @@ pub struct PitchEffect {
 }
 
 impl PitchEffect {
+	/// Builds the effect for a sample rate.
 	pub fn new(sample_rate: usize) -> Self {
 		Self {
 			algorithm: 0,

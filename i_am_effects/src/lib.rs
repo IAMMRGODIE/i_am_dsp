@@ -14,44 +14,21 @@
 //! cargo run -p i_am_effects --example dump_face -- target/web-preview gain
 //! ```
 
-mod allpass;
-mod comb;
-mod compressor;
 mod convolver;
-mod disperser;
-mod ir_reverb;
 mod ott;
-mod particle_wider;
-mod pitch;
-mod reverb;
-mod schroeder;
 mod script;
 mod script_distortion;
 mod script_mapper;
-mod shifter;
 mod stft_vocoder;
-mod unstablizer;
 mod vocoder;
 
-use allpass::AllpassEffect;
-use comb::CombEffect;
-use compressor::CompressorEffect;
 pub use convolver::{ConvolverWeb, IrData, IrSlot};
 pub use script_distortion::ScriptDistortionWeb;
 pub use script_mapper::ScriptMapperWeb;
 pub use ott::OttWeb;
 pub use vocoder::VocoderWeb;
 pub use stft_vocoder::StftVocoderWeb;
-use disperser::Dispersion;
-use ir_reverb::IrReverbEffect;
-use particle_wider::ParticleWiderEffect;
-use pitch::PitchEffect;
-use reverb::ReverbEffect;
-use schroeder::SchroederEffect;
-use shifter::ShifterEffect;
-use unstablizer::UnstablizerEffect;
-pub use shifter::{SHIFTER_CURVES, SHIFTER_VISIBLE};
-pub use pitch::PITCH_VISIBLE;
+pub use i_am_dsp::prelude::{PITCH_VISIBLE, SHIFTER_CURVES, SHIFTER_VISIBLE};
 /// The parameters the page draws in the header, beside the mode.
 pub const FILTER_HEADER: &[&str] = &["stages"];
 
@@ -67,9 +44,11 @@ pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
 ];
 
 use i_am_dsp::prelude::{
-	Chorus, Crusher, Delay, Distortion, Expander, Flanger, Gain as GainDsp, Gate, Limiter,
-	LrControl, Multimode, ParametricEq, Phaser, SineWave, StereoController, StereoRouter,
-	TapeStopEffect, TransientShaper,
+	AllpassEffect, Chorus, CombEffect, CompressorEffect, Crusher, Delay, Dispersion,
+	Distortion, Expander, Flanger, Gain as GainDsp, Gate, IrReverbEffect, Limiter, LrControl,
+	Multimode, ParametricEq, ParticleWiderEffect, Phaser, PitchEffect, ReverbEffect,
+	SchroederEffect, ShifterEffect, SineWave, StereoController, StereoRouter, TapeStopEffect,
+	TransientShaper, UnstablizerEffect,
 };
 use i_am_web_gui::Switch;
 use i_am_plugin::export_clap;

@@ -9,6 +9,7 @@ fn delay_samples(rate: usize, milliseconds: f32) -> usize {
 		.max(16.0) as usize
 }
 
+/// A single feedback comb, with delay and feedback as controls.
 #[derive(Parameters)]
 pub struct CombEffect {
 	/// The feedback delay.
@@ -35,6 +36,7 @@ pub struct CombEffect {
 }
 
 impl CombEffect {
+	/// Builds the effect for a sample rate.
 	pub fn new(sample_rate: usize) -> Self {
 		let delay_ms = 31.0;
 		let filter = CombsFilter::new(0.8, delay_samples(sample_rate, delay_ms));

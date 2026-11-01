@@ -4,6 +4,7 @@
 use i_am_dsp::prelude::{Effect, ParticleWider, ProcessContext};
 use i_am_dsp_derive::Parameters;
 
+/// The Particle Wider product surface around `ParticleWider`.
 #[derive(Parameters)]
 pub struct ParticleWiderEffect {
 	/// How strongly each partial is scattered.
@@ -77,6 +78,7 @@ pub struct ParticleWiderEffect {
 }
 
 impl ParticleWiderEffect {
+	/// Builds the effect for a sample rate.
 	pub fn new(sample_rate: usize) -> Self {
 		Self {
 			depth: 0.5,

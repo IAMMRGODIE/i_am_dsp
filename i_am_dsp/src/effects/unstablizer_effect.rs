@@ -3,6 +3,7 @@
 use i_am_dsp::prelude::{Effect, ProcessContext, Unstablizer, overlap_add_gain};
 use i_am_dsp_derive::Parameters;
 
+/// The note-anchored spectral shifter product surface.
 #[derive(Parameters)]
 pub struct UnstablizerEffect {
 	/// The A4 reference pitch.
@@ -67,6 +68,7 @@ pub struct UnstablizerEffect {
 }
 
 impl UnstablizerEffect {
+	/// Builds the effect for a sample rate.
 	pub fn new(sample_rate: usize) -> Self {
 		Self {
 			reference_pitch: 440.0,

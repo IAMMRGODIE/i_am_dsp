@@ -16,6 +16,7 @@ fn delay_samples(rate: usize, milliseconds: f32) -> usize {
 		.max(16.0) as usize
 }
 
+/// A Schroeder reverb: four parallel combs and two allpass stages.
 #[derive(Parameters)]
 pub struct SchroederEffect {
 	/// The delay scale.
@@ -75,6 +76,7 @@ pub struct SchroederEffect {
 }
 
 impl SchroederEffect {
+	/// Builds the effect for a sample rate.
 	pub fn new(sample_rate: usize) -> Self {
 		let combs = core::array::from_fn(|index| {
 			CombsFilter::new(0.8, delay_samples(sample_rate, COMB_MS[index]))
