@@ -234,9 +234,48 @@ impl Lane {
 	}
 }
 
+/// Copies one band's stage and slots into a running lane.
+fn apply_lane(lane: &mut Lane, band: &crate::state::BandState, rate: usize) {
+	lane.base_gain = band.gain;
+	lane.base_pan = band.pan;
+	lane.mute = band.mute;
+	lane.solo = band.solo;
+	lane.slots.resize_with(band.slots.len(), || None);
+
+	for (slot, edited) in band.slots.iter().enumerate() {
+		match edited {
+			Some(edited) => {
+				let rebuild = match &lane.slots[slot] {
+					Some(module) => module.kind != edited.kind || module.id != edited.id,
+					None => true,
+				};
+
+				if rebuild {
+					lane.slots[slot] = Some(Module::new(edited, rate));
+				} else if let Some(module) = &mut lane.slots[slot] {
+					module.update(edited);
+				}
+			},
+			None => lane.slots[slot] = None,
+		}
+	}
+}
+
+/// The latency of the active modules in a lane, in samples.
+fn lane_delay(lane: &Lane) -> usize {
+	lane.slots
+		.iter()
+		.flatten()
+		.filter(|module| !module.bypass)
+		.map(|module| module.paramed.delay())
+		.sum()
+}
+
 /// The three-band engine the audio thread runs.
 pub(crate) struct Engine {
 	lanes: [Lane; 3],
+	/// A fourth, full-range lane summed beside the crossover bands.
+	parallel: Lane,
 	crossover: Crossover,
 	/// The four control-rate sources.
 	modulation: Modulation,
@@ -255,6 +294,7 @@ impl Engine {
 	pub fn new(sample_rate: usize, state: &RackState) -> Self {
 		let mut engine = Self {
 			lanes: [Lane::new(), Lane::new(), Lane::new()],
+			parallel: Lane::new(),
 			crossover: Crossover::new(sample_rate, state.split_low, state.split_high),
 			modulation: Modulation::new(sample_rate),
 			assignments: Vec::new(),
@@ -272,47 +312,21 @@ impl Engine {
 		self.crossover.set_splits(state.split_low, state.split_high);
 
 		for (index, band) in state.bands.iter().enumerate() {
-			let lane = &mut self.lanes[index];
-
-			lane.base_gain = band.gain;
-			lane.base_pan = band.pan;
-			lane.mute = band.mute;
-			lane.solo = band.solo;
-			lane.slots.resize_with(band.slots.len(), || None);
-
-			for (slot, edited) in band.slots.iter().enumerate() {
-				match edited {
-					Some(edited) => {
-						let rebuild = match &lane.slots[slot] {
-							Some(module) => module.kind != edited.kind || module.id != edited.id,
-							None => true,
-						};
-
-						if rebuild {
-							lane.slots[slot] = Some(Module::new(edited, self.rate));
-						} else if let Some(module) = &mut lane.slots[slot] {
-							module.update(edited);
-						}
-					},
-					None => lane.slots[slot] = None,
-				}
-			}
+			apply_lane(&mut self.lanes[index], band, self.rate);
 		}
 
-		// A band is as late as the active modules it runs in series. Give every
-		// shorter band the difference, so a compressor with lookahead in one
+		apply_lane(&mut self.parallel, &state.parallel, self.rate);
+
+		// A lane is as late as the active modules it runs in series. Give every
+		// shorter lane the difference, so a compressor with lookahead in one
 		// band does not comb-filter the others.
-		let mut delays = [0usize; 3];
+		let mut delays = [0usize; 4];
 
 		for (index, lane) in self.lanes.iter().enumerate() {
-			delays[index] = lane
-				.slots
-				.iter()
-				.flatten()
-				.filter(|module| !module.bypass)
-				.map(|module| module.paramed.delay())
-				.sum();
+			delays[index] = lane_delay(lane);
 		}
+
+		delays[3] = lane_delay(&self.parallel);
 
 		let longest = delays.iter().copied().max().unwrap_or(0);
 
@@ -320,6 +334,11 @@ impl Engine {
 			lane.delay = delays[index];
 			lane.compensation.set_length(longest - delays[index]);
 		}
+
+		self.parallel.delay = delays[3];
+		self.parallel
+			.compensation
+			.set_length(longest - delays[3]);
 
 		self.modulation.set_slots(&state.source_slots);
 		self.source_kinds.clear();
@@ -352,12 +371,12 @@ impl Engine {
 					module.set_base_target(parameter, mapped);
 				},
 				Target::BandGain(index) => {
-					if let Some(lane) = self.lanes.get_mut(*index) {
+					if let Some(lane) = self.lane_mut(*index) {
 						lane.base_gain = value * 2.0;
 					}
 				},
 				Target::BandPan(index) => {
-					if let Some(lane) = self.lanes.get_mut(*index) {
+					if let Some(lane) = self.lane_mut(*index) {
 						lane.base_pan = value * 2.0 - 1.0;
 					}
 				},
@@ -385,8 +404,18 @@ impl Engine {
 			self.apply_modulation(&values);
 		}
 
+		let full = *samples;
 		let bands = self.crossover.split(*samples, process_context);
-		let any_solo = self.lanes.iter().any(|lane| lane.solo);
+		// An empty parallel lane is not a dry copy: it only joins the sum once
+		// it actually holds an active module.
+		let parallel_active = self
+			.parallel
+			.slots
+			.iter()
+			.flatten()
+			.any(|module| !module.bypass);
+		let any_solo =
+			self.lanes.iter().any(|lane| lane.solo) || (parallel_active && self.parallel.solo);
 		let mut output = [0.0_f32; 2];
 
 		for (index, lane) in self.lanes.iter_mut().enumerate() {
@@ -419,14 +448,45 @@ impl Engine {
 			output[1] += frame[1];
 		}
 
+		if !parallel_active {
+			// Nothing to add.
+		} else if self.parallel.mute || (any_solo && !self.parallel.solo) {
+			self.parallel.compensation.process([0.0, 0.0]);
+		} else {
+			let mut frame = full;
+
+			for slot in &mut self.parallel.slots {
+				let Some(module) = slot else {
+					continue;
+				};
+
+				if !module.bypass {
+					module.paramed.process(&mut frame, &[], process_context);
+				}
+			}
+
+			let gain = self.parallel.gain as f32;
+			let pan = self.parallel.pan as f32;
+			let left = gain * if pan > 0.0 { 1.0 - pan } else { 1.0 };
+			let right = gain * if pan < 0.0 { 1.0 + pan } else { 1.0 };
+
+			let frame = self
+				.parallel
+				.compensation
+				.process([frame[0] * left, frame[1] * right]);
+			output[0] += frame[0];
+			output[1] += frame[1];
+		}
+
 		*samples = output;
 	}
 
 	/// Moves every base parameter and band control toward its target.
 	fn smooth(&mut self, coefficient: f32) {
 		let coefficient = coefficient as f64;
+		let Self { lanes, parallel, .. } = self;
 
-		for lane in &mut self.lanes {
+		for lane in lanes.iter_mut().chain(std::iter::once(parallel)) {
 			let gain_difference = lane.base_gain - lane.smooth_gain;
 			let pan_difference = lane.base_pan - lane.smooth_pan;
 
@@ -506,14 +566,14 @@ impl Engine {
 					);
 				},
 				Target::BandGain(index) => {
-					let Some(lane) = self.lanes.get_mut(index) else {
+					let Some(lane) = self.lane_mut(index) else {
 						continue;
 					};
 					let normalized = lane.smooth_gain / 2.0 + offset as f64;
 					lane.gain = normalized.clamp(0.0, 1.0) * 2.0;
 				},
 				Target::BandPan(index) => {
-					let Some(lane) = self.lanes.get_mut(index) else {
+					let Some(lane) = self.lane_mut(index) else {
 						continue;
 					};
 					let normalized = (lane.smooth_pan + 1.0) / 2.0 + offset as f64;
@@ -523,11 +583,40 @@ impl Engine {
 		}
 	}
 
-	/// The module with this id, whichever band and slot holds it.
+	/// The lane at an index, with the parallel full-range lane after the bands.
+	fn lane_mut(&mut self, index: usize) -> Option<&mut Lane> {
+		match index {
+			0..=2 => self.lanes.get_mut(index),
+			3 => Some(&mut self.parallel),
+			_ => None,
+		}
+	}
+
+	/// The lane at an index, with the parallel full-range lane after the bands.
+	#[cfg(test)]
+	fn lane(&self, index: usize) -> Option<&Lane> {
+		match index {
+			0..=2 => self.lanes.get(index),
+			3 => Some(&self.parallel),
+			_ => None,
+		}
+	}
+
+	/// The module with this id, whichever lane and slot holds it.
 	fn module_mut(&mut self, id: u32) -> Option<&mut Module> {
-		self.lanes
+		if let Some(module) = self
+			.lanes
 			.iter_mut()
 			.flat_map(|lane| lane.slots.iter_mut())
+			.flatten()
+			.find(|module| module.id == id)
+		{
+			return Some(module);
+		}
+
+		self.parallel
+			.slots
+			.iter_mut()
 			.flatten()
 			.find(|module| module.id == id)
 	}
@@ -544,6 +633,7 @@ impl Engine {
 		self.lanes
 			.iter()
 			.map(|lane| lane.delay)
+			.chain(std::iter::once(self.parallel.delay))
 			.max()
 			.unwrap_or(0)
 	}
@@ -570,6 +660,7 @@ impl Engine {
 		let module = self
 			.lanes
 			.iter()
+			.chain(std::iter::once(&self.parallel))
 			.flat_map(|lane| lane.slots.iter())
 			.flatten()
 			.find(|module| module.id == id)?;
@@ -585,7 +676,7 @@ impl Engine {
 	/// A band's modulated gain, for a test.
 	#[cfg(test)]
 	pub fn band_gain(&self, index: usize) -> Option<f64> {
-		self.lanes.get(index).map(|lane| lane.gain)
+		self.lane(index).map(|lane| lane.gain)
 	}
 
 	/// The populated slots, in band order, for a test.
@@ -593,6 +684,7 @@ impl Engine {
 	pub fn kinds(&self) -> Vec<ModuleKind> {
 		self.lanes
 			.iter()
+			.chain(std::iter::once(&self.parallel))
 			.flat_map(|lane| &lane.slots)
 			.flatten()
 			.map(|module| module.kind)

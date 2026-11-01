@@ -160,10 +160,12 @@ fn the_rack_route_lists_bands_and_modules() {
 	let modules = json["modules"].as_array().expect("modules");
 	let bands = json["bands"].as_array().expect("bands");
 
-	assert_eq!(bands.len(), 3);
+	assert_eq!(bands.len(), 4);
 	assert_eq!(bands[0]["name"], "Low");
 	assert_eq!(bands[0]["slots"][0], 0);
 	assert_eq!(bands[0]["slots"][1], serde_json::Value::Null);
+	assert_eq!(bands[3]["name"], "Full");
+	assert_eq!(bands[3]["slots"][0], serde_json::Value::Null);
 
 	assert_eq!(modules.len(), 3);
 	assert_eq!(modules[0]["kind"], "Filter");
@@ -1533,4 +1535,110 @@ fn a_duplicate_keeps_the_bypass_state() {
 
 	assert!(state.bands[0].slots[0].as_ref().unwrap().bypass);
 	assert!(state.bands[0].slots[1].as_ref().unwrap().bypass);
+}
+
+/// An empty parallel lane adds nothing: the three bands stay flat.
+#[test]
+fn an_empty_parallel_lane_is_silent() {
+	let mut rack = Rack::default();
+	let mut last = [0.0_f32; 2];
+
+	for _ in 0..2_048 {
+		last = process(&mut rack, [0.25, 0.25]);
+	}
+
+	assert!(
+		(last[0] - 0.25).abs() < 0.01 && (last[1] - 0.25).abs() < 0.01,
+		"the parallel lane doubled the signal: {last:?}"
+	);
+}
+
+/// A module in the parallel lane processes the full-range input once.
+#[test]
+fn a_parallel_lane_holds_a_full_range_module() {
+	let mut rack = Rack::default();
+
+	let response = command(
+		&rack,
+		"band.0.mute=1
+band.1.mute=1
+band.2.mute=1
+slot.3.add=Gain",
+	);
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let mut last = [0.0_f32; 2];
+
+	for _ in 0..2_048 {
+		last = process(&mut rack, [0.25, 0.25]);
+	}
+
+	assert!(
+		(last[0] - 0.25).abs() < 0.01 && (last[1] - 0.25).abs() < 0.01,
+		"the parallel lane output {last:?}"
+	);
+
+	let state = rack.state();
+
+	assert!(state.parallel.slots[0].is_some());
+	assert!(state.parallel.slots[1].is_none());
+}
+
+/// The parallel lane takes the same band commands and modulation targets.
+#[test]
+fn the_parallel_lane_answers_band_commands() {
+	let rack = Rack::default();
+
+	assert_eq!(command(&rack, "band.3.gain=0.5").body, b"{\"ok\":true}");
+	assert_eq!(command(&rack, "band.3.pan=-0.5").body, b"{\"ok\":true}");
+	assert_eq!(command(&rack, "band.3.mute=1").body, b"{\"ok\":true}");
+
+	let state = rack.state();
+
+	assert_eq!(state.parallel.gain, 0.5);
+	assert_eq!(state.parallel.pan, -0.5);
+	assert!(state.parallel.mute);
+
+	assert_eq!(
+		command(&rack, "assign.add=0|band.3.gain").body,
+		b"{\"ok\":true}"
+	);
+
+	let json: serde_json::Value =
+		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	assert!(
+		json["targets"]
+			.as_array()
+			.expect("targets")
+			.iter()
+			.any(|target| target["id"] == "band.3.gain")
+	);
+}
+
+/// Automation targets address the full-range lane like any band.
+#[test]
+fn automation_can_move_the_parallel_gain() {
+	let mut rack = Rack::default();
+
+	let response = command(
+		&rack,
+		"band.0.mute=1
+band.1.mute=1
+band.2.mute=1
+slot.3.add=Gain
+automation.0.target=band.3.gain
+automation.0.value=0.25",
+	);
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	let mut last = [0.0_f32; 2];
+
+	for _ in 0..2_048 {
+		last = process(&mut rack, [0.25, 0.25]);
+	}
+
+	assert!(
+		(last[0] - 0.125).abs() < 0.01 && (last[1] - 0.125).abs() < 0.01,
+		"the automated parallel gain left {last:?}"
+	);
 }

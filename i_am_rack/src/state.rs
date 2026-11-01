@@ -34,6 +34,9 @@ pub struct RackState {
 	pub split_high: f32,
 	/// Low, mid and high, in that order.
 	pub bands: [BandState; 3],
+	/// A fourth, full-range lane run beside the three crossover bands.
+	#[serde(default)]
+	pub parallel: BandState,
 	/// The legacy flat source settings, kept so version 5 files still load.
 	#[serde(default)]
 	pub sources: SourceSettings,
@@ -426,15 +429,10 @@ impl RackState {
 	/// Keeps every module contiguous and leaves a single empty slot at the end.
 	pub fn normalize_slots(&mut self) {
 		for band in &mut self.bands {
-			let mut modules = band
-				.slots
-				.drain(..)
-				.flatten()
-				.map(Some)
-				.collect::<Vec<_>>();
-			modules.push(None);
-			band.slots = modules;
+			compact_slots(band);
 		}
+
+		compact_slots(&mut self.parallel);
 	}
 
 	/// Brings a version-5 file into the source-slot layout.
@@ -483,6 +481,7 @@ impl RackState {
 	pub fn next_id(&self) -> u32 {
 		self.bands
 			.iter()
+			.chain(std::iter::once(&self.parallel))
 			.flat_map(|band| band.slots.iter().flatten())
 			.map(|module| module.id)
 			.max()
@@ -493,6 +492,7 @@ impl RackState {
 	pub fn module(&self, id: u32) -> Option<&ModuleState> {
 		self.bands
 			.iter()
+			.chain(std::iter::once(&self.parallel))
 			.flat_map(|band| band.slots.iter())
 			.flatten()
 			.find(|module| module.id == id)
@@ -500,8 +500,11 @@ impl RackState {
 
 	/// The module with this id, whichever band and slot holds it.
 	pub fn module_mut(&mut self, id: u32) -> Option<&mut ModuleState> {
-		self.bands
+		let Self { bands, parallel, .. } = self;
+
+		bands
 			.iter_mut()
+			.chain(std::iter::once(parallel))
 			.flat_map(|band| band.slots.iter_mut())
 			.flatten()
 			.find(|module| module.id == id)
@@ -510,7 +513,7 @@ impl RackState {
 	/// The chain a fresh instance starts with: one product in each band's first
 	/// slot, the second slot empty.
 	pub fn initial() -> Self {
-		Self {
+		let mut state = Self {
 			version: STATE_VERSION,
 			split_low: DEFAULT_SPLIT_LOW,
 			split_high: DEFAULT_SPLIT_HIGH,
@@ -519,6 +522,7 @@ impl RackState {
 				BandState::with(2, ModuleKind::Distortion),
 				BandState::with(4, ModuleKind::Gain),
 			],
+			parallel: BandState::new(),
 			sources: SourceSettings::default(),
 			source_slots: default_source_slots(),
 			assignments: vec![None; 8],
@@ -527,7 +531,10 @@ impl RackState {
 			ab: AbState::default(),
 			automation: default_automation(),
 			automation_values: [0.0; AUTOMATION_SLOTS],
-		}
+		};
+
+		state.normalize_slots();
+		state
 	}
 
 	/// Switches the live state with the other A/B side.
@@ -562,4 +569,16 @@ impl RackState {
 		copy.ab = AbState::default();
 		copy
 	}
+}
+
+/// Keeps every module contiguous and leaves a single empty slot at the end.
+fn compact_slots(band: &mut BandState) {
+	let mut modules = band
+		.slots
+		.drain(..)
+		.flatten()
+		.map(Some)
+		.collect::<Vec<_>>();
+	modules.push(None);
+	band.slots = modules;
 }

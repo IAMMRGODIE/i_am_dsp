@@ -25,12 +25,30 @@ use crate::crossover::sanitize;
 use crate::module::ModuleKind;
 use crate::shared::RackShared;
 use crate::state::{
-	AbState, Assignment, AssignmentMode, MACRO_BASE, ModuleState, RackState, SourceKind,
-	SourceSettings, STATE_VERSION, Target, lfo_preset,
+	AbState, Assignment, AssignmentMode, BandState, MACRO_BASE, ModuleState, RackState,
+	SourceKind, SourceSettings, STATE_VERSION, Target, lfo_preset,
 };
 
-/// The names the three bands answer to.
-pub const BAND_NAMES: [&str; 3] = ["Low", "Mid", "High"];
+/// The names the three bands and the parallel lane answer to.
+pub const BAND_NAMES: [&str; 4] = ["Low", "Mid", "High", "Full"];
+
+/// The lane at an index, with the parallel full-range lane after the bands.
+fn lane(state: &RackState, index: usize) -> Option<&BandState> {
+	match index {
+		0..=2 => state.bands.get(index),
+		3 => Some(&state.parallel),
+		_ => None,
+	}
+}
+
+/// The lane at an index, mutably.
+fn lane_mut(state: &mut RackState, index: usize) -> Option<&mut BandState> {
+	match index {
+		0..=2 => state.bands.get_mut(index),
+		3 => Some(&mut state.parallel),
+		_ => None,
+	}
+}
 
 pub(crate) fn route(
 	request: &ProtocolRequest<'_>,
@@ -74,7 +92,12 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 	let state = shared.lock();
 	let mut modules = Vec::new();
 
-	for (band_index, band) in state.bands.iter().enumerate() {
+	for (band_index, band) in state
+		.bands
+		.iter()
+		.chain(std::iter::once(&state.parallel))
+		.enumerate()
+	{
 		for (slot_index, slot) in band.slots.iter().enumerate() {
 			let Some(module) = slot else {
 				continue;
@@ -93,6 +116,7 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 	let bands = state
 		.bands
 		.iter()
+		.chain(std::iter::once(&state.parallel))
 		.enumerate()
 		.map(|(index, band)| {
 			json!({
@@ -297,7 +321,12 @@ fn module_json(
 fn targets_json(state: &RackState, shared: &RackShared) -> Vec<Value> {
 	let mut targets = Vec::new();
 
-	for (index, _) in state.bands.iter().enumerate() {
+	for (index, _) in state
+		.bands
+		.iter()
+		.chain(std::iter::once(&state.parallel))
+		.enumerate()
+	{
 		targets.push(json!({
 			"id": format!("band.{index}.gain"),
 			"label": format!("{} · Gain", BAND_NAMES[index]),
@@ -310,7 +339,12 @@ fn targets_json(state: &RackState, shared: &RackShared) -> Vec<Value> {
 		}));
 	}
 
-	for (band_index, band) in state.bands.iter().enumerate() {
+	for (band_index, band) in state
+		.bands
+		.iter()
+		.chain(std::iter::once(&state.parallel))
+		.enumerate()
+	{
 		for module in band.slots.iter().flatten() {
 			let Some(controls) = shared.schemas.get(&module.kind) else {
 				continue;
@@ -354,9 +388,7 @@ fn parse_target(raw: &str, state: &RackState, shared: &RackShared) -> Option<Tar
 		let (index, parameter) = rest.split_once('.')?;
 		let index = index.parse::<usize>().ok()?;
 
-		if index >= state.bands.len() {
-			return None;
-		}
+		lane(state, index)?;
 
 		return match parameter {
 			"gain" => Some(Target::BandGain(index)),
@@ -572,27 +604,10 @@ fn normalize_state(state: &mut RackState, rate: usize, shared: &RackShared) -> O
 	state.split_high = high;
 
 	for band in &mut state.bands {
-		band.gain = band.gain.clamp(0.0, 2.0);
-		band.pan = band.pan.clamp(-1.0, 1.0);
-
-		for module in band.slots.iter_mut().flatten() {
-			let controls = shared.schemas.get(&module.kind)?;
-
-			module
-				.params
-				.retain(|id, _| controls.iter().any(|control| &control.id == id));
-
-			for (id, value) in crate::module::default_params(module.kind) {
-				module.params.entry(id).or_insert(value);
-			}
-
-			for (id, value) in &mut module.params {
-				if let Some(control) = controls.iter().find(|control| &control.id == id) {
-					*value = value.clamp(control.min, control.max);
-				}
-			}
-		}
+		normalize_band(band, shared)?;
 	}
+
+	normalize_band(&mut state.parallel, shared)?;
 
 	for value in &mut state.macros {
 		*value = value.clamp(0.0, 1.0);
@@ -612,9 +627,11 @@ fn normalize_state(state: &mut RackState, rate: usize, shared: &RackShared) -> O
 		sanitize_settings(&mut slot.settings);
 	}
 
+	let lane_count = state.bands.len() + 1;
 	let module_ids = state
 		.bands
 		.iter()
+		.chain(std::iter::once(&state.parallel))
 		.flat_map(|band| band.slots.iter().flatten())
 		.map(|module| module.id)
 		.collect::<Vec<_>>();
@@ -637,12 +654,38 @@ fn normalize_state(state: &mut RackState, rate: usize, shared: &RackShared) -> O
 			None => true,
 			Some(Target::Module { module, .. }) => module_ids.contains(module),
 			Some(Target::BandGain(index) | Target::BandPan(index)) => {
-				*index < state.bands.len()
+				*index < lane_count
 			},
 		};
 
 		if !source_ok || !target_ok {
 			*assignment = None;
+		}
+	}
+
+	Some(())
+}
+
+/// Clamps one lane's gain stage and module parameters after an import.
+fn normalize_band(band: &mut BandState, shared: &RackShared) -> Option<()> {
+	band.gain = band.gain.clamp(0.0, 2.0);
+	band.pan = band.pan.clamp(-1.0, 1.0);
+
+	for module in band.slots.iter_mut().flatten() {
+		let controls = shared.schemas.get(&module.kind)?;
+
+		module
+			.params
+			.retain(|id, _| controls.iter().any(|control| &control.id == id));
+
+		for (id, value) in crate::module::default_params(module.kind) {
+			module.params.entry(id).or_insert(value);
+		}
+
+		for (id, value) in &mut module.params {
+			if let Some(control) = controls.iter().find(|control| &control.id == id) {
+				*value = value.clamp(control.min, control.max);
+			}
 		}
 	}
 
@@ -737,11 +780,9 @@ fn apply_band(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		return false;
 	};
 
-	if band >= state.bands.len() {
+	let Some(band) = lane_mut(state, band) else {
 		return false;
-	}
-
-	let band = &mut state.bands[band];
+	};
 
 	match parameter {
 		"gain" => {
@@ -802,7 +843,7 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		return false;
 	};
 
-	if band >= state.bands.len() {
+	if lane(state, band).is_none() {
 		return false;
 	}
 
@@ -813,11 +854,14 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 
 		let id = state.next_id();
 		let module = Some(ModuleState::new(id, kind));
+		let Some(target) = lane_mut(state, band) else {
+			return false;
+		};
 
-		if let Some(empty) = state.bands[band].slots.iter_mut().find(|slot| slot.is_none()) {
+		if let Some(empty) = target.slots.iter_mut().find(|slot| slot.is_none()) {
 			*empty = module;
 		} else {
-			state.bands[band].slots.push(module);
+			target.slots.push(module);
 		}
 
 		return true;
@@ -831,7 +875,11 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		return false;
 	};
 
-	if band >= state.bands.len() || slot >= state.bands[band].slots.len() {
+	let Some(target) = lane(state, band) else {
+		return false;
+	};
+
+	if slot >= target.slots.len() {
 		return false;
 	}
 
@@ -841,12 +889,15 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 				return false;
 			};
 
+			let new_id = state.next_id();
 			let (id, bypass, same) = {
-				let existing = state.bands[band].slots[slot].as_ref();
+				let existing = lane(state, band)
+					.and_then(|lane| lane.slots.get(slot))
+					.and_then(|slot| slot.as_ref());
 
 				match existing {
 					Some(module) => (module.id, module.bypass, module.kind == kind),
-					None => (state.next_id(), false, false),
+					None => (new_id, false, false),
 				}
 			};
 
@@ -856,7 +907,10 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 
 			let mut module = ModuleState::new(id, kind);
 			module.bypass = bypass;
-			state.bands[band].slots[slot] = Some(module);
+			let Some(target) = lane_mut(state, band) else {
+				return false;
+			};
+			target.slots[slot] = Some(module);
 			true
 		},
 		"clear" => {
@@ -865,18 +919,27 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			};
 
 			if clear {
-				state.bands[band].slots[slot] = None;
+				let Some(target) = lane_mut(state, band) else {
+					return false;
+				};
+				target.slots[slot] = None;
 			}
 
 			true
 		},
 		"duplicate" => {
-			let Some(mut copy) = state.bands[band].slots[slot].clone() else {
+			let Some(mut copy) = lane(state, band)
+				.and_then(|lane| lane.slots.get(slot))
+				.and_then(|slot| slot.clone())
+			else {
 				return false;
 			};
 
 			copy.id = state.next_id();
-			state.bands[band].slots.insert(slot + 1, Some(copy));
+			let Some(target) = lane_mut(state, band) else {
+				return false;
+			};
+			target.slots.insert(slot + 1, Some(copy));
 			true
 		},
 		"move" => {
@@ -890,9 +953,11 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 				return false;
 			};
 
-			if target_band >= state.bands.len()
-				|| target_slot >= state.bands[target_band].slots.len()
-			{
+			let Some(target_lane) = lane(state, target_band) else {
+				return false;
+			};
+
+			if target_slot >= target_lane.slots.len() {
 				return false;
 			}
 
@@ -900,11 +965,25 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 				return true;
 			}
 
-			let Some(module) = state.bands[band].slots[slot].take() else {
+			let Some(module) = lane_mut(state, band)
+				.and_then(|lane| lane.slots.get_mut(slot))
+				.and_then(|slot| slot.take())
+			else {
 				return false;
 			};
-			let displaced = state.bands[target_band].slots[target_slot].replace(module);
-			state.bands[band].slots[slot] = displaced;
+			let Some(displaced) = lane_mut(state, target_band)
+				.and_then(|lane| lane.slots.get_mut(target_slot))
+				.map(|slot| slot.replace(module))
+			else {
+				return false;
+			};
+
+			if let Some(source) = lane_mut(state, band)
+				.and_then(|lane| lane.slots.get_mut(slot))
+			{
+				*source = displaced;
+			}
+
 			true
 		},
 		_ => false,

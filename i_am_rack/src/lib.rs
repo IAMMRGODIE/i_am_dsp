@@ -1,10 +1,10 @@
-//! M4 of I Am Multipass: a three-band rack with its own modulation.
+//! M5 of I Am Multipass: a three-band rack with its own modulation.
 //!
-//! The audio path is a LR4 split into Low / Mid / High. Each band holds any
-//! number of serial module slots (Filter, Distortion, Compressor, Gain) and a
-//! band gain/pan/mute/solo stage. Dynamic control-rate sources (LFO, envelope,
-//! random, table, pitch, MIDI) move a matrix of assignments across module
-//! parameters and band controls. The host only automates eight macros and 32
+//! The audio path is a LR4 split into Low / Mid / High, plus a full-range lane
+//! beside them. Each lane holds any number of serial modules (Filter,
+//! Distortion, Compressor, Gain) and a gain/pan/mute/solo stage. Dynamic
+//! sources (LFO, envelope, random, table, pitch, MIDI) move a matrix across
+//! module parameters and lane controls. The host only automates eight macros and 32
 //! automation slots; everything else lives in one serialized RackState, which
 //! is also what a project save carries and what a preset file round-trips.
 //!

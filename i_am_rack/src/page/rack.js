@@ -126,6 +126,8 @@
   }
 
   function bandRange(data, index) {
+    if (index > 2) return "20 Hz \u2013 20 kHz";
+
     var low = index === 0 ? 20 : index === 1 ? data.split_low : data.split_high;
     var high = index === 0 ? data.split_low : index === 1 ? data.split_high : 20000;
     return formatHz(low) + " \u2013 " + formatHz(high);
