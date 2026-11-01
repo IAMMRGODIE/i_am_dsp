@@ -11,8 +11,6 @@
   var negative = "#9a8fbf";
   var controls = {};
   var heroes = [];
-  var dragging = null;
-  var drag = null;
   var dirty = false;
   var polling = false;
   var bypassed = false;
@@ -54,12 +52,9 @@ var eqDrag = null;
 var eqSpectrum = { input: null, output: null, rate: 0, inputPath: "", outputPath: "" };
 var ENV_MAX = 512;
   var scope = { input: null, output: null, sidechain: null };
-  var knobs = [];
   var scale = 1;
   var spectra = { input: null, output: null };
 
-  var START = -135;
-  var SWEEP = 270;
 
   function clamp(value, low, high) {
     return Math.min(high, Math.max(low, value));
@@ -116,128 +111,6 @@ var ENV_MAX = 512;
   }
 
   /// The number shown in a knob's editor, in the unit the readout uses.
-  function input_text(spec, value) {
-    switch (spec.unit) {
-      case "db": return value.toFixed(2);
-      case "hz": return value.toFixed(2);
-      case "percent": return (value * 100).toFixed(1);
-      case "ms": return value.toFixed(1);
-      case "s": return value.toFixed(3);
-      case "samples": return String(Math.round(value));
-      case "beats": return value.toFixed(3);
-      default: return spec.kind === "int" ? String(Math.round(value)) : value.toFixed(2);
-    }
-  }
-
-  function unit_label(spec) {
-    switch (spec.unit) {
-      case "db": return "dB";
-      case "hz": return "Hz";
-      case "percent": return "%";
-      case "ms": return "ms";
-      case "s": return "s";
-      case "samples": return "samples";
-      case "beats": return "beats";
-      default: return "";
-    }
-  }
-
-  /// Parses what a person typed into the raw parameter value. Units are
-  /// optional and the Hz field accepts k/kHz.
-  function parse_input(spec, text) {
-    var value = String(text).trim().toLowerCase().replace(/\s+/g, "");
-
-    if (!value) return null;
-
-    var multiplier = 1;
-
-    if (spec.unit === "hz") {
-      if (value.endsWith("khz")) { value = value.slice(0, -3); multiplier = 1000; }
-      else if (value.endsWith("hz")) { value = value.slice(0, -2); }
-      else if (value.endsWith("k")) { value = value.slice(0, -1); multiplier = 1000; }
-    } else if (spec.unit === "db") {
-      value = value.replace(/db$/, "");
-    } else if (spec.unit === "ms") {
-      value = value.replace(/ms$/, "");
-    } else if (spec.unit === "s") {
-      value = value.replace(/s$/, "");
-    } else if (spec.unit === "samples") {
-      value = value.replace(/samples$/, "");
-    } else if (spec.unit === "beats") {
-      value = value.replace(/beats$/, "");
-    } else if (spec.unit === "percent") {
-      value = value.replace(/%$/, "");
-    }
-
-    var number = parseFloat(value);
-
-    if (!isFinite(number)) return null;
-
-    number *= multiplier;
-
-    if (spec.unit === "percent") number /= 100;
-
-    return number;
-  }
-
-  var knob_editor = null;
-
-  function close_knob_editor() {
-    if (knob_editor) {
-      knob_editor.remove();
-      knob_editor = null;
-    }
-  }
-
-  /// A small text field over the control, for entering an exact value.
-  function open_knob_editor(control, anchor) {
-    close_knob_editor();
-
-    var spec = control.spec;
-    var box = element("div", "knob-edit");
-    var input = document.createElement("input");
-    input.type = "text";
-    input.value = input_text(spec, control.value);
-    input.spellcheck = false;
-    input.setAttribute("aria-label", spec.label + " value");
-
-    var unit = element("span", "unit");
-    unit.textContent = unit_label(spec);
-
-    box.appendChild(input);
-    box.appendChild(unit);
-    document.body.appendChild(box);
-
-    var rect = anchor.getBoundingClientRect();
-    var width = 118;
-    var top = rect.bottom + 4;
-
-    if (top + 30 > window.innerHeight) top = Math.max(4, rect.top - 30);
-
-    box.style.left = Math.min(window.innerWidth - width, Math.max(4, rect.left)) + "px";
-    box.style.top = top + "px";
-
-    input.focus();
-    input.select();
-
-    input.addEventListener("keydown", function (event) {
-      if (event.key === "Enter") {
-        var parsed = parse_input(spec, input.value);
-        if (parsed !== null) setValue(control, parsed, true);
-        close_knob_editor();
-      } else if (event.key === "Escape") {
-        close_knob_editor();
-      }
-    });
-
-    input.addEventListener("blur", function () {
-      // Enter closes first; a click elsewhere just discards the edit.
-      setTimeout(close_knob_editor, 0);
-    });
-
-    knob_editor = box;
-  }
-
   // ------------------------------------------------------------ value space
   function curveOf(spec) {
     return face && face.curves ? face.curves[spec.id] : null;
@@ -344,371 +217,74 @@ var ENV_MAX = 512;
     return el;
   }
 
-  function knobGeometry(diameter) {
-    var radius = diameter / 2;
-    var ring = Math.max(radius / 64 * 10, 3);
-    var arcRadius = radius - ring / 2 - 2;
-    return {
-      radius: radius,
-      ring: ring,
-      arc: arcRadius,
-      body: arcRadius - ring / 2
-    };
-  }
-
-  function polar(cx, cy, radius, degrees) {
-    var radians = (degrees - 90) * Math.PI / 180;
-    return [cx + Math.cos(radians) * radius, cy + Math.sin(radians) * radius];
-  }
-
-  function arcPath(cx, cy, radius, from, to) {
-    if (to - from < 0.01) return "";
-    var a = polar(cx, cy, radius, from);
-    var b = polar(cx, cy, radius, to);
-    var large = to - from > 180 ? 1 : 0;
-    return "M " + a[0].toFixed(2) + " " + a[1].toFixed(2) +
-      " A " + radius.toFixed(2) + " " + radius.toFixed(2) + " 0 " + large + " 1 " +
-      b[0].toFixed(2) + " " + b[1].toFixed(2);
-  }
-
   function buildKnob(control) {
     var spec = control.spec;
+    spec.curve = curveOf(spec);
 
-    // The shared card knob is the one control implementation. A product page
-    // passes its curve through, because the faceplate's curves live on /face
-    // while the card only knows the control it is handed.
-    if (window.IAmCard && IAmCard.controlHandle) {
-      spec.curve = curveOf(spec);
-
-      var handle = IAmCard.controlHandle(spec, control.value, function (_, value) {
-        setValue(control, value, true);
-      });
-
-      handle.el.classList.add("face-knob");
-      control.paint = function () { handle.set(control.value, false); };
-      control.paint();
-      return handle.el;
-    }
-
-    // One knob size across the kit: a mixed row of 40/56/72 reads as a layout
-    // accident, not as emphasis.
-    var diameter = 56;
-    var geometry = knobGeometry(diameter);
-    var radius = geometry.radius;
-    var zero = spec.bipolar ? clamp(norm(spec, 0), 0, 1) : 0;
-
-    var el = element("div", "knob");
-    var ns = "http://www.w3.org/2000/svg";
-    var svg = document.createElementNS(ns, "svg");
-    svg.setAttribute("width", diameter);
-    svg.setAttribute("height", diameter);
-    svg.setAttribute("viewBox", "0 0 " + diameter + " " + diameter);
-    svg.setAttribute("tabindex", "0");
-    svg.setAttribute("role", "slider");
-    svg.setAttribute("aria-label", spec.label);
-
-    // The ring is drawn in a viewBox of its design size; the CSS size follows
-    // the window, so a bigger window gets a bigger knob rather than a hole.
-    var resize = function (factor) {
-      svg.style.width = (diameter * factor) + "px";
-      svg.style.height = (diameter * factor) + "px";
-    };
-    resize(scale);
-    knobs.push(resize);
-
-    var track = document.createElementNS(ns, "path");
-    track.setAttribute("d", arcPath(radius, radius, geometry.arc, START, START + SWEEP));
-    track.setAttribute("fill", "none");
-    track.setAttribute("stroke", "#2a2a2a");
-    track.setAttribute("stroke-width", geometry.ring);
-    track.setAttribute("stroke-linecap", "round");
-    svg.appendChild(track);
-
-    var valueArc = document.createElementNS(ns, "path");
-    valueArc.setAttribute("fill", "none");
-    valueArc.setAttribute("stroke-width", geometry.ring);
-    valueArc.setAttribute("stroke-linecap", "round");
-    svg.appendChild(valueArc);
-
-    var body = document.createElementNS(ns, "circle");
-    body.setAttribute("cx", radius);
-    body.setAttribute("cy", radius);
-    body.setAttribute("r", geometry.body);
-    body.setAttribute("fill", "#333");
-    svg.appendChild(body);
-
-    var indicator = document.createElementNS(ns, "line");
-    indicator.setAttribute("stroke", "#e0e0e0");
-    indicator.setAttribute("stroke-width", Math.max(1.5, diameter * 0.05));
-    indicator.setAttribute("stroke-linecap", "round");
-    svg.appendChild(indicator);
-
-    var label = element("div", "label");
-    label.textContent = spec.label;
-    var readout = element("div", "readout");
-
-    control.paint = function () {
-      var position = clamp(norm(spec, control.value), 0, 1);
-      var low = Math.min(zero, position);
-      var high = Math.max(zero, position);
-
-      valueArc.setAttribute("d", arcPath(radius, radius, geometry.arc, START + low * SWEEP, START + high * SWEEP));
-      valueArc.setAttribute("stroke", spec.bipolar && control.value < 0 ? negative : accent);
-
-      var angle = START + position * SWEEP;
-      var a = polar(radius, radius, geometry.body * 0.35, angle);
-      var b = polar(radius, radius, geometry.arc + geometry.ring / 2, angle);
-      indicator.setAttribute("x1", a[0].toFixed(2));
-      indicator.setAttribute("y1", a[1].toFixed(2));
-      indicator.setAttribute("x2", b[0].toFixed(2));
-      indicator.setAttribute("y2", b[1].toFixed(2));
-
-      readout.textContent = format(spec, control.value);
-      svg.setAttribute("aria-valuemin", spec.min);
-      svg.setAttribute("aria-valuemax", spec.max);
-      svg.setAttribute("aria-valuenow", control.value);
-      svg.setAttribute("aria-valuetext", format(spec, control.value));
-    };
-
-    function nudge(amount) {
-      setValue(control, at(spec, norm(spec, control.value) + amount), true);
-    }
-
-    svg.addEventListener("pointerdown", function (event) {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      dragging = control;
-      drag = { y: event.clientY, value: control.value };
-      try { svg.setPointerCapture(event.pointerId); } catch (ignore) {}
+    var handle = IAmCard.controlHandle(spec, control.value, function (_, value) {
+      setValue(control, value, true);
     });
 
-    svg.addEventListener("pointermove", function (event) {
-      if (dragging !== control || !drag) return;
-      var distance = (drag.y - event.clientY) / 180;
-      var move = distance * (event.shiftKey ? 0.1 : 1);
-      setValue(control, at(spec, norm(spec, drag.value) + move), true);
-    });
-
-    function release(event) {
-      if (dragging !== control) return;
-      dragging = null;
-      drag = null;
-      try { svg.releasePointerCapture(event.pointerId); } catch (ignore) {}
-    }
-
-    svg.addEventListener("pointerup", release);
-    svg.addEventListener("pointercancel", release);
-
-    svg.addEventListener("dblclick", function () {
-      setValue(control, spec.default, true);
-    });
-
-    el.title = "Right-click to type a value";
-    el.addEventListener("contextmenu", function (event) {
-      event.preventDefault();
-      open_knob_editor(control, el);
-    });
-
-    svg.addEventListener("wheel", function (event) {
-      event.preventDefault();
-      if (spec.step && spec.step > 0) {
-        setValue(control, control.value + (event.deltaY < 0 ? 1 : -1) * spec.step, true);
-      } else {
-        nudge((event.deltaY < 0 ? 1 : -1) * (event.shiftKey ? 0.001 : 0.01));
-      }
-    }, { passive: false });
-
-    svg.addEventListener("keydown", function (event) {
-      var step = event.shiftKey ? 0.001 : 0.01;
-      if (event.key === "ArrowUp" || event.key === "ArrowRight") { nudge(step); event.preventDefault(); }
-      else if (event.key === "ArrowDown" || event.key === "ArrowLeft") { nudge(-step); event.preventDefault(); }
-      else if (event.key === "Home") { setValue(control, spec.min, true); event.preventDefault(); }
-      else if (event.key === "End") { setValue(control, spec.max, true); event.preventDefault(); }
-    });
-
-    el.appendChild(svg);
-    el.appendChild(label);
-    el.appendChild(readout);
+    handle.el.classList.add("face-knob");
+    control.paint = function () { handle.set(control.value, false); };
     control.paint();
-
-    return el;
+    return handle.el;
   }
 
   function buildToggle(control) {
     var spec = control.spec;
-
-    if (window.IAmCard && IAmCard.switchHandle) {
-      var handle = IAmCard.switchHandle(spec, control.value, function (_, value) {
-        setValue(control, value, true);
-      });
-      var el = element("div", "toggle");
-      var label = element("div", "label");
-      label.textContent = spec.label;
-      var readout = element("div", "readout");
-      handle.el.classList.add("face-switch");
-
-      control.paint = function () {
-        handle.set(control.value, false);
-        readout.textContent = format(spec, control.value);
-      };
-
-      el.appendChild(handle.el);
-      el.appendChild(label);
-      el.appendChild(readout);
-      control.paint();
-      return el;
-    }
-
+    var handle = IAmCard.switchHandle(spec, control.value, function (_, value) {
+      setValue(control, value, true);
+    });
     var el = element("div", "toggle");
-    var track = element("div", "switch");
-    track.appendChild(element("i"));
     var label = element("div", "label");
     label.textContent = spec.label;
     var readout = element("div", "readout");
+    handle.el.classList.add("face-switch");
 
     control.paint = function () {
-      el.classList.toggle("on", !!control.value);
+      handle.set(control.value, false);
       readout.textContent = format(spec, control.value);
     };
 
-    el.addEventListener("click", function () {
-      setValue(control, control.value ? 0 : 1, true);
-    });
-
-    el.appendChild(track);
+    el.appendChild(handle.el);
     el.appendChild(label);
     el.appendChild(readout);
     control.paint();
-
     return el;
   }
 
   function buildChoice(control) {
     var spec = control.spec;
-
-    if (window.IAmCard && IAmCard.choiceHandle) {
-      var handle = IAmCard.choiceHandle(spec, control.value, function (_, value) {
-        setValue(control, value, true);
-      });
-      var el = element("div", "choice");
-      var label = element("div", "label");
-      label.textContent = spec.label;
-      handle.el.classList.add("face-choice");
-
-      control.paint = function () { handle.set(control.value); };
-
-      el.appendChild(label);
-      el.appendChild(handle.el);
-      control.paint();
-      return el;
-    }
-
+    var handle = IAmCard.choiceHandle(spec, control.value, function (_, value) {
+      setValue(control, value, true);
+    });
     var el = element("div", "choice");
     var label = element("div", "label");
     label.textContent = spec.label;
+    handle.el.classList.add("face-choice");
 
-    var select = document.createElement("select");
-    (spec.choices || []).forEach(function (name, index) {
-      var option = document.createElement("option");
-      option.value = String(index);
-      option.textContent = name;
-      select.appendChild(option);
-    });
-
-    control.paint = function () {
-      select.value = String(Math.round(control.value));
-    };
-
-    select.addEventListener("change", function () {
-      setValue(control, parseInt(select.value, 10), true);
-    });
+    control.paint = function () { handle.set(control.value); };
 
     el.appendChild(label);
-    el.appendChild(select);
+    el.appendChild(handle.el);
     control.paint();
-
     return el;
   }
 
   function buildSlider(control) {
     var spec = control.spec;
-
-    if (window.IAmCard && IAmCard.sliderHandle) {
-      var handle = IAmCard.sliderHandle(spec, control.value, function (_, value) {
-        setValue(control, value, true);
-      });
-      var el = element("div", "slider");
-      handle.el.classList.add("face-slider");
-      control.paint = function () { handle.set(control.value, false); };
-      el.appendChild(handle.el);
-      control.paint();
-      return el;
-    }
-
-    var zero = spec.bipolar ? clamp(norm(spec, 0), 0, 1) : 0;
-
+    var handle = IAmCard.sliderHandle(spec, control.value, function (_, value) {
+      setValue(control, value, true);
+    });
     var el = element("div", "slider");
-    var top = element("div", "top");
-    var label = element("div", "label");
-    label.textContent = spec.label;
-    var readout = element("div", "readout");
-    top.appendChild(label);
-    top.appendChild(readout);
-
-    var track = element("div", "track");
-    track.setAttribute("tabindex", "0");
-    track.setAttribute("role", "slider");
-    track.setAttribute("aria-label", spec.label);
-    var fill = element("div", "fill");
-    var handle = element("div", "handle");
-    track.appendChild(fill);
-    track.appendChild(handle);
-
-    control.paint = function () {
-      var position = clamp(norm(spec, control.value), 0, 1);
-      fill.style.left = (Math.min(zero, position) * 100) + "%";
-      fill.style.width = (Math.abs(position - zero) * 100) + "%";
-      handle.style.left = (position * 100) + "%";
-      readout.textContent = format(spec, control.value);
-      track.setAttribute("aria-valuenow", control.value);
-      track.setAttribute("aria-valuetext", format(spec, control.value));
-    };
-
-    function apply(event) {
-      var box = track.getBoundingClientRect();
-      var position = (event.clientX - box.left) / box.width;
-      setValue(control, at(spec, position), true);
-    }
-
-    track.addEventListener("pointerdown", function (event) {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      dragging = control;
-      try { track.setPointerCapture(event.pointerId); } catch (ignore) {}
-      apply(event);
-    });
-
-    track.addEventListener("pointermove", function (event) {
-      if (dragging === control) apply(event);
-    });
-
-    function release(event) {
-      if (dragging !== control) return;
-      dragging = null;
-      try { track.releasePointerCapture(event.pointerId); } catch (ignore) {}
-    }
-
-    track.addEventListener("pointerup", release);
-    track.addEventListener("pointercancel", release);
-
-    el.appendChild(top);
-    el.appendChild(track);
+    handle.el.classList.add("face-slider");
+    control.paint = function () { handle.set(control.value, false); };
+    el.appendChild(handle.el);
     control.paint();
-
     return el;
   }
 
-  // ----------------------------------------------------------------- heroes
   function valueOf(id, fallback) {
     var control = controls[id];
     return control ? control.value : fallback;
@@ -871,7 +447,7 @@ var ENV_MAX = 512;
           if (id === "__bypass") return;
 
           var control = controls[id];
-          if (control && control !== dragging) {
+          if (control) {
             control.value = control.spec.kind === "bool"
               ? state[id]
               : snap(control.spec, state[id]);
@@ -1490,7 +1066,6 @@ var ENV_MAX = 512;
   }
 
   function buildFace() {
-    knobs = [];
     isPreview = !face.hosted;
     app.classList.toggle("hosted", !isPreview);
     accent = face.accent || accent;
@@ -1783,7 +1358,6 @@ var ENV_MAX = 512;
     var height = (card ? card.clientHeight : app.clientHeight) || face.size[1];
     scale = clamp(Math.min(width / face.size[0], height / face.size[1]), 0.8, 1.9);
     document.documentElement.style.setProperty("--scale", scale);
-    knobs.forEach(function (resize) { resize(scale); });
   }
 
   window.addEventListener("resize", function () {
