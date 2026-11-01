@@ -2726,12 +2726,26 @@ var ENV_MAX = 512;
     var label = element("span", "label");
     label.textContent = spec.label || "";
 
+    var control = { spec: spec, value: spec.default, el: el, paint: function () {} };
+    controls[spec.id] = control;
+
+    if (window.IAmCard && IAmCard.choiceHandle) {
+      var handle = IAmCard.choiceHandle(spec, control.value, function (_, value) {
+        setValue(control, value, true);
+      });
+      handle.el.className = "mcard-select mode-select";
+      handle.el.setAttribute("aria-label", spec.label || "Choice");
+      control.paint = function () { handle.set(control.value); };
+
+      el.appendChild(label);
+      el.appendChild(handle.el);
+      control.paint();
+      return el;
+    }
+
     var select = document.createElement("select");
     select.className = "mode-select";
     select.setAttribute("aria-label", spec.label || "Choice");
-
-    var control = { spec: spec, value: spec.default, el: el, paint: function () {} };
-    controls[spec.id] = control;
 
     (spec.choices || []).forEach(function (name, index) {
       var option = document.createElement("option");
@@ -2774,6 +2788,24 @@ var ENV_MAX = 512;
       var caption = element("span", "header-caption");
       caption.textContent = spec.label || "";
       el.appendChild(caption);
+
+      if (window.IAmCard && IAmCard.choiceHandle) {
+        var handle = IAmCard.choiceHandle(spec, control.value, function (_, value) {
+          setValue(control, value, true);
+        });
+        handle.el.className = "mcard-select mode-select";
+        handle.el.setAttribute("aria-label", spec.label || "Mode");
+        control.el = el;
+        control.paint = function () {
+          var active = Math.round(control.value);
+          handle.set(active);
+          if (spec.id === face.mode) applyVisibility(active);
+        };
+
+        el.appendChild(handle.el);
+        control.paint();
+        return el;
+      }
 
       var select = document.createElement("select");
       select.className = "mode-select";
