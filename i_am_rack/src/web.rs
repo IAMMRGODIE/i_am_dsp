@@ -312,6 +312,7 @@ fn module_json(
 		"header": module.kind.header(),
 		"visible": module.kind.visible(),
 		"bypass": module.bypass,
+		"group": module.group,
 		"controls": controls,
 		"values": &module.params,
 	})
@@ -758,6 +759,8 @@ fn apply_line(
 		apply_split(state, rest, raw, rate)
 	} else if let Some(rest) = key.strip_prefix("slot.") {
 		apply_slot(state, rest, raw)
+	} else if let Some(rest) = key.strip_prefix("group.") {
+		apply_group(state, rest)
 	} else if let Some(rest) = key.strip_prefix("automation.") {
 		apply_automation(state, shared, rest, raw)
 	} else if let Some(rest) = key.strip_prefix("macro.") {
@@ -936,6 +939,7 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			};
 
 			copy.id = state.next_id();
+			copy.group = None;
 			let Some(target) = lane_mut(state, band) else {
 				return false;
 			};
@@ -988,6 +992,85 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		},
 		_ => false,
 	}
+}
+
+/// Joins a module to the group on its left, or leaves the group it is in.
+fn apply_group(state: &mut RackState, rest: &str) -> bool {
+	let Some((band, slot)) = rest.split_once('.') else {
+		return false;
+	};
+
+	let (Ok(band), Ok(slot)) = (band.parse::<usize>(), slot.parse::<usize>()) else {
+		return false;
+	};
+
+	let Some(lane) = lane(state, band) else {
+		return false;
+	};
+
+	if slot >= lane.slots.len() {
+		return false;
+	}
+
+	let Some(module) = lane.slots[slot].as_ref() else {
+		return false;
+	};
+
+	let next_group = state.next_group_id();
+
+	if let Some(group) = module.group {
+		let members = lane
+			.slots
+			.iter()
+			.filter(|module| {
+				module
+					.as_ref()
+					.is_some_and(|module| module.group == Some(group))
+			})
+			.count();
+
+		let Some(lane) = lane_mut(state, band) else {
+			return false;
+		};
+
+		if members <= 2 {
+			for module in lane.slots.iter_mut().flatten() {
+				if module.group == Some(group) {
+					module.group = None;
+				}
+			}
+		} else if let Some(module) = lane.slots[slot].as_mut() {
+			module.group = None;
+		}
+
+		return true;
+	}
+
+	if slot == 0 {
+		return false;
+	}
+
+	let previous = lane.slots[slot - 1].as_ref().and_then(|module| module.group);
+	let Some(lane) = lane_mut(state, band) else {
+		return false;
+	};
+
+	let group = match previous {
+		Some(group) => group,
+		None => {
+			if let Some(module) = lane.slots[slot - 1].as_mut() {
+				module.group = Some(next_group);
+			}
+
+			next_group
+		},
+	};
+
+	if let Some(module) = lane.slots[slot].as_mut() {
+		module.group = Some(group);
+	}
+
+	true
 }
 
 fn apply_module(

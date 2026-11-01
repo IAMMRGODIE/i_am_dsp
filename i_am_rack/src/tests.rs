@@ -1677,3 +1677,58 @@ slot.3.add=Delay",
 		"the impulse came back at {peak_at} instead of 250 ms"
 	);
 }
+
+/// A module joins the group on its left, and leaves it on the next toggle.
+#[test]
+fn modules_can_be_grouped_and_ungrouped() {
+	let rack = Rack::default();
+
+	assert_eq!(command(&rack, "slot.0.add=Gain").body, b"{\"ok\":true}");
+	assert_eq!(command(&rack, "group.0.1=1").body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	let group = state.bands[0].slots[0]
+		.as_ref()
+		.expect("the filter")
+		.group;
+	assert!(group.is_some());
+	assert_eq!(group, state.bands[0].slots[1].as_ref().unwrap().group);
+
+	let json: serde_json::Value =
+		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	assert_eq!(
+		json["modules"][0]["group"].as_u64(),
+		Some(group.unwrap() as u64)
+	);
+
+	assert_eq!(command(&rack, "group.0.1=1").body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	assert!(state.bands[0].slots[0].as_ref().unwrap().group.is_none());
+	assert!(state.bands[0].slots[1].as_ref().unwrap().group.is_none());
+}
+
+/// The first module in a lane has nothing on its left to group with.
+#[test]
+fn the_first_module_cannot_start_a_group() {
+	let rack = Rack::default();
+
+	assert_eq!(command(&rack, "group.0.0=1").body, b"{\"ok\":false}");
+}
+
+/// Moving one member to another lane breaks the run, so both halves ungroup.
+#[test]
+fn a_broken_group_is_cleared() {
+	let rack = Rack::default();
+
+	assert_eq!(command(&rack, "slot.0.add=Gain").body, b"{\"ok\":true}");
+	assert_eq!(command(&rack, "group.0.1=1").body, b"{\"ok\":true}");
+
+	assert!(rack.state().bands[0].slots[0].as_ref().unwrap().group.is_some());
+
+	assert_eq!(command(&rack, "slot.0.1.move=1.1").body, b"{\"ok\":true}");
+
+	let state = rack.state();
+	assert!(state.bands[0].slots[0].as_ref().unwrap().group.is_none());
+	assert!(state.bands[1].slots[1].as_ref().unwrap().group.is_none());
+}

@@ -206,6 +206,21 @@ body{
 .slot .mcard{width:100%; height:100%; min-height:0}
 .slot .mcard .mcard-hero{flex:1 1 auto; height:auto; min-height:40px}
 .slot .mcard .mcard-body{flex:0 0 auto}
+
+.mcard.grouped{border-left:3px solid var(--group)}
+.group-row{display:flex; align-items:center; gap:6px; padding:0 8px 8px}
+.group-row button{
+  font:inherit; font-size:9px; letter-spacing:.06em; color:var(--text2);
+  background:#2b2b2b; border:1px solid #3a3a3a; border-radius:4px;
+  padding:2px 8px; cursor:pointer;
+}
+.group-row button:hover{background:#343434; color:var(--text1)}
+.group-row button:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+.group-main{flex:1; text-align:left; border-left:3px solid var(--group)}
+.group-tag{flex:1; font-size:9px; letter-spacing:.1em; color:var(--text3)}
+.group-leave{color:var(--text3)}
+.group-join{width:100%; text-align:left}
+.mcard.collapsed .group-row{display:none}
 .slots[style] .slot-empty{height:100%; min-height:0}
 .slot:has(.mcard.collapsed){flex:0 0 48px; min-width:48px; align-self:stretch}
 .slot .mcard.collapsed{

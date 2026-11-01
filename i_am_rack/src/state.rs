@@ -361,6 +361,9 @@ pub struct ModuleState {
 	pub kind: ModuleKind,
 	/// Whether its processing is skipped.
 	pub bypass: bool,
+	/// The group it belongs to, when it is grouped with a neighbour.
+	#[serde(default)]
+	pub group: Option<u32>,
 	/// Its parameters, by identifier. Floats, integers and booleans all have a
 	/// numeric form here; the parameter map knows which one to store.
 	pub params: BTreeMap<String, f64>,
@@ -373,6 +376,7 @@ impl ModuleState {
 			id,
 			kind,
 			bypass: false,
+			group: None,
 			params: module::default_params(kind),
 		}
 	}
@@ -475,6 +479,17 @@ impl RackState {
 
 		self.normalize_slots();
 		self.version = STATE_VERSION;
+	}
+
+	/// The next free group id.
+	pub fn next_group_id(&self) -> u32 {
+		self.bands
+			.iter()
+			.chain(std::iter::once(&self.parallel))
+			.flat_map(|band| band.slots.iter().flatten())
+			.filter_map(|module| module.group)
+			.max()
+			.map_or(0, |id| id + 1)
 	}
 
 	/// The next unused module id, so a new slot keeps every existing id stable.
@@ -581,4 +596,42 @@ fn compact_slots(band: &mut BandState) {
 		.collect::<Vec<_>>();
 	modules.push(None);
 	band.slots = modules;
+
+	clean_groups(band);
+}
+
+/// Drops any group that no longer has two adjacent modules in this lane.
+fn clean_groups(band: &mut BandState) {
+	let mut positions: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+
+	for (index, module) in band.slots.iter().enumerate() {
+		if let Some(module) = module
+			&& let Some(group) = module.group
+		{
+			positions.entry(group).or_default().push(index);
+		}
+	}
+
+	let mut broken = Vec::new();
+
+	for (group, slots) in positions {
+		let contiguous = slots
+			.last()
+			.zip(slots.first())
+			.is_some_and(|(last, first)| *last - *first + 1 == slots.len());
+
+		if slots.len() < 2 || !contiguous {
+			broken.push(group);
+		}
+	}
+
+	if broken.is_empty() {
+		return;
+	}
+
+	for module in band.slots.iter_mut().flatten() {
+		if module.group.is_some_and(|group| broken.contains(&group)) {
+			module.group = None;
+		}
+	}
 }

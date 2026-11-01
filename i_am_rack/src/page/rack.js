@@ -26,6 +26,7 @@
   var rangeLabels = [];
   var paintCrossover = null;
   var collapsedBands = Object.create(null);
+  var collapsedGroups = Object.create(null);
   var collapsedSources = Object.create(null);
   var collapsedModules = Object.create(null);
   var slotScroll = Object.create(null);
@@ -501,6 +502,80 @@
     return head;
   }
 
+  function groupIndex(modules) {
+    var groups = Object.create(null);
+
+    modules.forEach(function (module, slot) {
+      if (!module || module.group === null || module.group === undefined) return;
+
+      var key = String(module.group);
+
+      if (!groups[key]) groups[key] = { first: slot, count: 0 };
+      groups[key].count++;
+    });
+
+    return groups;
+  }
+
+  function groupColor(id) {
+    return "hsl(" + ((id * 67) % 360) + " 62% 62%)";
+  }
+
+  function decorateGroup(wrap, bandIndex, slot, module, groups, collapsed) {
+    var card = wrap.querySelector(".mcard");
+    if (!card) return;
+
+    var row = el("div", "group-row");
+
+    if (module.group !== null && module.group !== undefined) {
+      var info = groups[String(module.group)];
+      if (!info) return;
+
+      var key = String(module.group);
+      var isFirst = info.first === slot;
+      var isCollapsed = !!collapsed[key];
+
+      card.classList.add("grouped");
+      card.style.setProperty("--group", groupColor(module.group));
+
+      if (isFirst) {
+        var main = el("button", "group-main",
+          "GROUP " + info.count + (isCollapsed ? " \u25B8" : " \u25BE"));
+        main.type = "button";
+        main.title = isCollapsed ? "Expand group" : "Collapse group";
+        main.style.borderColor = groupColor(module.group);
+        main.addEventListener("click", function () {
+          if (!collapsedGroups[bandIndex]) collapsedGroups[bandIndex] = Object.create(null);
+          collapsedGroups[bandIndex][key] = !isCollapsed;
+          load();
+        });
+        row.appendChild(main);
+      } else {
+        row.appendChild(el("span", "group-tag", "GROUP " + info.count));
+      }
+
+      var leave = el("button", "group-leave", "Leave");
+      leave.type = "button";
+      leave.title = "Leave this group";
+      leave.addEventListener("click", function () {
+        sendNow("group." + bandIndex + "." + slot, 1).then(load);
+      });
+      row.appendChild(leave);
+    } else if (slot > 0) {
+      var join = el("button", "group-join", "\u26D3 Group with previous");
+      join.type = "button";
+      join.title = "Group this module with the one on its left";
+      join.addEventListener("click", function () {
+        sendNow("group." + bandIndex + "." + slot, 1).then(load);
+      });
+      row.appendChild(join);
+    } else {
+      return;
+    }
+
+    card.appendChild(row);
+  }
+
   function makeSlot(data, bandIndex, slotIndex, module) {
     var wrap = el("div", "slot");
     wrap.appendChild(el("div", "slot-label", "SLOT " + slotLetter(slotIndex)));
@@ -615,12 +690,30 @@
     section.appendChild(makeBandHeader(data, bandIndex, section));
 
     var slots = el("div", "slots");
-
-    for (var slot = 0; slot < band.slots.length; slot++) {
-      var module = data.modules.find(function (candidate) {
+    var modules = band.slots.map(function (_, slot) {
+      return data.modules.find(function (candidate) {
         return candidate.band === bandIndex && candidate.slot === slot;
       }) || null;
-      slots.appendChild(makeSlot(data, bandIndex, slot, module));
+    });
+    var groups = groupIndex(modules);
+    var collapsed = collapsedGroups[bandIndex] || Object.create(null);
+
+    for (var slot = 0; slot < modules.length; slot++) {
+      var module = modules[slot];
+
+      if (module && module.group !== null && module.group !== undefined) {
+        var info = groups[String(module.group)];
+
+        if (info && collapsed[String(module.group)] && info.first !== slot) {
+          continue;
+        }
+      }
+
+      var slotElement = makeSlot(data, bandIndex, slot, module);
+
+      if (module) decorateGroup(slotElement, bandIndex, slot, module, groups, collapsed);
+
+      slots.appendChild(slotElement);
     }
 
     section.appendChild(slots);
