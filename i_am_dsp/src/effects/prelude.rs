@@ -28,6 +28,8 @@ pub use super::dynamics::*;
 pub use super::tape_stop::*;
 pub use super::router::*;
 pub use super::eq::*;
+pub use super::resonator::*;
+pub use super::formant_shifter::*;
 pub use super::ott::*;
 
 pub use super::schroeder::*;

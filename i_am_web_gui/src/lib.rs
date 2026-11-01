@@ -565,6 +565,17 @@ mod ui_contract_tests {
 		}
 	}
 
+	/// The utility products' pictures are part of the shared registry too.
+	#[test]
+	fn the_resonator_and_formant_heroes_are_registered() {
+		for kind in ["resonator", "formant"] {
+			assert!(
+				CARD_SCRIPT.contains(&format!("registerHero(\"{kind}\"")),
+				"missing {kind} hero"
+			);
+		}
+	}
+
 	/// Hover feedback belongs to the shared controls, not to one page.
 	#[test]
 	fn shared_controls_keep_their_hover_feedback() {

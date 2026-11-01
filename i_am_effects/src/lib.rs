@@ -67,9 +67,9 @@ pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
 ];
 
 use i_am_dsp::prelude::{
-	Chorus, Crusher, Delay, Distortion, Expander, Flanger, Gain as GainDsp, Gate, Limiter,
-	LrControl, Multimode, ParametricEq, Phaser, SineWave, StereoController, StereoRouter,
-	TapeStopEffect, TransientShaper,
+	Chorus, Crusher, Delay, Distortion, Expander, Flanger, FormantShifter, Gain as GainDsp, Gate,
+	Limiter, LrControl, Multimode, ParametricEq, Phaser, Resonator, SineWave, StereoController,
+	StereoRouter, TapeStopEffect, TransientShaper,
 };
 use i_am_web_gui::Switch;
 use i_am_plugin::export_clap;
@@ -462,6 +462,27 @@ web_plugin!(
 );
 
 web_plugin!(
+	ResonatorWeb,
+	Resonator<2>,
+	Resonator::<2>::new,
+	"iamdsp.effects.resonator.web",
+	"I Am Resonator",
+	(460.0, 300.0),
+	"#b98cff",
+	midi = &[i_am_plugin::MidiPort { name: "Notes" }]
+);
+
+web_plugin!(
+	FormantShifterWeb,
+	FormantShifter<2>,
+	FormantShifter::<2>::new,
+	"iamdsp.effects.formant_shifter.web",
+	"I Am Formant Shifter",
+	(520.0, 340.0),
+	"#ff9f6e"
+);
+
+web_plugin!(
 	TransientWeb,
 	TransientShaper<2>,
 	TransientShaper::<2>::new,
@@ -523,6 +544,8 @@ export_clap!(
 	GateWeb,
 	ExpanderWeb,
 	LimiterWeb,
+	ResonatorWeb,
+	FormantShifterWeb,
 	TransientWeb,
 	RouterWeb,
 	EqWeb
@@ -648,6 +671,8 @@ mod tests {
 		assert!(GateWeb::new().editor().is_some());
 		assert!(ExpanderWeb::new().editor().is_some());
 		assert!(LimiterWeb::new().editor().is_some());
+		assert!(ResonatorWeb::new().editor().is_some());
+		assert!(FormantShifterWeb::new().editor().is_some());
 		assert!(TransientWeb::new().editor().is_some());
 		assert!(RouterWeb::new().editor().is_some());
 	}
@@ -1077,6 +1102,36 @@ mod tests {
 		for id in ["l_to_l", "l_to_r", "r_to_l", "r_to_r"] {
 			assert!(router.contains(&format!("\"id\":\"{id}\"")), "{router}");
 		}
+	}
+
+	/// The resonator follows MIDI notes and the formant shifter exposes a vowel
+	/// and a formant shift.
+	#[test]
+	fn the_resonator_and_formant_shifter_have_their_controls() {
+		let resonator = i_am_web_gui::face_json(
+			&ResonatorWeb::new(),
+			&Faceplate::new("I Am Resonator", "#b98cff", (460.0, 300.0)),
+		);
+		let formant = i_am_web_gui::face_json(
+			&FormantShifterWeb::new(),
+			&Faceplate::new("I Am Formant Shifter", "#ff9f6e", (520.0, 340.0)),
+		);
+
+		assert!(resonator.contains("\"hero\":\"resonator\""), "{resonator}");
+		for id in ["note", "decay", "damping", "saw", "mix"] {
+			assert!(resonator.contains(&format!("\"id\":\"{id}\"")), "{resonator}");
+		}
+		assert_eq!(
+			<ResonatorWeb as i_am_plugin::Plugin>::INPUT_MIDI_PORTS.len(),
+			1,
+			"the resonator needs a note port"
+		);
+
+		assert!(formant.contains("\"hero\":\"formant\""), "{formant}");
+		for id in ["vowel", "shift", "resonance", "mix"] {
+			assert!(formant.contains(&format!("\"id\":\"{id}\"")), "{formant}");
+		}
+		assert!(formant.contains("\"choices\":[\"A\",\"E\",\"I\",\"O\",\"U\"]"), "{formant}");
 	}
 
 	/// The OTT is a three-band meter and a second section for the bands.
