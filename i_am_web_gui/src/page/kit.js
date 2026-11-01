@@ -1482,63 +1482,6 @@ var ENV_MAX = 512;
 
   /// The delay's repeats as a short time line. Synced repeats follow the beats at
   /// 120 BPM for the picture; the audio, of course, follows the host's tempo.
-  function tapsSvg() {
-    var sync = !!valueOf("tempo.sync", 0);
-    var beats = Math.max(valueOf("tempo.beats", 1), 0.03125);
-    var free = Math.max(valueOf("delay_time", 250), 0);
-    var time = sync ? beats * 500 : free;
-    var feedback = clamp(valueOf("decay_factor", 0.8), 0, 0.95);
-    var mix = clamp(valueOf("wet_gain", 1), 0, 2);
-    var base = 140;
-    var taps = "";
-
-    for (var tap = 0; tap < 8; tap++) {
-      var at = time * (tap + 1);
-      if (at <= 0 || at > 2000) break;
-
-      var x = 20 + at / 2000 * 480;
-      var level = Math.pow(feedback, tap) * Math.min(mix, 1);
-      var height = 16 + 100 * level;
-
-      taps += '<line x1="' + x.toFixed(1) + '" y1="' + base + '" x2="' + x.toFixed(1) +
-        '" y2="' + (base - height).toFixed(1) + '" stroke="' + accent + '" stroke-width="2" ' +
-        'opacity="' + (0.3 + 0.7 * level).toFixed(2) + '"/>' +
-        '<circle cx="' + x.toFixed(1) + '" cy="' + (base - height).toFixed(1) +
-        '" r="2" fill="' + accent + '"/>';
-    }
-
-    return heroSvg(
-      '<line x1="20" y1="' + base + '" x2="500" y2="' + base + '" stroke="#3a3a3a"/>' +
-      taps
-    );
-  }
-
-  /// The LFO as it is set now: the free rate in hertz, or the beat period converted
-  /// to hertz at 120 BPM for the picture.
-  function lfoSvg() {
-    var sync = !!valueOf("tempo.sync", 0);
-    var beats = Math.max(valueOf("tempo.beats", 1), 0.03125);
-    var free = Math.max(valueOf("lfo_frequency", valueOf("lfo_freq", 1)), 0.01);
-    var rate = clamp(sync ? 1 / (beats * 0.5) : free, 0.01, 20);
-    var amplitude = valueOf("lfo_amplitude", 0);
-    var depth = amplitude > 0 ? clamp(amplitude / 10, 0.1, 1) : 0.6;
-    var scale = 45 * depth;
-    var path = "";
-
-    for (var i = 0; i <= 520; i++) {
-      var t = i / 520 * 2.0;
-      var x = 20 + i / 520 * 480;
-      var y = 80 - Math.sin(t * rate * Math.PI * 2) * scale;
-      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
-    }
-
-    return heroSvg(
-      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
-      '<path d="' + path + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
-        'vector-effect="non-scaling-stroke"/>'
-    );
-  }
-
   /// The FDN tail: a pre-delay gap, a few early reflections, then a T60 decay
   /// with a lighter high-frequency trace. Decay and damping drive the shape.
   function tailSvg() {
@@ -3118,12 +3061,6 @@ var ENV_MAX = 512;
     IAmCard.registerHero("tail", function () {
       var seconds = clamp(valueOf("decay_time", 2200), 100, 10000) / 1000;
       return tailSvg() + '<div class="hero-badge">T60 ' + seconds.toFixed(1) + ' s</div>';
-    });
-    IAmCard.registerHero("lfo", function () {
-      return lfoSvg() + (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");
-    });
-    IAmCard.registerHero("taps", function () {
-      return tapsSvg() + (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");
     });
     IAmCard.registerHero("waveform", waveformSvg);
     IAmCard.registerHero("transfer", function () { return transferSvg() + rmsBadge(); });

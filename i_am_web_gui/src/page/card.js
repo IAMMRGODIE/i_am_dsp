@@ -317,6 +317,63 @@
     );
   }
 
+  function tapsHero(values) {
+    var sync = !!valueOf(values, "tempo.sync", 0);
+    var beats = Math.max(valueOf(values, "tempo.beats", 1), 0.03125);
+    var free = Math.max(valueOf(values, "delay_time", 250), 0);
+    var time = sync ? beats * 500 : free;
+    var feedback = clamp(valueOf(values, "decay_factor", 0.8), 0, 0.95);
+    var mix = clamp(valueOf(values, "wet_gain", 1), 0, 2);
+    var base = 140;
+    var taps = "";
+
+    for (var tap = 0; tap < 8; tap++) {
+      var at = time * (tap + 1);
+      if (at <= 0 || at > 2000) break;
+
+      var x = 20 + at / 2000 * 480;
+      var level = Math.pow(feedback, tap) * Math.min(mix, 1);
+      var height = 16 + 100 * level;
+
+      taps += '<line x1="' + x.toFixed(1) + '" y1="' + base + '" x2="' + x.toFixed(1) +
+        '" y2="' + (base - height).toFixed(1) + '" stroke="var(--accent)" stroke-width="2" ' +
+        'opacity="' + (0.3 + 0.7 * level).toFixed(2) + '"/>' +
+        '<circle cx="' + x.toFixed(1) + '" cy="' + (base - height).toFixed(1) +
+        '" r="2" fill="var(--accent)"/>';
+    }
+
+    return heroSvg(
+      '<line x1="20" y1="' + base + '" x2="500" y2="' + base + '" stroke="#3a3a3a"/>' +
+      taps
+    ) + (sync ? '<div class="hero-badge">SYNC</div>' : "");
+  }
+
+  /// The LFO as it is set now: the free rate in hertz, or the beat period converted
+  /// to hertz at 120 BPM for the picture.
+  function lfoHero(values) {
+    var sync = !!valueOf(values, "tempo.sync", 0);
+    var beats = Math.max(valueOf(values, "tempo.beats", 1), 0.03125);
+    var free = Math.max(valueOf(values, "lfo_frequency", valueOf(values, "lfo_freq", 1)), 0.01);
+    var rate = clamp(sync ? 1 / (beats * 0.5) : free, 0.01, 20);
+    var amplitude = valueOf(values, "lfo_amplitude", 0);
+    var depth = amplitude > 0 ? clamp(amplitude / 10, 0.1, 1) : 0.6;
+    var swing = 45 * depth;
+    var path = "";
+
+    for (var i = 0; i <= 520; i++) {
+      var t = i / 520 * 2.0;
+      var x = 20 + i / 520 * 480;
+      var y = 80 - Math.sin(t * rate * Math.PI * 2) * swing;
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    return heroSvg(
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+      '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
+      'vector-effect="non-scaling-stroke"/>'
+    ) + (sync ? '<div class="hero-badge">SYNC</div>' : "");
+  }
+
   function phaseHero(values) {
     var cutoff = Math.max(valueOf(values, "cutoff", 440), 10);
     var bandwidth = Math.max(valueOf(values, "bandwidth", 1000), 10);
@@ -401,6 +458,8 @@
   registerHero("spectrum", spectrumHero);
   registerHero("transfer", transferHero);
   registerHero("compressor", compressorHero);
+  registerHero("taps", tapsHero);
+  registerHero("lfo", lfoHero);
   registerHero("phase", phaseHero);
   registerHero("balance", balanceHero);
   registerHero("waveform", waveformHero);
