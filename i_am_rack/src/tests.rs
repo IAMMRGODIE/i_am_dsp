@@ -175,7 +175,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[0]["hero"], "spectrum");
 
 	let kinds = json["kinds"].as_array().expect("kinds");
-	assert_eq!(kinds.len(), 5);
+	assert_eq!(kinds.len(), 6);
 	assert!(kinds.iter().any(|kind| kind["name"] == "Compressor"));
 	assert!(
 		modules[0]["controls"]
@@ -1767,4 +1767,38 @@ fn a_module_can_be_copied_to_another_lane() {
 	assert_eq!(copy.kind, source.kind);
 	assert_eq!(copy.params["gain"], 0.5);
 	assert!(copy.group.is_none());
+}
+
+/// The Crusher kind brings the disperser/saturator controls into a rack slot.
+#[test]
+fn a_crusher_module_exposes_its_controls() {
+	let mut rack = Rack::default();
+
+	assert_eq!(command(&rack, "slot.3.add=Crusher").body, b"{\"ok\":true}");
+
+	let json: serde_json::Value =
+		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let crusher = json["modules"]
+		.as_array()
+		.expect("modules")
+		.iter()
+		.find(|module| module["kind"] == "Crusher")
+		.expect("the Crusher module");
+	let controls = crusher["controls"].as_array().expect("controls");
+
+	assert!(
+		controls
+			.iter()
+			.any(|control| control["id"] == "amount")
+	);
+	assert!(
+		controls
+			.iter()
+			.any(|control| control["id"] == "frequency")
+	);
+
+	for _ in 0..256 {
+		let out = process(&mut rack, [0.25, 0.25]);
+		assert!(out[0].is_finite() && out[1].is_finite());
+	}
 }

@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use i_am_dsp::prelude::{
-	Compressor, Distortion, Effect, Gain, Multimode, Parameter, PureDelay, RectifyEnvelope,
-	Unit, Value,
+	Compressor, Crusher, Distortion, Effect, Gain, Multimode, Parameter, PureDelay,
+	RectifyEnvelope, Unit, Value,
 };
 
 /// The controls each Multimode algorithm reads; everything else is hidden.
@@ -60,16 +60,19 @@ pub enum ModuleKind {
 	Gain,
 	/// A pure delay.
 	Delay,
+	/// A disperser, saturator and amplitude modulation in one.
+	Crusher,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 5] = [
+	pub const ALL: [Self; 6] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
 		Self::Gain,
 		Self::Delay,
+		Self::Crusher,
 	];
 
 	/// The name a card shows.
@@ -80,6 +83,7 @@ impl ModuleKind {
 			Self::Compressor => "Compressor",
 			Self::Gain => "Gain",
 			Self::Delay => "Delay",
+			Self::Crusher => "Crusher",
 		}
 	}
 
@@ -91,6 +95,7 @@ impl ModuleKind {
 			Self::Compressor => "#ef5b5b",
 			Self::Gain => "#35c77a",
 			Self::Delay => "#c77dff",
+			Self::Crusher => "#ff5f9e",
 		}
 	}
 
@@ -102,6 +107,7 @@ impl ModuleKind {
 			Self::Compressor => "compressor",
 			Self::Gain => "waveform",
 			Self::Delay => "waveform",
+			Self::Crusher => "transfer",
 		}
 	}
 
@@ -109,7 +115,7 @@ impl ModuleKind {
 	pub const fn mode(self) -> Option<&'static str> {
 		match self {
 			Self::Filter | Self::Distortion => Some("mode"),
-			Self::Compressor | Self::Gain | Self::Delay => None,
+			Self::Compressor | Self::Gain | Self::Delay | Self::Crusher => None,
 		}
 	}
 
@@ -126,7 +132,7 @@ impl ModuleKind {
 		match self {
 			Self::Filter => Some(FILTER_VISIBLE),
 			Self::Distortion => Some(DISTORTION_VISIBLE),
-			Self::Compressor | Self::Gain | Self::Delay => None,
+			Self::Compressor | Self::Gain | Self::Delay | Self::Crusher => None,
 		}
 	}
 }
@@ -150,6 +156,7 @@ pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> 
 			250.0,
 			sample_rate,
 		)),
+		ModuleKind::Crusher => Box::new(Crusher::<2>::new(sample_rate)),
 	}
 }
 
