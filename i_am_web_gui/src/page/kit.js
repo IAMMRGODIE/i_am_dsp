@@ -373,6 +373,23 @@ var ENV_MAX = 512;
 
   function buildKnob(control) {
     var spec = control.spec;
+
+    // The shared card knob is the one control implementation. A product page
+    // passes its curve through, because the faceplate's curves live on /face
+    // while the card only knows the control it is handed.
+    if (window.IAmCard && IAmCard.controlHandle) {
+      spec.curve = curveOf(spec);
+
+      var handle = IAmCard.controlHandle(spec, control.value, function (_, value) {
+        setValue(control, value, true);
+      });
+
+      handle.el.classList.add("face-knob");
+      control.paint = function () { handle.set(control.value, false); };
+      control.paint();
+      return handle.el;
+    }
+
     // One knob size across the kit: a mixed row of 40/56/72 reads as a layout
     // accident, not as emphasis.
     var diameter = 56;

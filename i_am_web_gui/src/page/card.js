@@ -15,18 +15,41 @@
     return Math.min(high, Math.max(low, value));
   }
 
+  function curveOf(spec) {
+    return spec.curve || null;
+  }
+
+  function atanKnee(spec) {
+    var limit = Math.max(Math.abs(spec.min), Math.abs(spec.max), 1);
+    return { limit: limit, knee: Math.max(limit * 0.1, 1e-3) };
+  }
+
   function norm(spec, value) {
     var low = spec.min;
     var high = spec.max;
+
+    if (curveOf(spec) === "atan") {
+      var k = atanKnee(spec);
+      return 0.5 + Math.atan(value / k.knee) / (2 * Math.atan(k.limit / k.knee));
+    }
+
     if (spec.log && low > 0 && high > low) {
       return clamp(Math.log(value / low) / Math.log(high / low), 0, 1);
     }
+
     return high > low ? clamp((value - low) / (high - low), 0, 1) : 0;
   }
 
   function at(spec, position) {
     var low = spec.min;
     var high = spec.max;
+    position = clamp(position, 0, 1);
+
+    if (curveOf(spec) === "atan") {
+      var k = atanKnee(spec);
+      return k.knee * Math.tan((position - 0.5) * 2 * Math.atan(k.limit / k.knee));
+    }
+
     var value = spec.log && low > 0 && high > low
       ? low * Math.pow(high / low, position)
       : low + (high - low) * position;
@@ -434,7 +457,9 @@
       }
 
       if (!drag) return;
-      var position = clamp(drag.position + (drag.y - event.clientY) / 150, 0, 1);
+      // Shift is the fine drag, the same gesture the faceplate used to have.
+      var distance = (drag.y - event.clientY) / 150 * (event.shiftKey ? 0.1 : 1);
+      var position = clamp(drag.position + distance, 0, 1);
       set(at(spec, position), true);
     });
 
@@ -484,8 +509,15 @@
       });
     }
 
+    dial.addEventListener("wheel", function (event) {
+      event.preventDefault();
+      var step = spec.step && spec.step > 0 ? spec.step : (spec.max - spec.min) / 100;
+      var direction = event.deltaY < 0 ? 1 : -1;
+      set(current + direction * step * (event.shiftKey ? 0.1 : 1), true);
+    }, { passive: false });
+
     dial.addEventListener("keydown", function (event) {
-      var step = (spec.max - spec.min) / 100;
+      var step = (spec.max - spec.min) / 100 * (event.shiftKey ? 0.1 : 1);
       if (event.key === "ArrowUp" || event.key === "ArrowRight") {
         set(current + step, true);
         event.preventDefault();
@@ -573,6 +605,11 @@
 
   function control(spec, value, onEdit) {
     return makeBodyControl(spec, value, onEdit);
+  }
+
+  /// A bare knob with a setter, for a faceplate that owns its own layout.
+  function controlHandle(spec, value, onEdit) {
+    return makeKnob(spec, value, onEdit);
   }
 
   function setting(label, control) {
@@ -799,6 +836,7 @@
   window.IAmCard = {
     create: create,
     control: control,
+    controlHandle: controlHandle,
     hero: hero,
     format: format,
     norm: norm,
