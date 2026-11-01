@@ -74,7 +74,7 @@ pub struct Resonator<const CHANNELS: usize = 2> {
 	/// The level of the internal saw excitation.
 	#[range(min = 0.0, max = 1.0)]
 	#[unit(percent)]
-	#[default(0.25)]
+	#[default(0.0)]
 	#[id(display = "Saw")]
 	#[layout(group = "Resonator", order = 3, widget = knob)]
 	pub saw: f32,
@@ -118,7 +118,7 @@ impl<const CHANNELS: usize> Resonator<CHANNELS> {
 			note: 60.0,
 			decay: 1.5,
 			damping: 8_000.0,
-			saw: 0.25,
+			saw: 0.0,
 			mix: 0.5,
 			sample_rate: sample_rate as f32,
 			frequency,
