@@ -1061,9 +1061,13 @@ mod tests {
 		assert_eq!(<ExpanderWeb as i_am_plugin::Plugin>::INPUT_PORTS.len(), 2);
 
 		assert!(limiter.contains("\"hero\":\"limiter\""), "{limiter}");
-		for id in ["ceiling", "release", "lookahead", "output"] {
+		for id in ["ceiling", "release", "lookahead", "output", "true_peak"] {
 			assert!(limiter.contains(&format!("\"id\":\"{id}\"")), "{limiter}");
 		}
+		assert!(
+			limiter.contains("\"widget\":\"toggle\""),
+			"true peak is a switch"
+		);
 
 		assert!(transient.contains("\"hero\":\"waveform\""), "{transient}");
 		assert!(transient.contains("\"id\":\"attack\""), "{transient}");

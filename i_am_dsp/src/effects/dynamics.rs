@@ -319,8 +319,75 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Expander<CHANNELS> {
 	}
 }
 
+/// The 4x polyphase true-peak interpolator from ITU-R BS.1770 Annex 2.
+///
+/// Twelve taps per phase is the smallest causal realization of the standard's
+/// 48-tap, 4x oversampling filter. The phases are stored in the standard's
+/// phase-major order and are applied newest-sample-first.
+const TRUE_PEAK_TAPS: usize = 12;
+const TRUE_PEAK_PHASES: [[f32; TRUE_PEAK_TAPS]; 4] = [
+	[
+		0.001_708_984_4,
+		0.010_986_328,
+		-0.019_653_32,
+		0.033_203_125,
+		-0.059_448_242,
+		0.137_329_1,
+		0.972_167_97,
+		-0.102_294_92,
+		0.047_607_422,
+		-0.026_611_328,
+		0.014_892_578,
+		-0.008_300_781,
+	],
+	[
+		-0.029_174_805,
+		0.029_296_875,
+		-0.051_757_812,
+		0.089_111_33,
+		-0.166_503_9,
+		0.465_087_9,
+		0.779_785_16,
+		-0.200_317_38,
+		0.101_562_5,
+		-0.058_227_54,
+		0.033_081_055,
+		-0.018_920_898,
+	],
+	[
+		-0.018_920_898,
+		0.033_081_055,
+		-0.058_227_54,
+		0.101_562_5,
+		-0.200_317_38,
+		0.779_785_16,
+		0.465_087_9,
+		-0.166_503_9,
+		0.089_111_33,
+		-0.051_757_812,
+		0.029_296_875,
+		-0.029_174_805,
+	],
+	[
+		-0.008_300_781,
+		0.014_892_578,
+		-0.026_611_328,
+		0.047_607_422,
+		-0.102_294_92,
+		0.972_167_97,
+		0.137_329_1,
+		-0.059_448_242,
+		0.033_203_125,
+		-0.019_653_32,
+		0.010_986_328,
+		0.001_708_984_4,
+	],
+];
+
 /// A peak limiter with a lookahead delay: the detector lowers the gain before
-/// the transient reaches the output.
+/// the transient reaches the output. In True Peak mode the detector runs the
+/// input through the 4x, 48-tap interpolator from ITU-R BS.1770 Annex 2, so
+/// inter-sample peaks are caught as well as sample peaks.
 #[derive(Parameters)]
 pub struct Limiter<const CHANNELS: usize = 2> {
 	/// The highest level that leaves the limiter.
@@ -355,6 +422,12 @@ pub struct Limiter<const CHANNELS: usize = 2> {
 	#[layout(group = "Limiter", order = 3, widget = knob)]
 	pub output: f32,
 
+	/// Measure inter-sample peaks through the BS.1770 4x interpolator.
+	#[default(false)]
+	#[id(display = "True Peak")]
+	#[layout(group = "Limiter", order = 4, widget = toggle)]
+	pub true_peak: bool,
+
 	#[skip]
 	sample_rate: f32,
 	#[skip]
@@ -365,6 +438,8 @@ pub struct Limiter<const CHANNELS: usize = 2> {
 	gain: f32,
 	#[skip]
 	delay: [i_am_dsp::tools::ring_buffer::RingBuffer<f32>; CHANNELS],
+	#[skip]
+	true_peak_history: [[f32; TRUE_PEAK_TAPS]; CHANNELS],
 }
 
 impl<const CHANNELS: usize> Limiter<CHANNELS> {
@@ -377,6 +452,7 @@ impl<const CHANNELS: usize> Limiter<CHANNELS> {
 			release: 50.0,
 			lookahead: 1.5,
 			output: 0.0,
+			true_peak: false,
 			sample_rate: sample_rate as f32,
 			detector: 0.0,
 			detector_hold: 0,
@@ -384,11 +460,47 @@ impl<const CHANNELS: usize> Limiter<CHANNELS> {
 			delay: core::array::from_fn(|_| {
 				i_am_dsp::tools::ring_buffer::RingBuffer::new(lookahead)
 			}),
+			true_peak_history: core::array::from_fn(|_| [0.0; TRUE_PEAK_TAPS]),
 		}
 	}
 
 	fn lookahead_samples(&self) -> usize {
 		(self.lookahead * 0.001 * self.sample_rate).round() as usize
+	}
+
+	/// Keep the interpolator primed even while sample-peak mode is selected, so
+	/// turning True Peak on does not start with an empty filter.
+	fn feed_true_peak_history(&mut self, samples: &[f32; CHANNELS]) {
+		for (channel, sample) in samples.iter().enumerate() {
+			let history = &mut self.true_peak_history[channel];
+			history.rotate_left(1);
+			history[TRUE_PEAK_TAPS - 1] = *sample;
+		}
+	}
+
+	/// The linked maximum of the four BS.1770 interpolated phases, plus the raw
+	/// sample as a lower bound. This is the level the limiter's ceiling sees.
+	fn true_peak_level(&mut self, samples: &[f32; CHANNELS]) -> f32 {
+		let mut level = 0.0_f32;
+
+		for (channel, sample) in samples.iter().enumerate() {
+			let history = &mut self.true_peak_history[channel];
+			history.rotate_left(1);
+			history[TRUE_PEAK_TAPS - 1] = *sample;
+			level = level.max(sample.abs());
+
+			for phase in &TRUE_PEAK_PHASES {
+				let mut interpolated = 0.0_f32;
+
+				for (tap, coefficient) in phase.iter().enumerate() {
+					interpolated += coefficient * history[TRUE_PEAK_TAPS - 1 - tap];
+				}
+
+				level = level.max(interpolated.abs());
+			}
+		}
+
+		level
 	}
 }
 
@@ -411,7 +523,12 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Limiter<CHANNELS> {
 			}
 		}
 
-		let level = peak(samples);
+		let level = if self.true_peak {
+			self.true_peak_level(samples)
+		} else {
+			self.feed_true_peak_history(samples);
+			peak(samples)
+		};
 
 		// Hold the detector's peak for the lookahead, so the gain that was
 		// computed when the peak arrived is still down when it reaches the output.
@@ -464,6 +581,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Limiter<CHANNELS> {
 		for buffer in self.delay.iter_mut() {
 			buffer.clear();
 		}
+
+		self.true_peak_history.fill([0.0; TRUE_PEAK_TAPS]);
 	}
 }
 
@@ -686,6 +805,41 @@ mod tests {
 		let ceiling = db_to_linear(-6.0);
 
 		assert!(peak <= ceiling * 1.01, "peak {peak}, ceiling {ceiling}");
+	}
+
+	/// A 12 kHz sine at 45 degrees has a sample peak of 0.636 but a true peak
+	/// of 0.9. Sample-peak limiting therefore misses it; BS.1770 mode must not.
+	#[test]
+	fn the_true_peak_limiter_catches_an_inter_sample_peak() {
+		let render = |true_peak: bool| {
+			let mut limiter = Limiter::<1>::new(48_000);
+			limiter.ceiling = -3.0;
+			limiter.release = 20.0;
+			limiter.lookahead = 1.5;
+			limiter.true_peak = true_peak;
+			let mut context: Box<dyn ProcessContext> = Box::new(());
+			let mut output = Vec::new();
+
+			for index in 0..4_800 {
+				let phase = std::f32::consts::FRAC_PI_2 * index as f32
+					+ std::f32::consts::FRAC_PI_4;
+				let mut frame = [0.9 * phase.sin()];
+				limiter.process(&mut frame, &[], &mut context);
+				output.push(frame[0]);
+			}
+
+			output[1_024..]
+				.iter()
+				.fold(0.0_f32, |peak, sample| peak.max(sample.abs()))
+		};
+
+		let sample_peak = render(false);
+		let true_peak = render(true);
+
+		assert!(
+			true_peak < sample_peak * 0.95,
+			"sample {sample_peak}, true {true_peak}"
+		);
 	}
 
 	/// A transient shaper makes the attack louder or softer, and is finite.

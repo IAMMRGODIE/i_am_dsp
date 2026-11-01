@@ -565,6 +565,22 @@ mod ui_contract_tests {
 		}
 	}
 
+	/// Hover feedback belongs to the shared controls, not to one page.
+	#[test]
+	fn shared_controls_keep_their_hover_feedback() {
+		for selector in [
+			".knob:hover",
+			".mcard-switch:not(.on):hover",
+			".mcard-select:hover",
+			".mcard-slider-track:hover",
+		] {
+			assert!(CARD_STYLE.contains(selector), "missing shared hover {selector}");
+		}
+
+		assert!(STYLE.contains(".face-knob .knob:hover{"));
+		assert!(STYLE.contains(".choice .face-choice:hover{"));
+	}
+
 	/// A faceplate knob keeps the footprint it had before the shared-card
 	/// migration: a 56 px dial in a 64 px slot, not the rack's 112 px slot. The
 	/// larger slot changes the row count and squeezes the hero out.

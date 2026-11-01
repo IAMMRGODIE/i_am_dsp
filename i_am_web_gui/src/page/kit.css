@@ -345,7 +345,8 @@ body.preview #app{
   display:block; width:calc(56px * var(--scale)); height:calc(56px * var(--scale));
   margin:0 auto; padding:0; border-radius:50%; background:transparent;
 }
-.face-knob .knob:hover{background:transparent}
+.face-knob .knob:hover{background:rgba(255,255,255,.028)}
+.face-knob:hover .knob-label{color:var(--text1)}
 .face-knob .knob-label{
   margin-top:calc(5px * var(--scale)); font-size:calc(11px * var(--scale));
 }
@@ -377,6 +378,7 @@ body.preview #app{
   background-repeat:no-repeat;
   font-size:calc(10px * var(--scale));
 }
+.choice .face-choice:hover{border-color:#5a5a5a; background-color:#2a2a2a}
 
 /* Faceplate sizing for the shared slider. */
 .face-slider{width:calc(150px * var(--scale))}
