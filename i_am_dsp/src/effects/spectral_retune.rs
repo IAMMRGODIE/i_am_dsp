@@ -8,7 +8,7 @@
 use i_am_dsp_derive::Parameters;
 
 use crate::{
-	Effect, ProcessContext,
+	Effect, NoteEvent, ProcessContext,
 	effects::{
 		autotune::nearest_allowed_note,
 		phase_vocoder::{FrequencyMapper, PhaseVocoder, overlap_add_gain},
@@ -151,6 +151,14 @@ pub struct SpectralRetuneEffect {
 	#[layout(group = "Retune", order = 3, widget = knob)]
 	pub high_frequency: f32,
 
+	/// The dry/wet balance.
+	#[range(min = 0.0, max = 1.0)]
+	#[unit(percent)]
+	#[default(1.0)]
+	#[id(display = "Mix")]
+	#[layout(group = "Retune", order = 4, widget = knob)]
+	pub mix: f32,
+
 	/// Allowed pitch classes, one bit each; C is bit 0.
 	#[range(min = 0, max = 4095)]
 	#[default(4095)]
@@ -169,6 +177,8 @@ pub struct SpectralRetuneEffect {
 	inner: PhaseVocoder<SpectralRetuneMapper, 2>,
 	#[skip]
 	last_window_size: i32,
+	#[skip]
+	held_notes: Vec<usize>,
 }
 
 impl SpectralRetuneEffect {
@@ -183,10 +193,41 @@ impl SpectralRetuneEffect {
 			speed: 10.0,
 			low_frequency: 200.0,
 			high_frequency: 8_000.0,
+			mix: 1.0,
 			notes: ALL_NOTES,
 			window_size: 2,
 			inner,
 			last_window_size: 2,
+			held_notes: Vec::new(),
+		}
+	}
+
+	fn track_events(&mut self, context: &mut Box<dyn ProcessContext>) {
+		for event in context.events() {
+			match event {
+				NoteEvent::NoteOn { note, .. } => {
+					if !self.held_notes.contains(note) {
+						self.held_notes.push(*note);
+					}
+				}
+				NoteEvent::NoteOff { note, .. } | NoteEvent::Stop { note, .. } => {
+					self.held_notes.retain(|held| held != note);
+				}
+				NoteEvent::ImmediateStop => self.held_notes.clear(),
+				_ => {}
+			}
+		}
+	}
+
+	/// The pitch-class mask the retune is using: MIDI held notes if any,
+	/// otherwise the faceplate mask.
+	pub fn allowed_mask(&self) -> u16 {
+		if self.held_notes.is_empty() {
+			(self.notes as u16) & 0x0fff
+		} else {
+			self.held_notes
+				.iter()
+				.fold(0, |mask, note| mask | (1 << (note % 12)))
 		}
 	}
 }
@@ -202,6 +243,8 @@ impl Effect<2> for SpectralRetuneEffect {
 		other: &[&[f32; 2]],
 		context: &mut Box<dyn ProcessContext>,
 	) {
+		self.track_events(context);
+
 		if self.window_size != self.last_window_size {
 			let size = [512, 1_024, 2_048, 4_096][self.window_size.clamp(0, 3) as usize];
 			if self.inner.renew_window_size(size).is_some() {
@@ -211,20 +254,54 @@ impl Effect<2> for SpectralRetuneEffect {
 			self.last_window_size = self.window_size;
 		}
 
+		let dry = *samples;
+		let notes = self.allowed_mask() as i32;
 		let mapper = &mut self.inner.mapper;
 		mapper.strength = self.strength;
 		mapper.speed = self.speed;
 		mapper.low_frequency = self.low_frequency;
 		mapper.high_frequency = self.high_frequency;
-		mapper.notes = self.notes;
+		mapper.notes = notes;
 
 		self.inner.process(samples, other, context);
+
+		let mix = self.mix.clamp(0.0, 1.0);
+		for (sample, dry) in samples.iter_mut().zip(dry) {
+			*sample = dry * (1.0 - mix) + *sample * mix;
+		}
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	struct TestContext {
+		events: Vec<NoteEvent>,
+		infos: crate::ProcessInfos,
+	}
+
+	impl ProcessContext for TestContext {
+		fn infos(&self) -> &crate::ProcessInfos {
+			&self.infos
+		}
+
+		fn next_event(&mut self) -> Option<NoteEvent> {
+			if self.events.is_empty() { None } else { Some(self.events.remove(0)) }
+		}
+
+		fn send_event(&mut self, event: NoteEvent) {
+			self.events.push(event);
+		}
+
+		fn events(&self) -> &[NoteEvent] {
+			&self.events
+		}
+
+		fn clear_events(&mut self) {
+			self.events.clear();
+		}
+	}
 
 	fn mapper(mask: i32) -> SpectralRetuneMapper {
 		let mut mapper = SpectralRetuneMapper::new(48_000, 2_048);
@@ -249,6 +326,38 @@ mod tests {
 		mapper.strength = 0.0;
 		let (frequency, _) = mapper.map_frequency(440.0, 1.0);
 		assert!((frequency - 440.0).abs() < 0.01);
+	}
+
+	#[test]
+	fn midi_notes_override_the_faceplate_mask() {
+		let mut effect = SpectralRetuneEffect::new(48_000);
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![
+				NoteEvent::NoteOn { channel: 0, note: 60, velocity: 1.0 },
+				NoteEvent::NoteOn { channel: 0, note: 64, velocity: 1.0 },
+			],
+			infos: crate::ProcessInfos::default(),
+		});
+		let mut frame = [0.0_f32, 0.0];
+
+		effect.process(&mut frame, &[], &mut context);
+
+		assert_eq!(effect.allowed_mask(), (1 << 0) | (1 << 4));
+	}
+
+	#[test]
+	fn mix_zero_is_the_dry_signal() {
+		let mut effect = SpectralRetuneEffect::new(48_000);
+		effect.mix = 0.0;
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![],
+			infos: crate::ProcessInfos::default(),
+		});
+		let mut frame = [0.5_f32, -0.25];
+
+		effect.process(&mut frame, &[], &mut context);
+
+		assert_eq!(frame, [0.5, -0.25]);
 	}
 
 	#[test]

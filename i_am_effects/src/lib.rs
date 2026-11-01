@@ -197,7 +197,11 @@ web_plugin!(
 	"I Am Spectral Retune",
 	(700.0, 400.0),
 	"#5fd0c8",
-	header = &["window_size"]
+	header = &["window_size"],
+	midi = &[i_am_plugin::MidiPort { name: "Notes" }],
+	telemetry = |retune: &SpectralRetuneEffect, scope: &i_am_web_gui::Scope| {
+		scope.set_allowed_notes(retune.allowed_mask() as i32)
+	}
 );
 
 web_plugin!(
@@ -1004,11 +1008,35 @@ mod tests {
 		);
 
 		assert!(face.contains("\"hero\":\"autotune\""), "{face}");
-		for id in ["strength", "speed", "low_frequency", "high_frequency", "notes", "window_size"] {
+		for id in ["strength", "speed", "low_frequency", "high_frequency", "mix", "notes", "window_size"] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
 		}
 		assert!(face.contains("\"widget\":\"notes\""), "{face}");
 		assert!(face.contains("\"header\":[\"window_size\"]"), "{face}");
+		assert_eq!(
+			<SpectralRetuneWeb as i_am_plugin::Plugin>::INPUT_MIDI_PORTS.len(),
+			1,
+			"spectral retune needs a note port"
+		);
+	}
+
+	/// Spectral Retune publishes its live MIDI/UI mask through the same scope
+	/// telemetry as Autotune.
+	#[test]
+	fn the_spectral_retune_publishes_its_live_mask() {
+		let mut plugin = SpectralRetuneWeb::new();
+		let mut context: Box<dyn i_am_dsp::ProcessContext> = Box::new(NoteContext {
+			events: vec![
+				i_am_dsp::NoteEvent::NoteOn { channel: 0, note: 60, velocity: 1.0 },
+				i_am_dsp::NoteEvent::NoteOn { channel: 0, note: 64, velocity: 1.0 },
+			],
+			infos: i_am_dsp::ProcessInfos::default(),
+		});
+		let mut frame = [0.0_f32, 0.0];
+
+		i_am_dsp::Processor::process(&mut plugin, &mut frame, &[], &mut context);
+
+		assert_eq!(plugin.scope.allowed_notes(), (1 << 0) | (1 << 4));
 	}
 
 	/// The Unstablizer uses the spectra hero and a header window size.
