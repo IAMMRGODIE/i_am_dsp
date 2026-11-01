@@ -565,6 +565,22 @@ mod ui_contract_tests {
 		}
 	}
 
+	/// The shared renderers need the page's current parameter values; passing
+	/// null silently falls back to every default and detaches a hero from its knobs.
+	#[test]
+	fn heroes_receive_the_current_parameter_values() {
+		assert!(SCRIPT.contains("function heroValues"));
+		assert!(SCRIPT.contains("IAmCard.hero(hero.kind, values"));
+		assert!(
+			!SCRIPT.contains("IAmCard.hero(hero.kind, null"),
+			"the faceplate must not discard its control values"
+		);
+		assert!(
+			CARD_SCRIPT.contains("typeof value === \"boolean\""),
+			"hero values include switches, which are booleans"
+		);
+	}
+
 	/// A mode is a choice: two options and seven options use the same control.
 	#[test]
 	fn a_mode_is_the_shared_select() {

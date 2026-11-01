@@ -401,11 +401,26 @@ var ENV_MAX = 512;
     event.preventDefault();
   }
 
-  function updateHeroes() {
-    heroes.forEach(function (hero) {
-      if (!window.IAmCard || !IAmCard.hero) return;
+  /// The current control values, in the shape the shared card heroes expect.
+  /// Passing this map is what keeps a hero tied to its parameters after the
+  /// renderers moved out of this page and into card.js.
+  function heroValues() {
+    var values = {};
 
-      var content = IAmCard.hero(hero.kind, null, {
+    Object.keys(controls).forEach(function (id) {
+      values[id] = controls[id].value;
+    });
+
+    return values;
+  }
+
+  function updateHeroes() {
+    if (!window.IAmCard || !IAmCard.hero) return;
+
+    var values = heroValues();
+
+    heroes.forEach(function (hero) {
+      var content = IAmCard.hero(hero.kind, values, {
         ir: irState, curve: curveState, stereo: stereoScope, scope: scope,
         rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,

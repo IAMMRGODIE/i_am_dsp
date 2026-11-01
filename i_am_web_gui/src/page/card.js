@@ -163,6 +163,10 @@
 
   function valueOf(values, id, fallback) {
     var value = values ? values[id] : undefined;
+
+    // Switches are booleans in the faceplate's control map, while hero code
+    // reads them as 0/1. Accepting both also fixes the rack's own heroes.
+    if (typeof value === "boolean") return value ? 1 : 0;
     return typeof value === "number" ? value : fallback;
   }
 
