@@ -175,7 +175,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[0]["hero"], "spectrum");
 
 	let kinds = json["kinds"].as_array().expect("kinds");
-	assert_eq!(kinds.len(), 4);
+	assert_eq!(kinds.len(), 5);
 	assert!(kinds.iter().any(|kind| kind["name"] == "Compressor"));
 	assert!(
 		modules[0]["controls"]
@@ -1640,5 +1640,40 @@ automation.0.value=0.25",
 	assert!(
 		(last[0] - 0.125).abs() < 0.01 && (last[1] - 0.125).abs() < 0.01,
 		"the automated parallel gain left {last:?}"
+	);
+}
+
+/// The Delay module holds the signal back by its 250 ms default.
+#[test]
+fn a_delay_module_holds_back_the_signal() {
+	let mut rack = Rack::default();
+
+	let response = command(
+		&rack,
+		"band.0.mute=1
+band.1.mute=1
+band.2.mute=1
+slot.3.add=Delay",
+	);
+	assert_eq!(response.body, b"{\"ok\":true}");
+
+	process(&mut rack, [1.0, 1.0]);
+
+	let mut peak = 0.0_f32;
+	let mut peak_at = 0usize;
+
+	for index in 0..14_000 {
+		let out = process(&mut rack, [0.0, 0.0]);
+
+		if out[0].abs() > peak {
+			peak = out[0].abs();
+			peak_at = index;
+		}
+	}
+
+	assert!(peak > 0.2, "the delayed impulse was only {peak}");
+	assert!(
+		(peak_at as i32 - 11_025).abs() < 100,
+		"the impulse came back at {peak_at} instead of 250 ms"
 	);
 }

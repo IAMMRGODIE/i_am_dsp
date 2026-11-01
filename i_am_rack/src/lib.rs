@@ -2,7 +2,7 @@
 //!
 //! The audio path is a LR4 split into Low / Mid / High, plus a full-range lane
 //! beside them. Each lane holds any number of serial modules (Filter,
-//! Distortion, Compressor, Gain) and a gain/pan/mute/solo stage. Dynamic
+//! Distortion, Compressor, Gain, Delay) and a gain/pan/mute/solo stage. Dynamic
 //! sources (LFO, envelope, random, table, pitch, MIDI) move a matrix across
 //! module parameters and lane controls. The host only automates eight macros and 32
 //! automation slots; everything else lives in one serialized RackState, which

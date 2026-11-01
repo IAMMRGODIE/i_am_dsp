@@ -8,7 +8,8 @@
 use std::collections::BTreeMap;
 
 use i_am_dsp::prelude::{
-	Compressor, Distortion, Effect, Gain, Multimode, Parameter, RectifyEnvelope, Unit, Value,
+	Compressor, Distortion, Effect, Gain, Multimode, Parameter, PureDelay, RectifyEnvelope,
+	Unit, Value,
 };
 
 /// The controls each Multimode algorithm reads; everything else is hidden.
@@ -57,15 +58,18 @@ pub enum ModuleKind {
 	Compressor,
 	/// A plain gain.
 	Gain,
+	/// A pure delay.
+	Delay,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 4] = [
+	pub const ALL: [Self; 5] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
 		Self::Gain,
+		Self::Delay,
 	];
 
 	/// The name a card shows.
@@ -75,6 +79,7 @@ impl ModuleKind {
 			Self::Distortion => "Distortion",
 			Self::Compressor => "Compressor",
 			Self::Gain => "Gain",
+			Self::Delay => "Delay",
 		}
 	}
 
@@ -85,6 +90,7 @@ impl ModuleKind {
 			Self::Distortion => "#ff9a3d",
 			Self::Compressor => "#ef5b5b",
 			Self::Gain => "#35c77a",
+			Self::Delay => "#c77dff",
 		}
 	}
 
@@ -95,6 +101,7 @@ impl ModuleKind {
 			Self::Distortion => "transfer",
 			Self::Compressor => "compressor",
 			Self::Gain => "waveform",
+			Self::Delay => "waveform",
 		}
 	}
 
@@ -102,7 +109,7 @@ impl ModuleKind {
 	pub const fn mode(self) -> Option<&'static str> {
 		match self {
 			Self::Filter | Self::Distortion => Some("mode"),
-			Self::Compressor | Self::Gain => None,
+			Self::Compressor | Self::Gain | Self::Delay => None,
 		}
 	}
 
@@ -119,7 +126,7 @@ impl ModuleKind {
 		match self {
 			Self::Filter => Some(FILTER_VISIBLE),
 			Self::Distortion => Some(DISTORTION_VISIBLE),
-			Self::Compressor | Self::Gain => None,
+			Self::Compressor | Self::Gain | Self::Delay => None,
 		}
 	}
 }
@@ -138,6 +145,11 @@ pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> 
 			4.0,
 		)),
 		ModuleKind::Gain => Box::new(Gain::new(1.0)),
+		ModuleKind::Delay => Box::new(PureDelay::<2>::new(
+			sample_rate * 2 + 8,
+			250.0,
+			sample_rate,
+		)),
 	}
 }
 
@@ -145,7 +157,24 @@ pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> 
 pub(crate) fn schema(kind: ModuleKind) -> Vec<Parameter> {
 	let mut parameters = build(kind, 44_100).get_parameters();
 
-	if kind == ModuleKind::Compressor {
+	if kind == ModuleKind::Delay {
+		for parameter in &mut parameters {
+			match parameter.identifier.as_str() {
+				"delay_time" => {
+					parameter.meta.display_name = Some("Delay".into());
+
+					if let Value::Float { range, .. } = &mut parameter.value {
+						*range = 0.0..=2_000.0;
+					}
+				},
+				"tempo.sync" => parameter.meta.display_name = Some("Sync".into()),
+				"tempo.beats" => parameter.meta.display_name = Some("Time".into()),
+				_ => {},
+			}
+		}
+
+		parameters
+	} else if kind == ModuleKind::Compressor {
 		for parameter in &mut parameters {
 			match parameter.identifier.as_str() {
 				"threshold" => parameter.meta.display_name = Some("Threshold".into()),
