@@ -15,26 +15,36 @@
     return Math.min(high, Math.max(low, value));
   }
 
-  function curveOf(spec) {
-    return spec.curve || null;
+  /// The scale of the smooth logarithmic map used when a logarithmic range
+  /// reaches zero or goes negative. It is 1% of the larger endpoint, so the
+  /// middle of a bipolar knob spends more travel near zero without making the
+  /// ends feel linear.
+  function symlogScale(spec) {
+    return Math.max(Math.abs(spec.min), Math.abs(spec.max), 1e-6) / 100;
   }
 
-  function atanKnee(spec) {
-    var limit = Math.max(Math.abs(spec.min), Math.abs(spec.max), 1);
-    return { limit: limit, knee: Math.max(limit * 0.1, 1e-3) };
+  function symlogNorm(spec, value) {
+    var scale = symlogScale(spec);
+    var low = Math.asinh(spec.min / scale);
+    var high = Math.asinh(spec.max / scale);
+    return high > low ? clamp((Math.asinh(value / scale) - low) / (high - low), 0, 1) : 0;
+  }
+
+  function symlogAt(spec, position) {
+    var scale = symlogScale(spec);
+    var low = Math.asinh(spec.min / scale);
+    var high = Math.asinh(spec.max / scale);
+    return high > low ? Math.sinh(low + clamp(position, 0, 1) * (high - low)) * scale : spec.min;
   }
 
   function norm(spec, value) {
     var low = spec.min;
     var high = spec.max;
 
-    if (curveOf(spec) === "atan") {
-      var k = atanKnee(spec);
-      return 0.5 + Math.atan(value / k.knee) / (2 * Math.atan(k.limit / k.knee));
-    }
-
-    if (spec.log && low > 0 && high > low) {
-      return clamp(Math.log(value / low) / Math.log(high / low), 0, 1);
+    if (spec.log && high > low) {
+      return low > 0
+        ? clamp(Math.log(value / low) / Math.log(high / low), 0, 1)
+        : symlogNorm(spec, value);
     }
 
     return high > low ? clamp((value - low) / (high - low), 0, 1) : 0;
@@ -45,15 +55,13 @@
     var high = spec.max;
     position = clamp(position, 0, 1);
 
-    if (curveOf(spec) === "atan") {
-      var k = atanKnee(spec);
-      return k.knee * Math.tan((position - 0.5) * 2 * Math.atan(k.limit / k.knee));
+    if (spec.log && high > low) {
+      return low > 0
+        ? low * Math.pow(high / low, position)
+        : symlogAt(spec, position);
     }
 
-    var value = spec.log && low > 0 && high > low
-      ? low * Math.pow(high / low, position)
-      : low + (high - low) * position;
-    return clamp(value, low, high);
+    return low + (high - low) * position;
   }
 
   /// A control can override its readout without changing its unit metadata.

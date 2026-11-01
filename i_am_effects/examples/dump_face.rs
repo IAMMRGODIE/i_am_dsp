@@ -21,7 +21,7 @@ use i_am_effects::{
 	ShifterWeb, SpectralRetuneWeb, AUTOTUNE_VISIBLE,
 	UnstablizerWeb, WidthWeb, CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
 	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
-	PITCH_VISIBLE, SHIFTER_CURVES, SHIFTER_VISIBLE,
+	PITCH_VISIBLE, SHIFTER_VISIBLE,
 };
 use i_am_effects::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -182,7 +182,6 @@ fn main() {
 					&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0))
 						.with_mode("algorithm")
 						.with_visible(SHIFTER_VISIBLE)
-						.with_curves(SHIFTER_CURVES)
 						.with_header(&["window_size"]),
 				),
 				i_am_web_gui::state_json(&plugin),

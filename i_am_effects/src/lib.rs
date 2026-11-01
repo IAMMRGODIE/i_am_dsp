@@ -50,7 +50,7 @@ use reverb::ReverbEffect;
 use schroeder::SchroederEffect;
 use shifter::ShifterEffect;
 use unstablizer::UnstablizerEffect;
-pub use shifter::{SHIFTER_CURVES, SHIFTER_VISIBLE};
+pub use shifter::SHIFTER_VISIBLE;
 pub use pitch::PITCH_VISIBLE;
 
 /// The controls each autotune engine reads; the note mask lives in its own
@@ -214,7 +214,6 @@ web_plugin!(
 	"#7aa2ff",
 	mode = "algorithm",
 	visible = SHIFTER_VISIBLE,
-	curves = SHIFTER_CURVES,
 	header = &["window_size"]
 );
 
@@ -1461,8 +1460,7 @@ mod tests {
 	fn the_a_group_has_its_pictures() {
 		let shifter = i_am_web_gui::face_json(
 			&ShifterWeb::new(),
-			&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0))
-				.with_curves(SHIFTER_CURVES),
+			&Faceplate::new("I Am Shifter", "#7aa2ff", (360.0, 230.0)),
 		);
 		let disperser = i_am_web_gui::face_json(
 			&DisperserWeb::new(),
@@ -1475,7 +1473,8 @@ mod tests {
 
 		assert!(shifter.contains("\"hero\":\"spectra\""), "{shifter}");
 		assert!(shifter.contains("\"id\":\"shift_freq\""), "{shifter}");
-		assert!(shifter.contains("\"curves\":{\"shift_freq\":\"atan\"}"), "{shifter}");
+		assert!(shifter.contains("\"log\":true"), "{shifter}");
+		assert!(shifter.contains("\"curves\":null"), "{shifter}");
 		assert!(disperser.contains("\"hero\":\"phase\""), "{disperser}");
 		assert!(disperser.contains("\"id\":\"amount\""), "{disperser}");
 		assert!(disperser.contains("\"id\":\"cutoff\""), "{disperser}");

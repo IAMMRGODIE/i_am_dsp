@@ -6,8 +6,6 @@ use i_am_dsp::prelude::{
 };
 use i_am_dsp_derive::Parameters;
 
-pub const SHIFTER_CURVES: &[(&str, &str)] = &[("shift_freq", "atan")];
-
 pub const SHIFTER_VISIBLE: &[(i32, &[&str])] = &[
 	(0, &["shift_freq"]),
 	(1, &["shift_freq", "window_size"]),
@@ -24,6 +22,7 @@ pub struct ShifterEffect {
 
 	/// The frequency shift, in Hz.
 	#[range(min = -20000.0, max = 20000.0)]
+	#[logarithmic]
 	#[unit(hertz)]
 	#[default(0.0)]
 	#[id(display = "Shift")]

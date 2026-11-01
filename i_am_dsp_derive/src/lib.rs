@@ -114,7 +114,7 @@ use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Fi
 /// - `serde`: Use serde to serialize and deserialize the parameter.
 /// - `skip`: A skip attribute that specifies that the field should be skipped when deriving the `Parameters` trait.
 /// - `sub_param`: A sub_param attribute that specifies that the field is a sub-parameter struct.
-/// - `logarithmic`: A logarithmic attribute that specifies that the parameter should be displayed in logarithmic scale. Parameters with `logarithmic` must be positive.
+/// - `logarithmic`: A logarithmic attribute that specifies that the parameter should be displayed in logarithmic scale. A range that reaches zero or crosses it uses a smooth symmetric-log curve instead of `ln`.
 /// - `default`: The value the parameter starts at, so that a host can offer "reset to default" instead of guessing the minimum: `#[default(0.8)]`, `#[default(false)]`.
 ///
 ///   **Declare it wherever there is an answer to give.** A host that is not told falls back to the bottom of the range, which is rarely where an effect starts: a synced time comes back as a thirty-second note instead of a beat, a gain at its quietest instead of at unity. The one case that should be left alone is a parameter whose starting value is an argument to the constructor — a delay time, a sample rate — because then there is no single answer to write down.
@@ -264,19 +264,12 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 		if let Some(range) = &config.range {
 			let kind = classify_type(field_type);
 			match (range, kind) {
-				(ParamRange::Float(min, max), Some(FieldKind::Float)) => {
-					if config.logarithmic && (*min <= 0.0 || *max <= 0.0) {
-						return Err(Error::new_spanned(member, "Logarithmic attribute must be positive"));
-					}
-				}
+				(ParamRange::Float(..), Some(FieldKind::Float)) => {}
 				(ParamRange::Int(min, max), Some(kind)) if matches!(kind, FieldKind::Signed | FieldKind::Unsigned) => {
 					let min = *min;
 					let max = *max;
 					if matches!(kind, FieldKind::Unsigned) && (min < 0 || max < 0) {
 						return Err(Error::new_spanned(member, "Unsigned integer range attribute must be non-negative"));
-					}
-					if config.logarithmic && (min <= 0 || max <= 0) {
-						return Err(Error::new_spanned(member, "Logarithmic attribute must be positive"));
 					}
 				}
 				(ParamRange::Float(..), _) => {

@@ -18,7 +18,13 @@ fn log_range(param: &AtomicValue) -> Option<(f64, f64)> {
 
 	let low = *range.start() as f64;
 	let high = *range.end() as f64;
-	(*logarithmic && low > 0.0 && high > low).then_some((low, high))
+	(*logarithmic && high > low).then_some((low, high))
+}
+
+/// The scale of the smooth logarithmic map used when the range reaches zero or
+/// crosses it. It is 1% of the larger endpoint, matching the faceplate curve.
+fn symlog_scale(low: f64, high: f64) -> f64 {
+	low.abs().max(high.abs()).max(1e-6) / 100.0
 }
 
 fn to_host_value(param: &AtomicValue, actual: f64) -> f64 {
@@ -26,10 +32,17 @@ fn to_host_value(param: &AtomicValue, actual: f64) -> f64 {
 		return actual;
 	};
 
-	if actual <= low {
-		0.0
+	if low > 0.0 {
+		if actual <= low {
+			0.0
+		} else {
+			((actual / low).ln() / (high / low).ln()).clamp(0.0, 1.0)
+		}
 	} else {
-		((actual / low).ln() / (high / low).ln()).clamp(0.0, 1.0)
+		let scale = symlog_scale(low, high);
+		let low_scaled = (low / scale).asinh();
+		let high_scaled = (high / scale).asinh();
+		(((actual / scale).asinh() - low_scaled) / (high_scaled - low_scaled)).clamp(0.0, 1.0)
 	}
 }
 
@@ -38,7 +51,15 @@ fn from_host_value(param: &AtomicValue, normalized: f64) -> f64 {
 		return normalized;
 	};
 
-	low * (high / low).powf(normalized.clamp(0.0, 1.0))
+	let normalized = normalized.clamp(0.0, 1.0);
+	if low > 0.0 {
+		low * (high / low).powf(normalized)
+	} else {
+		let scale = symlog_scale(low, high);
+		let low_scaled = (low / scale).asinh();
+		let high_scaled = (high / scale).asinh();
+		(low_scaled + normalized * (high_scaled - low_scaled)).sinh() * scale
+	}
 }
 
 pub(crate) fn note_event_to_clap<'a>(to_send: &mut OutputEvents<'a>, offset: usize, note_event: i_am_dsp::NoteEvent) -> Result<(), PluginError> {
@@ -405,6 +426,23 @@ mod tests {
 		let middle = from_host_value(&param, 0.5);
 		assert!((middle - 632.455).abs() < 0.01, "got {middle}");
 		assert!((to_host_value(&param, middle) - 0.5).abs() < 1e-5);
+	}
+
+	#[test]
+	fn a_bipolar_logarithmic_parameter_round_trips_through_zero() {
+		let param = Value::Float {
+			value: 0.0,
+			range: -20_000.0..=20_000.0,
+			logarithmic: true,
+		}
+		.to_atomic_value();
+
+		assert!((from_host_value(&param, 0.5) - 0.0).abs() < 1e-9);
+		assert!((to_host_value(&param, 0.0) - 0.5).abs() < 1e-9);
+
+		let quarter = from_host_value(&param, 0.25);
+		assert!(quarter < 0.0);
+		assert!((to_host_value(&param, quarter) - 0.25).abs() < 1e-6);
 	}
 
 	#[test]

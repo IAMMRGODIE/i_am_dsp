@@ -114,36 +114,47 @@ var ENV_MAX = 512;
 
   /// The number shown in a knob's editor, in the unit the readout uses.
   // ------------------------------------------------------------ value space
-  function curveOf(spec) {
-    return face && face.curves ? face.curves[spec.id] : null;
+  /// The scale of the smooth logarithmic map used when a logarithmic range
+  /// reaches zero or goes negative.
+  function symlogScale(spec) {
+    return Math.max(Math.abs(spec.min), Math.abs(spec.max), 1e-6) / 100;
   }
 
-  function atanKnee(spec) {
-    var limit = Math.max(Math.abs(spec.min), Math.abs(spec.max), 1);
-    return { limit: limit, knee: Math.max(limit * 0.1, 1e-3) };
+  function symlogNorm(spec, value) {
+    var scale = symlogScale(spec);
+    var low = Math.asinh(spec.min / scale);
+    var high = Math.asinh(spec.max / scale);
+    return high > low ? clamp((Math.asinh(value / scale) - low) / (high - low), 0, 1) : 0;
+  }
+
+  function symlogAt(spec, position) {
+    var scale = symlogScale(spec);
+    var low = Math.asinh(spec.min / scale);
+    var high = Math.asinh(spec.max / scale);
+    return high > low ? Math.sinh(low + clamp(position, 0, 1) * (high - low)) * scale : spec.min;
   }
 
   function norm(spec, value) {
     if (spec.max === spec.min) return 0;
 
-    if (curveOf(spec) === "atan") {
-      var k = atanKnee(spec);
-      return 0.5 + Math.atan(value / k.knee) / (2 * Math.atan(k.limit / k.knee));
+    if (spec.log && spec.max > spec.min) {
+      return spec.min > 0
+        ? Math.log(value / spec.min) / Math.log(spec.max / spec.min)
+        : symlogNorm(spec, value);
     }
 
-    if (spec.log && spec.min > 0) return Math.log(value / spec.min) / Math.log(spec.max / spec.min);
     return (value - spec.min) / (spec.max - spec.min);
   }
 
   function at(spec, position) {
     position = clamp(position, 0, 1);
 
-    if (curveOf(spec) === "atan") {
-      var k = atanKnee(spec);
-      return k.knee * Math.tan((position - 0.5) * 2 * Math.atan(k.limit / k.knee));
+    if (spec.log && spec.max > spec.min) {
+      return spec.min > 0
+        ? spec.min * Math.pow(spec.max / spec.min, position)
+        : symlogAt(spec, position);
     }
 
-    if (spec.log && spec.min > 0) return spec.min * Math.pow(spec.max / spec.min, position);
     return spec.min + position * (spec.max - spec.min);
   }
 
@@ -222,8 +233,6 @@ var ENV_MAX = 512;
 
   function buildKnob(control) {
     var spec = control.spec;
-    spec.curve = curveOf(spec);
-
     var handle = IAmCard.controlHandle(spec, control.value, function (_, value) {
       setValue(control, value, true);
     });

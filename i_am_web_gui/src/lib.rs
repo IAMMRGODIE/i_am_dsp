@@ -572,6 +572,18 @@ mod ui_contract_tests {
 		}
 	}
 
+	/// A logarithmic range that reaches zero or crosses it uses the same symlog
+	/// curve in both the card and the faceplate, so the freq shifter no longer
+	/// needs its own atan curve.
+	#[test]
+	fn bipolar_log_parameters_use_symlog_in_both_pages() {
+		for script in [CARD_SCRIPT, include_str!("page/kit.js")] {
+			assert!(script.contains("Math.asinh"), "missing symlog forward map");
+			assert!(script.contains("Math.sinh"), "missing symlog inverse map");
+			assert!(!script.contains("atanKnee"), "the old atan curve is still present");
+		}
+	}
+
 	/// A control can replace its formatted readout without changing its unit.
 	#[test]
 	fn a_control_can_override_its_readout() {
