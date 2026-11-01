@@ -2138,38 +2138,10 @@ var ENV_MAX = 512;
 
   function updateHeroes() {
     heroes.forEach(function (hero) {
-      if (hero.kind === "compressor") hero.el.innerHTML = compressorSvg();
-      else if (hero.kind === "eq") hero.el.innerHTML = eqSvg();
-      else if (hero.kind === "gate" || hero.kind === "expander" || hero.kind === "limiter") {
-        hero.el.innerHTML = dynamicsSvg(hero.kind);
-      }
-      else if (hero.kind === "tail") {
-        var seconds = clamp(valueOf("decay_time", 2200), 100, 10000) / 1000;
-        hero.el.innerHTML = tailSvg() +
-          '<div class="hero-badge">T60 ' + seconds.toFixed(1) + ' s</div>';
-      }
-      else if (hero.kind === "lfo") {
-        hero.el.innerHTML = lfoSvg() +
-          (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");
-      }
-      else if (hero.kind === "taps") {
-        hero.el.innerHTML = tapsSvg() +
-          (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");
-      }
-      else if (hero.kind === "waveform") hero.el.innerHTML = waveformSvg();
-      else if (hero.kind === "transfer") hero.el.innerHTML = transferSvg() + rmsBadge();
-      else if (hero.kind === "spectrum") hero.el.innerHTML = spectrumSvg();
-      else if (hero.kind === "spectra") hero.el.innerHTML = spectraSvg();
-      else if (hero.kind === "phase") hero.el.innerHTML = phaseSvg();
-      else if (hero.kind === "balance") hero.el.innerHTML = balanceSvg();
-      else if (hero.kind === "stereo") hero.el.innerHTML = stereoSvg();
-  else if (hero.kind === "particles") hero.el.innerHTML = particlesSvg();
-      else if (hero.kind === "pitch") hero.el.innerHTML = pitchSvg() + pitchBadge();
-      else if (hero.kind === "impulse") hero.el.innerHTML = impulseSvg();
-      else if (hero.kind === "curve") hero.el.innerHTML = curveSvg();
-      else if (hero.kind === "mapping") hero.el.innerHTML = mappingSvg();
-      else if (hero.kind === "ott") hero.el.innerHTML = ottSvg();
-      else if (hero.kind === "vocodex") hero.el.innerHTML = vocoderSvg();
+      if (!window.IAmCard || !IAmCard.hero) return;
+
+      var content = IAmCard.hero(hero.kind);
+      if (content) hero.el.innerHTML = content;
     });
   }
 
@@ -3189,6 +3161,40 @@ var ENV_MAX = 512;
     new ResizeObserver(function () {
       requestAnimationFrame(applyScale);
     }).observe(app);
+  }
+
+  // The product page has richer, live heroes for the kinds the rack only draws
+  // statically; register them over the card's defaults.
+  if (window.IAmCard && IAmCard.registerHero) {
+    IAmCard.registerHero("compressor", compressorSvg);
+    IAmCard.registerHero("eq", eqSvg);
+    IAmCard.registerHero("gate", function () { return dynamicsSvg("gate"); });
+    IAmCard.registerHero("expander", function () { return dynamicsSvg("expander"); });
+    IAmCard.registerHero("limiter", function () { return dynamicsSvg("limiter"); });
+    IAmCard.registerHero("tail", function () {
+      var seconds = clamp(valueOf("decay_time", 2200), 100, 10000) / 1000;
+      return tailSvg() + '<div class="hero-badge">T60 ' + seconds.toFixed(1) + ' s</div>';
+    });
+    IAmCard.registerHero("lfo", function () {
+      return lfoSvg() + (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");
+    });
+    IAmCard.registerHero("taps", function () {
+      return tapsSvg() + (valueOf("tempo.sync", 0) ? '<div class="hero-badge">SYNC</div>' : "");
+    });
+    IAmCard.registerHero("waveform", waveformSvg);
+    IAmCard.registerHero("transfer", function () { return transferSvg() + rmsBadge(); });
+    IAmCard.registerHero("spectrum", spectrumSvg);
+    IAmCard.registerHero("spectra", spectraSvg);
+    IAmCard.registerHero("phase", phaseSvg);
+    IAmCard.registerHero("balance", balanceSvg);
+    IAmCard.registerHero("stereo", stereoSvg);
+    IAmCard.registerHero("particles", particlesSvg);
+    IAmCard.registerHero("pitch", function () { return pitchSvg() + pitchBadge(); });
+    IAmCard.registerHero("impulse", impulseSvg);
+    IAmCard.registerHero("curve", curveSvg);
+    IAmCard.registerHero("mapping", mappingSvg);
+    IAmCard.registerHero("ott", ottSvg);
+    IAmCard.registerHero("vocodex", vocoderSvg);
   }
 
   fetch("/face", { cache: "no-store" })

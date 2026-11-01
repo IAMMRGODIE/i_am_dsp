@@ -333,13 +333,21 @@
     );
   }
 
-  function hero(kind, values) {
-    if (kind === "spectrum") return spectrumHero(values);
-    if (kind === "transfer") return transferHero(values);
-    if (kind === "compressor") return compressorHero(values);
-    if (kind === "waveform") return waveformHero(values);
-    return "";
+  var HEROES = Object.create(null);
+
+  function registerHero(kind, renderer) {
+    HEROES[kind] = renderer;
   }
+
+  function hero(kind, values) {
+    var renderer = HEROES[kind];
+    return renderer ? renderer(values) : "";
+  }
+
+  registerHero("spectrum", spectrumHero);
+  registerHero("transfer", transferHero);
+  registerHero("compressor", compressorHero);
+  registerHero("waveform", waveformHero);
 
   function makeKnob(spec, value, onEdit) {
     var wrap = document.createElement("div");
@@ -973,6 +981,7 @@
     choiceHandle: makeChoiceHandle,
     sliderHandle: makeSliderHandle,
     hero: hero,
+    registerHero: registerHero,
     format: format,
     norm: norm,
     at: at
