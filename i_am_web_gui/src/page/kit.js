@@ -734,246 +734,6 @@ var ENV_MAX = 512;
     return path;
   }
 
-  var BANDS = 96;
-
-  function fft(real, imag) {
-    var n = real.length;
-
-    for (var i = 1, j = 0; i < n; i++) {
-      var bit = n >> 1;
-      for (; j & bit; bit >>= 1) j ^= bit;
-      j ^= bit;
-
-      if (i < j) {
-        var tr = real[i]; real[i] = real[j]; real[j] = tr;
-        var ti = imag[i]; imag[i] = imag[j]; imag[j] = ti;
-      }
-    }
-
-    for (var length = 2; length <= n; length <<= 1) {
-      var angle = -2 * Math.PI / length;
-      var stepR = Math.cos(angle);
-      var stepI = Math.sin(angle);
-      var half = length >> 1;
-
-      for (var start = 0; start < n; start += length) {
-        var wr = 1, wi = 0;
-
-        for (var k = 0; k < half; k++) {
-          var ar = real[start + k], ai = imag[start + k];
-          var br = real[start + k + half], bi = imag[start + k + half];
-          var vr = br * wr - bi * wi;
-          var vi = br * wi + bi * wr;
-
-          real[start + k] = ar + vr;
-          imag[start + k] = ai + vi;
-          real[start + k + half] = ar - vr;
-          imag[start + k + half] = ai - vi;
-
-          var nextR = wr * stepR - wi * stepI;
-          wi = wr * stepI + wi * stepR;
-          wr = nextR;
-        }
-      }
-    }
-  }
-
-  /// Log-spaced bands in dBFS, so a spectrum can share the response's x axis.
-  ///
-  /// Four times zero padding gives every band several bins, so a band can keep
-  /// the loudest bin without looking like a comb; the triangular filter below
-  /// smooths the result across neighbouring bands. Averaging the power over a
-  /// band would make the same tone quieter the higher it sits, because a high
-  /// band covers far more bins than a low one.
-  function bandsOf(samples, rate) {
-    var n = samples.length;
-    if (!n || (n & (n - 1)) !== 0) return null;
-
-    var fftLength = n * 4;
-    var real = new Float32Array(fftLength);
-    var imag = new Float32Array(fftLength);
-
-    for (var i = 0; i < n; i++) {
-      var window = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
-      real[i] = samples[i] * window;
-    }
-
-    fft(real, imag);
-
-    var raw = new Float32Array(BANDS);
-    var filled = new Uint8Array(BANDS);
-
-    for (var k = 1; k < fftLength / 2; k++) {
-      var frequency = k * rate / fftLength;
-      if (frequency < 20 || frequency > 20000) continue;
-
-      var magnitude = 4 * Math.sqrt(real[k] * real[k] + imag[k] * imag[k]) / n;
-      var band = Math.floor(Math.log(frequency / 20) / Math.log(1000) * BANDS);
-
-      if (band < 0) band = 0;
-      if (band >= BANDS) band = BANDS - 1;
-      if (magnitude > raw[band]) {
-        raw[band] = magnitude;
-        filled[band] = 1;
-      }
-    }
-
-    // The lowest log bands are narrower than one FFT bin, so a band can fall
-    // between two bins and read as silence; that left a single dead point at the
-    // left edge of every spectrum. A band with no bin is unmeasured, not quiet,
-    // so take the nearest measured neighbour instead.
-    var first = 0;
-    while (first < BANDS && !filled[first]) first++;
-    if (first < BANDS) {
-      for (var b = 0; b < first; b++) raw[b] = raw[first];
-      var carry = raw[first];
-      for (var b = first; b < BANDS; b++) {
-        if (filled[b]) carry = raw[b];
-        else raw[b] = carry;
-      }
-    }
-
-    for (var b = 0; b < BANDS; b++) {
-      raw[b] = 20 * Math.log10(Math.max(raw[b], 1e-7));
-    }
-
-    // A short triangular filter across neighbouring bands. The response curve
-    // is analytic; the spectrum is measured, and a few pixels of smoothing make
-    // the two readable together without hiding the shape of either.
-    var smooth = new Float32Array(BANDS);
-    var weights = [1, 2, 1];
-
-    for (var c = 0; c < BANDS; c++) {
-      var sum = 0;
-      var weight = 0;
-
-      for (var w = -1; w <= 1; w++) {
-        var index = clamp(c + w, 0, BANDS - 1);
-        var factor = weights[w + 1];
-        sum += raw[index] * factor;
-        weight += factor;
-      }
-
-      // A tone can live in a single band; averaging it with empty neighbours
-      // would make it quieter the higher it is. Keep the band's own peak and use
-      // the average only to lift the gaps between measured bands.
-      smooth[c] = Math.max(raw[c], sum / weight);
-    }
-
-    return smooth;
-  }
-
-  function smoothBands(previous, next) {
-    if (!previous || previous.length !== next.length) return next;
-
-    for (var i = 0; i < next.length; i++) {
-      previous[i] += (next[i] - previous[i]) * 0.28;
-    }
-
-    return previous;
-  }
-
-  function bandsPath(bands) {
-    var path = "";
-
-    for (var i = 0; i < bands.length; i++) {
-      var x = 20 + i / (BANDS - 1) * 480;
-      var y = clamp(10 + clamp(-bands[i] / 60, 0, 1) * 140, 10, 150);
-      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
-    }
-
-    return path;
-  }
-
-  function spectrumSvg() {
-    var cutoff = Math.max(valueOf("cutoff", 1000), 10);
-    var q = Math.max(valueOf("q", 0.707), 0.05);
-    var mode = Math.round(valueOf("mode", 0));
-    var gainDb = valueOf("gain_db", 0);
-    var slope = Math.max(valueOf("slope", 1), 0.5);
-    var sections = mode < 4
-      ? clamp(Math.round(valueOf("stages", 0)) + 1, 1, 4)
-      : 1;
-    var magnitudes = [];
-
-    for (var i = 0; i < 80; i++) {
-      var frequency = 20 * Math.pow(1000, i / 79);
-      var ratio = frequency / cutoff;
-      var denominator = Math.sqrt(
-        Math.pow(1 - ratio * ratio, 2) + Math.pow(ratio / q, 2)
-      );
-      var magnitude;
-
-      if (mode === 1) magnitude = (ratio * ratio) / denominator;
-      else if (mode === 2) magnitude = (ratio / q) / denominator;
-      else if (mode === 3) magnitude = Math.abs(1 - ratio * ratio) / denominator;
-      else if (mode === 4) {
-        var peakGain = Math.pow(10, gainDb / 20);
-        var octaves = Math.max(0.08, Math.log2(1 + 1 / q));
-        var bump = Math.exp(-0.5 * Math.pow(Math.log2(ratio) / octaves, 2));
-        magnitude = 1 + (peakGain - 1) * bump;
-      } else if (mode === 5 || mode === 6) {
-        var shelfGain = Math.pow(10, gainDb / 20);
-        var transition = 1 / (1 + Math.pow(ratio, 4 * slope));
-        magnitude = mode === 5
-          ? 1 + (shelfGain - 1) * transition
-          : 1 + (shelfGain - 1) * (1 - transition);
-      } else magnitude = 1 / denominator;
-
-      if (mode < 4) magnitude = Math.pow(magnitude, sections);
-
-      magnitudes.push(magnitude);
-    }
-
-    var loudest = Math.max.apply(null, magnitudes);
-    var response = "";
-
-    for (var j = 0; j < magnitudes.length; j++) {
-      var decibels = 20 * Math.log10(Math.max(magnitudes[j] / loudest, 1e-6));
-      var x = 20 + j / 79 * 480;
-      var y = clamp(10 + (1 - (1 + decibels / 40)) * 140, 10, 150);
-      response += (j ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
-    }
-
-    var inputPath = "";
-    var outputPath = "";
-    var rate = face.rate || 48000;
-
-    if (scope.input && scope.output) {
-      var inputBands = bandsOf(scope.input, rate);
-      var outputBands = bandsOf(scope.output, rate);
-
-      if (inputBands && outputBands) {
-        spectra.input = smoothBands(spectra.input, inputBands);
-        spectra.output = smoothBands(spectra.output, outputBands);
-        inputPath = bandsPath(spectra.input);
-        outputPath = bandsPath(spectra.output);
-      }
-    }
-
-    return heroSvg(
-      (inputPath
-        ? '<path d="' + inputPath + '" fill="none" stroke="#8a8a8a" stroke-width="1.2" ' +
-          'opacity=".7" vector-effect="non-scaling-stroke"/>'
-        : "") +
-      (outputPath
-        ? '<path d="' + outputPath + ' L 500 150 L 20 150 Z" fill="' + accent + '" ' +
-            'fill-opacity=".06"/>' +
-          '<path d="' + outputPath + '" fill="none" stroke="' + accent + '" stroke-width="1.5" ' +
-            'opacity=".9" vector-effect="non-scaling-stroke"/>'
-        : "") +
-      '<path d="' + response + '" fill="none" stroke="' + accent + '" stroke-width="2" ' +
-        'opacity=".95" vector-effect="non-scaling-stroke"/>'
-    );
-  }
-
-  /// A stereo meter: input and output L/R plotted on one goniometer. The x axis
-  /// is the side field (L - R) and y is the mid field (L + R); a wider Width
-  /// opens the accent cloud horizontally. Grey is before, accent is after.
-  /// A semitone ruler: the pitch factor is a ratio, so the picture reads it as
-  /// the semitones a person actually hears.
-  /// A frequency mapping: input to output frequency on a log/log plot at the top,
-  /// and the amplitude the script returns along the bottom.
   function escapeXml(value) {
     return String(value === null || value === undefined ? "" : value)
       .replace(/&/g, "&amp;")
@@ -984,38 +744,6 @@ var ENV_MAX = 512;
 
   /// The scripted transfer function: a shaped curve over the input range, with
   /// the identity line for reference.
-  function spectraSvg() {
-    if (!scope.input || !scope.output) {
-      return heroSvg(
-        '<line x1="20" y1="140" x2="500" y2="140" stroke="#2c2c2c" stroke-width="1"/>'
-      );
-    }
-
-    var rate = face.rate || 48000;
-    // A vocoder's useful "before" is the modulator, not its own carrier: when the
-    // sidechain is on, draw that instead so the two traces show the transfer.
-    var before = valueOf("sidechain", 0) && scope.sidechain ? scope.sidechain : scope.input;
-    var inputBands = bandsOf(before, rate);
-    var outputBands = bandsOf(scope.output, rate);
-
-    if (!inputBands || !outputBands) return "";
-
-    spectra.input = smoothBands(spectra.input, inputBands);
-    spectra.output = smoothBands(spectra.output, outputBands);
-
-    return heroSvg(
-      '<path d="' + bandsPath(spectra.input) + '" fill="none" stroke="#8a8a8a" ' +
-        'stroke-width="1.2" opacity=".7" vector-effect="non-scaling-stroke"/>' +
-      '<path d="' + bandsPath(spectra.output) + '" fill="none" stroke="' + accent + '" ' +
-        'stroke-width="1.8" vector-effect="non-scaling-stroke"/>'
-    );
-  }
-
-  /// The delay's repeats as a short time line. Synced repeats follow the beats at
-  /// 120 BPM for the picture; the audio, of course, follows the host's tempo.
-  /// Left: the transfer curve on a square that stays left. Right: a scrolling
-  /// before/after level envelope that fills the rest. The wheel over the right
-  /// panel changes the visible time window, which changes how fast it moves.
   function compressorSvg() {
     var threshold = clamp(valueOf("threshold", -24), -60, 0);
     var ratio = Math.max(valueOf("ratio", 4), 1);
@@ -1262,17 +990,17 @@ var ENV_MAX = 512;
     if (scope.input && scope.output) {
       if (eqSpectrum.input !== scope.input || eqSpectrum.output !== scope.output ||
           eqSpectrum.rate !== rate) {
-        var inputBands = bandsOf(scope.input, rate);
-        var outputBands = bandsOf(scope.output, rate);
+        var inputBands = IAmCard.bandsOf(scope.input, rate);
+        var outputBands = IAmCard.bandsOf(scope.output, rate);
 
         if (inputBands && outputBands) {
-          spectra.input = smoothBands(spectra.input, inputBands);
-          spectra.output = smoothBands(spectra.output, outputBands);
+          spectra.input = IAmCard.smoothBands(spectra.input, inputBands);
+          spectra.output = IAmCard.smoothBands(spectra.output, outputBands);
           eqSpectrum.input = scope.input;
           eqSpectrum.output = scope.output;
           eqSpectrum.rate = rate;
-          eqSpectrum.inputPath = bandsPath(spectra.input);
-          eqSpectrum.outputPath = bandsPath(spectra.output);
+          eqSpectrum.inputPath = IAmCard.bandsPath(spectra.input);
+          eqSpectrum.outputPath = IAmCard.bandsPath(spectra.output);
         }
       }
 
@@ -1401,6 +1129,7 @@ var ENV_MAX = 512;
 
       var content = IAmCard.hero(hero.kind, null, {
         ir: irState, curve: curveState, stereo: stereoScope, scope: scope,
+        rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,
         ott: ottState, vocoder: vocoderState
       });
@@ -2372,8 +2101,6 @@ var ENV_MAX = 512;
   if (window.IAmCard && IAmCard.registerHero) {
     IAmCard.registerHero("compressor", compressorSvg);
     IAmCard.registerHero("eq", eqSvg);
-    IAmCard.registerHero("spectrum", spectrumSvg);
-    IAmCard.registerHero("spectra", spectraSvg);
   }
 
   fetch("/face", { cache: "no-store" })

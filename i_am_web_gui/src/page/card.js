@@ -178,6 +178,141 @@
       '</svg>';
   }
 
+  var BANDS = 96;
+
+  function fft(real, imag) {
+    var n = real.length;
+
+    for (var i = 1, j = 0; i < n; i++) {
+      var bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+
+      if (i < j) {
+        var tr = real[i]; real[i] = real[j]; real[j] = tr;
+        var ti = imag[i]; imag[i] = imag[j]; imag[j] = ti;
+      }
+    }
+
+    for (var length = 2; length <= n; length <<= 1) {
+      var angle = -2 * Math.PI / length;
+      var stepR = Math.cos(angle);
+      var stepI = Math.sin(angle);
+      var half = length >> 1;
+
+      for (var start = 0; start < n; start += length) {
+        var wr = 1, wi = 0;
+
+        for (var k = 0; k < half; k++) {
+          var ar = real[start + k], ai = imag[start + k];
+          var br = real[start + k + half], bi = imag[start + k + half];
+          var vr = br * wr - bi * wi;
+          var vi = br * wi + bi * wr;
+
+          real[start + k] = ar + vr;
+          imag[start + k] = ai + vi;
+          real[start + k + half] = ar - vr;
+          imag[start + k + half] = ai - vi;
+
+          var nextR = wr * stepR - wi * stepI;
+          wi = wr * stepI + wi * stepR;
+          wr = nextR;
+        }
+      }
+    }
+  }
+
+  /// Log-spaced bands in dBFS, so a spectrum can share the response's x axis.
+  function bandsOf(samples, rate) {
+    var n = samples.length;
+    if (!n || (n & (n - 1)) !== 0) return null;
+
+    var fftLength = n * 4;
+    var real = new Float32Array(fftLength);
+    var imag = new Float32Array(fftLength);
+
+    for (var i = 0; i < n; i++) {
+      var window = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
+      real[i] = samples[i] * window;
+    }
+
+    fft(real, imag);
+
+    var raw = new Float32Array(BANDS);
+    var filled = new Uint8Array(BANDS);
+
+    for (var k = 1; k < fftLength / 2; k++) {
+      var frequency = k * rate / fftLength;
+      if (frequency < 20 || frequency > 20000) continue;
+
+      var magnitude = 4 * Math.sqrt(real[k] * real[k] + imag[k] * imag[k]) / n;
+      var band = Math.floor(Math.log(frequency / 20) / Math.log(1000) * BANDS);
+
+      if (band < 0) band = 0;
+      if (band >= BANDS) band = BANDS - 1;
+      if (magnitude > raw[band]) {
+        raw[band] = magnitude;
+        filled[band] = 1;
+      }
+    }
+
+    var first = 0;
+    while (first < BANDS && !filled[first]) first++;
+    if (first < BANDS) {
+      for (var b = 0; b < first; b++) raw[b] = raw[first];
+      var carry = raw[first];
+      for (var b = first; b < BANDS; b++) {
+        if (filled[b]) carry = raw[b];
+        else raw[b] = carry;
+      }
+    }
+
+    for (var b = 0; b < BANDS; b++) {
+      raw[b] = 20 * Math.log10(Math.max(raw[b], 1e-7));
+    }
+
+    var smooth = new Float32Array(BANDS);
+    var weights = [1, 2, 1];
+
+    for (var c = 0; c < BANDS; c++) {
+      var sum = 0;
+      var weight = 0;
+
+      for (var w = -1; w <= 1; w++) {
+        var index = clamp(c + w, 0, BANDS - 1);
+        var factor = weights[w + 1];
+        sum += raw[index] * factor;
+        weight += factor;
+      }
+
+      smooth[c] = Math.max(raw[c], sum / weight);
+    }
+
+    return smooth;
+  }
+
+  function smoothBands(previous, next) {
+    if (!previous || previous.length !== next.length) return next;
+
+    for (var i = 0; i < next.length; i++) {
+      previous[i] += (next[i] - previous[i]) * 0.28;
+    }
+
+    return previous;
+  }
+
+  function bandsPath(bands) {
+    var path = "";
+
+    for (var i = 0; i < bands.length; i++) {
+      var x = 20 + i / (BANDS - 1) * 480;
+      var y = clamp(10 + clamp(-bands[i] / 60, 0, 1) * 140, 10, 150);
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    return path;
+  }
+
   function correlation(left, right) {
     if (!left || !right || left.length < 2) return 0;
 
@@ -226,7 +361,7 @@
     return path;
   }
 
-  function spectrumHero(values) {
+  function spectrumHero(values, context) {
     var cutoff = Math.max(valueOf(values, "cutoff", 1000), 10);
     var q = Math.max(valueOf(values, "q", 0.707), 0.05);
     var mode = Math.round(valueOf(values, "mode", 0));
@@ -276,9 +411,65 @@
       points.push((j ? "L " : "M ") + x.toFixed(1) + " " + y.toFixed(1));
     }
 
+    var inputPath = "";
+    var outputPath = "";
+    var scope = context && context.scope;
+    var spectraState = context && context.spectra;
+    var rate = (context && context.rate) || 48000;
+
+    if (scope && scope.input && scope.output && spectraState) {
+      var inputBands = bandsOf(scope.input, rate);
+      var outputBands = bandsOf(scope.output, rate);
+
+      if (inputBands && outputBands) {
+        spectraState.input = smoothBands(spectraState.input, inputBands);
+        spectraState.output = smoothBands(spectraState.output, outputBands);
+        inputPath = bandsPath(spectraState.input);
+        outputPath = bandsPath(spectraState.output);
+      }
+    }
+
     return heroSvg(
+      (inputPath
+        ? '<path d="' + inputPath + '" fill="none" stroke="#8a8a8a" stroke-width="1.2" ' +
+          'opacity=".7" vector-effect="non-scaling-stroke"/>'
+        : "") +
+      (outputPath
+        ? '<path d="' + outputPath + ' L 500 150 L 20 150 Z" fill="var(--accent)" ' +
+            'fill-opacity=".06"/>' +
+          '<path d="' + outputPath + '" fill="none" stroke="var(--accent)" stroke-width="1.5" ' +
+            'opacity=".9" vector-effect="non-scaling-stroke"/>'
+        : "") +
       '<path d="' + points.join(" ") + '" fill="none" stroke="var(--accent)" ' +
-      'stroke-width="2" vector-effect="non-scaling-stroke"/>'
+        'stroke-width="2" opacity=".95" vector-effect="non-scaling-stroke"/>'
+    );
+  }
+
+  function spectraHero(values, context) {
+    var scope = context && context.scope;
+    var spectraState = context && context.spectra;
+
+    if (!scope || !scope.input || !scope.output || !spectraState) {
+      return heroSvg(
+        '<line x1="20" y1="140" x2="500" y2="140" stroke="#2c2c2c" stroke-width="1"/>'
+      );
+    }
+
+    var rate = (context && context.rate) || 48000;
+    var before = valueOf(values, "sidechain", 0) && scope.sidechain ? scope.sidechain : scope.input;
+    var inputBands = bandsOf(before, rate);
+    var outputBands = bandsOf(scope.output, rate);
+
+    if (!inputBands || !outputBands) return "";
+
+    spectraState.input = smoothBands(spectraState.input, inputBands);
+    spectraState.output = smoothBands(spectraState.output, outputBands);
+
+    return heroSvg(
+      '<path d="' + bandsPath(spectraState.input) + '" fill="none" stroke="#8a8a8a" ' +
+        'stroke-width="1.2" opacity=".7" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + bandsPath(spectraState.output) + '" fill="none" stroke="var(--accent)" ' +
+        'stroke-width="1.8" vector-effect="non-scaling-stroke"/>'
     );
   }
 
@@ -1088,6 +1279,7 @@
   }
 
   registerHero("spectrum", spectrumHero);
+  registerHero("spectra", spectraHero);
   registerHero("transfer", transferHero);
   registerHero("compressor", compressorHero);
   registerHero("impulse", impulseHero);
@@ -1741,6 +1933,9 @@
     sliderHandle: makeSliderHandle,
     hero: hero,
     registerHero: registerHero,
+    bandsOf: bandsOf,
+    smoothBands: smoothBands,
+    bandsPath: bandsPath,
     format: format,
     norm: norm,
     at: at
