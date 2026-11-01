@@ -541,7 +541,7 @@
     return { el: wrap, set: set };
   }
 
-  function makeChoice(spec, value, onEdit, className) {
+  function makeChoiceHandle(spec, value, onEdit, className) {
     var select = document.createElement("select");
     select.className = className || "mcard-select";
     select.setAttribute("aria-label", spec.label);
@@ -553,12 +553,20 @@
       select.appendChild(option);
     });
 
-    select.value = String(Math.round(value));
+    function set(next) {
+      select.value = String(Math.round(next));
+    }
+
+    set(value);
     select.addEventListener("change", function () {
       if (onEdit) onEdit(spec.id, Number(select.value));
     });
 
-    return select;
+    return { el: select, set: set };
+  }
+
+  function makeChoice(spec, value, onEdit, className) {
+    return makeChoiceHandle(spec, value, onEdit, className).el;
   }
 
   function makeSwitch(spec, value, onEdit) {
@@ -857,6 +865,7 @@
     control: control,
     controlHandle: controlHandle,
     switchHandle: makeSwitch,
+    choiceHandle: makeChoiceHandle,
     hero: hero,
     format: format,
     norm: norm,

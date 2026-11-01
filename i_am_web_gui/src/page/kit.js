@@ -585,6 +585,24 @@ var ENV_MAX = 512;
 
   function buildChoice(control) {
     var spec = control.spec;
+
+    if (window.IAmCard && IAmCard.choiceHandle) {
+      var handle = IAmCard.choiceHandle(spec, control.value, function (_, value) {
+        setValue(control, value, true);
+      });
+      var el = element("div", "choice");
+      var label = element("div", "label");
+      label.textContent = spec.label;
+      handle.el.classList.add("face-choice");
+
+      control.paint = function () { handle.set(control.value); };
+
+      el.appendChild(label);
+      el.appendChild(handle.el);
+      control.paint();
+      return el;
+    }
+
     var el = element("div", "choice");
     var label = element("div", "label");
     label.textContent = spec.label;
