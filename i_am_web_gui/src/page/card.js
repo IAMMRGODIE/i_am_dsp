@@ -966,6 +966,210 @@
       '<div class="hero-label" style="left:2%;top:55%">OUTPUT</div>';
   }
 
+  function eqCoefficients(kind, frequency, gainDb, q, rate) {
+    var cutoff = clamp(frequency, 10, rate * 0.49);
+    var w = 2 * Math.PI * cutoff / rate;
+    var cos = Math.cos(w);
+    var sin = Math.sin(w);
+    var alpha = sin / (2 * clamp(q, 0.05, 20));
+    var a = Math.pow(10, gainDb / 40);
+    var b0, b1, b2, a0, a1, a2;
+
+    if (kind === 1 || kind === 2) {
+      var two = 2 * Math.sqrt(a) * alpha;
+
+      if (kind === 1) {
+        b0 = a * ((a + 1) - (a - 1) * cos + two);
+        b1 = 2 * a * ((a - 1) - (a + 1) * cos);
+        b2 = a * ((a + 1) - (a - 1) * cos - two);
+        a0 = (a + 1) + (a - 1) * cos + two;
+        a1 = -2 * ((a - 1) + (a + 1) * cos);
+        a2 = (a + 1) + (a - 1) * cos - two;
+      } else {
+        b0 = a * ((a + 1) + (a - 1) * cos + two);
+        b1 = -2 * a * ((a - 1) + (a + 1) * cos);
+        b2 = a * ((a + 1) + (a - 1) * cos - two);
+        a0 = (a + 1) - (a - 1) * cos + two;
+        a1 = 2 * ((a - 1) - (a + 1) * cos);
+        a2 = (a + 1) - (a - 1) * cos - two;
+      }
+    } else if (kind === 3) {
+      b0 = (1 + cos) * 0.5;
+      b1 = -(1 + cos);
+      b2 = b0;
+      a0 = 1 + alpha;
+      a1 = -2 * cos;
+      a2 = 1 - alpha;
+    } else if (kind === 4) {
+      b0 = (1 - cos) * 0.5;
+      b1 = 1 - cos;
+      b2 = b0;
+      a0 = 1 + alpha;
+      a1 = -2 * cos;
+      a2 = 1 - alpha;
+    } else if (kind === 5) {
+      b0 = 1;
+      b1 = -2 * cos;
+      b2 = 1;
+      a0 = 1 + alpha;
+      a1 = -2 * cos;
+      a2 = 1 - alpha;
+    } else {
+      b0 = 1 + alpha * a;
+      b1 = -2 * cos;
+      b2 = 1 - alpha * a;
+      a0 = 1 + alpha / a;
+      a1 = -2 * cos;
+      a2 = 1 - alpha / a;
+    }
+
+    return { b: [b0 / a0, b1 / a0, b2 / a0], a: [a1 / a0, a2 / a0] };
+  }
+
+  function eqResponseDb(frequency, bands, rate) {
+    var magnitude = 1;
+
+    for (var i = 0; i < bands.length; i++) {
+      var band = bands[i];
+      if (!band.on) continue;
+
+      var c = eqCoefficients(band.type, band.freq, band.gain, band.q, rate);
+      var w = 2 * Math.PI * clamp(frequency, 10, rate * 0.49) / rate;
+      var cos = Math.cos(w);
+      var sin = Math.sin(w);
+      var cos2 = Math.cos(2 * w);
+      var sin2 = Math.sin(2 * w);
+      var nr = c.b[0] + c.b[1] * cos + c.b[2] * cos2;
+      var ni = -c.b[1] * sin - c.b[2] * sin2;
+      var dr = 1 + c.a[0] * cos + c.a[1] * cos2;
+      var di = -c.a[0] * sin - c.a[1] * sin2;
+      var bandMagnitude = Math.sqrt(nr * nr + ni * ni) / Math.sqrt(dr * dr + di * di);
+
+      if (band.type === 3 || band.type === 4) {
+        bandMagnitude = Math.pow(bandMagnitude, clamp(band.slope, 0, 3) + 1);
+      }
+
+      magnitude *= bandMagnitude;
+    }
+
+    return 20 * Math.log10(Math.max(magnitude, 1e-6));
+  }
+
+  function eqHero(values, context) {
+    var rate = (context && context.rate) || 48000;
+    var selected = Math.round(valueOf(values, "band", 0));
+    var output = valueOf(values, "output", 0);
+    var bands = [];
+
+    for (var n = 1; n <= 6; n++) {
+      bands.push({
+        on: !!valueOf(values, "b" + n + "_on", 0),
+        type: Math.round(valueOf(values, "b" + n + "_type", 0)),
+        freq: valueOf(values, "b" + n + "_freq", 1000),
+        gain: valueOf(values, "b" + n + "_gain", 0),
+        q: valueOf(values, "b" + n + "_q", 1),
+        slope: Math.round(valueOf(values, "b" + n + "_slope", 0))
+      });
+    }
+
+    var grid = "";
+    var ticks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+    var labels = { 100: "100", 1000: "1k", 10000: "10k" };
+
+    for (var t = 0; t < ticks.length; t++) {
+      var tx = 20 + Math.log(ticks[t] / 20) / Math.log(1000) * 480;
+      grid += '<line x1="' + tx.toFixed(1) + '" y1="10" x2="' + tx.toFixed(1) +
+        '" y2="150" stroke="#252525"/>';
+
+      if (labels[ticks[t]]) {
+        grid += '<text x="' + tx.toFixed(1) + '" y="158" fill="#565656" font-size="7" ' +
+          'text-anchor="middle">' + labels[ticks[t]] + '</text>';
+      }
+    }
+
+    for (var db = -24; db <= 24; db += 12) {
+      var gy = 80 - db / 24 * 70;
+      grid += '<line x1="20" y1="' + gy.toFixed(1) + '" x2="500" y2="' + gy.toFixed(1) +
+        '" stroke="' + (db === 0 ? "#363636" : "#252525") + '"/>';
+      grid += '<text x="22" y="' + (gy - 2).toFixed(1) + '" fill="#565656" font-size="7">' +
+        (db > 0 ? "+" : "") + db + '</text>';
+    }
+
+    grid += '<rect x="20" y="10" width="480" height="140" fill="none" stroke="#2a2a2a"/>';
+
+    var curve = "";
+
+    for (var i = 0; i <= 240; i++) {
+      var frequency = 20 * Math.pow(1000, i / 240);
+      var decibels = eqResponseDb(frequency, bands, rate) + output;
+      var x = 20 + i / 240 * 480;
+      var y = clamp(80 - decibels / 24 * 70, 10, 150);
+      curve += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    var spectrum = "";
+    var scope = context && context.scope;
+    var spectra = context && context.spectra;
+    var eqSpectrum = context && context.eqSpectrum;
+
+    if (scope && scope.input && scope.output && spectra && eqSpectrum) {
+      if (eqSpectrum.input !== scope.input || eqSpectrum.output !== scope.output ||
+          eqSpectrum.rate !== rate) {
+        var inputBands = bandsOf(scope.input, rate);
+        var outputBands = bandsOf(scope.output, rate);
+
+        if (inputBands && outputBands) {
+          spectra.input = smoothBands(spectra.input, inputBands);
+          spectra.output = smoothBands(spectra.output, outputBands);
+          eqSpectrum.input = scope.input;
+          eqSpectrum.output = scope.output;
+          eqSpectrum.rate = rate;
+          eqSpectrum.inputPath = bandsPath(spectra.input);
+          eqSpectrum.outputPath = bandsPath(spectra.output);
+        }
+      }
+
+      if (eqSpectrum.inputPath) {
+        spectrum =
+          '<path d="' + eqSpectrum.inputPath + '" fill="none" stroke="#8a8a8a" ' +
+            'stroke-width="1" opacity=".4" vector-effect="non-scaling-stroke"/>' +
+          '<path d="' + eqSpectrum.outputPath + '" fill="none" stroke="var(--accent)" ' +
+            'stroke-width="1.2" opacity=".45" vector-effect="non-scaling-stroke"/>';
+      }
+    }
+
+    var nodes = "";
+
+    for (var b = 0; b < bands.length; b++) {
+      var band = bands[b];
+      var bx = 20 + Math.log(clamp(band.freq, 20, 20000) / 20) / Math.log(1000) * 480;
+      var by = 80 - (band.type <= 2 ? band.gain : 0) / 24 * 70;
+      var active = b === selected;
+      var color = active ? "var(--accent)" : "#777";
+      var opacity = band.on ? 1 : 0.35;
+      var radius = active ? 4.5 : 3.2;
+
+      nodes +=
+        '<circle cx="' + bx.toFixed(1) + '" cy="' + by.toFixed(1) + '" r="' + radius +
+          '" fill="' + color + '" fill-opacity="' + opacity + '" stroke="#151515" stroke-width="1"' +
+          ' data-eq-band="' + b + '" style="cursor:move"/>' +
+        '<text x="' + (bx + 7).toFixed(1) + '" y="' + (by - 6).toFixed(1) +
+          '" fill="' + color + '" fill-opacity="' + opacity + '" font-size="8"' +
+          ' pointer-events="none">' + (b + 1) + '</text>' +
+        '<circle cx="' + bx.toFixed(1) + '" cy="' + by.toFixed(1) +
+          '" r="18" fill="#000" fill-opacity="0" pointer-events="all"' +
+          ' data-eq-band="' + b + '" style="cursor:move"/>';
+    }
+
+    return heroSvg(
+      grid +
+      spectrum +
+      '<path d="' + curve + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
+        'vector-effect="non-scaling-stroke"/>' +
+      nodes
+    );
+  }
+
   function dynamicsHero(values, mode, context) {
     var threshold = clamp(valueOf(values, "threshold", -40), -80, 0);
     var range = clamp(valueOf(values, "range", 60), 0, 80);
@@ -1387,6 +1591,7 @@
   registerHero("mapping", mappingHero);
   registerHero("ott", ottHero);
   registerHero("vocodex", vocoderHero);
+  registerHero("eq", eqHero);
   registerHero("gate", function (values, context) { return dynamicsHero(values, "gate", context); });
   registerHero("expander", function (values, context) { return dynamicsHero(values, "expander", context); });
   registerHero("limiter", function (values, context) { return dynamicsHero(values, "limiter", context); });
