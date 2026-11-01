@@ -111,6 +111,10 @@ pub struct SourceSettings {
 	pub pitch_glide: f32,
 	/// 0 note, 1 velocity.
 	pub midi_mode: i32,
+	/// MIDI note transposition in semitones, -24..24.
+	pub midi_transpose: i32,
+	/// MIDI note fine tune in cents, -100..100.
+	pub midi_fine: f32,
 	/// Note input -> output curve, x/y in 0..1.
 	#[serde(default = "default_midi_curve")]
 	pub midi_note_curve: Vec<(f32, f32)>,
@@ -145,6 +149,8 @@ impl Default for SourceSettings {
 			pitch_clarity: 0.5,
 			pitch_glide: 40.0,
 			midi_mode: 0,
+			midi_transpose: 0,
+			midi_fine: 0.0,
 			midi_note_curve: default_midi_curve(),
 			midi_velocity_curve: default_midi_curve(),
 		}

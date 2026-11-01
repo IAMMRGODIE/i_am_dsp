@@ -198,9 +198,13 @@ impl SourceRuntime {
 						self.midi_velocity.clamp(0.0, 1.0),
 					)
 				} else {
+					let note = self.midi_note
+						+ self.settings.midi_transpose as f32
+						+ self.settings.midi_fine / 100.0;
+
 					curve_value(
 						&self.settings.midi_note_curve,
-						(self.midi_note / 127.0).clamp(0.0, 1.0),
+						(note / 127.0).clamp(0.0, 1.0),
 					)
 				}
 			},

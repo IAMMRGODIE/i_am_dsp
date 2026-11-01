@@ -179,6 +179,8 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 				}),
 				SourceKind::Midi => json!({
 					"mode": settings.midi_mode,
+					"transpose": settings.midi_transpose,
+					"fine": settings.midi_fine,
 					"note_curve": settings.midi_note_curve,
 					"velocity_curve": settings.midi_velocity_curve,
 				}),
@@ -673,6 +675,8 @@ fn sanitize_settings(settings: &mut SourceSettings) {
 	settings.pitch_clarity = settings.pitch_clarity.clamp(0.0, 1.0);
 	settings.pitch_glide = settings.pitch_glide.clamp(0.0, 1_000.0);
 	settings.midi_mode = settings.midi_mode.clamp(0, 1);
+	settings.midi_transpose = settings.midi_transpose.clamp(-24, 24);
+	settings.midi_fine = settings.midi_fine.clamp(-100.0, 100.0);
 
 	for (time, value, bend) in &mut settings.lfo_points {
 		*time = time.clamp(0.0, 1.0);
@@ -1195,6 +1199,12 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		},
 		(SourceKind::Midi, "mode") => {
 			slot.settings.midi_mode = (value.round() as i32).clamp(0, 1);
+		},
+		(SourceKind::Midi, "transpose") => {
+			slot.settings.midi_transpose = (value.round() as i32).clamp(-24, 24);
+		},
+		(SourceKind::Midi, "fine") => {
+			slot.settings.midi_fine = value.clamp(-100.0, 100.0) as f32;
 		},
 		_ => return false,
 	}

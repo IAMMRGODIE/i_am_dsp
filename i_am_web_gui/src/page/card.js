@@ -49,6 +49,8 @@
     if (spec.unit === "s") return value.toFixed(3) + " s";
     if (spec.unit === "beats") return value.toFixed(2) + " beats";
     if (spec.unit === "samples") return Math.round(value) + " smp";
+    if (spec.unit === "st") return (value > 0 ? "+" : "") + Math.round(value) + " st";
+    if (spec.unit === "ct") return (value > 0 ? "+" : "") + Math.round(value) + " ct";
     return spec.kind === "int" ? String(Math.round(value)) : value.toFixed(2);
   }
 

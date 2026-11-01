@@ -1357,90 +1357,7 @@
 
       var dot = el("span", "dot");
       power.appendChild(dot);
-      undoButton.addEventListener("click", function () { historyStep("undo"); });
-  redoButton.addEventListener("click", function () { historyStep("redo"); });
-  abButton.addEventListener("click", function () {
-    runSpecial("ab.toggle", "1").then(load);
-  });
-
-  presetInit.addEventListener("click", function () {
-    runSpecial("preset.init", "1").then(load);
-  });
-
-  presetSave.addEventListener("click", function () {
-    flush()
-      .then(function () {
-        return fetch("/state", { cache: "no-store" });
-      })
-      .then(function (response) {
-        if (!response.ok) throw new Error("state " + response.status);
-        return response.text();
-      })
-      .then(function (text) {
-        var blob = new Blob([text], { type: "application/json" });
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement("a");
-        link.href = url;
-        link.download = "I Am Multipass.json";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-        status.textContent = "preset saved";
-      })
-      .catch(function (error) {
-        status.textContent = error.message;
-      });
-  });
-
-  presetLoad.addEventListener("click", function () {
-    presetFile.click();
-  });
-
-  presetFile.addEventListener("change", function () {
-    var file = presetFile.files && presetFile.files[0];
-    presetFile.value = "";
-    if (!file) return;
-
-    file.text()
-      .then(function (text) {
-        var parsed;
-
-        try {
-          parsed = JSON.parse(text);
-        } catch (error) {
-          status.textContent = "not a preset file";
-          return;
-        }
-
-        return runSpecial("preset.load", JSON.stringify(parsed)).then(load);
-      })
-      .catch(function (error) {
-        status.textContent = error.message;
-      });
-  });
-
-  document.addEventListener("keydown", function (event) {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-
-    var target = event.target;
-    if (target && (target.isContentEditable ||
-      /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) {
-      return;
-    }
-
-    var key = String(event.key).toLowerCase();
-
-    if (key === "z") {
-      event.preventDefault();
-      historyStep(event.shiftKey ? "redo" : "undo");
-    } else if (key === "y") {
-      event.preventDefault();
-      historyStep("redo");
-    }
-  });
-
-  power.addEventListener("click", function () { chrome.onBypass(!chrome.bypass); });
+      power.addEventListener("click", function () { chrome.onBypass(!chrome.bypass); });
       head.appendChild(power);
     }
 
@@ -1781,6 +1698,8 @@
       } else if (kind === "midi") {
         var midi = {
           mode: numberOr(settings.mode, 0),
+          transpose: numberOr(settings.transpose, 0),
+          fine: numberOr(settings.fine, 0),
           note: curvePointsFromJson(settings.note_curve),
           velocity: curvePointsFromJson(settings.velocity_curve)
         };
@@ -1796,6 +1715,20 @@
         build = function (card, head) {
           sourceChoice(head, "Value", ["Note", "Velocity"], midi.mode, function (value) {
             sendNow("source." + id + ".mode", value).then(load);
+          });
+
+          sourceControl(card, {
+            id: "midi." + id + ".transpose", label: "Transpose", kind: "int",
+            min: -24, max: 24, default: 0, unit: "st"
+          }, midi.transpose, "source." + id + ".transpose", function (value) {
+            midi.transpose = Math.round(value);
+          });
+
+          sourceControl(card, {
+            id: "midi." + id + ".fine", label: "Fine", kind: "float",
+            min: -100, max: 100, default: 0, unit: "ct"
+          }, midi.fine, "source." + id + ".fine", function (value) {
+            midi.fine = value;
           });
         };
 
@@ -2235,6 +2168,90 @@
       showPanel(tab.getAttribute("data-panel"));
     });
   });
+
+  undoButton.addEventListener("click", function () { historyStep("undo"); });
+  redoButton.addEventListener("click", function () { historyStep("redo"); });
+  abButton.addEventListener("click", function () {
+    runSpecial("ab.toggle", "1").then(load);
+  });
+
+  presetInit.addEventListener("click", function () {
+    runSpecial("preset.init", "1").then(load);
+  });
+
+  presetSave.addEventListener("click", function () {
+    flush()
+      .then(function () {
+        return fetch("/state", { cache: "no-store" });
+      })
+      .then(function (response) {
+        if (!response.ok) throw new Error("state " + response.status);
+        return response.text();
+      })
+      .then(function (text) {
+        var blob = new Blob([text], { type: "application/json" });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement("a");
+        link.href = url;
+        link.download = "I Am Multipass.json";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        status.textContent = "preset saved";
+      })
+      .catch(function (error) {
+        status.textContent = error.message;
+      });
+  });
+
+  presetLoad.addEventListener("click", function () {
+    presetFile.click();
+  });
+
+  presetFile.addEventListener("change", function () {
+    var file = presetFile.files && presetFile.files[0];
+    presetFile.value = "";
+    if (!file) return;
+
+    file.text()
+      .then(function (text) {
+        var parsed;
+
+        try {
+          parsed = JSON.parse(text);
+        } catch (error) {
+          status.textContent = "not a preset file";
+          return;
+        }
+
+        return runSpecial("preset.load", JSON.stringify(parsed)).then(load);
+      })
+      .catch(function (error) {
+        status.textContent = error.message;
+      });
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+
+    var target = event.target;
+    if (target && (target.isContentEditable ||
+      /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) {
+      return;
+    }
+
+    var key = String(event.key).toLowerCase();
+
+    if (key === "z") {
+      event.preventDefault();
+      historyStep(event.shiftKey ? "redo" : "undo");
+    } else if (key === "y") {
+      event.preventDefault();
+      historyStep("redo");
+    }
+  });
+
 
   power.addEventListener("click", function () {
     bypassed = !bypassed;

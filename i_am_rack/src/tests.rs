@@ -33,6 +33,21 @@ fn get(rack: &Rack, path: &str) -> ProtocolResponse {
 	web::route(&request, &rack.shared).expect("the rack route")
 }
 
+/// The live value of one modulation source, as the page would read it.
+fn modulation_value(rack: &Rack, id: u32) -> f64 {
+	let response = get(rack, "/modulation");
+	let json: serde_json::Value = serde_json::from_slice(&response.body).expect("JSON");
+
+	json["sources"]
+		.as_array()
+		.expect("sources")
+		.iter()
+		.find(|source| source["id"] == id)
+		.expect("the source")["value"]
+		.as_f64()
+		.expect("a value")
+}
+
 fn process(rack: &mut Rack, frame: [f32; 2]) -> [f32; 2] {
 	process_with(rack, frame, Vec::new())
 }
@@ -1384,4 +1399,63 @@ fn an_out_of_range_ab_side_is_clamped() {
 
 	command(&rack, "ab.toggle=1");
 	assert_eq!(rack.state().ab.letter(), "A");
+}
+
+/// Transpose moves the MIDI note in semitones; fine moves it in cents.
+#[test]
+fn midi_transpose_and_fine_shift_the_note() {
+	let mut rack = Rack::default();
+	assert_eq!(command(&rack, "source.add=midi").body, b"{\"ok\":true}");
+
+	let note = NoteEvent::NoteOn {
+		channel: 0,
+		note: 60,
+		velocity: 0.75,
+	};
+
+	assert_eq!(command(&rack, "source.4.transpose=12").body, b"{\"ok\":true}");
+
+	for _ in 0..128 {
+		process_with(&mut rack, [0.0, 0.0], vec![note.clone()]);
+	}
+
+	assert!((modulation_value(&rack, 4) - 72.0 / 127.0).abs() < 1e-4);
+
+	assert_eq!(command(&rack, "source.4.fine=50").body, b"{\"ok\":true}");
+
+	for _ in 0..128 {
+		process_with(&mut rack, [0.0, 0.0], vec![note.clone()]);
+	}
+
+	assert!((modulation_value(&rack, 4) - 72.5 / 127.0).abs() < 1e-4);
+
+	assert_eq!(command(&rack, "source.4.transpose=-24").body, b"{\"ok\":true}");
+	assert_eq!(command(&rack, "source.4.fine=0").body, b"{\"ok\":true}");
+
+	for _ in 0..128 {
+		process_with(&mut rack, [0.0, 0.0], vec![note.clone()]);
+	}
+
+	assert!((modulation_value(&rack, 4) - 36.0 / 127.0).abs() < 1e-4);
+}
+
+/// The transpose and fine knobs are clamped to their published ranges.
+#[test]
+fn midi_transpose_and_fine_are_clamped() {
+	let rack = Rack::default();
+	assert_eq!(command(&rack, "source.add=midi").body, b"{\"ok\":true}");
+	assert_eq!(command(&rack, "source.4.transpose=99").body, b"{\"ok\":true}");
+	assert_eq!(command(&rack, "source.4.fine=500").body, b"{\"ok\":true}");
+
+	let response = get(&rack, "/rack");
+	let json: serde_json::Value = serde_json::from_slice(&response.body).expect("JSON");
+	let midi = json["sources"]
+		.as_array()
+		.expect("sources")
+		.iter()
+		.find(|source| source["id"] == 4)
+		.expect("the MIDI source");
+
+	assert_eq!(midi["settings"]["transpose"], 24);
+	assert_eq!(midi["settings"]["fine"], 100.0);
 }
