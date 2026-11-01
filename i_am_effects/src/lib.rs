@@ -22,8 +22,6 @@ mod disperser;
 mod ir_reverb;
 mod ott;
 mod particle_wider;
-mod pitch;
-mod reverb;
 mod schroeder;
 mod script;
 mod script_distortion;
@@ -45,13 +43,12 @@ pub use stft_vocoder::StftVocoderWeb;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 use particle_wider::ParticleWiderEffect;
-use pitch::PitchEffect;
-use reverb::ReverbEffect;
+use i_am_effects_core::{PitchEffect, ReverbEffect};
 use schroeder::SchroederEffect;
 use shifter::ShifterEffect;
 use unstablizer::UnstablizerEffect;
 pub use shifter::SHIFTER_VISIBLE;
-pub use pitch::PITCH_VISIBLE;
+pub use i_am_effects_core::PITCH_VISIBLE;
 
 /// The controls each autotune engine reads; the note mask lives in its own
 /// section and is always visible.

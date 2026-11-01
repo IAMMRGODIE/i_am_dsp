@@ -18,6 +18,9 @@ id = "iamdsp.multipass"
 
 [dependencies]
 i_am_dsp = { workspace = true }
+# The rack borrows the effect wrappers and their faceplate metadata from the
+# lightweight core crate; the effects bundle keeps its own CLAP entry points.
+i_am_effects_core = { workspace = true }
 i_am_plugin = { workspace = true }
 i_am_web_gui = { workspace = true }
 portable-atomic = "1.15.0"

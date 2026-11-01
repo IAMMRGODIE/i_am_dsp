@@ -22,6 +22,7 @@ id = "iamdsp.effects.web"
 
 [dependencies]
 i_am_dsp = { workspace = true }
+i_am_effects_core = { workspace = true }
 i_am_dsp_derive = { workspace = true }
 i_am_plugin = { workspace = true }
 i_am_web_gui = { workspace = true }

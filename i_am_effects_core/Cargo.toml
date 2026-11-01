@@ -1,0 +1,13 @@
+[package]
+name = "i_am_effects_core"
+version = "0.1.0"
+edition = "2024"
+
+# Effect wrappers and the shared module catalog. This crate deliberately has no
+# CLAP/VST3 exports and no product-page dependencies: the effects bundle and the
+# rack both link it, and the rack must not define a second clap_entry symbol.
+[dependencies]
+i_am_dsp = { workspace = true }
+i_am_dsp_derive = { workspace = true }
+
+[lib]

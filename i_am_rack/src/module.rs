@@ -7,6 +7,8 @@
 
 use std::collections::BTreeMap;
 
+use i_am_effects_core::catalog;
+
 use i_am_dsp::prelude::{
 	Chorus, Compressor, Crusher, Distortion, Effect, Gain, Multimode, Parameter, Phaser,
 	PureDelay, RectifyEnvelope, SineWave, Unit, Value,
@@ -66,11 +68,15 @@ pub enum ModuleKind {
 	Chorus,
 	/// A swept allpass stack.
 	Phaser,
+	/// The product reverb, with its product faceplate metadata.
+	Reverb,
+	/// The product pitch shifter.
+	Pitch,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 8] = [
+	pub const ALL: [Self; 10] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
@@ -79,6 +85,8 @@ impl ModuleKind {
 		Self::Crusher,
 		Self::Chorus,
 		Self::Phaser,
+		Self::Reverb,
+		Self::Pitch,
 	];
 
 	/// The name a card shows.
@@ -92,6 +100,8 @@ impl ModuleKind {
 			Self::Crusher => "Crusher",
 			Self::Chorus => "Chorus",
 			Self::Phaser => "Phaser",
+			Self::Reverb => catalog::REVERB.name,
+			Self::Pitch => catalog::PITCH.name,
 		}
 	}
 
@@ -106,6 +116,8 @@ impl ModuleKind {
 			Self::Crusher => "#ff5f9e",
 			Self::Chorus => "#5ad1c8",
 			Self::Phaser => "#ffd166",
+			Self::Reverb => catalog::REVERB.accent,
+			Self::Pitch => catalog::PITCH.accent,
 		}
 	}
 
@@ -120,6 +132,8 @@ impl ModuleKind {
 			Self::Crusher => "transfer",
 			Self::Chorus => "waveform",
 			Self::Phaser => "spectrum",
+			Self::Reverb => catalog::REVERB.hero,
+			Self::Pitch => catalog::PITCH.hero,
 		}
 	}
 
@@ -132,7 +146,9 @@ impl ModuleKind {
 			| Self::Delay
 			| Self::Crusher
 			| Self::Chorus
-			| Self::Phaser => None,
+			| Self::Phaser
+			| Self::Reverb => None,
+			Self::Pitch => catalog::PITCH.mode,
 		}
 	}
 
@@ -140,6 +156,7 @@ impl ModuleKind {
 	pub const fn header(self) -> &'static [&'static str] {
 		match self {
 			Self::Filter => &["stages"],
+			Self::Pitch => catalog::PITCH.header,
 			_ => &[],
 		}
 	}
@@ -154,7 +171,9 @@ impl ModuleKind {
 			| Self::Delay
 			| Self::Crusher
 			| Self::Chorus
-			| Self::Phaser => None,
+			| Self::Phaser
+			| Self::Reverb => None,
+			Self::Pitch => catalog::PITCH.visible,
 		}
 	}
 }
@@ -186,11 +205,22 @@ pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> 
 			SineWave,
 		)),
 		ModuleKind::Phaser => Box::new(Phaser::<SineWave, 2>::new(SineWave, 4, sample_rate)),
+		ModuleKind::Reverb => (catalog::REVERB.build)(sample_rate),
+		ModuleKind::Pitch => (catalog::PITCH.build)(sample_rate),
 	}
 }
 
 /// The parameter schema of a kind, at a rate that does not affect the metadata.
 pub(crate) fn schema(kind: ModuleKind) -> Vec<Parameter> {
+	if matches!(kind, ModuleKind::Reverb | ModuleKind::Pitch) {
+		let descriptor = match kind {
+			ModuleKind::Reverb => &catalog::REVERB,
+			ModuleKind::Pitch => &catalog::PITCH,
+			_ => unreachable!(),
+		};
+		return descriptor.parameters();
+	}
+
 	let mut parameters = build(kind, 44_100).get_parameters();
 
 	if kind == ModuleKind::Delay {

@@ -175,8 +175,10 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[0]["hero"], "spectrum");
 
 	let kinds = json["kinds"].as_array().expect("kinds");
-	assert_eq!(kinds.len(), 8);
+	assert_eq!(kinds.len(), 10);
 	assert!(kinds.iter().any(|kind| kind["name"] == "Compressor"));
+	assert!(kinds.iter().any(|kind| kind["name"] == "Reverb"));
+	assert!(kinds.iter().any(|kind| kind["name"] == "Pitch"));
 	assert!(
 		modules[0]["controls"]
 			.as_array()
@@ -184,6 +186,21 @@ fn the_rack_route_lists_bands_and_modules() {
 			.iter()
 			.any(|control| control["id"] == "cutoff")
 	);
+}
+
+/// The shared catalog can add a product wrapper without a second schema
+/// definition in the rack.
+#[test]
+fn the_catalog_adds_reverb_and_pitch_modules() {
+	let reverb = module::schema(ModuleKind::Reverb);
+	let pitch = module::schema(ModuleKind::Pitch);
+
+	assert!(reverb.iter().any(|parameter| parameter.identifier == "decay_time"));
+	assert!(pitch.iter().any(|parameter| parameter.identifier == "pitch_shift_factor"));
+	assert_eq!(ModuleKind::Pitch.mode(), Some("algorithm"));
+	assert_eq!(ModuleKind::Pitch.header(), &["window_size"]);
+	assert!(ModuleKind::Pitch.visible().is_some());
+	assert_eq!(ModuleKind::Reverb.hero(), "tail");
 }
 
 /// The host sees eight macros and 32 fixed automation parameters.
