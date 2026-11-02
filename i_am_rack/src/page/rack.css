@@ -230,7 +230,7 @@ body{
 .group-leave{color:var(--text3)}
 .group-join{width:100%; text-align:left}
 .mcard.collapsed .group-row{display:none}
-.slots[style] .slot-empty{height:100%; min-height:0}
+.slots[style] .slot-empty{height:auto; min-height:224px}
 .slot:has(.mcard.collapsed){flex:0 0 48px; min-width:48px; align-self:stretch}
 .slot .mcard.collapsed{
   flex:1; align-self:stretch; min-height:240px;

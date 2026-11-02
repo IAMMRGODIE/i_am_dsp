@@ -38,10 +38,11 @@
   font-family:var(--mono); font-size:9px; line-height:1; letter-spacing:.04em;
   white-space:nowrap;
 }
-.mcard-setting{display:flex; align-items:center; gap:5px; margin-left:6px}
+.mcard-setting{display:flex; align-items:center; gap:5px; margin-left:6px; min-width:0; flex:0 1 auto}
 .mcard-setting-label{
   font-size:8px; letter-spacing:.12em; text-transform:uppercase;
-  color:var(--text3);
+  color:var(--text3); min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap;
 }
 .mcard-select{
   appearance:none; -webkit-appearance:none;
@@ -344,4 +345,16 @@
   position:absolute; transform:translate(-50%,-50%); border-radius:50%;
   border:1px solid #151515; box-sizing:border-box; cursor:move;
   pointer-events:auto; z-index:1;
+}
+
+/* A narrow header belongs to the module type and the two buttons; the mode
+   setting steps aside first, then its label. */
+@container (max-width: 420px) {
+  .mcard-setting-label{display:none}
+}
+@container (max-width: 320px) {
+  .mcard-badge{display:none}
+}
+@container (max-width: 300px) {
+  .mcard-setting{display:none}
 }
