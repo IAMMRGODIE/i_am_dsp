@@ -101,7 +101,16 @@ impl Module {
 		meters: Option<Arc<ModuleMeters>>,
 		ir: Option<Arc<i_am_effects::IrSlot>>,
 	) -> Self {
-		let effect = module::build(state.kind, sample_rate, ir);
+		let effect = module::build(state.kind, sample_rate, ir.clone());
+
+		if let (Some(saved), Some(slot)) = (&state.ir, &ir) {
+			let saved = saved.resampled(sample_rate);
+			slot.set_host_rate(sample_rate);
+
+			if slot.load().map(|current| current.fingerprint) != Some(saved.fingerprint) {
+				slot.set(Arc::new(saved));
+			}
+		}
 		let mut paramed = Paramed::new(ModuleEffect(effect));
 		let map = paramed.param_map();
 

@@ -160,6 +160,12 @@ fn module_ir(
 
 			match i_am_effects::decode_ir(request.body, slot.host_rate(), name) {
 				Ok(ir) => {
+					// The preset has to carry the room with it, so the state
+					// keeps a copy of what the slot now plays.
+					if let Some(module) = shared.lock().module_mut(id) {
+						module.ir = Some(ir.clone());
+					}
+
 					slot.set(std::sync::Arc::new(ir));
 					Some(i_am_web_gui::ProtocolResponse::json("{\"ok\":true}"))
 				},

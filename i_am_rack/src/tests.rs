@@ -2412,3 +2412,50 @@ fn tiny_wav() -> Vec<u8> {
 
 	bytes
 }
+
+/// A preset carries the convolver's impulse response: loading the state into a
+/// fresh rack puts the room back into the module's slot.
+#[test]
+fn a_preset_keeps_the_impulse_response() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(43, ModuleKind::Convolver));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+	process_with(&mut rack, [0.0, 0.0], Vec::new());
+
+	let wav = tiny_wav();
+	let request = i_am_web_gui::ProtocolRequest {
+		method: "POST",
+		path: "/module-ir",
+		query: Some("id=43&name=Room.wav"),
+		body: &wav,
+	};
+	assert!(crate::web::route(&request, &rack.shared).is_some());
+
+	let saved = serde_json::to_string(&rack.state()).expect("the preset");
+	assert!(saved.contains("Room.wav"), "the preset dropped the impulse");
+
+	let mut restored = Rack::default();
+	let parsed: RackState = serde_json::from_str(&saved).expect("the preset parses");
+	*restored.shared.lock() = parsed;
+	restored.shared.dirty.store(true, Ordering::Release);
+	process_with(&mut restored, [0.0, 0.0], Vec::new());
+
+	let json = restored
+		.shared
+		.existing_ir(43)
+		.expect("the restored slot")
+		.json();
+	assert!(
+		json.contains("Room.wav"),
+		"the room did not come back: {json}"
+	);
+	assert!(
+		!json.contains("\"peaks\":[]"),
+		"the restored impulse has no picture: {json}"
+	);
+}

@@ -367,6 +367,10 @@ pub struct ModuleState {
 	/// Its parameters, by identifier. Floats, integers and booleans all have a
 	/// numeric form here; the parameter map knows which one to store.
 	pub params: BTreeMap<String, f64>,
+	/// The impulse response a convolver was loaded with, so a preset keeps its
+	/// room. Absent for every other kind.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ir: Option<i_am_effects::IrData>,
 }
 
 impl ModuleState {
@@ -378,6 +382,7 @@ impl ModuleState {
 			bypass: false,
 			group: None,
 			params: module::default_params(kind),
+			ir: None,
 		}
 	}
 }

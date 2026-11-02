@@ -35,7 +35,7 @@ const PEAKS: usize = 512;
 const MAX_SECONDS: usize = 30;
 
 /// One loaded impulse response, with the picture the page draws.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IrData {
 	/// The file name the page sent, for the hero badge.
 	pub name: String,
@@ -52,6 +52,37 @@ pub struct IrData {
 }
 
 impl IrData {
+	/// An impulse response from raw samples, with the picture the card draws.
+	pub fn from_samples(name: String, rate: usize, left: Vec<f32>, right: Vec<f32>) -> Self {
+		let fingerprint = fingerprint(&name, rate, &left, &right);
+		let peaks = peaks_of(&left, &right);
+
+		Self {
+			name,
+			rate,
+			left,
+			right,
+			peaks,
+			fingerprint,
+		}
+	}
+
+	/// The same response converted to another sample rate.
+	pub fn resampled(&self, rate: usize) -> Self {
+		if rate == self.rate {
+			return self.clone();
+		}
+
+		let [left, right] = resample(
+			[self.left.clone(), self.right.clone()],
+			self.rate,
+			rate,
+		)
+		.unwrap_or_else(|_| [self.left.clone(), self.right.clone()]);
+
+		Self::from_samples(self.name.clone(), rate, left, right)
+	}
+
 	/// The length of the longer channel, in samples.
 	pub fn samples(&self) -> usize {
 		self.left.len().max(self.right.len())
