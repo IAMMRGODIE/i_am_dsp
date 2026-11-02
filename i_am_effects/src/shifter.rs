@@ -39,12 +39,13 @@ pub struct ShifterEffect {
 	#[layout(group = "Shift", order = 2, widget = choice)]
 	pub window_size: i32,
 
-	/// The FIR Hilbert kernel length. Longer is a sharper sideband, at the cost
-	/// of latency and CPU.
-	#[choices("63", "127", "255", "511")]
-	#[default(1)]
+	/// The FIR Hilbert kernel length, any odd tap count from 63 to 511. Longer
+	/// is a sharper sideband, at the cost of latency and CPU.
+	#[range(min = 63, max = 511)]
+	#[default(127)]
 	#[id(display = "Order")]
-	#[layout(group = "Shift", order = 3, widget = choice)]
+	#[unit(samples)]
+	#[layout(group = "Shift", order = 3, widget = knob, step = 2.0)]
 	pub order: i32,
 
 	#[skip]
@@ -67,7 +68,7 @@ impl ShifterEffect {
 			fir: FIRFreqShifter::<2>::new(sample_rate, 0.0),
 			vocoder: PhaseVocoder::new(FreqShift::default(), 2_048, sample_rate),
 			last_window_size: 2,
-			order: 1,
+			order: 127,
 		}
 	}
 }
@@ -94,7 +95,11 @@ impl Effect<2> for ShifterEffect {
 		}
 
 		if self.algorithm == 2 {
-			self.fir.set_order([63, 127, 255, 511][self.order.clamp(0, 3) as usize]);
+			// The kernel is a half-band response, so only odd lengths exist; round
+			// the parameter up rather than letting the UI show a length it cannot
+			// run.
+			self.order = self.order.clamp(63, 511) | 1;
+			self.fir.set_order(self.order as usize);
 			self.fir.set_shift_freq(self.shift_freq);
 			self.fir.process(samples, other, context);
 			return;
@@ -119,10 +124,10 @@ mod tests {
 	use super::*;
 	use i_am_dsp::prelude::{Parameters, Value};
 
-	/// The FIR engine is a third algorithm with its own order, which is a choice
-	/// on the parameter rather than one type per length.
+	/// The FIR engine takes any odd kernel length from 63 to 511, not a handful
+	/// of presets.
 	#[test]
-	fn the_fir_engine_is_a_choice_with_a_selectable_order() {
+	fn the_fir_engine_takes_any_odd_order() {
 		let shifter = ShifterEffect::new(48_000);
 		let order = shifter
 			.get_parameters()
@@ -131,16 +136,19 @@ mod tests {
 			.expect("the order parameter");
 
 		match order.value {
-			Value::Int { value, .. } => assert_eq!(value, 1, "127 is the default kernel"),
+			Value::Int { value, range, .. } => {
+				assert_eq!(value, 127, "127 is the default kernel");
+				assert_eq!(range, 63..=511, "any length between 63 and 511");
+			},
 			other => panic!("unexpected order value {other:?}"),
 		}
 
+		assert_eq!(order.meta.choices, None, "the length is not a fixed list");
 		assert_eq!(
-			order.meta.choices,
-			Some(&["63", "127", "255", "511"][..]),
-			"the four kernel lengths"
+			order.meta.layout.step,
+			Some(2.0),
+			"a drag moves by two taps"
 		);
-
 		assert!(
 			SHIFTER_VISIBLE
 				.iter()

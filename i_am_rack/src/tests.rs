@@ -216,6 +216,18 @@ fn the_catalog_adds_reverb_and_pitch_modules() {
 	assert_eq!(module::hero(ModuleKind::Disperser), "phase");
 	assert_eq!(module::hero(ModuleKind::Delay), "taps");
 	assert_eq!(module::hero(ModuleKind::Filter), "spectrum");
+
+	// The shifter's FIR engine takes any odd kernel length, and the rack card
+	// sees the same range the product does.
+	let shifter = module::schema(ModuleKind::Shifter);
+	let order = shifter
+		.iter()
+		.find(|parameter| parameter.identifier == "order")
+		.expect("the shifter order");
+	match &order.value {
+		i_am_dsp::prelude::Value::Int { range, .. } => assert_eq!(*range, 63..=511),
+		other => panic!("unexpected order value {other:?}"),
+	}
 }
 
 /// The host sees eight macros and 32 fixed automation parameters.

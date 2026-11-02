@@ -1814,6 +1814,16 @@
     function set(value, send) {
       current = clamp(value, spec.min, spec.max);
       if (spec.kind === "int") current = Math.round(current);
+      // A stepped parameter only takes its own intervals: a kernel length that
+      // has to be odd, a semitone, an eighth note.
+      if (spec.step > 0) {
+        current = clamp(
+          spec.min + Math.round((current - spec.min) / spec.step) * spec.step,
+          spec.min,
+          spec.max
+        );
+        if (spec.kind === "int") current = Math.round(current);
+      }
       paint();
       if (send && onEdit) onEdit(spec.id, current);
     }
