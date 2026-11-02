@@ -938,7 +938,7 @@
 
     wrap.appendChild(card);
 
-    if (module.hero === "eq") attachEqBands(card, module);
+    attachEqBands(card, module);
 
     // The engine decides what a card reads from the audio, and says so in the
     // module: a hero that draws parameters gets nothing allocated at all.
@@ -962,6 +962,33 @@
     function bandOf(target) {
       var node = target && target.closest ? target.closest("[data-eq-band]") : null;
       return node ? Number(node.getAttribute("data-eq-band")) : -1;
+    }
+
+    /// The node closest to a horizontal position in the picture. Grabbing the
+    /// picture anywhere takes the nearest one, which is more forgiving than
+    /// insisting on its six-pixel dot.
+    function nearestBand(x) {
+      var dots = hero.querySelectorAll(".hero-dot");
+      var best = -1;
+      var bestDistance = 48;
+
+      for (var i = 0; i < dots.length; i++) {
+        var rect = dots[i].getBoundingClientRect();
+        var distance = Math.abs(rect.left + rect.width / 2 - x);
+
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = Number(dots[i].getAttribute("data-eq-band"));
+        }
+      }
+
+      return best;
+    }
+
+    function insideHero(event) {
+      var rect = hero.getBoundingClientRect();
+      return event.clientX >= rect.left && event.clientX <= rect.right
+        && event.clientY >= rect.top && event.clientY <= rect.bottom;
     }
 
     function value(name, fallback) {
@@ -1012,7 +1039,10 @@
     }
 
     card.addEventListener("pointerdown", function (event) {
+      if (!hero.querySelector("svg")) return;
+
       var band = bandOf(event.target);
+      if (band < 0 && insideHero(event)) band = nearestBand(event.clientX);
       if (band < 0) return;
 
       begin(band, event.pointerId);
@@ -1041,8 +1071,10 @@
     // A backend that does not deliver pointer capture still sends mouse events.
     card.addEventListener("mousedown", function (event) {
       if (event.button !== 0) return;
+      if (drag || !hero.querySelector("svg")) return;
 
       var band = bandOf(event.target);
+      if (band < 0 && insideHero(event)) band = nearestBand(event.clientX);
       if (band < 0) return;
 
       begin(band, null);
