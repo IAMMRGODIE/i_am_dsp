@@ -291,6 +291,12 @@ pub fn apply_command<P: Plugin>(processor: &P, body: &str) -> bool {
 /// a control in the body, which is how an effect with several algorithms changes
 /// one.
 ///
+/// An instrument is declared with the ports and tags it has rather than the effect
+/// defaults: `ports = &[]` says there is no audio to process, `midi = &[...]` says
+/// where the notes come in, and `tags = &[...]` puts it in the host's instrument
+/// menu. The generator itself is played through
+/// [`GeneratorEffect`](i_am_dsp::GeneratorEffect).
+///
 /// ```ignore
 /// web_plugin!(
 ///     FilterWeb,
@@ -305,7 +311,7 @@ pub fn apply_command<P: Plugin>(processor: &P, body: &str) -> bool {
 /// ```
 #[macro_export]
 macro_rules! web_plugin {
-	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)? $(, telemetry = $telemetry:expr)? $(, clear = $clear:literal)?) => {
+	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)? $(, tags = $tags:expr)? $(, telemetry = $telemetry:expr)? $(, clear = $clear:literal)?) => {
 		#[doc = concat!("The ", $title, " plug-in, with a web faceplate.")]
 		pub struct $name {
 			processor: i_am_plugin::processor::EffectProcessor<$effect>,
@@ -427,7 +433,8 @@ macro_rules! web_plugin {
 		impl i_am_plugin::Plugin for $name {
 			const DESCRIPTOR: i_am_plugin::Descriptor = i_am_plugin::Descriptor::new($id, $title)
 				.with_vendor("iamplugins")
-				.with_version(env!("CARGO_PKG_VERSION"));
+				.with_version(env!("CARGO_PKG_VERSION"))
+				$(.with_tags($tags))?;
 
 			const HAS_GUI: bool = true;
 
@@ -693,5 +700,64 @@ mod ui_contract_tests {
 
 		assert!(mode.contains("IAmCard.choiceHandle"));
 		assert!(!mode.contains("mode-choice"));
+	}
+}
+
+/// A synthesizer is a plug-in with no audio input and a note port, and the
+/// declaration has to be able to say so. This is the smallest one that compiles.
+#[cfg(test)]
+mod synth_contract_tests {
+	// The declared methods are part of every product's interface; this one is
+	// only ever compiled, not opened.
+	#![allow(dead_code)]
+
+	use super::*;
+	use i_am_dsp::prelude::{Generator, Parameter, Parameters, SetValue};
+	use i_am_plugin::Tag;
+
+	struct Tone;
+
+	impl Parameters for Tone {
+		fn get_parameters(&self) -> Vec<Parameter> {
+			Vec::new()
+		}
+
+		fn set_parameter(&mut self, _: &str, _: SetValue) -> bool {
+			false
+		}
+	}
+
+	impl Generator<2> for Tone {
+		fn generate(&mut self, _: &mut Box<dyn i_am_dsp::ProcessContext>) -> [f32; 2] {
+			[0.0; 2]
+		}
+	}
+
+	web_plugin!(
+		SynthContract,
+		i_am_dsp::GeneratorEffect<Tone>,
+		|_rate| i_am_dsp::GeneratorEffect::new(Tone),
+		"com.iamplugins.test.synth",
+		"Synth Contract",
+		(400.0, 300.0),
+		"#88cc44",
+		ports = &[],
+		midi = &[i_am_plugin::MidiPort { name: "Notes" }],
+		tags = &[Tag::Instrument, Tag::Synthesizer]
+	);
+
+	#[test]
+	fn a_synthesizer_declares_a_note_port_and_no_audio_input() {
+		assert!(<SynthContract as Plugin>::INPUT_PORTS.is_empty());
+		assert_eq!(<SynthContract as Plugin>::INPUT_MIDI_PORTS.len(), 1);
+	}
+
+	#[test]
+	fn a_synthesizer_lands_in_the_instrument_menu() {
+		let tags = <SynthContract as Plugin>::DESCRIPTOR.tags;
+
+		assert_eq!(tags.len(), 2);
+		assert!(matches!(tags[0], Tag::Instrument));
+		assert!(matches!(tags[1], Tag::Synthesizer));
 	}
 }

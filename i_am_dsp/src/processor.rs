@@ -8,8 +8,9 @@
 
 use std::time::Instant;
 
+use crate::parameters::{Parameter, SetValue};
 use crate::prelude::Parameters;
-use crate::{NoteEvent, ProcessContext};
+use crate::{Effect, Generator, NoteEvent, ProcessContext};
 
 /// A message a processor can receive.
 ///
@@ -86,5 +87,140 @@ impl<P: Processor> Processor for crate::prelude::Paramed<P> {
 
 	fn on_message(&self, message: Self::Message) {
 		self.value.on_message(message)
+	}
+}
+
+/// A generator, played where an effect is expected.
+///
+/// The two halves of this library disagree about the direction of the audio: an
+/// [Effect] reads the buffer it is handed and writes the result back in place, a
+/// [Generator] returns the sample it made. A host stage -- a plug-in wrapper, an
+/// effect slot that plays an instrument -- only knows the first shape, and this is
+/// the whole difference between them.
+///
+/// Nothing else is adapted. The parameter list, the note events, the tempo and the
+/// sample rate reach the generator exactly as they reach an effect, because the
+/// adapter forwards all of them; only the buffer changes hands.
+///
+/// A generator has no latency to report: it makes the sound of the sample it is
+/// asked for, rather than answering with a delayed one.
+pub struct GeneratorEffect<G, const CHANNELS: usize = 2>(pub G);
+
+impl<G, const CHANNELS: usize> GeneratorEffect<G, CHANNELS> {
+	/// Play a generator wherever an effect goes.
+	pub const fn new(generator: G) -> Self {
+		Self(generator)
+	}
+
+	/// The generator inside.
+	pub fn generator(&self) -> &G {
+		&self.0
+	}
+
+	/// The generator inside, mutably.
+	pub fn generator_mut(&mut self) -> &mut G {
+		&mut self.0
+	}
+
+	/// Take the generator back out.
+	pub fn into_inner(self) -> G {
+		self.0
+	}
+}
+
+impl<G: Parameters, const CHANNELS: usize> Parameters for GeneratorEffect<G, CHANNELS> {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		self.0.get_parameters()
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		self.0.set_parameter(identifier, value)
+	}
+
+	fn stable_id_overrides(&self) -> Vec<(String, u32)> {
+		self.0.stable_id_overrides()
+	}
+}
+
+impl<G: Generator<CHANNELS>, const CHANNELS: usize> Effect<CHANNELS>
+	for GeneratorEffect<G, CHANNELS>
+{
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_other: &[&[f32; CHANNELS]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		*samples = self.0.generate(process_context);
+	}
+
+	fn delay(&self) -> usize {
+		0
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::prelude::Value;
+
+	/// A generator with one control, so the delegation can be seen.
+	struct Level(f32);
+
+	impl Parameters for Level {
+		fn get_parameters(&self) -> Vec<Parameter> {
+			vec![Parameter::new(
+				"level",
+				Value::Float {
+					value: self.0,
+					range: 0.0..=1.0,
+					logarithmic: false,
+				},
+			)]
+		}
+
+		fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+			if identifier == "level"
+				&& let SetValue::Float(level) = value
+			{
+				self.0 = level;
+				return true;
+			}
+
+			false
+		}
+	}
+
+	impl Generator<2> for Level {
+		fn generate(&mut self, _: &mut Box<dyn ProcessContext>) -> [f32; 2] {
+			[self.0, -self.0]
+		}
+	}
+
+	#[test]
+	fn a_generator_writes_over_the_buffer_it_is_handed() {
+		let mut effect = GeneratorEffect::<_, 2>::new(Level(0.5));
+		let mut samples = [7.0, 7.0];
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+
+		effect.process(&mut samples, &[], &mut context);
+
+		assert_eq!(samples, [0.5, -0.5]);
+	}
+
+	#[test]
+	fn a_generator_has_no_latency() {
+		let effect = GeneratorEffect::<_, 2>::new(Level(0.0));
+
+		assert_eq!(Effect::delay(&effect), 0);
+	}
+
+	#[test]
+	fn the_parameters_are_the_generators() {
+		let mut effect = GeneratorEffect::<_, 2>::new(Level(0.5));
+
+		assert_eq!(effect.get_parameters().len(), 1);
+		assert!(effect.set_parameter("level", SetValue::Float(0.25)));
+		assert_eq!(effect.generator().0, 0.25);
 	}
 }

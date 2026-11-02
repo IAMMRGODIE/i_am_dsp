@@ -26,7 +26,7 @@ pub mod prelude;
 pub mod processor;
 pub mod tools;
 
-pub use processor::{Message, Processor};
+pub use processor::{GeneratorEffect, Message, Processor};
 
 #[doc(hidden)]
 pub use phf;
