@@ -60,9 +60,38 @@ pub(crate) fn route(
 		("GET", "/modulation") => Some(ProtocolResponse::json(modulation_json(shared))),
 		("POST", "/rack-command") => Some(command(request.body, shared)),
 		("GET", "/module-scope") => module_document(request, shared, false),
+		("GET", "/module-note") => module_note(request, shared),
 		("GET", "/module-stereo") => module_document(request, shared, true),
 		_ => None,
 	}
+}
+
+/// The module id a page asked about, from the query string.
+fn module_id(request: &i_am_web_gui::ProtocolRequest<'_>) -> Option<u32> {
+	request
+		.query?
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("id="))
+		.and_then(|value| value.parse::<u32>().ok())
+}
+
+/// The note a module last heard, and the mask a pitch-tracking effect is tuning
+/// to, when it publishes one.
+fn module_note(
+	request: &i_am_web_gui::ProtocolRequest<'_>,
+	shared: &RackShared,
+) -> Option<i_am_web_gui::ProtocolResponse> {
+	let id = module_id(request)?;
+
+	let (note, allowed) = match shared.existing_scope(id) {
+		Some(scope) => (scope.note(), scope.allowed_notes()),
+		None => (-1, -1),
+	};
+
+	Some(i_am_web_gui::ProtocolResponse::json(format!(
+		"{{\"note\":{note},\"allowed\":{}}}",
+		if allowed < 0 { "null".to_string() } else { allowed.to_string() }
+	)))
 }
 
 /// The audio one module saw and produced, in the same shape as the rack's own
@@ -72,11 +101,7 @@ fn module_document(
 	shared: &RackShared,
 	stereo: bool,
 ) -> Option<i_am_web_gui::ProtocolResponse> {
-	let query = request.query?;
-	let id = query
-		.split('&')
-		.find_map(|pair| pair.strip_prefix("id="))
-		.and_then(|value| value.parse::<u32>().ok())?;
+	let id = module_id(request)?;
 	let channels = if stereo {
 		i_am_web_gui::Channels::Stereo
 	} else {
@@ -343,6 +368,7 @@ fn module_json(
 		"band_name": BAND_NAMES[band],
 		"slot": slot,
 		"kind": module.kind.name(),
+		"note": crate::module::shows_notes(module.kind),
 		"scope": match crate::module::audio_scope(module.kind) {
 			i_am_web_gui::Channels::None => serde_json::Value::Null,
 			i_am_web_gui::Channels::Mono => "mono".into(),

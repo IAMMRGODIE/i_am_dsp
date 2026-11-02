@@ -2078,6 +2078,10 @@ fn the_page_reads_the_audio_scope() {
 	);
 	assert!(js.contains("card.repaintHero"), "a live hero is never redrawn");
 	assert!(js.contains("cardContext()"), "the cards share one context");
+	assert!(
+		js.contains("fetch(\"/module-note?id=\""),
+		"the cards never read the note their module hears"
+	);
 	assert!(js.contains("spectra: { input: null, output: null }"), "no per-card spectra");
 	assert!(
 		js.contains("channels: module.scope"),
@@ -2207,5 +2211,36 @@ fn the_rack_declares_a_note_input() {
 			.iter()
 			.any(|kind| kind.name() == "Autotune"),
 		"the autotune is not offered"
+	);
+}
+
+/// The note a pitch-tracking module hears lands on its scope, which is what the
+/// card's badge reads, and the mask it tunes to comes with it.
+#[test]
+fn a_note_reaches_the_module_that_follows_it() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(30, ModuleKind::Autotune));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+
+	process_with(
+		&mut rack,
+		[0.0, 0.0],
+		vec![NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 0.8,
+		}],
+	);
+
+	let scope = rack.shared.existing_scope(30).expect("the module scope");
+	assert_eq!(scope.note(), 60, "the card badge has no note");
+	assert!(
+		scope.allowed_notes() >= 0,
+		"the autotune did not publish its note mask"
 	);
 }

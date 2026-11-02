@@ -154,6 +154,17 @@ impl RackShared {
 		scope
 	}
 
+	/// The scope of a module, when the engine has already built one. A page that
+	/// asks about a module it has not created yet gets nothing, rather than
+	/// allocating rings for it.
+	pub fn existing_scope(&self, id: u32) -> Option<Arc<Scope>> {
+		self.scopes
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.get(&id)
+			.cloned()
+	}
+
 	/// Drops the scopes of modules that are gone: a long session of adding and
 	/// removing modules would otherwise keep every ring it ever made.
 	pub fn retain_scopes(&self, live: &std::collections::BTreeSet<u32>) {

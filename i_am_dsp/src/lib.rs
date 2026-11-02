@@ -120,6 +120,15 @@ pub trait Effect<const CHANNELS: usize = 2>: Send + Sync + Parameters {
 	/// Returns the delay of the effect in samples.
 	fn delay(&self) -> usize;
 
+	/// The note mask this effect is tuning to, when it follows the host's notes.
+	///
+	/// A host draws it to show which notes an autotune may sing. An effect that
+	/// does not follow notes returns `None`, which is also what a page shows as
+	/// "no live notes".
+	fn allowed_notes(&self) -> Option<u16> {
+		None
+	}
+
 	/// Drops the effect's stored history, so a reverb or delay tail stops now.
 	///
 	/// Most effects have no tail; the ones that do override this. It runs on the

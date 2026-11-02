@@ -236,6 +236,17 @@ pub fn audio_scope(kind: ModuleKind) -> Channels {
 	}
 }
 
+/// Kinds whose card shows the notes they follow: the pitch-tracking products.
+pub fn shows_notes(kind: ModuleKind) -> bool {
+	matches!(
+		kind,
+		ModuleKind::Autotune
+			| ModuleKind::SpectralRetune
+			| ModuleKind::Resonator
+			| ModuleKind::Unstablizer
+	)
+}
+
 /// Builds a fresh effect for a kind at a sample rate.
 pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> {
 	(kind.descriptor().build)(sample_rate)

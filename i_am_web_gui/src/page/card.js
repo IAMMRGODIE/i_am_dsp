@@ -2257,6 +2257,17 @@
     });
     head.appendChild(collapse);
 
+    // A card for a module that follows the host's notes shows the note it is
+    // hearing; the page pushes it in from /module-note.
+    var noteBadge = null;
+
+    if (options.note) {
+      noteBadge = document.createElement("span");
+      noteBadge.className = "mcard-note";
+      noteBadge.style.display = "none";
+      head.appendChild(noteBadge);
+    }
+
     var bypassed = !!options.bypass;
 
     var power = document.createElement("button");
@@ -2433,6 +2444,19 @@
     // A live hero has to be redrawn when the audio moves, not only when a knob
     // does: the page keeps the card and calls this on every scope frame.
     card.repaintHero = paintHero;
+
+    card.setNote = function (note) {
+      if (!noteBadge) return;
+
+      if (note === null || note === undefined || note < 0) {
+        noteBadge.style.display = "none";
+        return;
+      }
+
+      var names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+      noteBadge.textContent = names[((note % 12) + 12) % 12] + (Math.floor(note / 12) - 1);
+      noteBadge.style.display = "";
+    };
 
     return card;
   }

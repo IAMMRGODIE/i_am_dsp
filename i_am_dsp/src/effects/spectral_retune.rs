@@ -233,6 +233,10 @@ impl SpectralRetuneEffect {
 }
 
 impl Effect<2> for SpectralRetuneEffect {
+	fn allowed_notes(&self) -> Option<u16> {
+		Some(self.allowed_mask())
+	}
+
 	fn delay(&self) -> usize {
 		self.inner.delay()
 	}

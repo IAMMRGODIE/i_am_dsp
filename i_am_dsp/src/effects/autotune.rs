@@ -189,6 +189,10 @@ impl<const CHANNELS: usize> AutoTune<CHANNELS> {
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for AutoTune<CHANNELS> {
+	fn allowed_notes(&self) -> Option<u16> {
+		Some(self.allowed_mask())
+	}
+
 	fn delay(&self) -> usize {
 		match self.algorithm {
 			1 => self.vocoder.delay(),

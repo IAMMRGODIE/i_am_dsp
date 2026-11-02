@@ -692,6 +692,7 @@
       controls: module.controls,
       values: module.values,
       context: cardAudio,
+      note: !!module.note,
       kinds: kinds,
       kind: module.kind,
       dragData: bandIndex + "." + slotIndex,
@@ -721,6 +722,7 @@
     liveCards.push({
       id: module.id,
       channels: module.scope,
+      note: module.note,
       card: card,
       context: cardAudio,
       fetching: false
@@ -2291,6 +2293,28 @@
       .catch(function () {});
   }
 
+  /// The note a pitch-tracking module is hearing, and the mask it tunes to: the
+  /// card shows the note in its header, the autotune hero lights the mask.
+  function fetchNote(entry) {
+    fetch("/module-note?id=" + entry.id, { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        if (!value) return;
+
+        if (entry.card.setNote) entry.card.setNote(value.note);
+
+        if (typeof value.allowed === "number") {
+          var changed =
+            !entry.context.autotune || entry.context.autotune.notes !== value.allowed;
+          entry.context.autotune = { notes: value.allowed };
+          if (changed) repaint(entry);
+        }
+      })
+      .catch(function () {});
+  }
+
   /// Only the cards on screen and drawing audio are polled, one document each,
   /// so a rack of twenty-seven modules costs what the visible few cost.
   function pollCards() {
@@ -2304,6 +2328,7 @@
 
         fetchScope(entry);
         if (entry.channels === "stereo") fetchStereo(entry);
+        if (entry.note) fetchNote(entry);
       });
     }
 

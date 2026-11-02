@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 use i_am_dsp::prelude::{
 	Effect, ParamMap, Parameter, Parameters, Paramed, SetValue,
 };
-use i_am_dsp::ProcessContext;
+use i_am_dsp::{NoteEvent, ProcessContext};
 use i_am_web_gui::{Control, Kind, Scope};
 
 use crate::crossover::Crossover;
@@ -34,6 +34,12 @@ impl Parameters for ModuleEffect {
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
 		self.0.set_parameter(identifier, value)
+	}
+}
+
+impl ModuleEffect {
+	fn allowed_notes(&self) -> Option<u16> {
+		self.0.allowed_notes()
 	}
 }
 
@@ -73,6 +79,8 @@ struct Module {
 	controls: BTreeMap<String, Control>,
 	/// What entered and left this module, for its card.
 	scope: Arc<Scope>,
+	/// Whether the card shows the notes this module follows.
+	notes: bool,
 }
 
 impl Module {
@@ -104,6 +112,7 @@ impl Module {
 			smoothing: false,
 			controls,
 			scope,
+			notes: module::shows_notes(state.kind),
 		}
 	}
 
@@ -327,6 +336,10 @@ pub(crate) struct Engine {
 	pub rate: usize,
 	/// Where each module's card scope comes from.
 	scopes: Scopes,
+	/// The note the host last played, or -1.
+	note: i32,
+	/// Counts blocks, so the note masks are republished at control rate.
+	note_tick: usize,
 }
 
 impl Engine {
@@ -353,6 +366,8 @@ impl Engine {
 			source_kinds: BTreeMap::new(),
 			rate: sample_rate,
 			scopes,
+			note: -1,
+			note_tick: 0,
 		};
 
 		engine.apply(state);
@@ -462,7 +477,20 @@ impl Engine {
 			.get(1)
 			.map(|frame| (frame[0] + frame[1]) * 0.5)
 			.unwrap_or(input);
+
 		let events = process_context.events().to_vec();
+		// The note the host is holding, so a card can show what its module hears.
+		let mut note = self.note;
+		for event in &events {
+			match *event {
+				NoteEvent::NoteOn { note: pitch, .. } => note = pitch as i32,
+				NoteEvent::NoteOff { note: pitch, .. } if note == pitch as i32 => note = -1,
+				NoteEvent::ImmediateStop { .. } => note = -1,
+				_ => {},
+			}
+		}
+		let note_changed = note != self.note;
+		self.note = note;
 
 		if let Some(values) = self
 			.modulation
@@ -560,6 +588,31 @@ impl Engine {
 		}
 
 		*samples = output;
+
+		self.note_tick += 1;
+
+		if note_changed || self.note_tick % 64 == 0 {
+			self.publish_notes();
+		}
+	}
+
+	/// Publishes the held note, and the mask a note-following effect tunes to,
+	/// to the scope its card reads. Only the modules whose card shows notes pay
+	/// for it.
+	fn publish_notes(&self) {
+		for lane in self.lanes.iter().chain(std::iter::once(&self.parallel)) {
+			for module in lane.slots.iter().flatten() {
+				if !module.notes {
+					continue;
+				}
+
+				module.scope.set_note(self.note);
+
+				if let Some(mask) = module.paramed.value.allowed_notes() {
+					module.scope.set_allowed_notes(mask as i32);
+				}
+			}
+		}
 	}
 
 	/// Moves every base parameter and band control toward its target.
