@@ -490,3 +490,21 @@ body.bypassed .footer{
 /* A collapsed card opens on a plain click. */
 .slot .mcard.collapsed{cursor:pointer}
 .slot .mcard.collapsed:hover{border-color:#4a4a4a}
+
+/* Where the module being dragged would land. */
+.slot-drop-hint{
+  position:absolute; left:50%; top:8px; transform:translateX(-50%);
+  font:9px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase;
+  color:#111; background:var(--accent); padding:3px 7px; border-radius:9px;
+  opacity:0; pointer-events:none; transition:opacity .1s;
+  white-space:nowrap; z-index:2;
+}
+.slot{position:relative}
+.slot.drop .slot-drop-hint{opacity:1}
+.slot.drop-copy .slot-drop-hint{background:var(--text1); color:#111}
+.slot.drop-copy{outline-color:var(--text1)}
+
+/* The source a person picked, so the knobs can be read one source at a time. */
+.mod-card.selected{outline:1px solid var(--accent); outline-offset:1px}
+.macro-item.selected .macro-drag{color:var(--accent)}
+.macro-item.selected .knob-label{color:var(--accent)}

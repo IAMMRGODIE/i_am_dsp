@@ -1758,8 +1758,44 @@ fn apply_assignment_add(state: &mut RackState, shared: &RackShared, raw: &str) -
 		assignment.target = Some(target);
 	}
 
+	// One source per target: a second row for the same pair would double the
+	// same modulation and make the knob's arc meaningless.
+	if let Some(target) = assignment.target.as_ref() {
+		let duplicate = state.assignments.iter().flatten().any(|other| {
+			other.source == assignment.source && other.target.as_ref() == Some(target)
+		});
+
+		if duplicate {
+			return true;
+		}
+	}
+
 	state.assignments.push(Some(assignment));
 	true
+}
+
+/// After an edit, no other row may address the same target from the same
+/// source: the newest edit wins and the older row loses its target.
+fn release_duplicates(state: &mut RackState, slot: usize) {
+	let Some(Some(edited)) = state.assignments.get(slot) else {
+		return;
+	};
+	let Some(target) = edited.target.clone() else {
+		return;
+	};
+	let source = edited.source;
+
+	for (index, assignment) in state.assignments.iter_mut().enumerate() {
+		if index == slot {
+			continue;
+		}
+
+		if let Some(other) = assignment {
+			if other.source == source && other.target.as_ref() == Some(&target) {
+				other.target = None;
+			}
+		}
+	}
 }
 
 fn apply_assignment(
@@ -1787,6 +1823,7 @@ fn apply_assignment(
 			let assignment = state.assignments[slot]
 				.get_or_insert_with(Assignment::default);
 			assignment.source = source;
+			release_duplicates(state, slot);
 			true
 		},
 		"target" => {
@@ -1796,6 +1833,7 @@ fn apply_assignment(
 			let assignment = state.assignments[slot]
 				.get_or_insert_with(Assignment::default);
 			assignment.target = Some(target);
+			release_duplicates(state, slot);
 			true
 		},
 		"depth" => {

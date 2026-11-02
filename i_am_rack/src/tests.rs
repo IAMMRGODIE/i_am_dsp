@@ -2540,3 +2540,49 @@ fn a_broken_script_reports_its_error() {
 
 	panic!("the broken script reported no error: {}", script.json());
 }
+
+/// A source links to a target once: a second drag of the same source onto the
+/// same knob does not add a second row.
+#[test]
+fn a_source_links_to_a_target_once() {
+	let rack = Rack::default();
+
+	command(&rack, "assign.add=macro1|band.0.gain");
+	command(&rack, "assign.add=macro1|band.0.gain");
+
+	let state = rack.state();
+	let active = state
+		.assignments
+		.iter()
+		.flatten()
+		.filter(|assignment| assignment.target == Some(Target::BandGain(0)))
+		.count();
+
+	assert_eq!(active, 1, "the same link was added twice");
+}
+
+/// Editing a row into a duplicate releases the older row instead of leaving two
+/// rows on one knob.
+#[test]
+fn a_duplicate_edit_releases_the_older_row() {
+	let rack = Rack::default();
+
+	command(&rack, "assign.add=macro1|band.0.gain");
+	command(&rack, "assign.add=macro2|band.1.gain");
+	command(&rack, "assign.1.source=macro1");
+	command(&rack, "assign.1.target=band.0.gain");
+
+	let state = rack.state();
+	let rows = &state.assignments;
+
+	assert_eq!(
+		rows[0].as_ref().and_then(|assignment| assignment.target.clone()),
+		None,
+		"the older row still holds the same target"
+	);
+	assert_eq!(
+		rows[1].as_ref().and_then(|assignment| assignment.target.clone()),
+		Some(Target::BandGain(0)),
+		"the edited row lost its target"
+	);
+}

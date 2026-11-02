@@ -270,3 +270,12 @@
   color:var(--negative, #ff7a6b); font:10px/1.4 var(--mono);
   white-space:pre-wrap; word-break:break-word;
 }
+
+/* The depth a source is adding, shown while Alt is held. */
+.knob-mod-hint{
+  position:absolute; left:50%; bottom:calc(100% - 4px); transform:translateX(-50%);
+  font:9px/1 var(--mono); color:#111; background:var(--accent);
+  padding:3px 6px; border-radius:8px; white-space:nowrap; pointer-events:none;
+  z-index:3;
+}
+.knob-wrap{position:relative}

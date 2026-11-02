@@ -1754,13 +1754,19 @@
 
     var modulations = spec.modulations || [];
 
-    var mod = svg("path", { class: "knob-mod" });
+    var mods = svg("g", { class: "knob-mods" });
     var fill = svg("path", { class: "knob-arc" });
     var hand = svg("line", { class: "knob-hand" });
-    drawing.appendChild(mod);
+    drawing.appendChild(mods);
     drawing.appendChild(fill);
     drawing.appendChild(hand);
     dial.appendChild(drawing);
+
+    // The depth a source is adding while it is dragged with Alt.
+    var modHint = document.createElement("span");
+    modHint.className = "knob-mod-hint";
+    modHint.style.display = "none";
+    wrap.appendChild(modHint);
 
     var label = document.createElement("div");
     label.className = "knob-label";
@@ -1776,12 +1782,17 @@
       var angle = START + SWEEP * position;
       fill.setAttribute("d", arcPath(32, 32, 25, START, angle));
 
-      var low = position;
-      var high = position;
+      // One arc per source, in that source's colour: a knob driven by two of
+      // them shows two arcs instead of one merged span nobody can attribute.
+      while (mods.firstChild) {
+        mods.removeChild(mods.firstChild);
+      }
 
       modulations.forEach(function (assignment) {
         var depth = assignment.depth || 0;
         var mode = assignment.mode || "centered";
+        var low = position;
+        var high = position;
 
         if (mode === "frombase" || mode === "from-base" || mode === "start") {
           var end = clamp(position + depth, 0, 1);
@@ -1792,13 +1803,26 @@
           low = Math.min(low, clamp(position - span, 0, 1));
           high = Math.max(high, clamp(position + span, 0, 1));
         }
+
+        if (high - low <= 0.0001) return;
+
+        var arc = svg("path", {
+          class: "knob-mod",
+          d: arcPath(32, 32, 29, START + SWEEP * low, START + SWEEP * high)
+        });
+
+        if (assignment.color) arc.style.stroke = assignment.color;
+        mods.appendChild(arc);
       });
 
-      if (high - low > 0.0001) {
-        mod.setAttribute("d", arcPath(32, 32, 29, START + SWEEP * low, START + SWEEP * high));
-        mod.style.display = "";
-      } else {
-        mod.style.display = "none";
+      if (modulations.length) {
+        dial.title = modulations
+          .map(function (assignment) {
+            var depth = assignment.depth || 0;
+            return (assignment.label || "source") + "  " +
+              (depth >= 0 ? "+" : "") + Math.round(depth * 100) + "%";
+          })
+          .join("\n");
       }
       var inner = polar(32, 32, 9, angle);
       var tip = polar(32, 32, 25, angle);
@@ -1835,8 +1859,15 @@
       if (event.button !== 0) return;
 
       if (event.altKey && modulations.length) {
-        modDrag = { y: event.clientY, depth: modulations[0].depth || 0 };
+        var target = modulations[0];
+        modDrag = {
+          y: event.clientY,
+          depth: target.depth || 0,
+          name: target.label || "source"
+        };
         dial.classList.add("mod-drag");
+        modHint.textContent = modDrag.name + "  " + Math.round(modDrag.depth * 100) + "%";
+        modHint.style.display = "";
       } else {
         drag = { y: event.clientY, position: norm(spec, current) };
       }
@@ -1849,6 +1880,9 @@
       if (modDrag) {
         var next = clamp(modDrag.depth + (modDrag.y - event.clientY) / 150, -1, 1);
         modulations[0].depth = next;
+        modHint.textContent = modDrag.name + "  " +
+          (next >= 0 ? "+" : "") + Math.round(next * 100) + "%";
+        modHint.style.display = "";
 
         if (spec.onModulation && modulations[0].slot !== undefined) {
           spec.onModulation(modulations[0].slot, next);
@@ -1869,6 +1903,7 @@
       if (!drag && !modDrag) return;
       drag = null;
       modDrag = null;
+      modHint.style.display = "none";
       dial.classList.remove("mod-drag");
       try {
         dial.releasePointerCapture(event.pointerId);

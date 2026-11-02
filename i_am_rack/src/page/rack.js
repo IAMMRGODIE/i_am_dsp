@@ -29,6 +29,11 @@
   var collapsedGroups = Object.create(null);
   var collapsedSources = Object.create(null);
   var collapsedModules = Object.create(null);
+  /// The source a person is looking at, when they picked one: every knob then
+  /// shows only that source's modulation.
+  var selectedSource = null;
+  var sourceNames = Object.create(null);
+  var sourceColors = Object.create(null);
   var slotScroll = Object.create(null);
   var sourceScroll = 0;
   var livePainters = [];
@@ -230,18 +235,43 @@
     sendNow("assign.add", source + "|" + target).then(load);
   }
 
+  /// The colour a source kind uses, in its card and on the knobs it drives.
+  function sourceAccent(kind) {
+    return kind === "lfo" ? "#4c8dff" :
+      kind === "envelope" ? "#35c77a" :
+        kind === "random" ? "#ff9a3d" :
+          kind === "table" ? "#c8e04a" :
+            kind === "pitch" ? "#b08cff" : "#ff6f91";
+  }
+
+  function sourceLabel(source) {
+    return sourceNames[source] || ("Source " + (source + 1));
+  }
+
+  function sourceColor(source) {
+    return sourceColors[source] || "var(--accent)";
+  }
+
+  function selectSource(id) {
+    selectedSource = selectedSource === id ? null : id;
+    load();
+  }
+
   function modulationsFor(data, target) {
     var result = [];
 
     (data.assignments || []).forEach(function (assignment, slot) {
-      if (assignment && assignment.target === target) {
-        result.push({
-          slot: slot,
-          source: assignment.source,
-          depth: assignment.depth,
-          mode: assignment.mode || "centered"
-        });
-      }
+      if (!assignment || assignment.target !== target) return;
+      if (selectedSource !== null && assignment.source !== selectedSource) return;
+
+      result.push({
+        slot: slot,
+        source: assignment.source,
+        label: sourceLabel(assignment.source),
+        color: sourceColor(assignment.source),
+        depth: assignment.depth,
+        mode: assignment.mode || "centered"
+      });
     });
 
     return result;
@@ -614,17 +644,25 @@
     wrap.appendChild(el("div", "slot-label", "SLOT " + slotLetter(slotIndex)));
     wrap.title = "Drop a module here; hold Alt or Ctrl to copy";
 
+    var dropHint = el("div", "slot-drop-hint", "");
+    wrap.appendChild(dropHint);
+
     wrap.addEventListener("dragover", function (event) {
       event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      var copy = event.altKey || event.ctrlKey || event.metaKey;
+      if (event.dataTransfer) event.dataTransfer.dropEffect = copy ? "copy" : "move";
       wrap.classList.add("drop");
+      wrap.classList.toggle("drop-copy", copy);
+      dropHint.textContent = copy ? "Copy here" : "Move here";
     });
     wrap.addEventListener("dragleave", function () {
-      wrap.classList.remove("drop");
+      wrap.classList.remove("drop", "drop-copy");
+      dropHint.textContent = "";
     });
     wrap.addEventListener("drop", function (event) {
       event.preventDefault();
-      wrap.classList.remove("drop");
+      wrap.classList.remove("drop", "drop-copy");
+      dropHint.textContent = "";
 
       if (!event.dataTransfer) return;
 
@@ -1419,6 +1457,12 @@
         var name = names[slot] || fallback;
 
         var item = el("div", "macro-item");
+
+        if (selectedSource === 4 + slot) item.classList.add("selected");
+        item.addEventListener("click", function (event) {
+          if (event.target.closest("button, select, input, textarea")) return;
+          selectSource(4 + slot);
+        });
         var handle = el("span", "macro-drag", "\u28FF");
         handle.draggable = true;
         handle.title = "Drag macro to a knob";
@@ -1496,6 +1540,14 @@
     var head = el("div", "mod-card-head");
 
     if (chrome.dragId !== undefined) {
+      if (selectedSource === chrome.dragId) card.classList.add("selected");
+      card.title = "Click to show only this source's modulation";
+
+      card.addEventListener("click", function (event) {
+        if (event.target.closest("button, select, input, textarea, a, .mod-drag")) return;
+        selectSource(chrome.dragId);
+      });
+
       var handle = el("span", "mod-drag", "\u28FF");
       handle.draggable = true;
       handle.title = "Drag source";
@@ -2202,6 +2254,27 @@
     rangeLabels = [];
     livePainters = [];
     liveCards = [];
+    sourceNames = Object.create(null);
+    sourceColors = Object.create(null);
+
+    var counts = Object.create(null);
+    var seen = Object.create(null);
+
+    (data.sources || []).forEach(function (source) {
+      counts[source.kind] = (counts[source.kind] || 0) + 1;
+    });
+
+    (data.sources || []).forEach(function (source) {
+      seen[source.kind] = (seen[source.kind] || 0) + 1;
+      sourceNames[source.id] =
+        source.name + (counts[source.kind] > 1 ? " " + seen[source.kind] : "");
+      sourceColors[source.id] = sourceAccent(source.kind);
+    });
+
+    (data.macro_names || []).forEach(function (name, index) {
+      sourceNames[4 + index] = name || ("M" + (index + 1));
+      sourceColors[4 + index] = "#9a9aff";
+    });
     pageRate = data.rate;
     rack.textContent = "";
 
