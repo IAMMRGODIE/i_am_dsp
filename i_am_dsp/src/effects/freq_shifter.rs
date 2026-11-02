@@ -35,10 +35,9 @@ pub struct FIRFreqShifter<const CHANNELS: usize = 2> {
 	filter: Biquad<CHANNELS>,
 	#[skip]
 	history: [RingBuffer<f32>; CHANNELS],
-
-	#[cfg(feature = "real_time_demo")]
-	#[serde]
-	order_of_transform: usize,
+	/// The length of the Hilbert kernel, odd and at most 511.
+	#[skip]
+	order: usize,
 }
 
 impl<const CHANNELS: usize> FIRFreqShifter<CHANNELS> {
@@ -58,10 +57,32 @@ impl<const CHANNELS: usize> FIRFreqShifter<CHANNELS> {
 			shift_freq,
 			filter: Biquad::new(sample_rate),
 			history: core::array::from_fn(|_| RingBuffer::new(63)),
-
-			#[cfg(feature = "real_time_demo")]
-			order_of_transform: 127
+			order: 127,
 		}
+	}
+
+	/// The Hilbert kernel length this shifter runs at.
+	pub fn order(&self) -> usize {
+		self.order
+	}
+
+	/// Rebuilds the Hilbert transform for a new order.
+	///
+	/// The kernel is a half-band impulse response of odd length, so the order is
+	/// rounded up to an odd number. Rebuilding allocates, which is why this is a
+	/// setter rather than something the shifter does per block.
+	pub fn set_order(&mut self, order: usize) {
+		let order = order.clamp(15, 511) | 1;
+
+		if order == self.order {
+			return;
+		}
+
+		self.order = order;
+		self.hilbert_transform
+			.replace_ir(hilbert_transform::<CHANNELS>(order), &super::prelude::DelyaCaculateMode::Fir);
+		self.history =
+			core::array::from_fn(|_| RingBuffer::new(self.hilbert_transform.delay()));
 	}
 
 	/// Sets the shift frequency of the frequency shifter.
@@ -122,21 +143,11 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for FIRFreqShifter<CHANNELS> {
 			self.set_shift_freq(shift_freq);
 		}
 
-		let mut order_of_transform = self.order_of_transform;
-		ui.add(egui::Slider::new(&mut order_of_transform, 15..=511)
-			.text("Order of Transform")
-		);
+		let mut order = self.order;
+		ui.add(egui::Slider::new(&mut order, 15..=511).text("Order of Transform"));
 
-		if order_of_transform != self.order_of_transform {
-			if order_of_transform.is_multiple_of(2) {
-				order_of_transform += 1;
-			}
-			self.order_of_transform = order_of_transform;
-			self.hilbert_transform.replace_ir(
-				hilbert_transform::<CHANNELS>(order_of_transform),
-				&super::prelude::DelyaCaculateMode::Fir
-			);
-			self.history = core::array::from_fn(|_| RingBuffer::new(self.hilbert_transform.delay()));
+		if order != self.order {
+			self.set_order(order);
 		}
 	}
 }
@@ -287,6 +298,23 @@ mod tests {
 		}
 
 		2.0 * (real * real + imaginary * imaginary).sqrt() / samples.len() as f32
+	}
+
+	/// The order decides the Hilbert kernel length, and the delay follows it.
+	#[test]
+	fn the_fir_order_sets_the_kernel_and_its_delay() {
+		let mut shifter = FIRFreqShifter::<2>::new(48_000, 100.0);
+		assert_eq!(shifter.order(), 127);
+		assert_eq!(shifter.delay(), 63);
+
+		for (order, delay) in [(63, 31), (127, 63), (255, 127), (511, 255)] {
+			shifter.set_order(order);
+			assert_eq!(shifter.order(), order);
+			assert_eq!(shifter.delay(), delay, "order {order}");
+		}
+
+		shifter.set_order(300);
+		assert_eq!(shifter.order(), 301, "the kernel is always odd");
 	}
 
 	/// The parameter map writes the field directly; the carrier has to notice and
