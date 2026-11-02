@@ -2095,6 +2095,10 @@ fn the_page_reads_the_audio_scope() {
 		"the EQ picture has no draggable bands in the rack"
 	);
 	assert!(
+		js.contains("applyPanelCollapsed("),
+		"the control panel cannot be folded away"
+	);
+	assert!(
 		js.contains("liveModulation("),
 		"the cards never see the modulated values"
 	);

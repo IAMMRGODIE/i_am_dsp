@@ -3,12 +3,21 @@
 
   var rack = document.getElementById("rack");
   var status = document.getElementById("status");
+
+  // A page that dies on load leaves an empty rack and no clue; the footer is
+  // the only place a person can see why.
+  window.addEventListener("error", function (event) {
+    if (status && event.message) status.textContent = "error: " + event.message;
+  });
   var rate = document.getElementById("rate");
   var power = document.getElementById("power");
   var panelBody = document.getElementById("panel-body");
   var panelTabs = document.querySelectorAll(".panel-tab");
   var bottomPanel = document.getElementById("bottom");
   var splitter = document.getElementById("splitter");
+  var panelToggle = document.getElementById("panel-toggle");
+  var panelCollapsed = false;
+  var panelRestore = 0;
   var activePanel = "sources";
   var panelPages = null;
   var undoButton = document.getElementById("undo");
@@ -3081,6 +3090,35 @@
     }
   }
 
+  /// Fold the panel down to its tab strip, or bring it back at the height it
+  /// had. The strip stays: it is the handle that reopens the panel.
+  function applyPanelCollapsed(collapsed, persist) {
+    if (collapsed && !panelCollapsed) {
+      panelRestore = Math.round(bottomPanel.getBoundingClientRect().height);
+    }
+
+    panelCollapsed = collapsed;
+    bottomPanel.classList.toggle("collapsed", collapsed);
+    document.body.classList.toggle("panel-collapsed", collapsed);
+
+    if (panelToggle) {
+      panelToggle.setAttribute("aria-expanded", String(!collapsed));
+      panelToggle.title = collapsed ? "Expand the control panel" : "Collapse the control panel";
+    }
+
+    if (collapsed) {
+      bottomPanel.style.flex = "";
+    } else if (panelRestore > 0) {
+      setPanelHeight(panelRestore, false);
+    }
+
+    if (persist) {
+      try {
+        localStorage.setItem("iamrack.panelCollapsed", collapsed ? "1" : "0");
+      } catch (ignore) {}
+    }
+  }
+
   function resetPanelHeight() {
     bottomPanel.style.flex = "";
     try { localStorage.removeItem("iamrack.panelHeight"); } catch (ignore) {}
@@ -3091,10 +3129,36 @@
     if (savedPanelHeight > 0) setPanelHeight(savedPanelHeight, false);
   } catch (ignore) {}
 
+  if (panelToggle) {
+    panelToggle.addEventListener("click", function (event) {
+      event.stopPropagation();
+      applyPanelCollapsed(!panelCollapsed, true);
+    });
+  }
+
+  // Double-clicking the strip itself does the same; the tabs keep their job.
+  var panelStrip = bottomPanel.querySelector(".panel-tabs");
+
+  if (panelStrip) {
+    panelStrip.addEventListener("dblclick", function (event) {
+      if (event.target.closest(".panel-toggle, .panel-tab")) return;
+      applyPanelCollapsed(!panelCollapsed, true);
+    });
+  }
+
+  try {
+    if (localStorage.getItem("iamrack.panelCollapsed") === "1") {
+      applyPanelCollapsed(true, false);
+    }
+  } catch (ignore) {}
+
   var panelDrag = null;
 
   splitter.addEventListener("pointerdown", function (event) {
     if (event.button !== 0) return;
+
+    if (panelCollapsed) applyPanelCollapsed(false, true);
+
     panelDrag = {
       y: event.clientY,
       height: bottomPanel.getBoundingClientRect().height

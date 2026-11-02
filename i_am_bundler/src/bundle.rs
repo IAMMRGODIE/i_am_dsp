@@ -245,7 +245,16 @@ pub fn install(source: &Path, destination_root: &Path) -> Result<PathBuf, String
 	// aside and the fresh one written in its place; the stale copy is cleaned up
 	// by a later install.
 	if destination.exists() {
-		let stale = destination.with_file_name(format!("{}.old", file_name.to_string_lossy()));
+		// The copy moved aside last time may itself still be there (removing it
+		// needs rights the install may not have), so the name has to be free:
+		// the first one that is wins.
+		let mut stale = destination.with_file_name(format!("{}.old", file_name.to_string_lossy()));
+		let mut attempt = 1;
+
+		while stale.exists() && attempt < 10 {
+			stale = destination.with_file_name(format!("{}.old{attempt}", file_name.to_string_lossy()));
+			attempt += 1;
+		}
 
 		if fs::rename(&destination, &stale).is_err() {
 			if destination.is_dir() {
