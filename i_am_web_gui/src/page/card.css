@@ -264,3 +264,8 @@
   cursor:pointer;
 }
 .mcard-script-toggle:hover{color:var(--text1); border-color:#585858}
+
+.mcard-script-error{
+  color:var(--negative, #ff7a6b); font:10px/1.4 var(--mono);
+  white-space:pre-wrap; word-break:break-word;
+}

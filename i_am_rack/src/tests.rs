@@ -2503,3 +2503,40 @@ fn a_scripted_module_takes_a_script() {
 
 	panic!("the script never rendered a curve");
 }
+
+/// A script that does not compile reports its error, which the card shows under
+/// the editor instead of only in a tooltip.
+#[test]
+fn a_broken_script_reports_its_error() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(51, ModuleKind::ScriptMapper));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+	process_with(&mut rack, [0.0, 0.0], Vec::new());
+
+	let request = i_am_web_gui::ProtocolRequest {
+		method: "POST",
+		path: "/module-script",
+		query: Some("id=51"),
+		body: b"x * (1.0 +",
+	};
+	assert!(crate::web::route(&request, &rack.shared).is_some());
+
+	let script = rack.shared.existing_script(51).expect("the worker");
+
+	for _ in 0..200 {
+		let json = script.json();
+
+		if json.contains("\"error\":\"") {
+			return;
+		}
+
+		std::thread::sleep(std::time::Duration::from_millis(10));
+	}
+
+	panic!("the broken script reported no error: {}", script.json());
+}

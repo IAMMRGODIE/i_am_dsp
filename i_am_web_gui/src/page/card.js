@@ -2259,6 +2259,7 @@
 
     // A scripted product carries its source in a small editor under the head.
     var scriptArea = null;
+    var scriptError = null;
 
     if (options.script) {
       var scriptToggle = document.createElement("button");
@@ -2277,6 +2278,11 @@
       scriptArea.className = "mcard-script-text";
       scriptArea.spellcheck = false;
       panel.appendChild(scriptArea);
+
+      scriptError = document.createElement("div");
+      scriptError.className = "mcard-script-error";
+      scriptError.style.display = "none";
+      panel.appendChild(scriptError);
 
       var actions = document.createElement("div");
       actions.className = "mcard-script-actions";
@@ -2497,10 +2503,25 @@
     // does: the page keeps the card and calls this on every scope frame.
     card.repaintHero = paintHero;
 
-    card.setScript = function (source) {
-      if (scriptArea && source !== undefined && source !== null) {
-        scriptArea.value = source;
+    card.setScript = function (source, force) {
+      if (!scriptArea || source === undefined || source === null) return;
+      // A poll must not overwrite what the person is typing.
+      if (!force && document.activeElement === scriptArea) return;
+
+      scriptArea.value = source;
+    };
+
+    card.setScriptError = function (message) {
+      if (!scriptError) return;
+
+      if (!message) {
+        scriptError.style.display = "none";
+        scriptError.textContent = "";
+        return;
       }
+
+      scriptError.textContent = message;
+      scriptError.style.display = "";
     };
 
     card.setNote = function (notes) {

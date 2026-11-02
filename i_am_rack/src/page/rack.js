@@ -708,7 +708,7 @@
       ir: !!module.ir,
       script: !!module.script,
       pickIr: function () { pickImpulse(entry); },
-      loadScript: function () { loadScript(entry); },
+      loadScript: function () { loadScript(entry, true); },
       applyScript: function (source) { applyScript(entry, source); },
       kinds: kinds,
       kind: module.kind,
@@ -2348,8 +2348,9 @@
       .catch(function () {});
   }
 
-  /// The source a scripted module runs, for its editor.
-  function loadScript(entry) {
+  /// The source a scripted module runs, for its editor. The poll only refreshes
+  /// the error line, so it cannot overwrite what a person is typing.
+  function loadScript(entry, force) {
     fetch("/module-script?id=" + entry.id, { cache: "no-store" })
       .then(function (response) {
         return response.ok ? response.json() : null;
@@ -2358,9 +2359,9 @@
         if (!value) return;
 
         entry.context.script = value;
-        entry.card.setScript(value.source);
+        entry.card.setScript(value.source, !!force);
 
-        if (value.error) entry.card.title = value.error;
+        if (entry.card.setScriptError) entry.card.setScriptError(value.error);
       })
       .catch(function () {});
   }
@@ -2397,7 +2398,10 @@
     if (!document.hidden) {
       liveCards.forEach(function (entry) {
         if (entry.ir) fetchIr(entry);
-        if (entry.script) fetchCurve(entry);
+        if (entry.script) {
+          fetchCurve(entry);
+          loadScript(entry, false);
+        }
       });
     }
 
