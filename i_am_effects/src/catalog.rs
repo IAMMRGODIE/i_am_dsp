@@ -8,7 +8,8 @@
 use i_am_dsp::prelude::{
 	AutoTune, Chorus, Crusher, Delay, Distortion, Effect, Expander, Flanger, FormantFilter, Gain,
 	Gate, Limiter, LrControl, Multimode, Parameter, ParametricEq, Phaser, Resonator, SineWave,
-	SpectralRetuneEffect, StereoController, StereoRouter, TapeStopEffect, TransientShaper,
+	SpectralRetuneEffect, StereoController, StereoRouter, StftVocoderEffect, TapeStopEffect,
+	TransientShaper,
 };
 
 use i_am_web_gui::Switch;
@@ -16,6 +17,7 @@ use i_am_web_gui::Switch;
 use crate::allpass::AllpassEffect;
 use crate::comb::CombEffect;
 use crate::compressor::CompressorEffect;
+use crate::ir_reverb::IrReverbEffect;
 use crate::disperser::Dispersion;
 use crate::particle_wider::ParticleWiderEffect;
 use crate::schroeder::SchroederEffect;
@@ -173,6 +175,14 @@ fn resonator(sample_rate: usize) -> Box<dyn Effect<2>> {
 
 fn unstablizer(sample_rate: usize) -> Box<dyn Effect<2>> {
 	Box::new(UnstablizerEffect::new(sample_rate))
+}
+
+fn ir_reverb(sample_rate: usize) -> Box<dyn Effect<2>> {
+	Box::new(IrReverbEffect::new(sample_rate))
+}
+
+fn stft_vocoder(sample_rate: usize) -> Box<dyn Effect<2>> {
+	Box::new(StftVocoderEffect::new(sample_rate))
 }
 
 /// The multimode filter product.
@@ -547,6 +557,30 @@ pub const UNSTABLIZER: ModuleDescriptor = ModuleDescriptor {
 	switches: &[],
 	build: unstablizer,
 };
+/// The IR reverb product, which convolves with a generated response.
+pub const IR_REVERB: ModuleDescriptor = ModuleDescriptor {
+	id: "ir_reverb",
+	name: "IR Reverb",
+	accent: "#7bd3ff",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build: ir_reverb,
+};
+
+/// The STFT vocoder product.
+pub const STFT_VOCODER: ModuleDescriptor = ModuleDescriptor {
+	id: "stft_vocoder",
+	name: "STFT Vocoder",
+	accent: "#7bb8ff",
+	mode: None,
+	header: &["window_size"],
+	visible: None,
+	switches: &[],
+	build: stft_vocoder,
+};
+
 /// Every module the catalog currently exposes.
 pub const MODULES: &[ModuleDescriptor] = &[
 	FILTER,
@@ -580,6 +614,8 @@ pub const MODULES: &[ModuleDescriptor] = &[
 	SPECTRAL_RETUNE,
 	RESONATOR,
 	UNSTABLIZER,
+	IR_REVERB,
+	STFT_VOCODER,
 ];
 
 /// Finds a descriptor by its stable id.

@@ -80,11 +80,15 @@ pub enum ModuleKind {
 	Resonator,
 	/// The unstablizer product.
 	Unstablizer,
+	/// A reverb that convolves with a generated response.
+	IrReverb,
+	/// The STFT vocoder product.
+	StftVocoder,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 31] = [
+	pub const ALL: [Self; 33] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
@@ -116,6 +120,8 @@ impl ModuleKind {
 		Self::SpectralRetune,
 		Self::Resonator,
 		Self::Unstablizer,
+		Self::IrReverb,
+		Self::StftVocoder,
 	];
 
 	/// The catalog id this kind stores in its state.
@@ -152,6 +158,8 @@ impl ModuleKind {
 			Self::SpectralRetune => "spectral_retune",
 			Self::Resonator => "resonator",
 			Self::Unstablizer => "unstablizer",
+			Self::IrReverb => "ir_reverb",
+			Self::StftVocoder => "stft_vocoder",
 		}
 	}
 
