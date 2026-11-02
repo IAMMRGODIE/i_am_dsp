@@ -14,14 +14,14 @@ then writes the bundle.
 From the workspace root, through the `cargo bundle` alias (`.cargo/config.toml`):
 
 ```sh
-cargo bundle -p i_am_effects --features vst3
-cargo bundle -p i_am_effects --features vst3 --install
+cargo bundle -p i_am_effects_bundle --features vst3
+cargo bundle -p i_am_effects_bundle --features vst3 --install
 ```
 
 Or directly:
 
 ```sh
-cargo run -p i_am_bundler -- --manifest-path i_am_effects/Cargo.toml --features vst3
+cargo run -p i_am_bundler -- --manifest-path i_am_effects_bundle/Cargo.toml --features vst3
 ```
 
 `i_am_bundler --help` lists every option. The useful ones:

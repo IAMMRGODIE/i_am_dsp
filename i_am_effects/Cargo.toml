@@ -3,26 +3,16 @@ name = "i_am_effects"
 version = "0.1.0"
 edition = "2024"
 
-# The web-faceplate effects bundle: DSP, processor plumbing and the products in
-# one crate. The old iced product crate and the separate core/web crates are
-# gone, so this is the only effects package in the workspace.
-[features]
-# Adds the VST3 entry points to the exported library (through i_am_plugin).
-vst3 = ["i_am_plugin/vst3"]
-
+# The web-faceplate effects: DSP, the parameter plumbing and one `web_plugin!`
+# registration per product. The entry points live in `i_am_effects_bundle`, so
+# this crate is a plain library that another plug-in (the rack) can link without
+# dragging in a second `clap_entry`.
 [lib]
-# A plug-in library, and an rlib so the tests and examples here can link it.
-crate-type = ["cdylib", "rlib"]
-
-# Read by "cargo bundle" (the i_am_bundler tool) when naming the .clap bundle.
-[package.metadata.i_am_dsp]
-name = "I Am Effects Web"
-vendor = "iamplugins"
-id = "iamdsp.effects.web"
+# A library only: no `clap_entry`, so it can be linked into a plug-in.
+crate-type = ["rlib"]
 
 [dependencies]
 i_am_dsp = { workspace = true }
-i_am_effects_core = { workspace = true }
 i_am_dsp_derive = { workspace = true }
 i_am_plugin = { workspace = true }
 i_am_web_gui = { workspace = true }

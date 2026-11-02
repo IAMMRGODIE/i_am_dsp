@@ -1,50 +1,14 @@
-//! The module types the rack can hold, and the card metadata each one brings.
+//! The module types the rack can hold.
 //!
-//! Every module is the same effect the standalone product ships: Multimode for
-//! Filter, Distortion for Drive, Compressor for Compressor, Gain for Gain. The
-//! card a module shows is the product card, so the mode/header/visible rules
-//! travel with the kind.
+//! Every module is the product itself — the same construction, the same
+//! parameters and the same card metadata — read from `i_am_effects::catalog`.
+//! Nothing here describes an effect a second time, so the rack cannot drift from
+//! what the standalone plug-in does.
 
 use std::collections::BTreeMap;
 
-use i_am_effects_core::catalog;
-
-use i_am_dsp::prelude::{
-	Chorus, Compressor, Crusher, Distortion, Effect, Gain, Multimode, Parameter, Phaser,
-	PureDelay, RectifyEnvelope, SineWave, Unit, Value,
-};
-
-/// The controls each Multimode algorithm reads; everything else is hidden.
-pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
-	(0, &["cutoff", "q", "stages"]),
-	(1, &["cutoff", "q", "stages"]),
-	(2, &["cutoff", "q", "stages"]),
-	(3, &["cutoff", "q", "stages"]),
-	(4, &["cutoff", "gain_db"]),
-	(5, &["cutoff", "gain_db", "slope"]),
-	(6, &["cutoff", "gain_db", "slope"]),
-];
-
-/// The controls each shaper reads.
-pub const DISTORTION_VISIBLE: &[(i32, &[&str])] = &[
-	(0, &["threshold", "gain"]),
-	(1, &["alpha", "gain"]),
-	(2, &["k", "gain"]),
-	(3, &["a", "p", "gain"]),
-	(4, &["bits", "gain"]),
-	(5, &["target_sample_rate", "gain"]),
-];
-
-/// The controls a compressor card shows; the library's sub-parameters are
-/// trimmed down to the ones a person turns.
-pub const COMPRESSOR_VISIBLE: &[&str] = &[
-	"threshold",
-	"ratio",
-	"smoother.attack_time",
-	"smoother.release_time",
-	"lookahead",
-	"gain_linear",
-];
+use i_am_dsp::prelude::{Effect, Parameter, Value};
+use i_am_effects::catalog;
 
 /// A module type a rack slot can hold.
 #[derive(
@@ -56,11 +20,11 @@ pub enum ModuleKind {
 	Filter,
 	/// The six-shaper distortion product.
 	Distortion,
-	/// A peak/RMS compressor.
+	/// A peak/RMS compressor with selectable detectors.
 	Compressor,
 	/// A plain gain.
 	Gain,
-	/// A pure delay.
+	/// The delay product, with its tempo switch.
 	Delay,
 	/// A disperser, saturator and amplitude modulation in one.
 	Crusher,
@@ -68,7 +32,7 @@ pub enum ModuleKind {
 	Chorus,
 	/// A swept allpass stack.
 	Phaser,
-	/// The product reverb, with its product faceplate metadata.
+	/// The product reverb.
 	Reverb,
 	/// The product pitch shifter.
 	Pitch,
@@ -89,190 +53,71 @@ impl ModuleKind {
 		Self::Pitch,
 	];
 
-	/// The name a card shows.
-	pub const fn name(self) -> &'static str {
+	/// The catalog id this kind stores in its state.
+	pub const fn id(self) -> &'static str {
 		match self {
-			Self::Filter => "Filter",
-			Self::Distortion => "Distortion",
-			Self::Compressor => "Compressor",
-			Self::Gain => "Gain",
-			Self::Delay => "Delay",
-			Self::Crusher => "Crusher",
-			Self::Chorus => "Chorus",
-			Self::Phaser => "Phaser",
-			Self::Reverb => catalog::REVERB.name,
-			Self::Pitch => catalog::PITCH.name,
+			Self::Filter => "filter",
+			Self::Distortion => "distortion",
+			Self::Compressor => "compressor",
+			Self::Gain => "gain",
+			Self::Delay => "delay",
+			Self::Crusher => "crusher",
+			Self::Chorus => "chorus",
+			Self::Phaser => "phaser",
+			Self::Reverb => "reverb",
+			Self::Pitch => "pitch",
 		}
+	}
+
+	/// The product descriptor behind this kind.
+	pub fn descriptor(self) -> &'static catalog::ModuleDescriptor {
+		catalog::get(self.id()).expect("every rack kind has a catalog descriptor")
+	}
+
+	/// The name a card shows.
+	pub fn name(self) -> &'static str {
+		self.descriptor().name
 	}
 
 	/// The identity colour the product uses.
-	pub const fn accent(self) -> &'static str {
-		match self {
-			Self::Filter => "#4c8dff",
-			Self::Distortion => "#ff9a3d",
-			Self::Compressor => "#ef5b5b",
-			Self::Gain => "#35c77a",
-			Self::Delay => "#c77dff",
-			Self::Crusher => "#ff5f9e",
-			Self::Chorus => "#5ad1c8",
-			Self::Phaser => "#ffd166",
-			Self::Reverb => catalog::REVERB.accent,
-			Self::Pitch => catalog::PITCH.accent,
-		}
+	pub fn accent(self) -> &'static str {
+		self.descriptor().accent
 	}
 
 	/// The picture a card draws above its controls.
-	pub const fn hero(self) -> &'static str {
-		match self {
-			Self::Filter => "spectrum",
-			Self::Distortion => "transfer",
-			Self::Compressor => "compressor",
-			Self::Gain => "waveform",
-			Self::Delay => "waveform",
-			Self::Crusher => "transfer",
-			Self::Chorus => "waveform",
-			Self::Phaser => "spectrum",
-			Self::Reverb => catalog::REVERB.hero,
-			Self::Pitch => catalog::PITCH.hero,
-		}
+	pub fn hero(self) -> &'static str {
+		self.descriptor().hero
 	}
 
 	/// The parameter the page draws as a mode switch in the header.
-	pub const fn mode(self) -> Option<&'static str> {
-		match self {
-			Self::Filter | Self::Distortion => Some("mode"),
-			Self::Compressor
-			| Self::Gain
-			| Self::Delay
-			| Self::Crusher
-			| Self::Chorus
-			| Self::Phaser
-			| Self::Reverb => None,
-			Self::Pitch => catalog::PITCH.mode,
-		}
+	pub fn mode(self) -> Option<&'static str> {
+		self.descriptor().mode
 	}
 
 	/// The parameters the page draws in the header instead of the body.
-	pub const fn header(self) -> &'static [&'static str] {
-		match self {
-			Self::Filter => &["stages"],
-			Self::Pitch => catalog::PITCH.header,
-			_ => &[],
-		}
+	pub fn header(self) -> &'static [&'static str] {
+		self.descriptor().header
 	}
 
 	/// The controls each mode reads, when the card hides the rest.
-	pub const fn visible(self) -> Option<&'static [(i32, &'static [&'static str])]> {
-		match self {
-			Self::Filter => Some(FILTER_VISIBLE),
-			Self::Distortion => Some(DISTORTION_VISIBLE),
-			Self::Compressor
-			| Self::Gain
-			| Self::Delay
-			| Self::Crusher
-			| Self::Chorus
-			| Self::Phaser
-			| Self::Reverb => None,
-			Self::Pitch => catalog::PITCH.visible,
-		}
+	pub fn visible(self) -> Option<&'static [(i32, &'static [&'static str])]> {
+		self.descriptor().visible
+	}
+
+	/// The pairs that trade places when a switch in the header moves.
+	pub fn switches(self) -> &'static [i_am_web_gui::Switch] {
+		self.descriptor().switches
 	}
 }
 
 /// Builds a fresh effect for a kind at a sample rate.
 pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> {
-	match kind {
-		ModuleKind::Filter => Box::new(Multimode::new(sample_rate, 1_000.0, 0.707)),
-		ModuleKind::Distortion => Box::new(Distortion::<2>::new(sample_rate)),
-		ModuleKind::Compressor => Box::new(Compressor::<RectifyEnvelope<2>, 2>::new(
-			RectifyEnvelope::<2>::new(sample_rate, 30.0),
-			sample_rate,
-			10.0,
-			100.0,
-			-24.0,
-			4.0,
-		)),
-		ModuleKind::Gain => Box::new(Gain::new(1.0)),
-		ModuleKind::Delay => Box::new(PureDelay::<2>::new(
-			sample_rate * 2 + 8,
-			250.0,
-			sample_rate,
-		)),
-		ModuleKind::Crusher => Box::new(Crusher::<2>::new(sample_rate)),
-		ModuleKind::Chorus => Box::new(Chorus::<SineWave, 2>::new(
-			sample_rate / 20 + 8,
-			3,
-			sample_rate,
-			SineWave,
-		)),
-		ModuleKind::Phaser => Box::new(Phaser::<SineWave, 2>::new(SineWave, 4, sample_rate)),
-		ModuleKind::Reverb => (catalog::REVERB.build)(sample_rate),
-		ModuleKind::Pitch => (catalog::PITCH.build)(sample_rate),
-	}
+	(kind.descriptor().build)(sample_rate)
 }
 
 /// The parameter schema of a kind, at a rate that does not affect the metadata.
 pub(crate) fn schema(kind: ModuleKind) -> Vec<Parameter> {
-	if matches!(kind, ModuleKind::Reverb | ModuleKind::Pitch) {
-		let descriptor = match kind {
-			ModuleKind::Reverb => &catalog::REVERB,
-			ModuleKind::Pitch => &catalog::PITCH,
-			_ => unreachable!(),
-		};
-		return descriptor.parameters();
-	}
-
-	let mut parameters = build(kind, 44_100).get_parameters();
-
-	if kind == ModuleKind::Delay {
-		for parameter in &mut parameters {
-			match parameter.identifier.as_str() {
-				"delay_time" => {
-					parameter.meta.display_name = Some("Delay".into());
-
-					if let Value::Float { range, .. } = &mut parameter.value {
-						*range = 0.0..=2_000.0;
-					}
-				},
-				"tempo.sync" => parameter.meta.display_name = Some("Sync".into()),
-				"tempo.beats" => parameter.meta.display_name = Some("Time".into()),
-				_ => {},
-			}
-		}
-
-		parameters
-	} else if matches!(kind, ModuleKind::Phaser | ModuleKind::Chorus) {
-		for parameter in &mut parameters {
-			match parameter.identifier.as_str() {
-				"tempo.sync" => parameter.meta.display_name = Some("Sync".into()),
-				"tempo.beats" => parameter.meta.display_name = Some("Time".into()),
-				_ => {},
-			}
-		}
-
-		parameters
-	} else if kind == ModuleKind::Compressor {
-		for parameter in &mut parameters {
-			match parameter.identifier.as_str() {
-				"threshold" => parameter.meta.display_name = Some("Threshold".into()),
-				"ratio" => parameter.meta.display_name = Some("Ratio".into()),
-				"smoother.attack_time" => parameter.meta.display_name = Some("Attack".into()),
-				"smoother.release_time" => parameter.meta.display_name = Some("Release".into()),
-				"lookahead" => {
-					parameter.meta.display_name = Some("Lookahead".into());
-					parameter.meta.unit = Unit::Samples;
-				},
-				"gain_linear" => parameter.meta.display_name = Some("Makeup".into()),
-				_ => {},
-			}
-		}
-
-		parameters
-			.into_iter()
-			.filter(|parameter| COMPRESSOR_VISIBLE.contains(&parameter.identifier.as_str()))
-			.collect()
-	} else {
-		parameters
-	}
+	kind.descriptor().parameters()
 }
 
 /// The parameters a fresh module starts with.

@@ -39,7 +39,7 @@ use i_am_dsp::prelude::{
 use i_am_dsp::ProcessContext;
 use i_am_plugin::processor::{DEFAULT_SAMPLE_RATE, EffectMessage};
 use i_am_plugin::{
-	Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions,
+	AudioPort, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions,
 };
 use i_am_web_gui::{Faceplate, PageAssets, Scope};
 
@@ -327,6 +327,15 @@ impl Plugin for Rack {
 	const DESCRIPTOR: Descriptor = Descriptor::new("iamdsp.multipass", "I Am Multipass")
 		.with_vendor("iamplugins")
 		.with_version(env!("CARGO_PKG_VERSION"));
+
+	/// A second input so a compressor slot can key off another source. The
+	/// compressor reads it as `other[1]`; a host that leaves the port
+	/// unconnected sends silence there, and the compressor's chooser falls back
+	/// to the main input, which turns the sidechain switch into a no-op.
+	const INPUT_PORTS: &'static [AudioPort] = &[
+		AudioPort { name: "Main" },
+		AudioPort { name: "Sidechain" },
+	];
 
 	const HAS_GUI: bool = true;
 

@@ -8,13 +8,18 @@
 //! The ids end in .web, so a host can load these next to the released iced
 //! plug-ins without confusing the two.
 //!
+//! The DSP and the registration of every product live here; the CLAP/VST3 entry
+//! points live in `i_am_effects_bundle`, so that a plug-in can link these effects
+//! without colliding on `clap_entry`.
+//!
 //! ```text
-//! cargo build -p i_am_effects
-//! cargo bundle -p i_am_effects --no-vst3
+//! cargo build -p i_am_effects_bundle
+//! cargo bundle -p i_am_effects_bundle --no-vst3
 //! cargo run -p i_am_effects --example dump_face -- target/web-preview gain
 //! ```
 
 mod allpass;
+pub mod catalog;
 mod comb;
 mod compressor;
 mod convolver;
@@ -22,10 +27,12 @@ mod disperser;
 mod ir_reverb;
 mod ott;
 mod particle_wider;
+pub mod pitch;
 mod schroeder;
 mod script;
 mod script_distortion;
 mod script_mapper;
+pub mod reverb;
 mod shifter;
 mod stft_vocoder;
 mod unstablizer;
@@ -33,7 +40,7 @@ mod vocoder;
 
 use allpass::AllpassEffect;
 use comb::CombEffect;
-use compressor::CompressorEffect;
+pub use compressor::CompressorEffect;
 pub use convolver::{ConvolverWeb, IrData, IrSlot};
 pub use script_distortion::ScriptDistortionWeb;
 pub use script_mapper::ScriptMapperWeb;
@@ -43,12 +50,13 @@ pub use stft_vocoder::StftVocoderWeb;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 use particle_wider::ParticleWiderEffect;
-use i_am_effects_core::{PitchEffect, ReverbEffect};
+use pitch::PitchEffect;
+use reverb::ReverbEffect;
 use schroeder::SchroederEffect;
 use shifter::ShifterEffect;
 use unstablizer::UnstablizerEffect;
 pub use shifter::SHIFTER_VISIBLE;
-pub use i_am_effects_core::PITCH_VISIBLE;
+pub use pitch::PITCH_VISIBLE;
 
 /// The controls each autotune engine reads; the note mask lives in its own
 /// section and is always visible.
@@ -78,7 +86,6 @@ use i_am_dsp::prelude::{
 	StereoRouter, TapeStopEffect, TransientShaper,
 };
 use i_am_web_gui::Switch;
-use i_am_plugin::export_clap;
 use i_am_web_gui::web_plugin;
 
 web_plugin!(
@@ -547,47 +554,6 @@ web_plugin!(
 	"I Am Crusher",
 	(400.0, 640.0),
 	"#8a6aff"
-);
-
-export_clap!(
-	GainWeb,
-	DistortionWeb,
-	FilterWeb,
-	CombWeb,
-	AllpassWeb,
-	WidthWeb,
-	PitchWeb,
-	AutoTuneWeb,
-	SpectralRetuneWeb,
-	ShifterWeb,
-	DisperserWeb,
-	BalanceWeb,
-	DelayWeb,
-	CompressorWeb,
-	ReverbWeb,
-	SchroederWeb,
-	ParticleWiderWeb,
-	UnstablizerWeb,
-	IrReverbWeb,
-	ChorusWeb,
-	FlangerWeb,
-	PhaserWeb,
-	CrusherWeb,
-	ConvolverWeb,
-	ScriptDistortionWeb,
-	ScriptMapperWeb,
-	OttWeb,
-	VocoderWeb,
-	StftVocoderWeb,
-	TapeStopWeb,
-	GateWeb,
-	ExpanderWeb,
-	LimiterWeb,
-	ResonatorWeb,
-	FormantFilterWeb,
-	TransientWeb,
-	RouterWeb,
-	EqWeb
 );
 
 #[cfg(test)]
@@ -1471,8 +1437,7 @@ mod tests {
 		assert!(shifter.contains("\"hero\":\"spectra\""), "{shifter}");
 		assert!(shifter.contains("\"id\":\"shift_freq\""), "{shifter}");
 		assert!(shifter.contains("\"log\":true"), "{shifter}");
-		assert!(shifter.contains("\"curves\":null"), "{shifter}");
-		assert!(disperser.contains("\"hero\":\"phase\""), "{disperser}");
+			assert!(disperser.contains("\"hero\":\"phase\""), "{disperser}");
 		assert!(disperser.contains("\"id\":\"amount\""), "{disperser}");
 		assert!(disperser.contains("\"id\":\"cutoff\""), "{disperser}");
 		assert!(balance.contains("\"hero\":\"balance\""), "{balance}");

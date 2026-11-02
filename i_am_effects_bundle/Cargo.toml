@@ -1,0 +1,25 @@
+[package]
+name = "i_am_effects_bundle"
+version = "0.1.0"
+edition = "2024"
+
+# Only the entry points: every product type, its DSP and its faceplate live in
+# i_am_effects. This crate is separate so that another plug-in (the rack) can link
+# i_am_effects without linking a second clap_entry.
+[features]
+# Adds the VST3 entry points to the exported library (through i_am_plugin).
+vst3 = ["i_am_plugin/vst3"]
+
+[lib]
+# A plug-in library: the .clap and .vst3 bundles are made from this.
+crate-type = ["cdylib"]
+
+# Read by "cargo bundle" (the i_am_bundler tool) when naming the .clap bundle.
+[package.metadata.i_am_dsp]
+name = "I Am Effects Web"
+vendor = "iamplugins"
+id = "iamdsp.effects.web"
+
+[dependencies]
+i_am_effects = { workspace = true }
+i_am_plugin = { workspace = true }

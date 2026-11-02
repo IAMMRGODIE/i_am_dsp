@@ -664,6 +664,7 @@
       mode: module.mode,
       header: module.header,
       visible: module.visible,
+      switches: module.switches,
       bypass: module.bypass,
       controls: module.controls,
       values: module.values,

@@ -388,10 +388,13 @@ impl Engine {
 	pub fn process(
 		&mut self,
 		samples: &mut [f32; 2],
-		_other: &[[f32; 2]],
+		other: &[[f32; 2]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
 		let input = (samples[0] + samples[1]) * 0.5;
+		// The products take the extra inputs as a slice of channel frames; the
+		// compressor keys off `other[1]`, which is the rack's sidechain port.
+		let sides: Vec<&[f32; 2]> = other.iter().collect();
 		let events = process_context.events().to_vec();
 
 		if let Some(values) = self
@@ -434,7 +437,9 @@ impl Engine {
 				};
 
 				if !module.bypass {
-					module.paramed.process(&mut band, &[], process_context);
+					// The product modules read the sidechain as `other[1]`; the
+					// rack's second input port arrives in the same order.
+					module.paramed.process(&mut band, &sides, process_context);
 				}
 			}
 
@@ -461,7 +466,7 @@ impl Engine {
 				};
 
 				if !module.bypass {
-					module.paramed.process(&mut frame, &[], process_context);
+					module.paramed.process(&mut frame, &sides, process_context);
 				}
 			}
 

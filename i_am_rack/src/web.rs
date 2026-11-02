@@ -311,6 +311,16 @@ fn module_json(
 		"mode": module.kind.mode(),
 		"header": module.kind.header(),
 		"visible": module.kind.visible(),
+		"switches": module
+			.kind
+			.switches()
+			.iter()
+			.map(|row| json!({
+				"control": row.control,
+				"on": row.on,
+				"off": row.off,
+			}))
+			.collect::<Vec<_>>(),
 		"bypass": module.bypass,
 		"group": module.group,
 		"controls": controls,

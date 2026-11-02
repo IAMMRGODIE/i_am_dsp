@@ -410,8 +410,8 @@ fn a_slot_can_hold_and_clear_a_compressor() {
 	assert_eq!(module.id, 5);
 	assert!(module.params.contains_key("threshold"));
 	assert!(module.params.contains_key("ratio"));
-	assert!(module.params.contains_key("smoother.attack_time"));
-	assert!(module.params.contains_key("smoother.release_time"));
+	assert!(module.params.contains_key("attack"));
+	assert!(module.params.contains_key("release"));
 	assert!(module.params.contains_key("lookahead"));
 	assert!(!module.params.contains_key("enveloper.cutoff"));
 
@@ -499,19 +499,22 @@ fn changing_a_slot_type_keeps_its_id() {
 }
 
 /// A lookahead compressor delays its band; the other bands are padded to match.
+///
+/// The product measures its lookahead in milliseconds and caps it at 50, so the
+/// host has to compensate the 2400 samples that lookahead adds at 48 kHz.
 #[test]
 fn compressor_latency_is_reported_and_compensated() {
 	let mut state = RackState::initial();
 	let mut compressor = ModuleState::new(6, ModuleKind::Compressor);
 
-	compressor.params.insert("lookahead".to_string(), 64.0);
+	compressor.params.insert("lookahead".to_string(), 50.0);
 	state.bands[0].slots[1] = Some(compressor);
 
 	let engine = crate::engine::Engine::new(48_000, &state);
 
-	assert_eq!(engine.delay(), 64);
-	assert_eq!(engine.lane_delays(), [64, 0, 0]);
-	assert_eq!(engine.lane_compensations(), [0, 64, 64]);
+	assert_eq!(engine.delay(), 2400);
+	assert_eq!(engine.lane_delays(), [2400, 0, 0]);
+	assert_eq!(engine.lane_compensations(), [0, 2400, 2400]);
 
 	state.bands[0].slots[1]
 		.as_mut()
@@ -1931,4 +1934,76 @@ fn bypass_dims_the_rack_surfaces() {
 	assert!(css.contains("body.bypassed .rack"), "the rack is not dimmed");
 	assert!(css.contains("body.bypassed .bottom"), "the bottom panel is not dimmed");
 	assert!(js.contains("document.body.classList.toggle(\"bypassed\""), "bypass does not reach the page");
+}
+
+/// The compressor can key off the rack's second input instead of the signal it
+/// is processing: a silent sidechain leaves a loud band alone, while the same
+/// band keyed off itself is turned down.
+#[test]
+fn the_compressor_can_key_off_the_sidechain_input() {
+	fn render(keyed: bool) -> f32 {
+		let mut rack = Rack::default();
+
+		{
+			let mut state = rack.shared.lock();
+			// Only the parallel lane is audible, so the measurement is the
+			// compressor's own output and not the dry bands beside it.
+			for band in &mut state.bands {
+				band.mute = true;
+			}
+
+			let mut compressor = ModuleState::new(0, ModuleKind::Compressor);
+			compressor.params.insert("threshold".to_string(), -40.0);
+			compressor.params.insert("ratio".to_string(), 10.0);
+			compressor.params.insert("attack".to_string(), 1.0);
+			compressor.params.insert("release".to_string(), 10.0);
+			compressor
+				.params
+				.insert("sidechain".to_string(), if keyed { 1.0 } else { 0.0 });
+			state.parallel.slots[0] = Some(compressor);
+		}
+
+		rack.shared.dirty.store(true, Ordering::Release);
+
+		let mut energy = 0.0;
+
+		for i in 0..8_192 {
+			let time = i as f32 / 44_100.0;
+			let sample = (2.0 * std::f32::consts::PI * 220.0 * time).sin() * 0.5;
+			let mut frame = [sample, sample];
+			// Port 1 is the sidechain and nobody is feeding it.
+			let other = [[0.0_f32; 2], [0.0_f32; 2]];
+			let mut context: Box<dyn ProcessContext> = Box::new(());
+			rack.process(&mut frame, &other, &mut context);
+
+			if i >= 4_096 {
+				energy += frame[0] * frame[0];
+			}
+		}
+
+		energy
+	}
+
+	let unkeyed = render(false);
+	let keyed = render(true);
+
+	assert!(
+		keyed > unkeyed * 1.5,
+		"a silent sidechain left {keyed} of the signal, the keyed input gave {unkeyed}"
+	);
+}
+
+/// The tempo-controlled modules carry the product's switches, so the free-time
+/// knob gives way to the beats knob in the card.
+#[test]
+fn the_tempo_modules_carry_the_product_switches() {
+	assert_eq!(ModuleKind::Delay.switches().len(), 2);
+	assert_eq!(ModuleKind::Chorus.switches().len(), 1);
+	assert_eq!(ModuleKind::Phaser.switches().len(), 1);
+	assert!(ModuleKind::Gain.switches().is_empty());
+
+	let delay = ModuleKind::Delay.switches()[0];
+	assert_eq!(delay.control, "tempo.sync");
+	assert!(delay.on.contains(&"tempo.beats"));
+	assert!(delay.off.contains(&"delay_time"));
 }

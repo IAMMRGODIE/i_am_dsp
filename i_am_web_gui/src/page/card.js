@@ -2334,6 +2334,8 @@
     function edited(id, value) {
       values[id] = value;
       paintHero();
+      // A switch appears in the header, so the body has to follow it.
+      applyVisibility();
       if (options.onEdit) options.onEdit(id, value);
     }
 
@@ -2389,15 +2391,29 @@
     card.appendChild(body);
 
     function applyVisibility() {
-      if (!options.visible) return;
+      if (!bodyControls) return;
+
+      // A switch trades one branch of a pair for the other: the delay's free
+      // time gives way to its beats, the chorus's hertz to its beats.
+      var hidden = Object.create(null);
+      (options.switches || []).forEach(function (row) {
+        var on = Number(values[row.control] || 0) !== 0;
+        (on ? row.off : row.on).forEach(function (id) {
+          hidden[id] = true;
+        });
+      });
+
       var allowed = null;
-      for (var i = 0; i < options.visible.length; i++) {
-        if (Number(options.visible[i][0]) === currentMode) {
-          allowed = options.visible[i][1];
+      if (options.visible) {
+        for (var i = 0; i < options.visible.length; i++) {
+          if (Number(options.visible[i][0]) === currentMode) {
+            allowed = options.visible[i][1];
+          }
         }
       }
+
       bodyControls.forEach(function (entry) {
-        var show = !allowed || allowed.indexOf(entry.spec.id) >= 0;
+        var show = (!allowed || allowed.indexOf(entry.spec.id) >= 0) && !hidden[entry.spec.id];
         entry.el.style.display = show ? "" : "none";
       });
     }

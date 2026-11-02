@@ -259,9 +259,17 @@ impl CompressorEffect {
 	}
 }
 
+impl CompressorEffect {
+	/// The lookahead in samples. The host asks for the latency before anything
+	/// has been processed, so it cannot wait for `process` to write it through.
+	fn lookahead_samples(&self) -> usize {
+		(self.lookahead * self.inner.sample_rate as f32 / 1000.0).round().clamp(0.0, 4096.0) as usize
+	}
+}
+
 impl Effect<2> for CompressorEffect {
 	fn delay(&self) -> usize {
-		self.inner.delay()
+		Enveloper::delay(&self.inner.enveloper) + self.lookahead_samples()
 	}
 
 	fn process(
@@ -271,14 +279,12 @@ impl Effect<2> for CompressorEffect {
 		context: &mut Box<dyn ProcessContext>,
 	) {
 		let dry = *samples;
-		let sample_rate = self.inner.sample_rate as f32;
 
 		self.inner.threshold = self.threshold;
 		self.inner.ratio = self.ratio;
 		self.inner.smoother.attack_time = self.attack;
 		self.inner.smoother.release_time = self.release;
-		self.inner.lookahead = (self.lookahead * sample_rate / 1000.0).round().clamp(0.0, 4096.0)
-			as usize;
+		self.inner.lookahead = self.lookahead_samples();
 		self.inner.gain_linear = 10.0_f32.powf(self.makeup_db / 20.0);
 		self.inner.audio_io_chooser = if self.sidechain {
 			// Port 0 is the main input; the declared sidechain port is 1.
