@@ -1,6 +1,7 @@
 //! clap_plugin
 
 use crate::shared::*;
+use clack_extensions::timer::PluginTimer;
 use crate::plugin::{Plugin, PluginAuExt};
 use crate::main_thread::{PluginMain};
 use crate::latency::{LatencyWatch};
@@ -73,6 +74,7 @@ impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> {
 			latency,
 			parent: None,
 			editor: None,
+			editor_timer: None,
 			message_receivers: vec![],
 			opening: false,
 			close_requested: false,
@@ -142,6 +144,7 @@ impl<P: Plugin> clack_plugin::plugin::Plugin for ClapPlugin<P> {
 		// its presence to decide whether to offer an editor at all.
 		if P::HAS_GUI {
 			builder.register::<PluginGui>();
+			builder.register::<PluginTimer>();
 		}
 	}
 }

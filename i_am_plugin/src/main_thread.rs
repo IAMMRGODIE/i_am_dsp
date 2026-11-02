@@ -6,6 +6,7 @@
 //! choice.
 
 use crate::editor::{Editor, EditorContext, ParentWindow};
+use clack_extensions::timer::{HostTimer, PluginTimerImpl, TimerId};
 use crate::latency::LatencyWatch;
 use crate::plugin::{Plugin, WindowSize};
 use crate::shared::*;
@@ -48,6 +49,9 @@ pub struct PluginMain<P: Plugin> {
 	/// small pending-state queue instead of a second editor.
 	pub(crate) opening: bool,
 	pub(crate) close_requested: bool,
+	/// The host timer the GUI uses to follow the window's size, when the host
+	/// offers one.
+	pub(crate) editor_timer: Option<TimerId>,
 	pub(crate) parent_dirty: bool,
 	pub(crate) geometry_dirty: bool,
 	pub(crate) hide_requested: bool,
@@ -163,6 +167,7 @@ impl<P: Plugin> PluginMain<P> {
 		// open leaves no receiver behind for it.
 		self.message_receivers.push(message_receiver);
 		self.editor = Some(editor);
+		self.start_editor_timer();
 		crate::log::note("gui.open: done");
 		Ok(())
 	}
@@ -183,6 +188,8 @@ impl<P: Plugin> PluginMain<P> {
 	/// Hiding only leaves the window off screen; this is what the host calls
 	/// destroy for, and it is the only place the GUI is thrown away.
 	pub fn close(&mut self) {
+		self.stop_editor_timer();
+
 		if self.opening {
 			self.close_requested = true;
 			crate::log::note("gui.close: deferred until open returns");
@@ -310,6 +317,7 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 	}
 
 	fn set_size(&mut self, size: clack_extensions::gui::GuiSize) -> Result<(), clack_plugin::prelude::PluginError> {
+		crate::log::note(&format!("gui.set_size: {}x{}", size.width, size.height));
 		let scale = self.scale_value();
 		let logical = WindowSize::new(
 			(size.width as f64 / scale) as f32,
@@ -372,6 +380,85 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 
 	fn suggest_title(&mut self, title: &str) {
 		self.title = title.to_string();
+	}
+}
+
+impl<P: Plugin> PluginMain<P> {
+	/// Ask the host for a timer the GUI can use to notice its window changing
+	/// size. Hosts that do not offer the timer extension simply never call it.
+	fn start_editor_timer(&mut self) {
+		if self.editor_timer.is_some() {
+			return;
+		}
+
+		let Some(host) = self.host.as_mut() else {
+			return;
+		};
+		let Some(timer) = host.get_extension::<HostTimer>() else {
+			return;
+		};
+
+		match timer.register_timer(host, 33) {
+			Ok(id) => {
+				crate::log::note(&format!("editor timer: {id}"));
+				self.editor_timer = Some(id);
+			},
+			Err(error) => crate::log::note(&format!("editor timer: refused: {error}")),
+		}
+	}
+
+	fn stop_editor_timer(&mut self) {
+		let Some(id) = self.editor_timer.take() else {
+			return;
+		};
+		let Some(host) = self.host.as_mut() else {
+			return;
+		};
+		if let Some(timer) = host.get_extension::<HostTimer>() {
+			let _ = timer.unregister_timer(host, id);
+		}
+	}
+}
+
+impl<P: Plugin> PluginTimerImpl for PluginMain<P> {
+	fn on_timer(&mut self, timer_id: TimerId) {
+		if Some(timer_id) != self.editor_timer {
+			return;
+		}
+		if self.opening {
+			return;
+		}
+
+		let Some(parent) = self.parent else {
+			return;
+		};
+		// The host owns the window: it may resize it without calling set_size
+		// (some hosts only do that on release, others never). Following the
+		// client rectangle is what makes the page react while the edge is
+		// still being dragged.
+		let Some((width, height)) = crate::editor::client_size(parent) else {
+			return;
+		};
+
+		let scale = self.scale_value();
+		let logical = WindowSize::new((width / scale) as f32, (height / scale) as f32);
+
+		if (logical.width - self.window_size.width).abs() < 1.0
+			&& (logical.height - self.window_size.height).abs() < 1.0
+		{
+			return;
+		}
+
+		crate::log::note(&format!(
+			"editor timer: following the window to {}x{}",
+			logical.width, logical.height
+		));
+
+		self.window_size = logical;
+
+		if let Some(editor) = self.editor.as_mut() {
+			let _ = editor.set_size(logical);
+		}
 	}
 }
 

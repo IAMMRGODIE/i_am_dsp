@@ -200,7 +200,7 @@ pub struct ParametricEq<const CHANNELS: usize = 2> {
 	/// Band 2 type.
 	#[range(min = 0, max = 5)]
 	#[choices("Bell", "Low Shelf", "High Shelf", "Low Cut", "High Cut", "Notch")]
-	#[default(1)]
+	#[default(0)]
 	#[id(display = "Type")]
 	#[layout(group = "EQ", order = 7, widget = choice)]
 	pub b2_type: i32,
@@ -436,7 +436,7 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 			b1_q: 0.707,
 			b1_slope: 0,
 			b2_on: true,
-			b2_type: 1,
+			b2_type: 0,
 			b2_freq: 100.0,
 			b2_gain: 0.0,
 			b2_q: 0.707,

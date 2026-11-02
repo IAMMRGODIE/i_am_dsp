@@ -7,6 +7,7 @@
 }
 .mcard-head{
   display:flex; align-items:center; gap:8px; padding:6px 10px;
+  overflow:hidden;
   background:var(--header); border-bottom:1px solid #303030;
   min-height:36px;
 }
@@ -44,6 +45,7 @@
 }
 .mcard-select{
   appearance:none; -webkit-appearance:none;
+  min-width:0; flex:0 1 auto;
   height:22px; padding:0 20px 0 9px;
   border:1px solid var(--border); border-radius:5px;
   background:#222;
@@ -58,8 +60,8 @@
 }
 .mcard-select:hover{border-color:#5a5a5a; background-color:#2a2a2a}
 .mcard-select:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
-.mcard-mode{min-width:92px}
-.mcard-kind{min-width:96px}
+.mcard-mode{max-width:110px}
+.mcard-kind{max-width:130px}
 .mcard.has-remove .mcard-head{padding-right:30px}
 .mcard-remove{
   position:absolute; top:6px; right:6px; z-index:2;
@@ -335,4 +337,11 @@
   font:9px/1.2 var(--mono); color:var(--text3);
   background:rgba(20,20,20,.55); padding:1px 4px; border-radius:3px;
   pointer-events:none; white-space:nowrap;
+}
+
+/* The EQ's band nodes: HTML, so the picture's stretch cannot squash them. */
+.hero-dot{
+  position:absolute; transform:translate(-50%,-50%); border-radius:50%;
+  border:1px solid #151515; box-sizing:border-box; cursor:move;
+  pointer-events:auto; z-index:1;
 }

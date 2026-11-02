@@ -62,6 +62,38 @@ impl ParentWindow {
 	}
 }
 
+/// The client size of a window, in physical pixels.
+///
+/// A host can resize its editor window without telling the plug-in about it; the
+/// editor polls this against the size it was laid out for and follows along.
+pub fn client_size(parent: ParentWindow) -> Option<(f64, f64)> {
+	#[cfg(windows)]
+	{
+		use windows_sys::Win32::Foundation::{HWND, RECT};
+		use windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect;
+
+		let hwnd = parent.as_win32_hwnd()? as HWND;
+		let mut rect = RECT::default();
+
+		// SAFETY: the handle belongs to the host and stays valid while the editor
+		// is open, which is the only time the caller asks.
+		if unsafe { GetClientRect(hwnd, &mut rect) } == 0 {
+			None
+		} else {
+			let width = (rect.right - rect.left) as f64;
+			let height = (rect.bottom - rect.top) as f64;
+
+			(width > 0.0 && height > 0.0).then_some((width, height))
+		}
+	}
+
+	#[cfg(not(windows))]
+	{
+		let _ = parent;
+		None
+	}
+}
+
 impl HasWindowHandle for ParentWindow {
 	fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
 		// SAFETY: the handle was copied from the host while the host's window was

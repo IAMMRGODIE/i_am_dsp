@@ -1099,6 +1099,7 @@
 
     var grid = "";
     var labelsHtml = "";
+    var dotsHtml = "";
     var ticks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
     var labels = { 100: "100", 1000: "1k", 10000: "10k" };
 
@@ -1177,10 +1178,18 @@
       labelsHtml += heroLabel(bx + 7, by - 7, b + 1,
         "color:" + color + ";opacity:" + opacity + ";font-size:9px");
 
+      // The dot is HTML: the picture is stretched with the card, and a circle
+      // drawn in it would stretch into an ellipse. The transparent circle
+      // behind it stays in the picture's coordinates, where the drag reads
+      // the pointer from.
+      var dotSize = Math.round(radius * 2);
+
+      dotsHtml += '<div class="hero-dot" data-eq-band="' + b + '" style="left:' +
+        (bx / 5.2).toFixed(2) + '%;top:' + (by / 1.6).toFixed(2) + '%;width:' +
+        dotSize + 'px;height:' + dotSize + 'px;background:' + color +
+        ';opacity:' + opacity + '"></div>';
+
       nodes +=
-        '<circle cx="' + bx.toFixed(1) + '" cy="' + by.toFixed(1) + '" r="' + radius +
-          '" fill="' + color + '" fill-opacity="' + opacity + '" stroke="#151515" stroke-width="1"' +
-          ' data-eq-band="' + b + '" style="cursor:move"/>' +
         '<circle cx="' + bx.toFixed(1) + '" cy="' + by.toFixed(1) +
           '" r="18" fill="#000" fill-opacity="0" pointer-events="all"' +
           ' data-eq-band="' + b + '" style="cursor:move"/>';
@@ -1192,7 +1201,7 @@
       '<path d="' + curve + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
         'vector-effect="non-scaling-stroke"/>' +
       nodes
-    ) + labelsHtml;
+    ) + labelsHtml + dotsHtml;
   }
 
   /// A gate, expander or limiter law drawn on its own, across the whole picture.
