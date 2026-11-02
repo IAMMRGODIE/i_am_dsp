@@ -2091,6 +2091,10 @@ fn the_page_reads_the_audio_scope() {
 		"the matrix has no source filter"
 	);
 	assert!(
+		js.contains("attachEqBands("),
+		"the EQ picture has no draggable bands in the rack"
+	);
+	assert!(
 		js.contains("liveModulation("),
 		"the cards never see the modulated values"
 	);

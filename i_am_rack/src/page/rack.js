@@ -938,12 +938,84 @@
 
     wrap.appendChild(card);
 
+    if (module.hero === "eq") attachEqBands(card, module);
+
     // The engine decides what a card reads from the audio, and says so in the
     // module: a hero that draws parameters gets nothing allocated at all.
     entry.card = card;
     liveCards.push(entry);
 
     return wrap;
+  }
+
+  /// The EQ's picture carries six draggable nodes. The product page wires this
+  /// in its own module; a card needs the same behaviour, or the dots do nothing.
+  function attachEqBands(card, module) {
+    var hero = card.querySelector(".mcard-hero");
+    if (!hero) return;
+
+    var drag = null;
+
+    function bandOf(target) {
+      var node = target && target.closest ? target.closest("[data-eq-band]") : null;
+      return node ? Number(node.getAttribute("data-eq-band")) : -1;
+    }
+
+    function value(name, fallback) {
+      var stored = module.values[name];
+      return typeof stored === "number" ? stored : fallback;
+    }
+
+    hero.addEventListener("pointerdown", function (event) {
+      var band = bandOf(event.target);
+      if (band < 0) return;
+
+      var svg = hero.querySelector("svg");
+      if (!svg) return;
+
+      drag = { band: band, svg: svg, pointerId: event.pointerId };
+      queue(module.id + ".band", band);
+      try { hero.setPointerCapture(event.pointerId); } catch (ignore) {}
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    hero.addEventListener("pointermove", function (event) {
+      if (!drag) return;
+
+      var rect = drag.svg.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+
+      var u = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      var v = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+      var index = drag.band + 1;
+      var frequency = 20 * Math.pow(1000, u);
+      var type = Math.round(value("b" + index + "_type", 0));
+
+      queue(module.id + ".b" + index + "_freq", frequency);
+      module.values["b" + index + "_freq"] = frequency;
+
+      if (type <= 2) {
+        var gain = 24 - v * 48;
+        queue(module.id + ".b" + index + "_gain", gain);
+        module.values["b" + index + "_gain"] = gain;
+      }
+
+      // Show the move while the pointer is down; the next reload settles it.
+      if (card.repaintHero) card.repaintHero();
+
+      event.preventDefault();
+    });
+
+    function stop(event) {
+      if (!drag) return;
+
+      drag = null;
+      try { hero.releasePointerCapture(event.pointerId); } catch (ignore) {}
+    }
+
+    hero.addEventListener("pointerup", stop);
+    hero.addEventListener("pointercancel", stop);
   }
 
   function makeBand(data, bandIndex) {
