@@ -94,7 +94,8 @@
 .mcard.bypassed .mcard-hero,
 .mcard.bypassed .mcard-body{opacity:.45}
 .mcard.collapsed .mcard-hero,
-.mcard.collapsed .mcard-body{display:none}
+.mcard.collapsed .mcard-body,
+.mcard.collapsed .mcard-script{display:none}
 .mcard-hero{
   position:relative;
   height:150px; flex:0 0 150px; margin:8px 10px 0; padding:0;

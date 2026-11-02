@@ -286,6 +286,51 @@ pub fn meter(kind: ModuleKind) -> Option<&'static str> {
 	}
 }
 
+/// The group a kind is listed under, so a menu of thirty-eight modules stays
+/// readable.
+pub fn group(kind: ModuleKind) -> &'static str {
+	match kind {
+		ModuleKind::Filter
+		| ModuleKind::Allpass
+		| ModuleKind::Comb
+		| ModuleKind::Formant
+		| ModuleKind::Eq => "Filter",
+		ModuleKind::Distortion
+		| ModuleKind::Crusher
+		| ModuleKind::Disperser
+		| ModuleKind::TapeStop
+		| ModuleKind::Transient => "Colour",
+		ModuleKind::Compressor
+		| ModuleKind::Gate
+		| ModuleKind::Expander
+		| ModuleKind::Limiter
+		| ModuleKind::Ott => "Dynamics",
+		ModuleKind::Delay
+		| ModuleKind::Chorus
+		| ModuleKind::Flanger
+		| ModuleKind::Phaser
+		| ModuleKind::Reverb
+		| ModuleKind::Schroeder
+		| ModuleKind::IrReverb
+		| ModuleKind::Convolver
+		| ModuleKind::ParticleWider => "Space",
+		ModuleKind::Pitch
+		| ModuleKind::Shifter
+		| ModuleKind::Autotune
+		| ModuleKind::SpectralRetune
+		| ModuleKind::Resonator
+		| ModuleKind::Unstablizer
+		| ModuleKind::Vocoder
+		| ModuleKind::StftVocoder => "Pitch",
+		ModuleKind::Gain
+		| ModuleKind::Balance
+		| ModuleKind::Width
+		| ModuleKind::Router
+		| ModuleKind::ScriptDistortion
+		| ModuleKind::ScriptMapper => "Utility",
+	}
+}
+
 /// Whether a kind runs a script the page can edit.
 pub fn needs_script(kind: ModuleKind) -> bool {
 	matches!(kind, ModuleKind::ScriptDistortion | ModuleKind::ScriptMapper)

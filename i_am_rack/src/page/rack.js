@@ -648,11 +648,26 @@
       placeholder.textContent = "+ Add module";
       select.appendChild(placeholder);
 
+      // Thirty-eight modules read better in their families than in one list.
+      var groups = Object.create(null);
+
       (data.kinds || []).forEach(function (kind) {
         var option = document.createElement("option");
         option.value = kind.name;
         option.textContent = kind.name;
-        select.appendChild(option);
+
+        if (!kind.group) {
+          select.appendChild(option);
+          return;
+        }
+
+        if (!groups[kind.group]) {
+          groups[kind.group] = document.createElement("optgroup");
+          groups[kind.group].label = kind.group;
+          select.appendChild(groups[kind.group]);
+        }
+
+        groups[kind.group].appendChild(option);
       });
 
       select.addEventListener("change", function () {
@@ -666,7 +681,7 @@
       return wrap;
     }
 
-    var kinds = (data.kinds || []).map(function (kind) { return kind.name; });
+    var kinds = data.kinds || [];
 
     (module.controls || []).forEach(function (control) {
       control.onModulation = setModulationDepth;

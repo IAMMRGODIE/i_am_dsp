@@ -2257,6 +2257,15 @@
     });
     head.appendChild(collapse);
 
+    // A collapsed card is a strip: clicking it should open it again, not only
+    // clicking the arrow does.
+    card.addEventListener("click", function (event) {
+      if (!card.classList.contains("collapsed")) return;
+      if (event.target.closest("button, select, input, textarea, a")) return;
+
+      collapse.click();
+    });
+
     // A scripted product carries its source in a small editor under the head.
     var scriptArea = null;
     var scriptError = null;
@@ -2357,11 +2366,27 @@
       kindSelect.title = "Module type";
       kindSelect.setAttribute("aria-label", "Module type");
 
-      options.kinds.forEach(function (kind) {
+      var groups = Object.create(null);
+
+      options.kinds.forEach(function (entry) {
+        var name = typeof entry === "string" ? entry : entry.name;
+        var group = typeof entry === "string" ? "" : entry.group || "";
         var option = document.createElement("option");
-        option.value = kind;
-        option.textContent = kind;
-        kindSelect.appendChild(option);
+        option.value = name;
+        option.textContent = name;
+
+        if (!group) {
+          kindSelect.appendChild(option);
+          return;
+        }
+
+        if (!groups[group]) {
+          groups[group] = document.createElement("optgroup");
+          groups[group].label = group;
+          kindSelect.appendChild(groups[group]);
+        }
+
+        groups[group].appendChild(option);
       });
 
       kindSelect.value = options.kind || options.kinds[0];

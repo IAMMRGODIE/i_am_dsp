@@ -366,6 +366,7 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 				"name": kind.name(),
 				"accent": kind.accent(),
 				"hero": crate::module::hero(kind),
+				"group": crate::module::group(kind),
 			})
 		})
 		.collect::<Vec<_>>();

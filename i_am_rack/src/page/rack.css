@@ -482,3 +482,11 @@ body.bypassed .footer{
   .mod-sources{grid-template-columns:1fr}
   .assign-row{grid-template-columns:20px 100px minmax(0,1fr) 24px 120px 22px}
 }
+
+/* A card lifts a little under the pointer, so the drag targets read as cards. */
+.slot .mcard{transition:border-color .12s}
+.slot .mcard:hover{border-color:#4a4a4a}
+
+/* A collapsed card opens on a plain click. */
+.slot .mcard.collapsed{cursor:pointer}
+.slot .mcard.collapsed:hover{border-color:#4a4a4a}
