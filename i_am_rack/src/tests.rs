@@ -2048,3 +2048,42 @@ fn every_catalog_product_can_run_in_a_slot() {
 		);
 	}
 }
+
+/// The rack page reads the same /scope document the products do: the heroes
+/// that draw audio are useless without it.
+#[test]
+fn the_page_reads_the_audio_scope() {
+	let js = include_str!("page/rack.js");
+
+	assert!(js.contains("fetch(\"/scope\""), "the rack does not read the scope");
+	assert!(js.contains("card.repaintHero"), "a live hero is never redrawn");
+	assert!(js.contains("context: { scope: scope }"), "the hero gets no scope");
+}
+
+/// The scope the page polls is fed by the audio thread, not by the UI thread.
+#[test]
+fn the_scope_receives_the_signal() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	for i in 0..512 {
+		let sample = if i % 2 == 0 { 0.5 } else { -0.5 };
+		let mut frame = [sample, sample];
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		rack.process(&mut frame, &[], &mut context);
+	}
+
+	let snapshot = rack.scope.snapshot();
+	assert_eq!(snapshot.len(), 4096 * 12, "the scope document has the wrong size");
+
+	// The document is zero-padded up to POINTS, so the newest frame is the one
+	// just before the padding starts.
+	let newest = 511 * 4;
+	let value = f32::from_le_bytes([
+		snapshot[newest],
+		snapshot[newest + 1],
+		snapshot[newest + 2],
+		snapshot[newest + 3],
+	]);
+	assert!(value.abs() > 0.01, "the scope has no signal: {value}");
+}

@@ -655,6 +655,20 @@ mod ui_contract_tests {
 		);
 	}
 
+	/// A live hero draws the audio, so the card has to hand its context to the
+	/// renderer and let the page ask for a redraw between knob moves.
+	#[test]
+	fn a_card_hands_its_context_to_the_hero() {
+		assert!(
+			CARD_SCRIPT.contains("hero(options.hero, values, options.context)"),
+			"the hero never sees the scope"
+		);
+		assert!(
+			CARD_SCRIPT.contains("card.repaintHero = paintHero"),
+			"a live hero cannot be redrawn"
+		);
+	}
+
 	/// A mode is a choice: two options and seven options use the same control.
 	#[test]
 	fn a_mode_is_the_shared_select() {

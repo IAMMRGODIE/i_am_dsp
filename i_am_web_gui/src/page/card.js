@@ -2328,7 +2328,7 @@
 
     var heroElement = null;
     function paintHero() {
-      if (heroElement) heroElement.innerHTML = hero(options.hero, values);
+      if (heroElement) heroElement.innerHTML = hero(options.hero, values, options.context);
     }
 
     function edited(id, value) {
@@ -2419,6 +2419,10 @@
     }
 
     applyVisibility();
+
+    // A live hero has to be redrawn when the audio moves, not only when a knob
+    // does: the page keeps the card and calls this on every scope frame.
+    card.repaintHero = paintHero;
 
     return card;
   }

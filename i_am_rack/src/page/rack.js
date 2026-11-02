@@ -38,6 +38,11 @@
     history: Object.create(null)
   };
   var liveTimer = null;
+  var scopeTimer = null;
+  // The heroes that draw the audio itself, and the object the poller fills in.
+  var scope = { input: null, output: null, sidechain: null };
+  var scopePainters = [];
+  var SCOPE_HEROES = { waveform: true, transfer: true };
 
   function slotLetter(index) {
     return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
@@ -668,6 +673,7 @@
       bypass: module.bypass,
       controls: module.controls,
       values: module.values,
+      context: { scope: scope },
       kinds: kinds,
       kind: module.kind,
       dragData: bandIndex + "." + slotIndex,
@@ -691,6 +697,13 @@
     });
 
     wrap.appendChild(card);
+
+    if (SCOPE_HEROES[module.hero]) {
+      scopePainters.push(function () {
+        if (card.repaintHero) card.repaintHero();
+      });
+    }
+
     return wrap;
   }
 
@@ -2138,6 +2151,7 @@
     current = data;
     rangeLabels = [];
     livePainters = [];
+    scopePainters = [];
     rack.textContent = "";
 
     rack.appendChild(makeCrossover(data));
@@ -2182,6 +2196,40 @@
       })
       .catch(function (error) {
         status.textContent = "rack unavailable: " + error.message;
+      });
+  }
+
+  /// The scope is a binary document of input, output and sidechain, in the same
+  /// shape the product page reads: the heroes that draw audio only need the
+  /// newest one, so the poll is a plain fetch rather than a stream.
+  function pollScope() {
+    if (document.hidden) {
+      scopeTimer = setTimeout(pollScope, 200);
+      return;
+    }
+
+    fetch("/scope", { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("scope " + response.status);
+        return response.arrayBuffer();
+      })
+      .then(function (buffer) {
+        var data = new Float32Array(buffer);
+        var third = data.length / 3;
+
+        if (third > 64) {
+          scope.input = data.subarray(0, third);
+          scope.output = data.subarray(third, third * 2);
+          scope.sidechain = data.subarray(third * 2);
+
+          scopePainters.forEach(function (paint) { paint(); });
+        }
+      })
+      .catch(function () {
+        // The route is absent in a preview build; the parameter-driven heroes stay.
+      })
+      .then(function () {
+        scopeTimer = setTimeout(pollScope, 60);
       });
   }
 
@@ -2381,4 +2429,5 @@
 
   load();
   startLive();
+  pollScope();
 })();
