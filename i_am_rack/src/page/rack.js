@@ -713,11 +713,64 @@
 
   function makeSlot(data, bandIndex, slotIndex, module) {
     var wrap = el("div", "slot");
+    var widthKey = "iamrack.slotWidth." + bandIndex + "." + slotIndex;
+
+    try {
+      var saved = Number(localStorage.getItem(widthKey));
+
+      if (saved >= 260) wrap.style.setProperty("--slot-width", saved + "px");
+    } catch (ignore) {}
     wrap.appendChild(el("div", "slot-label", "SLOT " + slotLetter(slotIndex)));
     wrap.title = "Drop a module here; hold Alt or Ctrl to copy";
 
     var dropHint = el("div", "slot-drop-hint", "");
     wrap.appendChild(dropHint);
+
+    if (module) {
+      wrap.classList.add("has-resize");
+
+      var resizer = el("div", "slot-resize");
+      resizer.title = "Drag to resize this card";
+      wrap.appendChild(resizer);
+
+      var sizeDrag = null;
+
+      resizer.addEventListener("pointerdown", function (event) {
+        if (event.button !== 0) return;
+
+        sizeDrag = {
+          x: event.clientX,
+          width: wrap.getBoundingClientRect().width
+        };
+        resizer.classList.add("dragging");
+        resizer.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        event.stopPropagation();
+      });
+
+      resizer.addEventListener("pointermove", function (event) {
+        if (!sizeDrag) return;
+
+        var width = Math.min(900, Math.max(260, sizeDrag.width + event.clientX - sizeDrag.x));
+        wrap.style.setProperty("--slot-width", width + "px");
+      });
+
+      function stopSize(event) {
+        if (!sizeDrag) return;
+
+        sizeDrag = null;
+        resizer.classList.remove("dragging");
+
+        try {
+          localStorage.setItem(widthKey, String(Math.round(wrap.getBoundingClientRect().width)));
+        } catch (ignore) {}
+
+        try { resizer.releasePointerCapture(event.pointerId); } catch (ignore) {}
+      }
+
+      resizer.addEventListener("pointerup", stopSize);
+      resizer.addEventListener("pointercancel", stopSize);
+    }
 
     wrap.addEventListener("dragover", function (event) {
       event.preventDefault();

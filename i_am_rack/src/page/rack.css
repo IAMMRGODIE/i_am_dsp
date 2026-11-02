@@ -261,6 +261,7 @@ body{
   font-size:11px; white-space:nowrap; pointer-events:none;
 }
 .slot .mcard.collapsed .mcard-remove{position:static; margin-top:auto}
+.slot .mcard.collapsed .mcard-duplicate{position:static; margin:0; order:-1}
 .slot .mcard.collapsed .mcard-power{margin-left:0}
 .slot.drop .slot-empty,
 .slot.drop .mcard{outline:1px dashed var(--mod); outline-offset:2px}
@@ -515,3 +516,19 @@ body.bypassed .footer{
   font:9px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--text3);
 }
 .assign-group:first-child{margin-top:4px}
+
+/* A card can be given its own width, and sizes its knobs by it. */
+.slot{
+  flex:0 0 var(--slot-width, 420px);
+  min-width:var(--slot-width, 420px);
+  container-type:inline-size;
+}
+.slot-resize{
+  position:absolute; top:16px; right:-6px; bottom:8px; width:10px;
+  cursor:ew-resize; touch-action:none; z-index:3;
+}
+.slot-resize::before{
+  content:""; position:absolute; top:0; bottom:0; left:4px; width:2px;
+  border-radius:1px; background:transparent;
+}
+.slot-resize:hover::before,.slot-resize.dragging::before{background:#4a4a4a}

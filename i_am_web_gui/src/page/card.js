@@ -1771,13 +1771,23 @@
 
     // A thin needle for where the modulation is right now, so the knob shows
     // the sound while its main hand keeps the value a person set.
-    wrap.__live = function (position) {
-      if (position === null) {
+    /// The needle is an offset from the hand, so turning the knob carries it
+    /// along and the modulation keeps its distance.
+    var liveOffset = null;
+
+    wrap.__live = function (offset) {
+      liveOffset = offset;
+      paintLive();
+    };
+
+    function paintLive() {
+      if (liveOffset === null) {
         live.style.display = "none";
         return;
       }
 
-      var angle = START + SWEEP * clamp(position, 0, 1);
+      var position = clamp(norm(spec, current) + liveOffset, 0, 1);
+      var angle = START + SWEEP * position;
       var inner = polar(32, 32, 18, angle);
       var tip = polar(32, 32, 29, angle);
       live.setAttribute("x1", inner.x.toFixed(2));
@@ -1785,7 +1795,7 @@
       live.setAttribute("x2", tip.x.toFixed(2));
       live.setAttribute("y2", tip.y.toFixed(2));
       live.style.display = "";
-    };
+    }
 
     // The depth a source is adding while it is dragged with Alt.
     var modHint = document.createElement("span");
@@ -1858,6 +1868,7 @@
       readout.textContent = display(spec, current);
       dial.setAttribute("aria-valuenow", String(current));
       dial.setAttribute("aria-valuetext", display(spec, current));
+      paintLive();
     }
 
     function set(value, send) {
@@ -2602,10 +2613,12 @@
 
         if (typeof value !== "number") return;
 
-        var position = spec ? norm(spec, value) : null;
-
         if (liveKnobs[id]) {
-          liveKnobs[id](position === null ? null : clamp(position, 0, 1));
+          var offset = spec && typeof values[id] === "number"
+            ? norm(spec, value) - norm(spec, values[id])
+            : null;
+
+          liveKnobs[id](offset === null ? null : clamp(offset, -1, 1));
         }
 
         if (values[id] === value) return;
