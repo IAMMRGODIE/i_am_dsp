@@ -8,18 +8,20 @@
 //! The split itself is in crossover.rs. A band is muted/soloed after its
 //! modules and before the sum; the band gain and pan are the last thing applied.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use i_am_dsp::prelude::{
 	Effect, ParamMap, Parameter, Parameters, Paramed, SetValue,
 };
 use i_am_dsp::ProcessContext;
-use i_am_web_gui::{Control, Kind};
+use i_am_web_gui::{Control, Kind, Scope};
 
 use crate::crossover::Crossover;
 use crate::modulation::Modulation;
 use crate::module::{self, ModuleKind};
+use crate::shared::RackShared;
 use crate::state::{Assignment, AssignmentMode, MACRO_BASE, ModuleState, RackState, SourceKind, Target};
 
 /// A boxed effect, adapted so Paramed can wrap it.
@@ -69,10 +71,12 @@ struct Module {
 	smoothing: bool,
 	/// Ranges and labels of the controls this module accepts from a page.
 	controls: BTreeMap<String, Control>,
+	/// What entered and left this module, for its card.
+	scope: Arc<Scope>,
 }
 
 impl Module {
-	fn new(state: &ModuleState, sample_rate: usize) -> Self {
+	fn new(state: &ModuleState, sample_rate: usize, scope: Arc<Scope>) -> Self {
 		let effect = module::build(state.kind, sample_rate);
 		let mut paramed = Paramed::new(ModuleEffect(effect));
 		let map = paramed.param_map();
@@ -99,6 +103,7 @@ impl Module {
 			current: state.params.clone(),
 			smoothing: false,
 			controls,
+			scope,
 		}
 	}
 
@@ -234,8 +239,35 @@ impl Lane {
 	}
 }
 
+/// Where a module's scope comes from: the plug-in's shared registry, or a
+/// private one when the engine is built on its own in a test.
+#[derive(Clone, Default)]
+pub(crate) struct Scopes {
+	shared: Option<Arc<RackShared>>,
+}
+
+impl Scopes {
+	fn retain(&self, live: &BTreeSet<u32>) {
+		if let Some(shared) = &self.shared {
+			shared.retain_scopes(live);
+		}
+	}
+
+	fn get(&self, id: u32) -> Arc<Scope> {
+		match &self.shared {
+			Some(shared) => shared.scope(id),
+			None => Arc::new(Scope::new()),
+		}
+	}
+}
+
 /// Copies one band's stage and slots into a running lane.
-fn apply_lane(lane: &mut Lane, band: &crate::state::BandState, rate: usize) {
+fn apply_lane(
+	lane: &mut Lane,
+	band: &crate::state::BandState,
+	rate: usize,
+	scopes: &Scopes,
+) {
 	lane.base_gain = band.gain;
 	lane.base_pan = band.pan;
 	lane.mute = band.mute;
@@ -251,7 +283,7 @@ fn apply_lane(lane: &mut Lane, band: &crate::state::BandState, rate: usize) {
 				};
 
 				if rebuild {
-					lane.slots[slot] = Some(Module::new(edited, rate));
+					lane.slots[slot] = Some(Module::new(edited, rate, scopes.get(edited.id)));
 				} else if let Some(module) = &mut lane.slots[slot] {
 					module.update(edited);
 				}
@@ -287,11 +319,24 @@ pub(crate) struct Engine {
 	source_kinds: BTreeMap<u32, SourceKind>,
 	/// The rate the modules were built for.
 	pub rate: usize,
+	/// Where each module's card scope comes from.
+	scopes: Scopes,
 }
 
 impl Engine {
-	/// Builds the bands described by a state.
+	/// Builds the bands described by a state, with scopes of its own. The
+	/// plug-in builds through `with_shared`; this is for tests.
+	#[cfg(test)]
 	pub fn new(sample_rate: usize, state: &RackState) -> Self {
+		Self::with_scopes(sample_rate, state, Scopes::default())
+	}
+
+	/// Builds the bands a plug-in runs, sharing the module scopes with its page.
+	pub fn with_shared(sample_rate: usize, state: &RackState, shared: Arc<RackShared>) -> Self {
+		Self::with_scopes(sample_rate, state, Scopes { shared: Some(shared) })
+	}
+
+	fn with_scopes(sample_rate: usize, state: &RackState, scopes: Scopes) -> Self {
 		let mut engine = Self {
 			lanes: [Lane::new(), Lane::new(), Lane::new()],
 			parallel: Lane::new(),
@@ -301,6 +346,7 @@ impl Engine {
 			macros: [0.0; 8],
 			source_kinds: BTreeMap::new(),
 			rate: sample_rate,
+			scopes,
 		};
 
 		engine.apply(state);
@@ -311,11 +357,22 @@ impl Engine {
 	pub fn apply(&mut self, state: &RackState) {
 		self.crossover.set_splits(state.split_low, state.split_high);
 
+		let mut live = BTreeSet::new();
+		for band in &state.bands {
+			for module in band.slots.iter().flatten() {
+				live.insert(module.id);
+			}
+		}
+		for module in state.parallel.slots.iter().flatten() {
+			live.insert(module.id);
+		}
+		self.scopes.retain(&live);
+
 		for (index, band) in state.bands.iter().enumerate() {
-			apply_lane(&mut self.lanes[index], band, self.rate);
+			apply_lane(&mut self.lanes[index], band, self.rate, &self.scopes);
 		}
 
-		apply_lane(&mut self.parallel, &state.parallel, self.rate);
+		apply_lane(&mut self.parallel, &state.parallel, self.rate, &self.scopes);
 
 		// A lane is as late as the active modules it runs in series. Give every
 		// shorter lane the difference, so a compressor with lookahead in one
@@ -395,6 +452,10 @@ impl Engine {
 		// The products take the extra inputs as a slice of channel frames; the
 		// compressor keys off `other[1]`, which is the rack's sidechain port.
 		let sides: Vec<&[f32; 2]> = other.iter().collect();
+		let sidechain = other
+			.get(1)
+			.map(|frame| (frame[0] + frame[1]) * 0.5)
+			.unwrap_or(input);
 		let events = process_context.events().to_vec();
 
 		if let Some(values) = self
@@ -436,10 +497,15 @@ impl Engine {
 					continue;
 				};
 
-				if !module.bypass {
+				if module.bypass {
+					// A skipped module still shows the signal it passes on.
+					module.scope.push_stereo(band, band, sidechain);
+				} else {
+					let entered = band;
 					// The product modules read the sidechain as `other[1]`; the
 					// rack's second input port arrives in the same order.
 					module.paramed.process(&mut band, &sides, process_context);
+					module.scope.push_stereo(entered, band, sidechain);
 				}
 			}
 
@@ -465,8 +531,12 @@ impl Engine {
 					continue;
 				};
 
-				if !module.bypass {
+				if module.bypass {
+					module.scope.push_stereo(frame, frame, sidechain);
+				} else {
+					let entered = frame;
 					module.paramed.process(&mut frame, &sides, process_context);
+					module.scope.push_stereo(entered, frame, sidechain);
 				}
 			}
 

@@ -2055,12 +2055,17 @@ fn every_catalog_product_can_run_in_a_slot() {
 fn the_page_reads_the_audio_scope() {
 	let js = include_str!("page/rack.js");
 
-	assert!(js.contains("fetch(\"/scope\""), "the rack does not read the scope");
-	assert!(js.contains("fetch(\"/stereo\""), "the rack does not read the stereo pair");
-	assert!(js.contains("fetch(\"/meter\""), "the rack does not read the meter");
+	assert!(
+		js.contains("fetch(\"/module-scope?id=\""),
+		"the rack does not read a module's own audio"
+	);
+	assert!(
+		js.contains("fetch(\"/module-stereo?id=\""),
+		"the rack does not read a module's stereo pair"
+	);
 	assert!(js.contains("card.repaintHero"), "a live hero is never redrawn");
-	assert!(js.contains("context: context"), "the hero gets no context");
-	assert!(js.contains("spectra: spectra"), "the spectrum heroes get no state");
+	assert!(js.contains("cardContext()"), "the cards share one context");
+	assert!(js.contains("spectra: { input: null, output: null }"), "no per-card spectra");
 }
 
 /// The scope the page polls is fed by the audio thread, not by the UI thread.
@@ -2089,4 +2094,45 @@ fn the_scope_receives_the_signal() {
 		snapshot[newest + 3],
 	]);
 	assert!(value.abs() > 0.01, "the scope has no signal: {value}");
+}
+
+/// A card shows what entered and left its own module: the ring behind the
+/// second module holds exactly what the first one produced.
+#[test]
+fn a_module_scope_holds_what_that_module_heard() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(10, ModuleKind::Gain));
+		state.bands[0].slots[1] = Some(ModuleState::new(11, ModuleKind::Gain));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+
+	for i in 0..512 {
+		let time = i as f32 / 48_000.0;
+		let sample = (2.0 * std::f32::consts::PI * 220.0 * time).sin() * 0.25;
+		let mut frame = [sample, sample];
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		rack.process(&mut frame, &[], &mut context);
+	}
+
+	let first = rack.shared.scope(10);
+	let second = rack.shared.scope(11);
+	assert!(
+		!std::sync::Arc::ptr_eq(&first, &second),
+		"two modules share one scope"
+	);
+
+	let produced = first.snapshot();
+	let heard = second.snapshot();
+	let points = 4096 * 4;
+
+	for frame in 0..512 {
+		let offset = frame * 4;
+		let out = &produced[points + offset..points + offset + 4];
+		let into = &heard[offset..offset + 4];
+		assert_eq!(out, into, "frame {frame} differs between the modules");
+	}
 }

@@ -5,13 +5,13 @@
 //! changed something, which in M0 is a rare event; the steady-state path is one
 //! atomic swap and no lock.
 
-use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use i_am_dsp::prelude::{ParamMap, SetValue};
-use i_am_web_gui::Control;
+use i_am_web_gui::{Control, Scope};
 
 use crate::module::ModuleKind;
 use crate::state::RackState;
@@ -129,9 +129,37 @@ pub(crate) struct RackShared {
 	pub live: Mutex<Vec<(u32, f32, f32)>>,
 	/// The host-facing parameter map, kept in sync with the state.
 	pub params: ParamMap,
+	/// One scope per module id: a card shows the audio that entered and left
+	/// that module, not the rack's own input and output.
+	pub scopes: Mutex<HashMap<u32, Arc<Scope>>>,
 }
 
 impl RackShared {
+	/// The scope of a module, created the first time the engine or a page asks
+	/// for it. Both sides get the same ring.
+	pub fn scope(&self, id: u32) -> Arc<Scope> {
+		let mut scopes = self
+			.scopes
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner());
+
+		scopes
+			.entry(id)
+			.or_insert_with(|| Arc::new(Scope::new()))
+			.clone()
+	}
+
+	/// Drops the scopes of modules that are gone: a long session of adding and
+	/// removing modules would otherwise keep every ring it ever made.
+	pub fn retain_scopes(&self, live: &std::collections::BTreeSet<u32>) {
+		let mut scopes = self
+			.scopes
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner());
+
+		scopes.retain(|id, _| live.contains(id));
+	}
+
 	/// Locks the state, ignoring a poisoned lock: a panic in the page path must
 	/// not take the audio thread's next block with it.
 	pub fn lock(&self) -> std::sync::MutexGuard<'_, RackState> {

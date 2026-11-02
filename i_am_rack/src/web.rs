@@ -59,8 +59,35 @@ pub(crate) fn route(
 		("GET", "/state") => Some(ProtocolResponse::json(state_json(shared))),
 		("GET", "/modulation") => Some(ProtocolResponse::json(modulation_json(shared))),
 		("POST", "/rack-command") => Some(command(request.body, shared)),
+		("GET", "/module-scope") => module_document(request, shared, false),
+		("GET", "/module-stereo") => module_document(request, shared, true),
 		_ => None,
 	}
+}
+
+/// The audio one module saw and produced, in the same shape as the rack's own
+/// scope documents: three rings for the mono one, four for the stereo pair.
+fn module_document(
+	request: &i_am_web_gui::ProtocolRequest<'_>,
+	shared: &RackShared,
+	stereo: bool,
+) -> Option<i_am_web_gui::ProtocolResponse> {
+	let query = request.query?;
+	let id = query
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("id="))
+		.and_then(|value| value.parse::<u32>().ok())?;
+	let scope = shared.scope(id);
+
+	Some(i_am_web_gui::ProtocolResponse {
+		status: 200,
+		content_type: "application/octet-stream",
+		body: if stereo {
+			scope.stereo_snapshot()
+		} else {
+			scope.snapshot()
+		},
+	})
 }
 
 /// The live state as the JSON a preset file carries.

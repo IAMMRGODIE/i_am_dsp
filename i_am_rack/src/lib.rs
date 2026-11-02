@@ -115,9 +115,10 @@ impl Default for Rack {
 			rate: AtomicUsize::new(DEFAULT_SAMPLE_RATE),
 			live: Mutex::new(Vec::new()),
 			params: params.clone(),
+			scopes: Mutex::new(std::collections::HashMap::new()),
 		});
 
-		let engine = Engine::new(DEFAULT_SAMPLE_RATE, &state);
+		let engine = Engine::with_shared(DEFAULT_SAMPLE_RATE, &state, shared.clone());
 
 		Self {
 			shared,
@@ -366,7 +367,7 @@ impl Plugin for Rack {
 		}
 
 		let state = self.shared.lock().clone();
-		self.engine = Engine::new(sample_rate, &state);
+		self.engine = Engine::with_shared(sample_rate, &state, self.shared.clone());
 		self.shared.rate.store(sample_rate, Ordering::Relaxed);
 	}
 

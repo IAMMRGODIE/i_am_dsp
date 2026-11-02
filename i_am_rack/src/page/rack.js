@@ -43,23 +43,28 @@
   var meterTimer = null;
   // The audio the pages draw: the same three documents the product page polls,
   // kept in one context object so a card can be redrawn whenever one arrives.
-  var scope = { input: null, output: null, sidechain: null };
-  var stereo = { inputLeft: null, inputRight: null, outputLeft: null, outputRight: null };
-  var meter = { input: null, sidechain: null };
-  var spectra = { input: null, output: null };
-  var eqSpectrum = { input: null, output: null, rate: 0, inputPath: "", outputPath: "" };
-  var context = {
-    scope: scope, stereo: stereo, meter: meter, spectra: spectra,
-    eqSpectrum: eqSpectrum, rate: 48000
-  };
+  var pageRate = 48000;
+  var cardTimer = null;
   var liveCards = [];
   // The heroes that draw audio rather than parameters. Everything else keeps
   // its parameter drawing and is only repainted when a knob moves.
-  var LIVE_HEROES = {
+  var SCOPE_HEROES = {
     waveform: true, transfer: true, spectrum: true, spectra: true,
-    compressor: true, limiter: true, gate: true, expander: true,
-    stereo: true, eq: true
+    compressor: true, limiter: true, gate: true, expander: true, eq: true
   };
+
+  /// Every card gets its own rings: a module's card shows what entered and left
+  /// that module, not the rack's own input and output.
+  function cardContext() {
+    return {
+      scope: { input: null, output: null, sidechain: null },
+      stereo: { inputLeft: null, inputRight: null, outputLeft: null, outputRight: null },
+      meter: { input: null, sidechain: null },
+      spectra: { input: null, output: null },
+      eqSpectrum: { input: null, output: null, rate: 0, inputPath: "", outputPath: "" },
+      rate: pageRate
+    };
+  }
 
   function slotLetter(index) {
     return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
@@ -678,6 +683,8 @@
       }
     });
 
+    var cardAudio = cardContext();
+
     var card = window.IAmCard.create({
       title: module.kind,
       badge: slotLetter(slotIndex),
@@ -690,7 +697,7 @@
       bypass: module.bypass,
       controls: module.controls,
       values: module.values,
-      context: context,
+      context: cardAudio,
       kinds: kinds,
       kind: module.kind,
       dragData: bandIndex + "." + slotIndex,
@@ -715,7 +722,13 @@
 
     wrap.appendChild(card);
 
-    liveCards.push({ card: card, hero: module.hero });
+    liveCards.push({
+      id: module.id,
+      hero: module.hero,
+      card: card,
+      context: cardAudio,
+      fetching: false
+    });
 
     return wrap;
   }
@@ -2165,8 +2178,7 @@
     rangeLabels = [];
     livePainters = [];
     liveCards = [];
-    context.rate = data.rate;
-    eqSpectrum.rate = data.rate;
+    pageRate = data.rate;
     rack.textContent = "";
 
     rack.appendChild(makeCrossover(data));
@@ -2214,99 +2226,89 @@
       });
   }
 
-  /// The scope is a binary document of input, output and sidechain, in the same
-  /// shape the product page reads: the heroes that draw audio only need the
-  /// newest one, so the poll is a plain fetch rather than a stream.
-  function pollScope() {
-    if (document.hidden) {
-      scopeTimer = setTimeout(pollScope, 200);
-      return;
-    }
+  /// The level of a scope ring in dBFS, which is the unit the dynamics heroes
+  /// mark their traces in.
+  function levelOf(samples) {
+    if (!samples || !samples.length) return null;
 
-    fetch("/scope", { cache: "no-store" })
+    var energy = 0;
+    for (var i = 0; i < samples.length; i++) energy += samples[i] * samples[i];
+
+    return 20 * Math.log10(Math.max(Math.sqrt(energy / samples.length), 1e-6));
+  }
+
+  function repaint(entry) {
+    if (entry.card.repaintHero) entry.card.repaintHero();
+  }
+
+  /// One card's own input and output: the document is the same three rings the
+  /// module scope keeps, so a card never shows another module's audio.
+  function fetchScope(entry) {
+    entry.fetching = true;
+
+    fetch("/module-scope?id=" + entry.id, { cache: "no-store" })
       .then(function (response) {
-        if (!response.ok) throw new Error("scope " + response.status);
-        return response.arrayBuffer();
+        return response.ok ? response.arrayBuffer() : null;
       })
       .then(function (buffer) {
+        if (!buffer) return;
+
         var data = new Float32Array(buffer);
         var third = data.length / 3;
+        if (third <= 64) return;
 
-        if (third > 64) {
-          scope.input = data.subarray(0, third);
-          scope.output = data.subarray(third, third * 2);
-          scope.sidechain = data.subarray(third * 2);
-          repaintLive();
-        }
+        entry.context.scope.input = data.subarray(0, third);
+        entry.context.scope.output = data.subarray(third, third * 2);
+        entry.context.scope.sidechain = data.subarray(third * 2);
+        entry.context.meter.input = levelOf(entry.context.scope.input);
+        entry.context.meter.sidechain = levelOf(entry.context.scope.sidechain);
+        entry.context.rate = pageRate;
+        entry.context.eqSpectrum.rate = pageRate;
+        repaint(entry);
       })
-      .catch(function () {
-        // The route is absent in a preview build; the parameter-driven heroes stay.
-      })
+      .catch(function () {})
       .then(function () {
-        scopeTimer = setTimeout(pollScope, 60);
+        entry.fetching = false;
       });
   }
 
-  /// The goniometer wants both channels before and after the effect; the mono
-  /// scope cannot tell it anything about the stereo image.
-  function pollStereo() {
-    if (document.hidden) {
-      stereoTimer = setTimeout(pollStereo, 200);
-      return;
-    }
-
-    fetch("/stereo", { cache: "no-store" })
+  /// The goniometer wants both channels before and after the module; the mono
+  /// document cannot tell it anything about the stereo image.
+  function fetchStereo(entry) {
+    fetch("/module-stereo?id=" + entry.id, { cache: "no-store" })
       .then(function (response) {
-        if (!response.ok) throw new Error("stereo " + response.status);
-        return response.arrayBuffer();
+        return response.ok ? response.arrayBuffer() : null;
       })
       .then(function (buffer) {
+        if (!buffer) return;
+
         var data = new Float32Array(buffer);
         var points = data.length / 4;
+        if (points <= 64) return;
 
-        if (points > 64) {
-          stereo.inputLeft = data.subarray(0, points);
-          stereo.inputRight = data.subarray(points, points * 2);
-          stereo.outputLeft = data.subarray(points * 2, points * 3);
-          stereo.outputRight = data.subarray(points * 3);
-          repaintLive();
-        }
+        entry.context.stereo.inputLeft = data.subarray(0, points);
+        entry.context.stereo.inputRight = data.subarray(points, points * 2);
+        entry.context.stereo.outputLeft = data.subarray(points * 2, points * 3);
+        entry.context.stereo.outputRight = data.subarray(points * 3);
+        repaint(entry);
       })
-      .catch(function () {})
-      .then(function () {
-        stereoTimer = setTimeout(pollStereo, 60);
-      });
+      .catch(function () {});
   }
 
-  /// The meter is tiny JSON: the level the dynamics heroes mark on their trace.
-  function pollMeter() {
-    if (document.hidden) {
-      meterTimer = setTimeout(pollMeter, 400);
-      return;
+  /// Only the cards on screen and drawing audio are polled, one document each,
+  /// so a rack of twenty-seven modules costs what the visible few cost.
+  function pollCards() {
+    if (!document.hidden) {
+      liveCards.forEach(function (entry) {
+        if (entry.fetching) return;
+        if (!entry.card.isConnected || entry.card.offsetParent === null) return;
+
+        if (SCOPE_HEROES[entry.hero]) fetchScope(entry);
+        if (entry.hero === "stereo") fetchStereo(entry);
+      });
     }
 
-    fetch("/meter", { cache: "no-store" })
-      .then(function (response) {
-        if (!response.ok) throw new Error("meter " + response.status);
-        return response.json();
-      })
-      .then(function (value) {
-        meter.input = typeof value.input === "number" ? value.input : null;
-        meter.sidechain = typeof value.sidechain === "number" ? value.sidechain : null;
-        repaintLive();
-      })
-      .catch(function () {})
-      .then(function () {
-        meterTimer = setTimeout(pollMeter, 100);
-      });
-  }
-
-  function repaintLive() {
-    liveCards.forEach(function (entry) {
-      if (!LIVE_HEROES[entry.hero]) return;
-      if (!entry.card.isConnected || entry.card.offsetParent === null) return;
-      if (entry.card.repaintHero) entry.card.repaintHero();
-    });
+    cardTimer = setTimeout(pollCards, 60);
   }
 
   function startLive() {
@@ -2505,7 +2507,5 @@
 
   load();
   startLive();
-  pollScope();
-  pollStereo();
-  pollMeter();
+  pollCards();
 })();
