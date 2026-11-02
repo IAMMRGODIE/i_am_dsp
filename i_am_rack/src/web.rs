@@ -290,6 +290,37 @@ fn state_json(shared: &RackShared) -> String {
 }
 
 fn modulation_json(shared: &RackShared) -> String {
+	// The macros and automation slots are host parameters: the DAW writes them
+	// and the page has to see that without reloading the whole rack.
+	// Read them from the host parameter map rather than the state: the host can
+	// write a macro while the transport is stopped, and the page should still
+	// follow. The audio thread copies the map into the state every few blocks.
+	let host_value = |name: String, fallback: f32| {
+		shared
+			.params
+			.get(&name)
+			.map(|param| match param.load(Ordering::Relaxed) {
+				i_am_dsp::prelude::SetValue::Float(value) => value,
+				_ => fallback,
+			})
+			.unwrap_or(fallback)
+	};
+
+	let state = shared.lock();
+	let macros = state
+		.macros
+		.iter()
+		.enumerate()
+		.map(|(index, value)| host_value(format!("macro{}", index + 1), *value))
+		.collect::<Vec<_>>();
+	let automation = state
+		.automation_values
+		.iter()
+		.enumerate()
+		.map(|(index, value)| host_value(format!("automation{}", index + 1), *value))
+		.collect::<Vec<_>>();
+	drop(state);
+
 	let live = shared
 		.live
 		.lock()
@@ -305,7 +336,12 @@ fn modulation_json(shared: &RackShared) -> String {
 		})
 		.collect::<Vec<_>>();
 
-	json!({ "sources": sources }).to_string()
+	json!({
+		"sources": sources,
+		"macros": macros,
+		"automation": automation,
+	})
+	.to_string()
 }
 
 pub(crate) fn rack_json(shared: &RackShared) -> String {

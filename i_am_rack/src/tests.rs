@@ -2626,3 +2626,105 @@ fn a_macro_links_to_a_module_knob() {
 
 	assert!(linked, "the macro link was not stored");
 }
+
+/// The live route is the only thing the page polls often, so the macro and
+/// automation values the host writes have to ride on it.
+#[test]
+fn the_live_route_carries_the_macro_values() {
+	let rack = Rack::default();
+
+	command(&rack, "macro.0=0.25");
+
+	// What the host writes: the map is the truth the page reads.
+	rack.shared.params.set(
+		"automation4",
+		i_am_dsp::prelude::SetValue::Float(0.75),
+		std::sync::atomic::Ordering::SeqCst,
+	);
+
+	let request = i_am_web_gui::ProtocolRequest {
+		method: "GET",
+		path: "/modulation",
+		query: None,
+		body: b"",
+	};
+	let response = crate::web::route(&request, &rack.shared).expect("the live route");
+	let body = String::from_utf8_lossy(&response.body);
+
+	assert!(body.contains("\"macros\""), "no macros on the live route: {body}");
+	assert!(body.contains("0.25"), "the macro value is missing: {body}");
+	assert!(body.contains("0.75"), "the automation value is missing: {body}");
+}
+
+/// The host writes a parameter by storing into the map; the plug-in has to pick
+/// that up the way Paramed's sync does.
+#[test]
+fn a_host_macro_write_reaches_the_state() {
+	use i_am_dsp::prelude::SetValue;
+
+	let mut rack = Rack::default();
+	let map = i_am_plugin::Plugin::param_map(&rack);
+
+	map.set("macro1", SetValue::Float(0.8), std::sync::atomic::Ordering::SeqCst);
+
+	for _ in 0..70 {
+		process_with(&mut rack, [0.0, 0.0], Vec::new());
+	}
+
+	assert_eq!(rack.state().macros[0], 0.8, "the host's value never reached the state");
+}
+
+/// The page writes a macro; the map has to carry the new value *and* say it
+/// changed, or the host is never told.
+#[test]
+fn a_page_macro_write_reaches_the_host_map() {
+	use i_am_dsp::prelude::SetValue;
+
+	let rack = Rack::default();
+	command(&rack, "macro.0=0.6");
+
+	let map = i_am_plugin::Plugin::param_map(&rack);
+	let param = map.get("macro1").expect("macro1 in the map");
+
+	assert_eq!(param.load(std::sync::atomic::Ordering::SeqCst), SetValue::Float(0.6));
+	assert!(param.is_chanegd(), "the host was never told the macro moved");
+}
+
+/// A macro the host writes has to reach the DSP, not only the state: the engine
+/// is where the modulation is applied.
+#[test]
+fn a_host_macro_write_modulates_the_engine() {
+	use i_am_dsp::prelude::SetValue;
+
+	let mut rack = Rack::default();
+
+	command(&rack, "assign.add=macro1|m0.cutoff");
+	command(&rack, "assign.0.depth=0.5");
+
+	let base = rack.module_parameter(0, "cutoff").expect("the filter cutoff");
+
+	let map = i_am_plugin::Plugin::param_map(&rack);
+	map.set("macro1", SetValue::Float(1.0), std::sync::atomic::Ordering::SeqCst);
+
+	// One block: the host's value is the one the very next block runs with, the
+	// way Paramed syncs it.
+	process_with(&mut rack, [0.0, 0.0], Vec::new());
+
+	assert_eq!(
+		rack.engine_macros()[0], 1.0,
+		"the host's macro never reached the engine"
+	);
+	assert_eq!(rack.state().macros[0], 1.0, "the state still has the old macro");
+
+	// The modulation itself is smoothed, so it needs a few blocks to show.
+	for _ in 0..128 {
+		process_with(&mut rack, [0.0, 0.0], Vec::new());
+	}
+
+	let cutoff = rack.module_parameter(0, "cutoff").expect("the filter cutoff");
+
+	assert!(
+		cutoff > base + 100.0,
+		"the host's macro left the cutoff at {cutoff} (base {base})"
+	);
+}

@@ -490,6 +490,13 @@ impl Engine {
 		self.apply_automation(state);
 	}
 
+	/// Copy the host-written macro and automation values in, without rebuilding
+	/// the modules: these move while a project plays.
+	pub fn apply_macros(&mut self, state: &RackState) {
+		self.macros = state.macros;
+		self.apply_automation(state);
+	}
+
 	fn apply_automation(&mut self, state: &RackState) {
 		for (slot, target) in state.automation.iter().enumerate() {
 			let Some(target) = target else {
@@ -895,6 +902,12 @@ impl Engine {
 			self.lanes[1].compensation.len(),
 			self.lanes[2].compensation.len(),
 		]
+	}
+
+	/// The macro values the engine is running with, for a test.
+	#[cfg(test)]
+	pub fn macro_values(&self) -> [f32; 8] {
+		self.macros
 	}
 
 	/// One module parameter as the audio thread currently holds it, for a test.

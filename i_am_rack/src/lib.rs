@@ -65,22 +65,26 @@ fn host_float(value: f32) -> AtomicValue {
 	}
 }
 
+/// The identifiers of the host-facing automatable controls, in the order the map
+/// is built: the eight macros, then the automation slots. The audio thread
+/// walks this list, so it is built once instead of formatting names per block.
+fn host_param_names() -> Vec<String> {
+	let macros = (1..=8).map(|index| format!("macro{index}"));
+	let automation =
+		(1..=crate::state::AUTOMATION_SLOTS).map(|index| format!("automation{index}"));
+
+	macros.chain(automation).collect()
+}
+
 /// The host-facing automatable map: macro and automation controls.
 fn host_param_map(state: &RackState) -> ParamMap {
 	let mut entries: Vec<(String, Arc<AtomicValue>)> = Vec::new();
 
-	for (index, value) in state.macros.iter().enumerate() {
-		entries.push((
-			format!("macro{}", index + 1),
-			Arc::new(host_float(*value)),
-		));
-	}
-
-	for (index, value) in state.automation_values.iter().enumerate() {
-		entries.push((
-			format!("automation{}", index + 1),
-			Arc::new(host_float(*value)),
-		));
+	for (name, value) in host_param_names()
+		.into_iter()
+		.zip(state.macros.iter().chain(state.automation_values.iter()))
+	{
+		entries.push((name, Arc::new(host_float(*value))));
 	}
 
 	ParamMap::new_with(entries)
@@ -94,7 +98,10 @@ pub struct Rack {
 	scope: Arc<Scope>,
 	params: ParamMap,
 	live_generation: u64,
-	param_tick: usize,
+	/// The macro and automation values the audio thread last saw. Comparing
+	/// against them keeps the state mutex out of the common case, where no
+	/// host value moved during the block.
+	host_values: Vec<f32>,
 }
 
 impl Default for Rack {
@@ -116,6 +123,7 @@ impl Default for Rack {
 			rate: AtomicUsize::new(DEFAULT_SAMPLE_RATE),
 			live: Mutex::new(Vec::new()),
 			params: params.clone(),
+			param_names: host_param_names(),
 			scopes: Mutex::new(std::collections::HashMap::new()),
 			meters: Mutex::new(std::collections::HashMap::new()),
 			ir: Mutex::new(std::collections::HashMap::new()),
@@ -131,12 +139,29 @@ impl Default for Rack {
 			scope: Arc::new(Scope::new()),
 			params,
 			live_generation: 0,
-			param_tick: 0,
+			host_values: state
+				.macros
+				.iter()
+				.chain(state.automation_values.iter())
+				.copied()
+				.collect(),
 		}
 	}
 }
 
 impl Rack {
+	/// A parameter of a module the engine is running, for a test.
+	#[cfg(test)]
+	pub fn module_parameter(&self, id: u32, parameter: &str) -> Option<f32> {
+		self.engine.module_parameter(id, parameter)
+	}
+
+	/// The macros the engine is running with, for a test.
+	#[cfg(test)]
+	pub fn engine_macros(&self) -> [f32; 8] {
+		self.engine.macro_values()
+	}
+
 	/// The rate the modules are currently built for.
 	pub fn sample_rate(&self) -> usize {
 		self.engine.rate
@@ -153,10 +178,36 @@ impl Rack {
 	}
 
 	fn pull_host_params(&mut self) {
+		// The atomics are the first read: if the host moved nothing, the state
+		// mutex is never taken and the audio thread stays off the page's lock.
+		let mut moved = false;
+
+		for (index, name) in self.shared.param_names.iter().enumerate() {
+			let Some(param) = self.shared.params.get(name) else {
+				continue;
+			};
+
+			if let SetValue::Float(value) = param.load(Ordering::Relaxed)
+				&& self.host_values.get(index).copied() != Some(value)
+			{
+				if let Some(slot) = self.host_values.get_mut(index) {
+					*slot = value;
+				}
+
+				moved = true;
+			}
+		}
+
+		if !moved {
+			return;
+		}
+
 		let mut state = self.shared.lock();
 
+		// A macro or an automation slot is not a structural edit: the values are
+		// copied into the engine as they arrive, without rebuilding the modules.
 		if self.shared.pull_params(&mut state) {
-			self.shared.dirty.store(true, Ordering::Release);
+			self.engine.apply_macros(&state);
 		}
 	}
 
@@ -283,12 +334,9 @@ impl Processor for Rack {
 		other: &[[f32; 2]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
-		self.param_tick += 1;
-
-		if self.param_tick >= 64 {
-			self.param_tick = 0;
-			self.pull_host_params();
-		}
+		// Every block, like Paramed's sync: the host's macro and automation
+		// values are the ones the DSP has to run with.
+		self.pull_host_params();
 
 		let input = *samples;
 		let input_mono = (input[0] + input[1]) * 0.5;

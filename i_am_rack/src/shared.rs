@@ -199,6 +199,8 @@ pub(crate) struct RackShared {
 	pub live: Mutex<Vec<(u32, f32, f32)>>,
 	/// The host-facing parameter map, kept in sync with the state.
 	pub params: ParamMap,
+	/// The identifiers of that map, in order: macros, then automation slots.
+	pub param_names: Vec<String>,
 	/// One scope per module id: a card shows the audio that entered and left
 	/// that module, not the rack's own input and output.
 	pub scopes: Mutex<HashMap<u32, Arc<Scope>>>,
@@ -366,12 +368,12 @@ impl RackShared {
 	/// parameter as changed, and the host reports every changed parameter, so
 	/// writing the whole table here would spam all 40 controls at once.
 	pub fn sync_params(&self, state: &RackState) {
-		for (index, value) in state.macros.iter().enumerate() {
-			self.set_if_changed(&format!("macro{}", index + 1), *value);
-		}
-
-		for (index, value) in state.automation_values.iter().enumerate() {
-			self.set_if_changed(&format!("automation{}", index + 1), *value);
+		for (name, value) in self
+			.param_names
+			.iter()
+			.zip(state.macros.iter().chain(state.automation_values.iter()))
+		{
+			self.set_if_changed(name, *value);
 		}
 	}
 
@@ -383,21 +385,16 @@ impl RackShared {
 	pub fn pull_params(&self, state: &mut RackState) -> bool {
 		let mut changed = false;
 
-		for (index, value) in state.macros.iter_mut().enumerate() {
-			if let Some(param) = self.params.get(&format!("macro{}", index + 1))
-				&& let SetValue::Float(host) =
-					param.load(std::sync::atomic::Ordering::Relaxed)
-				&& host != *value
-			{
-				*value = host;
-				changed = true;
-			}
-		}
+		for (name, value) in self
+			.param_names
+			.iter()
+			.zip(state.macros.iter_mut().chain(state.automation_values.iter_mut()))
+		{
+			let Some(param) = self.params.get(name) else {
+				continue;
+			};
 
-		for (index, value) in state.automation_values.iter_mut().enumerate() {
-			if let Some(param) = self.params.get(&format!("automation{}", index + 1))
-				&& let SetValue::Float(host) =
-					param.load(std::sync::atomic::Ordering::Relaxed)
+			if let SetValue::Float(host) = param.load(std::sync::atomic::Ordering::Relaxed)
 				&& host != *value
 			{
 				*value = host;

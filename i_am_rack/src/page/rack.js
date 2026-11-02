@@ -16,6 +16,11 @@
   var bottomPanel = document.getElementById("bottom");
   var splitter = document.getElementById("splitter");
   var panelToggle = document.getElementById("panel-toggle");
+  /// The macro knobs and the automation readouts, refreshed from the host.
+  var macroHandles = [];
+  var macroValues = [];
+  var automationSpans = [];
+  var pointerDown = false;
   var panelCollapsed = false;
   var panelRestore = 0;
   var activePanel = "sources";
@@ -1788,7 +1793,7 @@
           event.dataTransfer.effectAllowed = "link";
         });
 
-        var knob = window.IAmCard.control({
+        var knobHandle = window.IAmCard.controlHandle({
           id: "macro." + slot,
           label: name,
           kind: "float",
@@ -1797,8 +1802,13 @@
           default: 0,
           unit: "percent"
         }, value, function (_, next) {
+          macroValues[slot] = next;
           queue("macro." + slot, next);
         });
+
+        var knob = knobHandle.el;
+        macroHandles[slot] = knobHandle;
+        macroValues[slot] = value;
 
         makeMacroName(knob, slot, fallback);
 
@@ -2517,7 +2527,10 @@
         });
 
         row.appendChild(target);
-        row.appendChild(el("span", "automation-value", Math.round((binding.value || 0) * 100) + "%"));
+
+        var readout = el("span", "automation-value", Math.round((binding.value || 0) * 100) + "%");
+        automationSpans[index] = readout;
+        row.appendChild(readout);
         grid.appendChild(row);
       })(slot);
     }
@@ -3061,6 +3074,8 @@
             if (live.history[id].length > 160) live.history[id].shift();
           });
 
+          applyHostValues(data);
+
           liveCards.forEach(function (entry) {
             if (!entry.card || !entry.card.isConnected) return;
 
@@ -3074,6 +3089,32 @@
           // The live route is absent in a static preview; the static heroes stay.
         });
     }, 50);
+  }
+
+  /// Pull the host's macro and automation values into what the page shows. A
+  /// pointer that is down owns the control it grabbed, so a drag is never
+  /// fought by a value arriving from the host.
+  function applyHostValues(data) {
+    if (pointerDown) return;
+
+    (data.macros || []).forEach(function (value, index) {
+      var handle = macroHandles[index];
+
+      if (!handle || typeof value !== "number") return;
+      if (Math.abs((macroValues[index] || 0) - value) < 0.0005) return;
+
+      macroValues[index] = value;
+      handle.set(value);
+    });
+
+    (data.automation || []).forEach(function (value, index) {
+      var readout = automationSpans[index];
+
+      if (!readout || typeof value !== "number") return;
+
+      var text = Math.round(value * 100) + "%";
+      if (readout.textContent !== text) readout.textContent = text;
+    });
   }
 
   function panelLimits() {
@@ -3151,6 +3192,11 @@
       applyPanelCollapsed(true, false);
     }
   } catch (ignore) {}
+
+  // While a pointer is down, the control under it belongs to the person.
+  document.addEventListener("pointerdown", function () { pointerDown = true; }, true);
+  document.addEventListener("pointerup", function () { pointerDown = false; }, true);
+  document.addEventListener("pointercancel", function () { pointerDown = false; }, true);
 
   var panelDrag = null;
 
