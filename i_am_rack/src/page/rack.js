@@ -62,6 +62,8 @@
       meter: { input: null, sidechain: null },
       spectra: { input: null, output: null },
       eqSpectrum: { input: null, output: null, rate: 0, inputPath: "", outputPath: "" },
+      envHistory: { input: [], output: [] },
+      envWindow: 128,
       rate: pageRate
     };
   }
@@ -351,6 +353,10 @@
 
   function makeCrossover(data) {
     var section = el("section", "crossover");
+    // The server keeps the splits inside the band its filters can be designed
+    // for: low <= 0.25 of nyquist, high >= low * 1.5. The knobs have to agree,
+    // or a value set here would silently change on the next command.
+    var nyquist = (data.rate || 44100) * 0.49;
     var controls = el("div", "crossover-controls");
     controls.appendChild(el("span", "crossover-label", "CROSSOVER"));
 
@@ -359,7 +365,7 @@
       label: "Low / Mid",
       kind: "float",
       min: 20,
-      max: 20000,
+      max: Math.min(20000, nyquist * 0.25),
       default: 120,
       unit: "hz",
       log: true
@@ -379,7 +385,7 @@
       label: "Mid / High",
       kind: "float",
       min: 20,
-      max: 20000,
+      max: Math.min(20000, nyquist),
       default: 2000,
       unit: "hz",
       log: true
@@ -1604,10 +1610,21 @@
         var item = el("div", "macro-item");
 
         if (selectedSource === 4 + slot) item.classList.add("selected");
+
+        // A single click picks the macro; a double click renames it. Waiting out
+        // the double-click window keeps the rename from being torn down by the
+        // re-render a selection causes.
+        var selectTimer = null;
+
         item.addEventListener("click", function (event) {
-          if (event.target.closest("button, select, input, textarea")) return;
-          selectSource(4 + slot);
+          if (event.target.closest("button, select, input, textarea, .macro-name")) return;
+
+          clearTimeout(selectTimer);
+          selectTimer = setTimeout(function () {
+            selectSource(4 + slot);
+          }, 260);
         });
+        item.addEventListener("dblclick", function () { clearTimeout(selectTimer); });
         var handle = el("span", "macro-drag", "\u28FF");
         handle.draggable = true;
         handle.title = "Drag macro to a knob";
@@ -2609,6 +2626,7 @@
         entry.context.scope.sidechain = data.subarray(third * 2);
         entry.context.meter.input = levelOf(entry.context.scope.input);
         entry.context.meter.sidechain = levelOf(entry.context.scope.sidechain);
+        pushEnvelope(entry.context);
         entry.context.rate = pageRate;
         entry.context.eqSpectrum.rate = pageRate;
         repaint(entry);
@@ -2770,6 +2788,50 @@
         if (changed) repaint(entry);
       })
       .catch(function () {});
+  }
+
+  /// The RMS of a block of samples, in the 0..1 the heroes plot.
+  function levelOf(samples) {
+    if (!samples || !samples.length) return 0;
+
+    var energy = 0;
+    for (var i = 0; i < samples.length; i++) energy += samples[i] * samples[i];
+
+    return Math.sqrt(energy / samples.length);
+  }
+
+  /// Fills a card's envelope history: the first scope frame seeds a whole window
+  /// so the picture starts complete, and every later frame appends one step.
+  function pushEnvelope(context) {
+    var scope = context.scope;
+    var history = context.envHistory;
+
+    if (!scope || !scope.input || !scope.output || !history) return;
+
+    if (!history.input.length) {
+      var segments = 128;
+      var step = Math.max(1, Math.floor(scope.input.length / segments));
+
+      for (var s = 0; s < segments; s++) {
+        var start = Math.min(s * step, scope.input.length - step);
+        history.input.push(levelOf(scope.input.subarray(start, start + step)));
+        history.output.push(levelOf(scope.output.subarray(start, start + step)));
+      }
+
+      context.envWindow = segments;
+      return;
+    }
+
+    var size = Math.min(1024, scope.input.length);
+    var begin = scope.input.length - size;
+
+    if (history.input.length >= 512) {
+      history.input.shift();
+      history.output.shift();
+    }
+
+    history.input.push(levelOf(scope.input.subarray(begin, begin + size)));
+    history.output.push(levelOf(scope.output.subarray(begin, begin + size)));
   }
 
   /// The note a pitch-tracking module is hearing, and the mask it tunes to: the

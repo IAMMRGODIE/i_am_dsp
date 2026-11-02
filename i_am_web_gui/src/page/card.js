@@ -1099,7 +1099,7 @@
         '" y2="150" stroke="#252525"/>';
 
       if (labels[ticks[t]]) {
-        grid += '<text x="' + tx.toFixed(1) + '" y="158" fill="#565656" font-size="7" ' +
+        grid += '<text x="' + tx.toFixed(1) + '" y="157" fill="#6a6a6a" font-size="10" ' +
           'text-anchor="middle">' + labels[ticks[t]] + '</text>';
       }
     }
@@ -1108,7 +1108,7 @@
       var gy = 80 - db / 24 * 70;
       grid += '<line x1="20" y1="' + gy.toFixed(1) + '" x2="500" y2="' + gy.toFixed(1) +
         '" stroke="' + (db === 0 ? "#363636" : "#252525") + '"/>';
-      grid += '<text x="22" y="' + (gy - 2).toFixed(1) + '" fill="#565656" font-size="7">' +
+      grid += '<text x="22" y="' + (gy - 3).toFixed(1) + '" fill="#6a6a6a" font-size="10">' +
         (db > 0 ? "+" : "") + db + '</text>';
     }
 
@@ -1705,8 +1705,8 @@
       var x = 20 + Math.log(clamp(center, 20, 20000) / 20) / Math.log(1000) * 480;
       markers += '<line x1="' + x.toFixed(1) + '" y1="12" x2="' + x.toFixed(1) +
         '" y2="146" stroke="var(--accent)" stroke-opacity=".25" stroke-dasharray="2 4"/>' +
-        '<text x="' + (x + 4).toFixed(1) + '" y="' + (20 + band * 11) +
-        '" fill="var(--accent)" font-size="8">F' + (band + 1) + '</text>';
+        '<text x="' + x.toFixed(1) + '" y="' + (14 + band * 12) +
+        '" fill="var(--accent)" font-size="10" text-anchor="middle">F' + (band + 1) + '</text>';
     });
 
     return heroSvg(
@@ -1736,8 +1736,8 @@
       cells += '<rect x="' + x + '" y="26" width="36" height="104" rx="4" ' +
         'fill="' + fill + '"' + opacity +
         ' stroke="' + (on ? "var(--accent)" : "#414141") + '"/>' +
-        '<text x="' + (x + 18) + '" y="142" text-anchor="middle" fill="' + text +
-        '" font-size="8">' + label + '</text>';
+        '<text x="' + (x + 18) + '" y="143" text-anchor="middle" fill="' + text +
+        '" font-size="10">' + label + '</text>';
     });
 
     return heroSvg(cells) +
