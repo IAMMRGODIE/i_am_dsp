@@ -50,6 +50,29 @@
     return high > low ? clamp((value - low) / (high - low), 0, 1) : 0;
   }
 
+  /// One notch of a control. An explicit step keeps its own units (semitones,
+  /// kernel lengths), an integer counts by one, and everything else moves a
+  /// fraction of its *normalised* range: a log or symmetric-log knob then takes
+  /// a constant ratio per notch instead of a constant number of hertz.
+  function stepBy(spec, value, direction, fine) {
+    var scale = fine ? 0.1 : 1;
+
+    if (spec.step && spec.step > 0) {
+      return value + direction * spec.step * scale;
+    }
+
+    if (spec.kind === "int") {
+      return value + direction;
+    }
+
+    // A log knob spans a much wider range than its pixel width suggests, so it
+    // takes a finer share of that range per notch.
+    var amount = spec.log ? 0.005 : 0.0125;
+    var position = norm(spec, value) + direction * amount * scale;
+
+    return at(spec, clamp(position, 0, 1));
+  }
+
   function at(spec, position) {
     var low = spec.min;
     var high = spec.max;
@@ -2120,18 +2143,17 @@
 
     dial.addEventListener("wheel", function (event) {
       event.preventDefault();
-      var step = spec.step && spec.step > 0 ? spec.step : (spec.max - spec.min) / 100;
       var direction = event.deltaY < 0 ? 1 : -1;
-      set(current + direction * step * (event.shiftKey ? 0.1 : 1), true);
+      set(stepBy(spec, current, direction, event.shiftKey), true);
     }, { passive: false });
 
     dial.addEventListener("keydown", function (event) {
-      var step = (spec.max - spec.min) / 100 * (event.shiftKey ? 0.1 : 1);
+      var fine = event.shiftKey;
       if (event.key === "ArrowUp" || event.key === "ArrowRight") {
-        set(current + step, true);
+        set(stepBy(spec, current, 1, fine), true);
         event.preventDefault();
       } else if (event.key === "ArrowDown" || event.key === "ArrowLeft") {
-        set(current - step, true);
+        set(stepBy(spec, current, -1, fine), true);
         event.preventDefault();
       } else if (event.key === "Home") {
         set(spec.min, true);
@@ -2255,16 +2277,15 @@
     track.addEventListener("pointercancel", stop);
     track.addEventListener("wheel", function (event) {
       event.preventDefault();
-      var step = spec.step && spec.step > 0 ? spec.step : (spec.max - spec.min) / 100;
-      set(current + (event.deltaY < 0 ? step : -step) * (event.shiftKey ? 0.1 : 1), true);
+      set(stepBy(spec, current, event.deltaY < 0 ? 1 : -1, event.shiftKey), true);
     }, { passive: false });
     track.addEventListener("keydown", function (event) {
-      var step = spec.step && spec.step > 0 ? spec.step : (spec.max - spec.min) / 100;
+      var fine = event.shiftKey;
       if (event.key === "ArrowUp" || event.key === "ArrowRight") {
-        set(current + step, true);
+        set(stepBy(spec, current, 1, fine), true);
         event.preventDefault();
       } else if (event.key === "ArrowDown" || event.key === "ArrowLeft") {
-        set(current - step, true);
+        set(stepBy(spec, current, -1, fine), true);
         event.preventDefault();
       } else if (event.key === "Home") {
         set(spec.min, true);
