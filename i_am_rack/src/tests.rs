@@ -2244,3 +2244,25 @@ fn a_note_reaches_the_module_that_follows_it() {
 		"the autotune did not publish its note mask"
 	);
 }
+
+/// A pitch-tracking module has notes but no audio document, so the page has to
+/// poll one without waiting for the other.
+#[test]
+fn a_note_module_reads_notes_without_audio() {
+	assert!(module::shows_notes(ModuleKind::Autotune));
+	assert_eq!(
+		module::audio_scope(ModuleKind::Autotune),
+		Channels::None,
+		"the autotune card draws no audio"
+	);
+
+	let js = include_str!("page/rack.js");
+	assert!(
+		js.contains("if (entry.channels) {"),
+		"the note poll is still gated behind the audio one"
+	);
+	assert!(
+		!js.contains("if (!entry.channels) return;"),
+		"a card without audio never gets its notes"
+	);
+}

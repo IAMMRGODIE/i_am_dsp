@@ -2321,13 +2321,16 @@
     if (!document.hidden) {
       liveCards.forEach(function (entry) {
         if (entry.fetching) return;
-        if (!entry.channels) return;
         if (!entry.card.isConnected || entry.card.offsetParent === null) return;
 
-        if (!entry.channels) return;
+        // The audio polls are for the cards that draw audio; the note poll is
+        // for the cards that follow the host's notes, and they do not overlap:
+        // an autotune has nothing to draw but its mask.
+        if (entry.channels) {
+          fetchScope(entry);
+          if (entry.channels === "stereo") fetchStereo(entry);
+        }
 
-        fetchScope(entry);
-        if (entry.channels === "stereo") fetchStereo(entry);
         if (entry.note) fetchNote(entry);
       });
     }
