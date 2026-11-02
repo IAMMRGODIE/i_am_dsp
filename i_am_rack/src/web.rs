@@ -134,13 +134,18 @@ pub(crate) fn rack_json(shared: &RackShared) -> String {
 		})
 		.collect::<Vec<_>>();
 
-	let kinds = ModuleKind::ALL
-		.iter()
+	// The add menu is alphabetical: the catalog's order is a build order, not
+	// something a person should have to scan linearly.
+	let mut order = ModuleKind::ALL.to_vec();
+	order.sort_by_key(|kind| kind.name().to_lowercase());
+
+	let kinds = order
+		.into_iter()
 		.map(|kind| {
 			json!({
 				"name": kind.name(),
 				"accent": kind.accent(),
-				"hero": kind.hero(),
+				"hero": crate::module::hero(kind),
 			})
 		})
 		.collect::<Vec<_>>();
@@ -307,7 +312,7 @@ fn module_json(
 		"slot": slot,
 		"kind": module.kind.name(),
 		"accent": module.kind.accent(),
-		"hero": module.kind.hero(),
+		"hero": crate::module::hero(module.kind),
 		"mode": module.kind.mode(),
 		"header": module.kind.header(),
 		"visible": module.kind.visible(),

@@ -176,6 +176,14 @@ fn the_rack_route_lists_bands_and_modules() {
 
 	let kinds = json["kinds"].as_array().expect("kinds");
 	assert_eq!(kinds.len(), 27);
+
+	let names = kinds
+		.iter()
+		.map(|kind| kind["name"].as_str().expect("a name"))
+		.collect::<Vec<_>>();
+	let mut sorted = names.clone();
+	sorted.sort_by_key(|name| name.to_lowercase());
+	assert_eq!(names, sorted, "the add menu is not alphabetical");
 	assert!(kinds.iter().any(|kind| kind["name"] == "Compressor"));
 	assert!(kinds.iter().any(|kind| kind["name"] == "Reverb"));
 	assert!(kinds.iter().any(|kind| kind["name"] == "Pitch"));
@@ -200,7 +208,13 @@ fn the_catalog_adds_reverb_and_pitch_modules() {
 	assert_eq!(ModuleKind::Pitch.mode(), Some("algorithm"));
 	assert_eq!(ModuleKind::Pitch.header(), &["window_size"]);
 	assert!(ModuleKind::Pitch.visible().is_some());
-	assert_eq!(ModuleKind::Reverb.hero(), "tail");
+	assert_eq!(module::hero(ModuleKind::Reverb), "tail");
+	assert_eq!(module::hero(ModuleKind::Chorus), "lfo");
+	assert_eq!(module::hero(ModuleKind::Flanger), "lfo");
+	assert_eq!(module::hero(ModuleKind::Shifter), "spectra");
+	assert_eq!(module::hero(ModuleKind::Disperser), "phase");
+	assert_eq!(module::hero(ModuleKind::Delay), "taps");
+	assert_eq!(module::hero(ModuleKind::Filter), "spectrum");
 }
 
 /// The host sees eight macros and 32 fixed automation parameters.

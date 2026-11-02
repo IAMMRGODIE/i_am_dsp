@@ -5,7 +5,8 @@
 //! Nothing here describes an effect a second time, so the rack cannot drift from
 //! what the standalone plug-in does.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::OnceLock;
 
 use i_am_dsp::prelude::{Effect, Parameter, Value};
 use i_am_effects::catalog;
@@ -152,11 +153,6 @@ impl ModuleKind {
 		self.descriptor().accent
 	}
 
-	/// The picture a card draws above its controls.
-	pub fn hero(self) -> &'static str {
-		self.descriptor().hero
-	}
-
 	/// The parameter the page draws as a mode switch in the header.
 	pub fn mode(self) -> Option<&'static str> {
 		self.descriptor().mode
@@ -176,6 +172,38 @@ impl ModuleKind {
 	pub fn switches(self) -> &'static [i_am_web_gui::Switch] {
 		self.descriptor().switches
 	}
+}
+
+/// The picture a card draws above its controls.
+///
+/// The parameter metadata is the only place that names a hero — the product page
+/// reads the same field — so the rack asks the effect instead of keeping a list
+/// of its own that can go stale.
+pub fn hero(kind: ModuleKind) -> &'static str {
+	heroes()
+		.get(&kind)
+		.map(String::as_str)
+		.unwrap_or("waveform")
+}
+
+fn heroes() -> &'static HashMap<ModuleKind, String> {
+	static HEROES: OnceLock<HashMap<ModuleKind, String>> = OnceLock::new();
+
+	HEROES.get_or_init(|| {
+		ModuleKind::ALL
+			.into_iter()
+			.map(|kind| {
+				let hero = schema(kind)
+					.into_iter()
+					.find_map(|parameter| {
+						parameter.meta.layout.hero.map(|hero| hero.to_string())
+					})
+					.unwrap_or_else(|| "waveform".to_string());
+
+				(kind, hero)
+			})
+			.collect()
+	})
 }
 
 /// Builds a fresh effect for a kind at a sample rate.
