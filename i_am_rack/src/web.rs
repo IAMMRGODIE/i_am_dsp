@@ -26,7 +26,7 @@ use crate::module::ModuleKind;
 use crate::shared::RackShared;
 use crate::state::{
 	AbState, Assignment, AssignmentMode, BandState, MACRO_BASE, ModuleState, RackState,
-	SourceKind, SourceSettings, STATE_VERSION, Target, lfo_preset,
+	STATE_VERSION, SourceKind, SourceSettings, Target, lfo_preset,
 };
 
 /// The names the three bands and the parallel lane answer to.
@@ -106,7 +106,11 @@ fn module_note(
 
 	Some(i_am_web_gui::ProtocolResponse::json(format!(
 		"{{\"note\":{note},\"notes\":[{notes}],\"allowed\":{}}}",
-		if allowed < 0 { "null".to_string() } else { allowed.to_string() }
+		if allowed < 0 {
+			"null".to_string()
+		} else {
+			allowed.to_string()
+		}
 	)))
 }
 
@@ -171,16 +175,17 @@ fn module_ir(
 
 					slot.set(std::sync::Arc::new(ir));
 					Some(i_am_web_gui::ProtocolResponse::json("{\"ok\":true}"))
-				},
+				}
 				Err(error) => {
 					slot.fail(error.clone());
 					Some(i_am_web_gui::ProtocolResponse::json(format!(
 						"{{\"error\":{}}}",
-						serde_json::to_string(&error).unwrap_or_else(|_| "\"load failed\"".to_string())
+						serde_json::to_string(&error)
+							.unwrap_or_else(|_| "\"load failed\"".to_string())
 					)))
-				},
+				}
 			}
-		},
+		}
 		_ => None,
 	}
 }
@@ -223,27 +228,26 @@ fn module_script(
 		"GET" => Some(i_am_web_gui::ProtocolResponse::json(script.json())),
 		"POST" => {
 			let source = String::from_utf8_lossy(request.body).to_string();
-			script.set_source(source);
+			script.set_source(source.clone());
 
 			let rate = shared.rate.load(std::sync::atomic::Ordering::Relaxed) as f32;
 			let (params, extra) = {
-				let state = shared.lock();
-				let module = state.module(id)?;
+				let mut state = shared.lock();
+				let module = state.module_mut(id)?;
+				// The preset keeps the script, not only the worker.
+				module.script = Some(source);
 				let value = |name: &str| module.params.get(name).copied().unwrap_or(0.0) as f32;
 				let extra = match module.kind {
 					crate::module::ModuleKind::ScriptMapper => rate,
 					_ => 10.0_f32.powf(value("in_gain") / 20.0),
 				};
 
-				(
-					[value("p1"), value("p2"), value("p3"), value("p4")],
-					extra,
-				)
+				([value("p1"), value("p2"), value("p3"), value("p4")], extra)
 			};
 
 			script.request(params, extra);
 			Some(i_am_web_gui::ProtocolResponse::json("{\"ok\":true}"))
-		},
+		}
 		_ => None,
 	}
 }
@@ -537,14 +541,12 @@ fn module_json(
 								Some(Target::Module {
 									module: target_module,
 									parameter,
-								}) if *target_module == module.id && parameter == &control.id => {
-									Some(json!({
-										"slot": slot,
-										"source": assignment.source,
-										"depth": assignment.depth,
-										"mode": assignment.mode,
-									}))
-								},
+								}) if *target_module == module.id && parameter == &control.id => Some(json!({
+									"slot": slot,
+									"source": assignment.source,
+									"depth": assignment.depth,
+									"mode": assignment.mode,
+								})),
 								_ => None,
 							}
 						})
@@ -774,11 +776,11 @@ fn special_command(
 				.undo(state);
 
 			if changed {
-				commit(shared, state);
+				commit_whole(shared, state);
 			}
 
 			Some(command_response(true))
-		},
+		}
 		"history.redo" => {
 			let changed = shared
 				.history
@@ -787,20 +789,20 @@ fn special_command(
 				.redo(state);
 
 			if changed {
-				commit(shared, state);
+				commit_whole(shared, state);
 			}
 
 			Some(command_response(true))
-		},
+		}
 		"ab.toggle" => {
 			state.toggle_ab();
 
 			// A/B is a compare view, not an edit: an undo step from the other
 			// side's timeline would restore a state the user cannot see.
 			shared.clear_history();
-			commit(shared, state);
+			commit_whole(shared, state);
 			Some(command_response(true))
-		},
+		}
 		"preset.init" => {
 			let before = std::mem::replace(state, RackState::initial());
 			shared
@@ -808,9 +810,9 @@ fn special_command(
 				.lock()
 				.unwrap_or_else(|poisoned| poisoned.into_inner())
 				.record_replacement(before);
-			commit(shared, state);
+			commit_whole(shared, state);
 			Some(command_response(true))
-		},
+		}
 		"preset.load" => {
 			let imported = serde_json::from_str::<RackState>(raw.trim())
 				.ok()
@@ -827,15 +829,22 @@ fn special_command(
 				.lock()
 				.unwrap_or_else(|poisoned| poisoned.into_inner())
 				.record_replacement(before);
-			commit(shared, state);
+			commit_whole(shared, state);
 			Some(command_response(true))
-		},
+		}
 		_ => None,
 	}
 }
 
 fn command_response(ok: bool) -> ProtocolResponse {
 	ProtocolResponse::json(format!("{{\"ok\":{ok}}}"))
+}
+
+/// Applies a state that replaced the whole rack: its scripts reach their
+/// workers first, then the audio thread gets the state.
+fn commit_whole(shared: &RackShared, state: &RackState) {
+	shared.apply_scripts(state);
+	commit(shared, state);
 }
 
 /// Applies whatever the live state just became to the audio thread.
@@ -849,11 +858,7 @@ fn commit(shared: &RackShared, state: &RackState) {
 /// A hand-edited or older preset may miss parameters the current build has, or
 /// carry values outside a control's range; unknown fields are dropped and every
 /// known one is clamped, which is also the migration policy for saved projects.
-fn import_state(
-	mut state: RackState,
-	rate: usize,
-	shared: &RackShared,
-) -> Option<RackState> {
+fn import_state(mut state: RackState, rate: usize, shared: &RackShared) -> Option<RackState> {
 	if state.version > STATE_VERSION {
 		return None;
 	}
@@ -935,9 +940,7 @@ fn normalize_state(state: &mut RackState, rate: usize, shared: &RackShared) -> O
 		let target_ok = match &entry.target {
 			None => true,
 			Some(Target::Module { module, .. }) => module_ids.contains(module),
-			Some(Target::BandGain(index) | Target::BandPan(index)) => {
-				*index < lane_count
-			},
+			Some(Target::BandGain(index) | Target::BandPan(index)) => *index < lane_count,
 		};
 
 		if !source_ok || !target_ok {
@@ -1013,7 +1016,10 @@ fn sanitize_settings(settings: &mut SourceSettings) {
 		settings.lfo_points = lfo_preset(settings.lfo_shape);
 	}
 
-	for curve in [&mut settings.midi_note_curve, &mut settings.midi_velocity_curve] {
+	for curve in [
+		&mut settings.midi_note_curve,
+		&mut settings.midi_velocity_curve,
+	] {
 		for (x, y) in curve.iter_mut() {
 			*x = x.clamp(0.0, 1.0);
 			*y = y.clamp(0.0, 1.0);
@@ -1075,28 +1081,28 @@ fn apply_band(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			};
 			band.gain = value.clamp(0.0, 2.0);
 			true
-		},
+		}
 		"pan" => {
 			let Some(value) = number(raw) else {
 				return false;
 			};
 			band.pan = value.clamp(-1.0, 1.0);
 			true
-		},
+		}
 		"mute" => {
 			let Some(value) = boolean(raw) else {
 				return false;
 			};
 			band.mute = value;
 			true
-		},
+		}
 		"solo" => {
 			let Some(value) = boolean(raw) else {
 				return false;
 			};
 			band.solo = value;
 			true
-		},
+		}
 		_ => false,
 	}
 }
@@ -1196,7 +1202,7 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			};
 			target.slots[slot] = Some(module);
 			true
-		},
+		}
 		"clear" => {
 			let Some(clear) = boolean(raw) else {
 				return false;
@@ -1210,7 +1216,7 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			}
 
 			true
-		},
+		}
 		"duplicate" => {
 			let Some(mut copy) = lane(state, band)
 				.and_then(|lane| lane.slots.get(slot))
@@ -1226,7 +1232,7 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			};
 			target.slots.insert(slot + 1, Some(copy));
 			true
-		},
+		}
 		"copy" => {
 			let Some((target_band, target_slot)) = raw.split_once('.') else {
 				return false;
@@ -1260,7 +1266,7 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			};
 			target.slots.insert(target_slot, Some(copy));
 			true
-		},
+		}
 		"move" => {
 			let Some((target_band, target_slot)) = raw.split_once('.') else {
 				return false;
@@ -1297,14 +1303,12 @@ fn apply_slot(state: &mut RackState, rest: &str, raw: &str) -> bool {
 				return false;
 			};
 
-			if let Some(source) = lane_mut(state, band)
-				.and_then(|lane| lane.slots.get_mut(slot))
-			{
+			if let Some(source) = lane_mut(state, band).and_then(|lane| lane.slots.get_mut(slot)) {
 				*source = displaced;
 			}
 
 			true
-		},
+		}
 		_ => false,
 	}
 }
@@ -1365,7 +1369,9 @@ fn apply_group(state: &mut RackState, rest: &str) -> bool {
 		return false;
 	}
 
-	let previous = lane.slots[slot - 1].as_ref().and_then(|module| module.group);
+	let previous = lane.slots[slot - 1]
+		.as_ref()
+		.and_then(|module| module.group);
 	let Some(lane) = lane_mut(state, band) else {
 		return false;
 	};
@@ -1378,7 +1384,7 @@ fn apply_group(state: &mut RackState, rest: &str) -> bool {
 			}
 
 			next_group
-		},
+		}
 	};
 
 	if let Some(module) = lane.slots[slot].as_mut() {
@@ -1388,12 +1394,7 @@ fn apply_group(state: &mut RackState, rest: &str) -> bool {
 	true
 }
 
-fn apply_module(
-	state: &mut RackState,
-	shared: &RackShared,
-	key: &str,
-	raw: &str,
-) -> bool {
+fn apply_module(state: &mut RackState, shared: &RackShared, key: &str, raw: &str) -> bool {
 	let Some((id, parameter)) = key.split_once('.') else {
 		return false;
 	};
@@ -1428,19 +1429,13 @@ fn apply_module(
 		return false;
 	};
 
-	module.params.insert(
-		parameter.to_string(),
-		value.clamp(control.min, control.max),
-	);
+	module
+		.params
+		.insert(parameter.to_string(), value.clamp(control.min, control.max));
 	true
 }
 
-fn apply_automation(
-	state: &mut RackState,
-	shared: &RackShared,
-	rest: &str,
-	raw: &str,
-) -> bool {
+fn apply_automation(state: &mut RackState, shared: &RackShared, rest: &str, raw: &str) -> bool {
 	let Some((slot, parameter)) = rest.split_once('.') else {
 		return false;
 	};
@@ -1458,7 +1453,7 @@ fn apply_automation(
 				return false;
 			};
 			state.automation[slot] = Some(target);
-		},
+		}
 		"clear" => {
 			let Some(clear) = boolean(raw) else {
 				return false;
@@ -1466,13 +1461,13 @@ fn apply_automation(
 			if clear {
 				state.automation[slot] = None;
 			}
-		},
+		}
 		"value" => {
 			let Some(value) = number(raw) else {
 				return false;
 			};
 			state.automation_values[slot] = value.clamp(0.0, 1.0) as f32;
-		},
+		}
 		_ => return false,
 	}
 
@@ -1517,7 +1512,9 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		let Some(id) = state.next_source_id() else {
 			return false;
 		};
-		state.source_slots.push(crate::state::SourceSlot::new(id, kind));
+		state
+			.source_slots
+			.push(crate::state::SourceSlot::new(id, kind));
 		return true;
 	}
 
@@ -1565,7 +1562,10 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		state.source_slots.retain(|slot| slot.id != id);
 
 		for assignment in state.assignments.iter_mut() {
-			if assignment.as_ref().is_some_and(|assignment| assignment.source == id as usize) {
+			if assignment
+				.as_ref()
+				.is_some_and(|assignment| assignment.source == id as usize)
+			{
 				*assignment = None;
 			}
 		}
@@ -1581,7 +1581,10 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 		let Some(flag) = boolean(raw) else {
 			return false;
 		};
-		state.source_slot_mut(id).expect("the slot was just checked").bypass = flag;
+		state
+			.source_slot_mut(id)
+			.expect("the slot was just checked")
+			.bypass = flag;
 		return true;
 	}
 
@@ -1630,68 +1633,68 @@ fn apply_source(state: &mut RackState, rest: &str, raw: &str) -> bool {
 			if slot.settings.lfo_shape <= 3 {
 				slot.settings.lfo_points = lfo_preset(slot.settings.lfo_shape);
 			}
-		},
+		}
 		(SourceKind::Lfo, "sync") => {
 			let Some(flag) = boolean(raw) else {
 				return false;
 			};
 			slot.settings.lfo_sync = flag;
-		},
+		}
 		(SourceKind::Lfo, "beats") => {
 			slot.settings.lfo_beats = value.clamp(0.03125, 32.0) as f32;
-		},
+		}
 		(SourceKind::Envelope, "attack") => {
 			slot.settings.env_attack = value.clamp(1.0, 500.0) as f32;
-		},
+		}
 		(SourceKind::Envelope, "release") => {
 			slot.settings.env_release = value.clamp(1.0, 500.0) as f32;
-		},
+		}
 		(SourceKind::Random, "rate") => {
 			slot.settings.random_rate = value.clamp(0.01, 20.0) as f32;
-		},
+		}
 		(SourceKind::Random, "smooth") => {
 			slot.settings.random_smooth = value.clamp(0.0, 500.0) as f32;
-		},
+		}
 		(SourceKind::Random, "sync") => {
 			let Some(flag) = boolean(raw) else {
 				return false;
 			};
 			slot.settings.random_sync = flag;
-		},
+		}
 		(SourceKind::Random, "beats") => {
 			slot.settings.random_beats = value.clamp(0.03125, 32.0) as f32;
-		},
+		}
 		(SourceKind::Table, "rate") => slot.settings.table_rate = value.clamp(0.01, 20.0) as f32,
 		(SourceKind::Table, "shape") => {
 			slot.settings.table_shape = (value.round() as i32).clamp(0, 3);
-		},
+		}
 		(SourceKind::Table, "morph") => {
 			slot.settings.table_morph = value.clamp(0.0, 1.0) as f32;
-		},
+		}
 		(SourceKind::Table, "sync") => {
 			let Some(flag) = boolean(raw) else {
 				return false;
 			};
 			slot.settings.table_sync = flag;
-		},
+		}
 		(SourceKind::Table, "beats") => {
 			slot.settings.table_beats = value.clamp(0.03125, 32.0) as f32;
-		},
+		}
 		(SourceKind::Pitch, "clarity") => {
 			slot.settings.pitch_clarity = value.clamp(0.0, 1.0) as f32;
-		},
+		}
 		(SourceKind::Pitch, "glide") => {
 			slot.settings.pitch_glide = value.clamp(0.0, 1000.0) as f32;
-		},
+		}
 		(SourceKind::Midi, "mode") => {
 			slot.settings.midi_mode = (value.round() as i32).clamp(0, 1);
-		},
+		}
 		(SourceKind::Midi, "transpose") => {
 			slot.settings.midi_transpose = (value.round() as i32).clamp(-24, 24);
-		},
+		}
 		(SourceKind::Midi, "fine") => {
 			slot.settings.midi_fine = value.clamp(-100.0, 100.0) as f32;
-		},
+		}
 		_ => return false,
 	}
 
@@ -1734,11 +1737,7 @@ fn parse_curve(raw: &str) -> Option<Vec<(f32, f32)>> {
 	points.sort_by(|a, b| a.0.total_cmp(&b.0));
 	points.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-4);
 
-	if points.len() < 2 {
-		None
-	} else {
-		Some(points)
-	}
+	if points.len() < 2 { None } else { Some(points) }
 }
 
 fn parse_lfo_points(raw: &str) -> Option<Vec<(f32, f32, f32)>> {
@@ -1763,17 +1762,17 @@ fn parse_lfo_points(raw: &str) -> Option<Vec<(f32, f32, f32)>> {
 			return None;
 		}
 
-		points.push((time.clamp(0.0, 1.0), value.clamp(0.0, 1.0), bend.clamp(-10.0, 10.0)));
+		points.push((
+			time.clamp(0.0, 1.0),
+			value.clamp(0.0, 1.0),
+			bend.clamp(-10.0, 10.0),
+		));
 	}
 
 	points.sort_by(|a, b| a.0.total_cmp(&b.0));
 	points.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-4);
 
-	if points.len() < 2 {
-		None
-	} else {
-		Some(points)
-	}
+	if points.len() < 2 { None } else { Some(points) }
 }
 
 fn apply_assignment_add(state: &mut RackState, shared: &RackShared, raw: &str) -> bool {
@@ -1835,12 +1834,7 @@ fn release_duplicates(state: &mut RackState, slot: usize) {
 	}
 }
 
-fn apply_assignment(
-	state: &mut RackState,
-	shared: &RackShared,
-	rest: &str,
-	raw: &str,
-) -> bool {
+fn apply_assignment(state: &mut RackState, shared: &RackShared, rest: &str, raw: &str) -> bool {
 	let Some((slot, field)) = rest.split_once('.') else {
 		return false;
 	};
@@ -1857,42 +1851,38 @@ fn apply_assignment(
 			let Some(source) = source_index(state, raw) else {
 				return false;
 			};
-			let assignment = state.assignments[slot]
-				.get_or_insert_with(Assignment::default);
+			let assignment = state.assignments[slot].get_or_insert_with(Assignment::default);
 			assignment.source = source;
 			release_duplicates(state, slot);
 			true
-		},
+		}
 		"target" => {
 			let Some(target) = parse_target(raw, state, shared) else {
 				return false;
 			};
-			let assignment = state.assignments[slot]
-				.get_or_insert_with(Assignment::default);
+			let assignment = state.assignments[slot].get_or_insert_with(Assignment::default);
 			assignment.target = Some(target);
 			release_duplicates(state, slot);
 			true
-		},
+		}
 		"depth" => {
 			let Some(value) = number(raw) else {
 				return false;
 			};
-			let assignment = state.assignments[slot]
-				.get_or_insert_with(Assignment::default);
+			let assignment = state.assignments[slot].get_or_insert_with(Assignment::default);
 			assignment.depth = value.clamp(-1.0, 1.0) as f32;
 			true
-		},
+		}
 		"mode" => {
 			let mode = match raw.to_ascii_lowercase().as_str() {
 				"center" | "centered" => AssignmentMode::Centered,
 				"start" | "frombase" | "from-base" => AssignmentMode::FromBase,
 				_ => return false,
 			};
-			let assignment = state.assignments[slot]
-				.get_or_insert_with(Assignment::default);
+			let assignment = state.assignments[slot].get_or_insert_with(Assignment::default);
 			assignment.mode = mode;
 			true
-		},
+		}
 		"clear" => {
 			let Some(clear) = boolean(raw) else {
 				return false;
@@ -1901,7 +1891,7 @@ fn apply_assignment(
 				state.assignments[slot] = None;
 			}
 			true
-		},
+		}
 		_ => false,
 	}
 }

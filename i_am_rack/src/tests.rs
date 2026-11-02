@@ -1,13 +1,12 @@
 //! M1 acceptance tests.
 
 use i_am_dsp::Processor;
-use i_am_web_gui::Channels;
 use i_am_dsp::prelude::{
-	NoteEvent, Parameters, ProcessContext, ProcessInfos, SetValue, Value, from_binary,
-	to_binary,
+	NoteEvent, Parameters, ProcessContext, ProcessInfos, SetValue, Value, from_binary, to_binary,
 };
 use i_am_plugin::Plugin;
 use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
+use i_am_web_gui::Channels;
 
 use super::*;
 use crate::state::{Assignment, AssignmentMode, MACRO_BASE, SourceKind, Target};
@@ -136,18 +135,30 @@ fn the_state_round_trips_through_the_host_parameter() {
 fn a_command_edits_the_state() {
 	let rack = Rack::default();
 
-	let response = command(&rack, "0.cutoff=3000
+	let response = command(
+		&rack,
+		"0.cutoff=3000
 2.gain=0.5
-4.gain=0.5");
+4.gain=0.5",
+	);
 
 	assert_eq!(response.status, 200);
 	assert_eq!(response.body, b"{\"ok\":true}");
 
 	let state = rack.state();
 
-	assert_eq!(state.bands[0].slots[0].as_ref().unwrap().params["cutoff"], 3_000.0);
-	assert_eq!(state.bands[1].slots[0].as_ref().unwrap().params["gain"], 0.5);
-	assert_eq!(state.bands[2].slots[0].as_ref().unwrap().params["gain"], 0.5);
+	assert_eq!(
+		state.bands[0].slots[0].as_ref().unwrap().params["cutoff"],
+		3_000.0
+	);
+	assert_eq!(
+		state.bands[1].slots[0].as_ref().unwrap().params["gain"],
+		0.5
+	);
+	assert_eq!(
+		state.bands[2].slots[0].as_ref().unwrap().params["gain"],
+		0.5
+	);
 }
 
 /// The page gets the bands and a flat list of the modules they hold.
@@ -204,8 +215,16 @@ fn the_catalog_adds_reverb_and_pitch_modules() {
 	let reverb = module::schema(ModuleKind::Reverb);
 	let pitch = module::schema(ModuleKind::Pitch);
 
-	assert!(reverb.iter().any(|parameter| parameter.identifier == "decay_time"));
-	assert!(pitch.iter().any(|parameter| parameter.identifier == "pitch_shift_factor"));
+	assert!(
+		reverb
+			.iter()
+			.any(|parameter| parameter.identifier == "decay_time")
+	);
+	assert!(
+		pitch
+			.iter()
+			.any(|parameter| parameter.identifier == "pitch_shift_factor")
+	);
 	assert_eq!(ModuleKind::Pitch.mode(), Some("algorithm"));
 	assert_eq!(ModuleKind::Pitch.header(), &["window_size"]);
 	assert!(ModuleKind::Pitch.visible().is_some());
@@ -269,7 +288,10 @@ fn host_parameters_cover_macros_and_automation() {
 		.unwrap();
 	assert!((macro_value - 0.25).abs() < 1e-6);
 
-	assert_eq!(command(&rack, "automation.0.target=m0.cutoff").body, b"{\"ok\":true}");
+	assert_eq!(
+		command(&rack, "automation.0.target=m0.cutoff").body,
+		b"{\"ok\":true}"
+	);
 
 	for _ in 0..2_048 {
 		process(&mut rack, [0.0, 0.0]);
@@ -352,7 +374,9 @@ fn a_muted_band_leaves_the_sum() {
 		let mut state = rack.shared.lock();
 		state.bands[0].mute = true;
 	}
-	rack.shared.dirty.store(true, std::sync::atomic::Ordering::Release);
+	rack.shared
+		.dirty
+		.store(true, std::sync::atomic::Ordering::Release);
 
 	let mut input_energy = 0.0;
 	let mut output_energy = 0.0;
@@ -479,17 +503,20 @@ fn a_slot_can_move_and_swap_modules() {
 	assert_eq!(response.body, b"{\"ok\":true}");
 
 	let state = rack.state();
-	let gain = state.bands[0].slots[1]
-		.as_ref()
-		.expect("the new gain")
-		.id;
+	let gain = state.bands[0].slots[1].as_ref().expect("the new gain").id;
 
 	let response = command(&rack, "slot.0.0.move=0.1");
 	assert_eq!(response.body, b"{\"ok\":true}");
 
 	let state = rack.state();
-	assert_eq!(state.bands[0].slots[0].as_ref().map(|module| module.id), Some(gain));
-	assert_eq!(state.bands[0].slots[1].as_ref().map(|module| module.id), Some(0));
+	assert_eq!(
+		state.bands[0].slots[0].as_ref().map(|module| module.id),
+		Some(gain)
+	);
+	assert_eq!(
+		state.bands[0].slots[1].as_ref().map(|module| module.id),
+		Some(0)
+	);
 	assert!(state.bands[0].slots[2].is_none());
 
 	let response = command(&rack, "slot.0.1.move=1.1");
@@ -497,9 +524,15 @@ fn a_slot_can_move_and_swap_modules() {
 
 	let state = rack.state();
 	assert_eq!(state.bands[0].slots.len(), 2);
-	assert_eq!(state.bands[0].slots[0].as_ref().map(|module| module.id), Some(gain));
+	assert_eq!(
+		state.bands[0].slots[0].as_ref().map(|module| module.id),
+		Some(gain)
+	);
 	assert!(state.bands[0].slots[1].is_none());
-	assert_eq!(state.bands[1].slots[1].as_ref().map(|module| module.id), Some(0));
+	assert_eq!(
+		state.bands[1].slots[1].as_ref().map(|module| module.id),
+		Some(0)
+	);
 }
 
 /// Replacing a module keeps the id the page addresses.
@@ -600,9 +633,7 @@ assign.0.mode=start",
 	assert_eq!(state.source_slots[3].settings.table_shape, 1);
 	assert!((state.source_slots[3].settings.table_morph - 0.4).abs() < 1e-6);
 
-	let assignment = state.assignments[0]
-		.as_ref()
-		.expect("the first assignment");
+	let assignment = state.assignments[0].as_ref().expect("the first assignment");
 
 	assert_eq!(assignment.source, 0);
 	assert_eq!(assignment.depth, 0.5);
@@ -635,9 +666,7 @@ assign.2.depth=0.4",
 
 	assert!((state.macros[0] - 0.75).abs() < 1e-6);
 
-	let assignment = state.assignments[2]
-		.as_ref()
-		.expect("the third assignment");
+	let assignment = state.assignments[2].as_ref().expect("the third assignment");
 
 	assert_eq!(assignment.source, MACRO_BASE);
 	assert_eq!(assignment.target, Some(Target::BandGain(0)));
@@ -759,7 +788,10 @@ fn the_rack_route_lists_modulation_targets() {
 
 	assert!(targets.iter().any(|target| target["id"] == "m0.cutoff"));
 	assert!(targets.iter().any(|target| target["id"] == "band.0.gain"));
-	assert_eq!(json["assignments"].as_array().expect("assignments").len(), 8);
+	assert_eq!(
+		json["assignments"].as_array().expect("assignments").len(),
+		8
+	);
 
 	let sources = json["sources"].as_array().expect("sources");
 
@@ -804,13 +836,19 @@ fn a_pitch_source_tracks_a_tone() {
 fn matrix_rows_can_be_added_dynamically() {
 	let rack = Rack::default();
 
-	assert_eq!(command(&rack, "assign.add=0|m0.cutoff").body, b"{\"ok\":true}");
+	assert_eq!(
+		command(&rack, "assign.add=0|m0.cutoff").body,
+		b"{\"ok\":true}"
+	);
 	assert_eq!(command(&rack, "assign.add=1").body, b"{\"ok\":true}");
 
 	let state = rack.state();
 	assert_eq!(state.assignments.len(), 10);
 	assert_eq!(state.assignments[8].as_ref().unwrap().source, 0);
-	assert_eq!(state.assignments[9].as_ref().unwrap().mode, AssignmentMode::FromBase);
+	assert_eq!(
+		state.assignments[9].as_ref().unwrap().mode,
+		AssignmentMode::FromBase
+	);
 	assert_eq!(
 		state.assignments[8].as_ref().unwrap().target,
 		Some(Target::Module {
@@ -1174,15 +1212,13 @@ fn ab_compare_keeps_both_sides() {
 	command(&rack, "0.cutoff=4000");
 	command(&rack, "ab.toggle=1");
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	assert_eq!(json["ab"]["active"], "B");
 
 	command(&rack, "0.cutoff=800");
 	command(&rack, "ab.toggle=1");
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	assert_eq!(json["ab"]["active"], "A");
 	assert_eq!(
 		rack.state().bands[0].slots[0].as_ref().unwrap().params["cutoff"],
@@ -1276,23 +1312,20 @@ fn the_state_route_returns_a_preset_document() {
 fn the_rack_route_reports_undo_and_ab() {
 	let rack = Rack::default();
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	assert_eq!(json["history"]["undo"], false);
 	assert_eq!(json["history"]["redo"], false);
 	assert_eq!(json["ab"]["active"], "A");
 
 	command(&rack, "0.cutoff=3000");
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	assert_eq!(json["history"]["undo"], true);
 	assert_eq!(json["history"]["redo"], false);
 
 	command(&rack, "history.undo=1");
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	assert_eq!(json["history"]["undo"], false);
 	assert_eq!(json["history"]["redo"], true);
 }
@@ -1328,8 +1361,7 @@ fn macro_names_can_be_changed() {
 
 	assert_eq!(rack.state().macro_names[0], "Kick");
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	assert_eq!(json["macro_names"][0], "Kick");
 
 	let parameters = rack.get_parameters();
@@ -1373,13 +1405,7 @@ fn ab_is_saved_with_the_state() {
 
 	assert_eq!(state.ab.letter(), "B");
 	assert_eq!(
-		state
-			.ab
-			.other
-			.as_ref()
-			.expect("the A side")
-			.bands[0]
-			.slots[0]
+		state.ab.other.as_ref().expect("the A side").bands[0].slots[0]
 			.as_ref()
 			.unwrap()
 			.params["cutoff"],
@@ -1394,13 +1420,7 @@ fn ab_is_saved_with_the_state() {
 
 	assert_eq!(reopened.ab.letter(), "B");
 	assert_eq!(
-		reopened
-			.ab
-			.other
-			.as_ref()
-			.expect("the A side")
-			.bands[0]
-			.slots[0]
+		reopened.ab.other.as_ref().expect("the A side").bands[0].slots[0]
 			.as_ref()
 			.unwrap()
 			.params["cutoff"],
@@ -1462,7 +1482,10 @@ fn midi_transpose_and_fine_shift_the_note() {
 		velocity: 0.75,
 	};
 
-	assert_eq!(command(&rack, "source.4.transpose=12").body, b"{\"ok\":true}");
+	assert_eq!(
+		command(&rack, "source.4.transpose=12").body,
+		b"{\"ok\":true}"
+	);
 
 	for _ in 0..128 {
 		process_with(&mut rack, [0.0, 0.0], vec![note.clone()]);
@@ -1478,7 +1501,10 @@ fn midi_transpose_and_fine_shift_the_note() {
 
 	assert!((modulation_value(&rack, 4) - 72.5 / 127.0).abs() < 1e-4);
 
-	assert_eq!(command(&rack, "source.4.transpose=-24").body, b"{\"ok\":true}");
+	assert_eq!(
+		command(&rack, "source.4.transpose=-24").body,
+		b"{\"ok\":true}"
+	);
 	assert_eq!(command(&rack, "source.4.fine=0").body, b"{\"ok\":true}");
 
 	for _ in 0..128 {
@@ -1493,7 +1519,10 @@ fn midi_transpose_and_fine_shift_the_note() {
 fn midi_transpose_and_fine_are_clamped() {
 	let rack = Rack::default();
 	assert_eq!(command(&rack, "source.add=midi").body, b"{\"ok\":true}");
-	assert_eq!(command(&rack, "source.4.transpose=99").body, b"{\"ok\":true}");
+	assert_eq!(
+		command(&rack, "source.4.transpose=99").body,
+		b"{\"ok\":true}"
+	);
 	assert_eq!(command(&rack, "source.4.fine=500").body, b"{\"ok\":true}");
 
 	let response = get(&rack, "/rack");
@@ -1651,8 +1680,7 @@ fn the_parallel_lane_answers_band_commands() {
 		b"{\"ok\":true}"
 	);
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	assert!(
 		json["targets"]
 			.as_array()
@@ -1734,15 +1762,11 @@ fn modules_can_be_grouped_and_ungrouped() {
 	assert_eq!(command(&rack, "group.0.1=1").body, b"{\"ok\":true}");
 
 	let state = rack.state();
-	let group = state.bands[0].slots[0]
-		.as_ref()
-		.expect("the filter")
-		.group;
+	let group = state.bands[0].slots[0].as_ref().expect("the filter").group;
 	assert!(group.is_some());
 	assert_eq!(group, state.bands[0].slots[1].as_ref().unwrap().group);
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	assert_eq!(
 		json["modules"][0]["group"].as_u64(),
 		Some(group.unwrap() as u64)
@@ -1771,7 +1795,13 @@ fn a_broken_group_is_cleared() {
 	assert_eq!(command(&rack, "slot.0.add=Gain").body, b"{\"ok\":true}");
 	assert_eq!(command(&rack, "group.0.1=1").body, b"{\"ok\":true}");
 
-	assert!(rack.state().bands[0].slots[0].as_ref().unwrap().group.is_some());
+	assert!(
+		rack.state().bands[0].slots[0]
+			.as_ref()
+			.unwrap()
+			.group
+			.is_some()
+	);
 
 	assert_eq!(command(&rack, "slot.0.1.move=1.1").body, b"{\"ok\":true}");
 
@@ -1823,8 +1853,7 @@ fn a_crusher_module_exposes_its_controls() {
 
 	assert_eq!(command(&rack, "slot.3.add=Crusher").body, b"{\"ok\":true}");
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	let crusher = json["modules"]
 		.as_array()
 		.expect("modules")
@@ -1833,16 +1862,8 @@ fn a_crusher_module_exposes_its_controls() {
 		.expect("the Crusher module");
 	let controls = crusher["controls"].as_array().expect("controls");
 
-	assert!(
-		controls
-			.iter()
-			.any(|control| control["id"] == "amount")
-	);
-	assert!(
-		controls
-			.iter()
-			.any(|control| control["id"] == "frequency")
-	);
+	assert!(controls.iter().any(|control| control["id"] == "amount"));
+	assert!(controls.iter().any(|control| control["id"] == "frequency"));
 
 	for _ in 0..256 {
 		let out = process(&mut rack, [0.25, 0.25]);
@@ -1857,8 +1878,7 @@ fn a_chorus_module_exposes_its_controls() {
 
 	assert_eq!(command(&rack, "slot.3.add=Chorus").body, b"{\"ok\":true}");
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	let chorus = json["modules"]
 		.as_array()
 		.expect("modules")
@@ -1887,8 +1907,7 @@ fn a_phaser_module_exposes_its_controls() {
 
 	assert_eq!(command(&rack, "slot.3.add=Phaser").body, b"{\"ok\":true}");
 
-	let json: serde_json::Value =
-		serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
+	let json: serde_json::Value = serde_json::from_slice(&get(&rack, "/rack").body).expect("JSON");
 	let phaser = json["modules"]
 		.as_array()
 		.expect("modules")
@@ -1932,12 +1951,30 @@ fn the_band_header_keeps_its_trim_controls_compact() {
 	let css = include_str!("page/rack.css");
 	let js = include_str!("page/rack.js");
 
-	assert!(css.contains("min-height:52px"), "band header height changed");
-	assert!(css.contains(".band-controls .knob-wrap{"), "band control wrapper missing");
-	assert!(css.contains("flex-direction:row"), "band controls are not inline");
-	assert!(css.contains(".band-controls .knob{width:36px"), "band knob size changed");
-	assert!(js.contains("format: function (value)"), "band trims lost their readout");
-	assert!(js.contains("name.title"), "the hidden narrow range needs a tooltip");
+	assert!(
+		css.contains("min-height:52px"),
+		"band header height changed"
+	);
+	assert!(
+		css.contains(".band-controls .knob-wrap{"),
+		"band control wrapper missing"
+	);
+	assert!(
+		css.contains("flex-direction:row"),
+		"band controls are not inline"
+	);
+	assert!(
+		css.contains(".band-controls .knob{width:36px"),
+		"band knob size changed"
+	);
+	assert!(
+		js.contains("format: function (value)"),
+		"band trims lost their readout"
+	);
+	assert!(
+		js.contains("name.title"),
+		"the hidden narrow range needs a tooltip"
+	);
 }
 
 /// The LFO appends points deliberately on double-click, leaving a single click
@@ -1946,9 +1983,18 @@ fn the_band_header_keeps_its_trim_controls_compact() {
 fn the_lfo_adds_points_on_double_click() {
 	let js = include_str!("page/rack.js");
 
-	assert!(js.contains("svg.ondblclick"), "the LFO needs a double-click handler");
-	assert!(js.contains("Double-click to add a point"), "the LFO hint is stale");
-	assert!(js.contains("if (!drag) return;"), "an empty single click should not capture the pointer");
+	assert!(
+		js.contains("svg.ondblclick"),
+		"the LFO needs a double-click handler"
+	);
+	assert!(
+		js.contains("Double-click to add a point"),
+		"the LFO hint is stale"
+	);
+	assert!(
+		js.contains("if (!drag) return;"),
+		"an empty single click should not capture the pointer"
+	);
 }
 
 /// Bypass dims the editable surfaces, while the top bar stays available so the
@@ -1958,9 +2004,18 @@ fn bypass_dims_the_rack_surfaces() {
 	let css = include_str!("page/rack.css");
 	let js = include_str!("page/rack.js");
 
-	assert!(css.contains("body.bypassed .rack"), "the rack is not dimmed");
-	assert!(css.contains("body.bypassed .bottom"), "the bottom panel is not dimmed");
-	assert!(js.contains("document.body.classList.toggle(\"bypassed\""), "bypass does not reach the page");
+	assert!(
+		css.contains("body.bypassed .rack"),
+		"the rack is not dimmed"
+	);
+	assert!(
+		css.contains("body.bypassed .bottom"),
+		"the bottom panel is not dimmed"
+	);
+	assert!(
+		js.contains("document.body.classList.toggle(\"bypassed\""),
+		"bypass does not reach the page"
+	);
 }
 
 /// The compressor can key off the rack's second input instead of the signal it
@@ -2076,7 +2131,10 @@ fn the_page_reads_the_audio_scope() {
 		js.contains("fetch(\"/module-stereo?id=\""),
 		"the rack does not read a module's stereo pair"
 	);
-	assert!(js.contains("card.repaintHero"), "a live hero is never redrawn");
+	assert!(
+		js.contains("card.repaintHero"),
+		"a live hero is never redrawn"
+	);
 	assert!(js.contains("cardContext()"), "the cards share one context");
 	assert!(
 		js.contains("fetch(\"/module-note?id=\""),
@@ -2106,7 +2164,10 @@ fn the_page_reads_the_audio_scope() {
 		js.contains("indexOf(\"source:\") === 0"),
 		"a source dropped on a slot would be treated as a module"
 	);
-	assert!(js.contains("spectra: { input: null, output: null }"), "no per-card spectra");
+	assert!(
+		js.contains("spectra: { input: null, output: null }"),
+		"no per-card spectra"
+	);
 	assert!(
 		js.contains("channels: module.scope"),
 		"the page polls cards that have no audio reader"
@@ -2127,7 +2188,11 @@ fn the_scope_receives_the_signal() {
 	}
 
 	let snapshot = rack.scope.snapshot();
-	assert_eq!(snapshot.len(), 4096 * 12, "the scope document has the wrong size");
+	assert_eq!(
+		snapshot.len(),
+		4096 * 12,
+		"the scope document has the wrong size"
+	);
 
 	// The document is zero-padded up to POINTS, so the newest frame is the one
 	// just before the padding starts.
@@ -2231,9 +2296,7 @@ fn the_rack_declares_a_note_input() {
 	assert_eq!(Rack::INPUT_MIDI_PORTS.len(), 1);
 	assert_eq!(Rack::INPUT_MIDI_PORTS[0].name, "Notes");
 	assert!(
-		ModuleKind::ALL
-			.iter()
-			.any(|kind| kind.name() == "Autotune"),
+		ModuleKind::ALL.iter().any(|kind| kind.name() == "Autotune"),
 		"the autotune is not offered"
 	);
 }
@@ -2398,13 +2461,12 @@ fn a_convolver_module_takes_an_impulse_response() {
 		"the impulse route refused the file"
 	);
 
-	let json = rack
-		.shared
-		.existing_ir(42)
-		.expect("the slot")
-		.json();
+	let json = rack.shared.existing_ir(42).expect("the slot").json();
 	assert!(json.contains("Test.wav"), "{json}");
-	assert!(!json.contains("\"peaks\":[]"), "the impulse has no picture: {json}");
+	assert!(
+		!json.contains("\"peaks\":[]"),
+		"the impulse has no picture: {json}"
+	);
 }
 
 /// A one-sample impulse as a 16-bit mono wav, which is enough to load.
@@ -2596,12 +2658,16 @@ fn a_duplicate_edit_releases_the_older_row() {
 	let rows = &state.assignments;
 
 	assert_eq!(
-		rows[0].as_ref().and_then(|assignment| assignment.target.clone()),
+		rows[0]
+			.as_ref()
+			.and_then(|assignment| assignment.target.clone()),
 		None,
 		"the older row still holds the same target"
 	);
 	assert_eq!(
-		rows[1].as_ref().and_then(|assignment| assignment.target.clone()),
+		rows[1]
+			.as_ref()
+			.and_then(|assignment| assignment.target.clone()),
 		Some(Target::BandGain(0)),
 		"the edited row lost its target"
 	);
@@ -2615,14 +2681,13 @@ fn a_macro_links_to_a_module_knob() {
 	command(&rack, "assign.add=macro1|m0.cutoff");
 
 	let state = rack.state();
-	let linked = state
-		.assignments
-		.iter()
-		.flatten()
-		.any(|assignment| assignment.target == Some(Target::Module {
-			module: 0,
-			parameter: "cutoff".to_string(),
-		}));
+	let linked = state.assignments.iter().flatten().any(|assignment| {
+		assignment.target
+			== Some(Target::Module {
+				module: 0,
+				parameter: "cutoff".to_string(),
+			})
+	});
 
 	assert!(linked, "the macro link was not stored");
 }
@@ -2651,9 +2716,15 @@ fn the_live_route_carries_the_macro_values() {
 	let response = crate::web::route(&request, &rack.shared).expect("the live route");
 	let body = String::from_utf8_lossy(&response.body);
 
-	assert!(body.contains("\"macros\""), "no macros on the live route: {body}");
+	assert!(
+		body.contains("\"macros\""),
+		"no macros on the live route: {body}"
+	);
 	assert!(body.contains("0.25"), "the macro value is missing: {body}");
-	assert!(body.contains("0.75"), "the automation value is missing: {body}");
+	assert!(
+		body.contains("0.75"),
+		"the automation value is missing: {body}"
+	);
 }
 
 /// The host writes a parameter by storing into the map; the plug-in has to pick
@@ -2665,13 +2736,21 @@ fn a_host_macro_write_reaches_the_state() {
 	let mut rack = Rack::default();
 	let map = i_am_plugin::Plugin::param_map(&rack);
 
-	map.set("macro1", SetValue::Float(0.8), std::sync::atomic::Ordering::SeqCst);
+	map.set(
+		"macro1",
+		SetValue::Float(0.8),
+		std::sync::atomic::Ordering::SeqCst,
+	);
 
 	for _ in 0..70 {
 		process_with(&mut rack, [0.0, 0.0], Vec::new());
 	}
 
-	assert_eq!(rack.state().macros[0], 0.8, "the host's value never reached the state");
+	assert_eq!(
+		rack.state().macros[0],
+		0.8,
+		"the host's value never reached the state"
+	);
 }
 
 /// The page writes a macro; the map has to carry the new value *and* say it
@@ -2686,8 +2765,14 @@ fn a_page_macro_write_reaches_the_host_map() {
 	let map = i_am_plugin::Plugin::param_map(&rack);
 	let param = map.get("macro1").expect("macro1 in the map");
 
-	assert_eq!(param.load(std::sync::atomic::Ordering::SeqCst), SetValue::Float(0.6));
-	assert!(param.is_chanegd(), "the host was never told the macro moved");
+	assert_eq!(
+		param.load(std::sync::atomic::Ordering::SeqCst),
+		SetValue::Float(0.6)
+	);
+	assert!(
+		param.is_chanegd(),
+		"the host was never told the macro moved"
+	);
 }
 
 /// A macro the host writes has to reach the DSP, not only the state: the engine
@@ -2701,30 +2786,104 @@ fn a_host_macro_write_modulates_the_engine() {
 	command(&rack, "assign.add=macro1|m0.cutoff");
 	command(&rack, "assign.0.depth=0.5");
 
-	let base = rack.module_parameter(0, "cutoff").expect("the filter cutoff");
+	let base = rack
+		.module_parameter(0, "cutoff")
+		.expect("the filter cutoff");
 
 	let map = i_am_plugin::Plugin::param_map(&rack);
-	map.set("macro1", SetValue::Float(1.0), std::sync::atomic::Ordering::SeqCst);
+	map.set(
+		"macro1",
+		SetValue::Float(1.0),
+		std::sync::atomic::Ordering::SeqCst,
+	);
 
 	// One block: the host's value is the one the very next block runs with, the
 	// way Paramed syncs it.
 	process_with(&mut rack, [0.0, 0.0], Vec::new());
 
 	assert_eq!(
-		rack.engine_macros()[0], 1.0,
+		rack.engine_macros()[0],
+		1.0,
 		"the host's macro never reached the engine"
 	);
-	assert_eq!(rack.state().macros[0], 1.0, "the state still has the old macro");
+	assert_eq!(
+		rack.state().macros[0],
+		1.0,
+		"the state still has the old macro"
+	);
 
 	// The modulation itself is smoothed, so it needs a few blocks to show.
 	for _ in 0..128 {
 		process_with(&mut rack, [0.0, 0.0], Vec::new());
 	}
 
-	let cutoff = rack.module_parameter(0, "cutoff").expect("the filter cutoff");
+	let cutoff = rack
+		.module_parameter(0, "cutoff")
+		.expect("the filter cutoff");
 
 	assert!(
 		cutoff > base + 100.0,
 		"the host's macro left the cutoff at {cutoff} (base {base})"
+	);
+}
+
+/// A scripted module's source is part of the preset: the workers outlive the
+/// module, so a project has to carry what they should be running.
+#[test]
+fn a_preset_keeps_the_script_source() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(60, ModuleKind::ScriptMapper));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+	process_with(&mut rack, [0.0, 0.0], Vec::new());
+
+	let source = "x * 0.5";
+	let write = i_am_web_gui::ProtocolRequest {
+		method: "POST",
+		path: "/module-script",
+		query: Some("id=60"),
+		body: source.as_bytes(),
+	};
+	assert!(
+		crate::web::route(&write, &rack.shared).is_some(),
+		"the script route refused the source"
+	);
+
+	// What the page saves: the whole state as the preset document.
+	let saved = crate::web::route(
+		&i_am_web_gui::ProtocolRequest {
+			method: "GET",
+			path: "/state",
+			query: None,
+			body: b"",
+		},
+		&rack.shared,
+	)
+	.expect("the state route");
+	let document = String::from_utf8_lossy(&saved.body).to_string();
+
+	let loaded = Rack::default();
+	let body = format!("preset.load={document}");
+	let load = i_am_web_gui::ProtocolRequest {
+		method: "POST",
+		path: "/rack-command",
+		query: None,
+		body: body.as_bytes(),
+	};
+	assert!(
+		crate::web::route(&load, &loaded.shared).is_some(),
+		"the preset was refused"
+	);
+
+	let script = loaded.shared.existing_script(60).expect("the worker");
+	let json = script.json();
+
+	assert!(
+		json.contains("x * 0.5"),
+		"the preset did not restore the script: {json}"
 	);
 }

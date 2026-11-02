@@ -268,13 +268,7 @@ pub fn lfo_preset(shape: i32) -> Vec<(f32, f32, f32)> {
 		1 => &[(0.0, 0.0), (0.5, 1.0), (1.0, 0.0)],
 		2 => &[(0.0, 0.0), (1.0, 1.0)],
 		3 => &[(0.0, 1.0), (0.5, 1.0), (0.5001, 0.0), (1.0, 0.0)],
-		_ => &[
-			(0.0, 0.5),
-			(0.25, 1.0),
-			(0.5, 0.5),
-			(0.75, 0.0),
-			(1.0, 0.5),
-		],
+		_ => &[(0.0, 0.5), (0.25, 1.0), (0.5, 0.5), (0.75, 0.0), (1.0, 0.5)],
 	};
 
 	points
@@ -320,9 +314,7 @@ impl Default for Assignment {
 }
 
 /// What an assignment moves.
-#[derive(
-	Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Target {
 	/// One float parameter of one module.
 	Module {
@@ -371,6 +363,10 @@ pub struct ModuleState {
 	/// room. Absent for every other kind.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ir: Option<i_am_effects::IrData>,
+	/// The source a scripted module runs, so a preset keeps its script. Absent
+	/// for every kind that does not run one.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub script: Option<String>,
 }
 
 impl ModuleState {
@@ -383,6 +379,7 @@ impl ModuleState {
 			group: None,
 			params: module::default_params(kind),
 			ir: None,
+			script: None,
 		}
 	}
 }
@@ -520,7 +517,9 @@ impl RackState {
 
 	/// The module with this id, whichever band and slot holds it.
 	pub fn module_mut(&mut self, id: u32) -> Option<&mut ModuleState> {
-		let Self { bands, parallel, .. } = self;
+		let Self {
+			bands, parallel, ..
+		} = self;
 
 		bands
 			.iter_mut()
@@ -574,11 +573,11 @@ impl RackState {
 					other: Some(Box::new(current)),
 				};
 				*self = incoming;
-			},
+			}
 			None => {
 				self.ab.other = Some(Box::new(current));
 				self.ab.active = active;
-			},
+			}
 		}
 	}
 
@@ -593,12 +592,7 @@ impl RackState {
 
 /// Keeps every module contiguous and leaves a single empty slot at the end.
 fn compact_slots(band: &mut BandState) {
-	let mut modules = band
-		.slots
-		.drain(..)
-		.flatten()
-		.map(Some)
-		.collect::<Vec<_>>();
+	let mut modules = band.slots.drain(..).flatten().map(Some).collect::<Vec<_>>();
 	modules.push(None);
 	band.slots = modules;
 

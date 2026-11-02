@@ -33,15 +33,13 @@ use std::sync::{Arc, Mutex};
 
 use portable_atomic::{AtomicBool as PortableBool, AtomicF32};
 
+use i_am_dsp::ProcessContext;
 use i_am_dsp::Processor;
 use i_am_dsp::prelude::{
 	AtomicValue, ParamMap, Parameter, Parameters, SetValue, Value, from_binary, to_binary,
 };
-use i_am_dsp::ProcessContext;
 use i_am_plugin::processor::{DEFAULT_SAMPLE_RATE, EffectMessage};
-use i_am_plugin::{
-	AudioPort, Descriptor, Editor, GuiResizeHints, MidiPort, Plugin, WindowOptions,
-};
+use i_am_plugin::{AudioPort, Descriptor, Editor, GuiResizeHints, MidiPort, Plugin, WindowOptions};
 use i_am_web_gui::{Faceplate, PageAssets, Scope};
 
 use engine::Engine;
@@ -70,8 +68,7 @@ fn host_float(value: f32) -> AtomicValue {
 /// walks this list, so it is built once instead of formatting names per block.
 fn host_param_names() -> Vec<String> {
 	let macros = (1..=8).map(|index| format!("macro{index}"));
-	let automation =
-		(1..=crate::state::AUTOMATION_SLOTS).map(|index| format!("automation{index}"));
+	let automation = (1..=crate::state::AUTOMATION_SLOTS).map(|index| format!("automation{index}"));
 
 	macros.chain(automation).collect()
 }
@@ -286,6 +283,7 @@ impl Parameters for Rack {
 			state.migrate();
 			self.shared.clear_history();
 			self.shared.sync_params(&state);
+			self.shared.apply_scripts(&state);
 			*self.shared.lock() = state;
 			self.shared.dirty.store(true, Ordering::Release);
 			return true;
@@ -385,10 +383,8 @@ impl Plugin for Rack {
 	/// compressor reads it as `other[1]`; a host that leaves the port
 	/// unconnected sends silence there, and the compressor's chooser falls back
 	/// to the main input, which turns the sidechain switch into a no-op.
-	const INPUT_PORTS: &'static [AudioPort] = &[
-		AudioPort { name: "Main" },
-		AudioPort { name: "Sidechain" },
-	];
+	const INPUT_PORTS: &'static [AudioPort] =
+		&[AudioPort { name: "Main" }, AudioPort { name: "Sidechain" }];
 
 	/// One note input, so the pitch-tracking modules follow what the host
 	/// plays. Every module reads the same note stream from the process context,

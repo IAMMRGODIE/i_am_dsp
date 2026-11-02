@@ -6,9 +6,9 @@
 //! atomic swap and no lock.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use i_am_dsp::prelude::{ParamMap, SetValue};
 use i_am_effects::IrSlot;
@@ -61,10 +61,14 @@ impl ModuleMeters {
 		self.gains.store(false, Ordering::Relaxed);
 
 		for band in 0..bands {
-			self.input[band]
-				.store(input.get(band).copied().unwrap_or(0.0).to_bits(), Ordering::Relaxed);
-			self.output[band]
-				.store(output.get(band).copied().unwrap_or(0.0).to_bits(), Ordering::Relaxed);
+			self.input[band].store(
+				input.get(band).copied().unwrap_or(0.0).to_bits(),
+				Ordering::Relaxed,
+			);
+			self.output[band].store(
+				output.get(band).copied().unwrap_or(0.0).to_bits(),
+				Ordering::Relaxed,
+			);
 		}
 	}
 
@@ -223,7 +227,10 @@ impl RackShared {
 
 		// A page can ask before the engine has built the module, and it may ask
 		// for more than the engine allocated: replace rather than widen in place.
-		if scopes.get(&id).is_some_and(|scope| scope.channels() >= channels) {
+		if scopes
+			.get(&id)
+			.is_some_and(|scope| scope.channels() >= channels)
+		{
 			return scopes[&id].clone();
 		}
 
@@ -377,6 +384,41 @@ impl RackShared {
 		}
 	}
 
+	/// Hands the scripts a state carries to their workers.
+	///
+	/// Called when a state replaces the whole rack — a preset, an undo step, an
+	/// A/B switch — because the workers outlive the module and would otherwise
+	/// keep running whatever was typed last.
+	pub fn apply_scripts(&self, state: &RackState) {
+		let rate = self.rate.load(Ordering::Relaxed) as f32;
+
+		for module in state
+			.bands
+			.iter()
+			.chain(std::iter::once(&state.parallel))
+			.flat_map(|band| band.slots.iter().flatten())
+		{
+			let Some(source) = &module.script else {
+				continue;
+			};
+
+			if !crate::module::needs_script(module.kind) {
+				continue;
+			}
+
+			let slot = self.script(module.id, module.kind);
+			slot.set_source(source.clone());
+
+			let value = |name: &str| module.params.get(name).copied().unwrap_or(0.0) as f32;
+			let extra = match module.kind {
+				ModuleKind::ScriptMapper => rate,
+				_ => 10.0_f32.powf(value("in_gain") / 20.0),
+			};
+
+			slot.request([value("p1"), value("p2"), value("p3"), value("p4")], extra);
+		}
+	}
+
 	/// Pulls host-written macro/automation values into the state.
 	///
 	/// Host parameter modulation changes the map without calling
@@ -385,11 +427,12 @@ impl RackShared {
 	pub fn pull_params(&self, state: &mut RackState) -> bool {
 		let mut changed = false;
 
-		for (name, value) in self
-			.param_names
-			.iter()
-			.zip(state.macros.iter_mut().chain(state.automation_values.iter_mut()))
-		{
+		for (name, value) in self.param_names.iter().zip(
+			state
+				.macros
+				.iter_mut()
+				.chain(state.automation_values.iter_mut()),
+		) {
 			let Some(param) = self.params.get(name) else {
 				continue;
 			};
