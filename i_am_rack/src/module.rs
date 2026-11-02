@@ -22,35 +22,86 @@ pub enum ModuleKind {
 	Distortion,
 	/// A peak/RMS compressor with selectable detectors.
 	Compressor,
+	/// A downward gate.
+	Gate,
+	/// An upward expander.
+	Expander,
+	/// A brickwall limiter.
+	Limiter,
 	/// A plain gain.
 	Gain,
 	/// The delay product, with its tempo switch.
 	Delay,
-	/// A disperser, saturator and amplitude modulation in one.
-	Crusher,
+	/// A short feed-forward comb.
+	Comb,
+	/// A swept allpass stack.
+	Allpass,
 	/// A modulated short delay.
 	Chorus,
-	/// A swept allpass stack.
+	/// A short modulated delay with feedback.
+	Flanger,
+	/// A swept allpass stack, phaser flavour.
 	Phaser,
+	/// A disperser, saturator and amplitude modulation in one.
+	Crusher,
+	/// An allpass dispersion chain.
+	Disperser,
+	/// Mid/side width control.
+	Width,
+	/// A left/right balance control.
+	Balance,
+	/// A stereo router.
+	Router,
+	/// A tape-stop effect.
+	TapeStop,
+	/// A transient shaper.
+	Transient,
+	/// A vowel formant filter.
+	Formant,
+	/// A six-band parametric EQ.
+	Eq,
 	/// The product reverb.
 	Reverb,
+	/// A Schroeder reverb.
+	Schroeder,
+	/// A particle-based widener.
+	ParticleWider,
 	/// The product pitch shifter.
 	Pitch,
+	/// A shifter product with its own window controls.
+	Shifter,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 10] = [
+	pub const ALL: [Self; 27] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
+		Self::Gate,
+		Self::Expander,
+		Self::Limiter,
 		Self::Gain,
 		Self::Delay,
-		Self::Crusher,
+		Self::Comb,
+		Self::Allpass,
 		Self::Chorus,
+		Self::Flanger,
 		Self::Phaser,
+		Self::Crusher,
+		Self::Disperser,
+		Self::Width,
+		Self::Balance,
+		Self::Router,
+		Self::TapeStop,
+		Self::Transient,
+		Self::Formant,
+		Self::Eq,
 		Self::Reverb,
+		Self::Schroeder,
+		Self::ParticleWider,
 		Self::Pitch,
+		Self::Shifter,
 	];
 
 	/// The catalog id this kind stores in its state.
@@ -59,13 +110,30 @@ impl ModuleKind {
 			Self::Filter => "filter",
 			Self::Distortion => "distortion",
 			Self::Compressor => "compressor",
+			Self::Gate => "gate",
+			Self::Expander => "expander",
+			Self::Limiter => "limiter",
 			Self::Gain => "gain",
 			Self::Delay => "delay",
-			Self::Crusher => "crusher",
+			Self::Comb => "comb",
+			Self::Allpass => "allpass",
 			Self::Chorus => "chorus",
+			Self::Flanger => "flanger",
 			Self::Phaser => "phaser",
+			Self::Crusher => "crusher",
+			Self::Disperser => "disperser",
+			Self::Width => "width",
+			Self::Balance => "balance",
+			Self::Router => "router",
+			Self::TapeStop => "tape_stop",
+			Self::Transient => "transient",
+			Self::Formant => "formant_filter",
+			Self::Eq => "eq",
 			Self::Reverb => "reverb",
+			Self::Schroeder => "schroeder",
+			Self::ParticleWider => "particle_wider",
 			Self::Pitch => "pitch",
+			Self::Shifter => "shifter",
 		}
 	}
 

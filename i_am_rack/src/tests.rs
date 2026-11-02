@@ -175,7 +175,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[0]["hero"], "spectrum");
 
 	let kinds = json["kinds"].as_array().expect("kinds");
-	assert_eq!(kinds.len(), 10);
+	assert_eq!(kinds.len(), 27);
 	assert!(kinds.iter().any(|kind| kind["name"] == "Compressor"));
 	assert!(kinds.iter().any(|kind| kind["name"] == "Reverb"));
 	assert!(kinds.iter().any(|kind| kind["name"] == "Pitch"));
@@ -2006,4 +2006,31 @@ fn the_tempo_modules_carry_the_product_switches() {
 	assert_eq!(delay.control, "tempo.sync");
 	assert!(delay.on.contains(&"tempo.beats"));
 	assert!(delay.off.contains(&"delay_time"));
+}
+
+/// Every product in the catalog can sit in a slot and run. The rack offers the
+/// whole line, not a subset it special-cases.
+#[test]
+fn every_catalog_product_can_run_in_a_slot() {
+	for kind in ModuleKind::ALL {
+		let mut state = RackState::initial();
+		state.bands[0].slots[0] = Some(ModuleState::new(0, kind));
+
+		let mut engine = crate::engine::Engine::new(48_000, &state);
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut frame = [0.0_f32; 2];
+
+		for i in 0..256 {
+			let time = i as f32 / 48_000.0;
+			let sample = (2.0 * std::f32::consts::PI * 220.0 * time).sin() * 0.1;
+			frame = [sample, sample];
+			engine.process(&mut frame, &[], &mut context);
+		}
+
+		assert!(
+			frame[0].is_finite() && frame[1].is_finite(),
+			"{} produced a non-finite frame",
+			kind.name()
+		);
+	}
 }
