@@ -31,7 +31,9 @@ impl CompiledScript {
 		engine.set_max_expr_depths(32, 64);
 
 		let wrapped = format!("{{ {source} }}");
-		let ast = engine.compile(&wrapped).map_err(|error| error.to_string())?;
+		let ast = engine
+			.compile(&wrapped)
+			.map_err(|error| error.to_string())?;
 
 		Ok(Self { engine, ast })
 	}
@@ -179,7 +181,10 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 
 	/// The current script text.
 	pub fn source(&self) -> String {
-		self.source.lock().map(|source| source.clone()).unwrap_or_default()
+		self.source
+			.lock()
+			.map(|source| source.clone())
+			.unwrap_or_default()
 	}
 
 	/// Stores a new script and returns its generation.
@@ -237,12 +242,18 @@ impl<T: Send + Sync + 'static> ScriptWorker<T> {
 
 	/// The points the page draws for the current table.
 	pub fn curve(&self) -> Vec<[f32; 3]> {
-		self.curve.lock().map(|curve| curve.clone()).unwrap_or_default()
+		self.curve
+			.lock()
+			.map(|curve| curve.clone())
+			.unwrap_or_default()
 	}
 
 	/// What the last render did.
 	pub fn status(&self) -> ScriptStatus {
-		self.status.lock().map(|status| status.clone()).unwrap_or_default()
+		self.status
+			.lock()
+			.map(|status| status.clone())
+			.unwrap_or_default()
 	}
 
 	/// Stops the worker and waits for its thread to return.
@@ -285,8 +296,7 @@ fn run<T, R, C>(
 	compiled_generation: Arc<AtomicU64>,
 	render: R,
 	curve_of: C,
-)
-where
+) where
 	T: Send + Sync + 'static,
 	R: Fn(&CompiledScript, [f32; 4], f32) -> Result<T, String>,
 	C: Fn(&T) -> Vec<[f32; 3]>,
@@ -327,7 +337,7 @@ where
 					}
 
 					compiled_generation.fetch_add(1, Ordering::Release);
-				},
+				}
 				Err(error) => {
 					if let Ok(mut current) = compiled.lock() {
 						*current = None;
@@ -336,7 +346,7 @@ where
 					compiled_generation.fetch_add(1, Ordering::Release);
 					set_error(&status, error);
 					continue;
-				},
+				}
 			}
 		}
 
@@ -363,7 +373,7 @@ where
 				}
 
 				table_generation.fetch_add(1, Ordering::Release);
-			},
+			}
 			Err(error) => set_error(&status, error),
 		}
 	}
@@ -387,8 +397,11 @@ pub(crate) fn json_escape(value: &str) -> String {
 			'\r' => out.push_str("\\r"),
 			'\t' => out.push_str("\\t"),
 			character if (character as u32) < 0x20 => {
-				let _ = std::fmt::Write::write_fmt(&mut out, format_args!("\\u{:04x}", character as u32));
-			},
+				let _ = std::fmt::Write::write_fmt(
+					&mut out,
+					format_args!("\\u{:04x}", character as u32),
+				);
+			}
 			character => out.push(character),
 		}
 	}

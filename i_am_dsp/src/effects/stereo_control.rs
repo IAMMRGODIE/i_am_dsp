@@ -50,7 +50,12 @@ impl Effect<2> for StereoController {
 		"Stereo Controller"
 	}
 
-	fn process(&mut self, samples: &mut [f32; 2], _: &[&[f32; 2]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; 2],
+		_: &[&[f32; 2]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		let mid = (samples[0] + samples[1]) / 2.0;
 		let side = (samples[0] - samples[1]) / 2.0;
 		samples[0] = mid * self.mid_gain + side * self.side_gain;
@@ -59,9 +64,14 @@ impl Effect<2> for StereoController {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
-    	use crate::tools::ui_tools::gain_ui;
-		gain_ui(ui, &mut self.mid_gain, Some("Mid Gain".to_string()),false);
-		gain_ui(ui, &mut self.side_gain, Some("Side Gain".to_string()),false);
+		use crate::tools::ui_tools::gain_ui;
+		gain_ui(ui, &mut self.mid_gain, Some("Mid Gain".to_string()), false);
+		gain_ui(
+			ui,
+			&mut self.side_gain,
+			Some("Side Gain".to_string()),
+			false,
+		);
 	}
 }
 
@@ -101,7 +111,12 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Gain {
 		"Gain"
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		for sample in samples.iter_mut() {
 			*sample *= self.gain;
 		}
@@ -137,7 +152,10 @@ pub struct LrControl {
 
 impl Default for LrControl {
 	fn default() -> Self {
-		Self { left_gain: 1.0, right_gain: 1.0 }
+		Self {
+			left_gain: 1.0,
+			right_gain: 1.0,
+		}
 	}
 }
 
@@ -151,7 +169,12 @@ impl Effect<2> for LrControl {
 		"LR Controller"
 	}
 
-	fn process(&mut self, samples: &mut [f32; 2], _: &[&[f32; 2]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; 2],
+		_: &[&[f32; 2]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		samples[0] *= self.left_gain;
 		samples[1] *= self.right_gain;
 	}
@@ -159,8 +182,17 @@ impl Effect<2> for LrControl {
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use crate::tools::ui_tools::gain_ui;
-		gain_ui(ui, &mut self.left_gain, Some("Left Gain".to_string()), false);
-		gain_ui(ui, &mut self.right_gain, Some("Right Gain".to_string()), false);
+		gain_ui(
+			ui,
+			&mut self.left_gain,
+			Some("Left Gain".to_string()),
+			false,
+		);
+		gain_ui(
+			ui,
+			&mut self.right_gain,
+			Some("Right Gain".to_string()),
+			false,
+		);
 	}
 }
-

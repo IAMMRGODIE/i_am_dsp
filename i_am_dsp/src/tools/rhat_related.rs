@@ -15,7 +15,7 @@ lazy_static::lazy_static! {
 }
 
 /// Rhai frequency generator, can be used in [`crate::prelude::AdditiveOsc`]
-/// 
+///
 /// Note: the rhai script can access the following variables:
 /// - `a: f32`: the first parameter of the script
 /// - `b: f32`: the second parameter of the script
@@ -24,7 +24,7 @@ lazy_static::lazy_static! {
 /// - `sample_rate: f32`: the sample rate of the audio signal
 /// - `index: i32`: the index of the current frequency
 /// - `total_amount: i32`: the total amount of frequencies
-/// 
+///
 /// The script should create two values:
 /// - `ratio: f32`: the ratio of the frequency to the sample rate
 /// - `amplitude: f32`: the amplitude of the frequency
@@ -67,7 +67,7 @@ pub struct RhaiFreqGen {
 fn format_ast(input: &Option<(String, rhai::AST)>) -> Vec<u8> {
 	if let Some((code, _)) = input {
 		code.as_bytes().to_vec()
-	}else {
+	} else {
 		vec![]
 	}
 }
@@ -75,7 +75,7 @@ fn format_ast(input: &Option<(String, rhai::AST)>) -> Vec<u8> {
 fn parse_ast(input: Vec<u8>) -> Option<(String, rhai::AST)> {
 	if input.is_empty() {
 		None
-	}else {
+	} else {
 		let code = String::from_utf8(input).unwrap();
 		let ast = RHAI_ENGINE.compile(&code).unwrap();
 		Some((code, ast))
@@ -95,9 +95,9 @@ pub enum RhaiFreqGenError {
 	#[error("Failed to evaluate script: {0}")]
 	Eval(#[from] Box<rhai::EvalAltResult>),
 	/// Missing variable that is required to evaluate script
-	/// 
+	///
 	/// The variable name is included in the error message.
-	/// 
+	///
 	/// Can also be caused by mismatched variable types.
 	#[error("Missing variable: {0}")]
 	MissingVariable(String),
@@ -134,7 +134,10 @@ impl RhaiFreqGen {
 	}
 
 	/// Load the script from a file
-	pub fn load_from_file(&mut self, path: impl AsRef<std::path::Path>) -> Result<(), RhaiFreqGenError> {
+	pub fn load_from_file(
+		&mut self,
+		path: impl AsRef<std::path::Path>,
+	) -> Result<(), RhaiFreqGenError> {
 		let code = std::fs::read_to_string(path)?;
 		self.load_script(code)?;
 		Ok(())
@@ -162,7 +165,7 @@ impl GenFreqInfo for RhaiFreqGen {
 		let Some(ast) = &self.ast else {
 			return FreqInfo {
 				ratio: index as f32 + 1.0,
-				amplitude: (2.0 / PI) * (- 1.0_f32).powi(index as i32) / (index as f32 + 1.0),
+				amplitude: (2.0 / PI) * (-1.0_f32).powi(index as i32) / (index as f32 + 1.0),
 				damping: 0.0,
 				phase: 0.0,
 			};
@@ -199,7 +202,6 @@ impl GenFreqInfo for RhaiFreqGen {
 			return Default::default();
 		};
 
-
 		FreqInfo {
 			ratio,
 			amplitude,
@@ -227,22 +229,22 @@ impl GenFreqInfo for RhaiFreqGen {
 
 		Grid::new(format!("{}_rhai_freq_gen", id_prefix))
 			.num_columns(4)
-			.show(ui, |ui| 
-		{
-			ui.label("a");
-			ui.add(Slider::new(&mut params[0], -1.0..=1.0));
-			ui.label("b");
-			ui.add(Slider::new(&mut params[1], -1.0..=1.0));
-			ui.end_row();
-			
-			ui.label("c");
-			ui.add(Slider::new(&mut params[2], -1.0..=1.0));
-			ui.label("d");
-			ui.add(Slider::new(&mut params[3], -1.0..=1.0));
-			ui.end_row();
-		});
+			.show(ui, |ui| {
+				ui.label("a");
+				ui.add(Slider::new(&mut params[0], -1.0..=1.0));
+				ui.label("b");
+				ui.add(Slider::new(&mut params[1], -1.0..=1.0));
+				ui.end_row();
 
-		if params[0] != self.a || params[1] != self.b || params[2] != self.c || params[3] != self.d {
+				ui.label("c");
+				ui.add(Slider::new(&mut params[2], -1.0..=1.0));
+				ui.label("d");
+				ui.add(Slider::new(&mut params[3], -1.0..=1.0));
+				ui.end_row();
+			});
+
+		if params[0] != self.a || params[1] != self.b || params[2] != self.c || params[3] != self.d
+		{
 			self.a = params[0];
 			self.b = params[1];
 			self.c = params[2];
@@ -267,14 +269,12 @@ impl GenFreqInfo for RhaiFreqGen {
 			}
 
 			if ui.button("Load Code").clicked() {
-				use std::ffi::OsStr;
 				use egui_file::FileDialog;
+				use std::ffi::OsStr;
 
 				let filter = Box::new({
 					let ext = Some(OsStr::new("rhai"));
-					move |path: &std::path::Path| -> bool {
-						path.extension() == ext
-					}
+					move |path: &std::path::Path| -> bool { path.extension() == ext }
 				});
 				let mut dialog = FileDialog::open_file().show_files_filter(filter);
 				if let Some(opened) = &self.opened_file {
@@ -284,7 +284,7 @@ impl GenFreqInfo for RhaiFreqGen {
 
 				self.dialog = Some(dialog);
 			}
-			
+
 			if let Some(dialog) = self.dialog.as_mut() {
 				let dialog = dialog.show(ui.ctx());
 				if dialog.selected() {
@@ -293,14 +293,18 @@ impl GenFreqInfo for RhaiFreqGen {
 			}
 
 			if let Some(path) = path {
-				if path.extension().map(|ext| ext.to_string_lossy().to_lowercase() != "rhai").unwrap_or(true) {
+				if path
+					.extension()
+					.map(|ext| ext.to_string_lossy().to_lowercase() != "rhai")
+					.unwrap_or(true)
+				{
 					return;
 				}
-				
+
 				self.opened_file = Some(path.clone());
 
 				match self.load_from_file(path) {
-					Ok(()) => {},
+					Ok(()) => {}
 					Err(e) => self.error = Some(e),
 				}
 				self.allow_load_code = false;
@@ -309,17 +313,20 @@ impl GenFreqInfo for RhaiFreqGen {
 			if ui.button("Recaculate Ratio").clicked() {
 				self.need_recaculate = true;
 			}
-			if ui.selectable_label(self.allow_load_code, "Allow Load Code").clicked() {
+			if ui
+				.selectable_label(self.allow_load_code, "Allow Load Code")
+				.clicked()
+			{
 				self.allow_load_code = !self.allow_load_code;
 			}
 		});
-		
+
 		CollapsingHeader::new("Show Code")
 			.id_salt(format!("{}_rhai_freq_gen_code", id_prefix))
 			.show(ui, |ui| {
 				if let Some((code, _)) = &self.ast {
 					ui.label(code)
-				}else {
+				} else {
 					ui.label("No code loaded")
 				}
 			});

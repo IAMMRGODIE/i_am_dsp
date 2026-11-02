@@ -15,8 +15,7 @@ use i_am_web_gui::Channels;
 
 /// A module type a rack slot can hold.
 #[derive(
-	Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash,
-	serde::Serialize, serde::Deserialize,
+	Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
 pub enum ModuleKind {
 	/// A seven-mode resonant filter.
@@ -241,9 +240,7 @@ fn heroes() -> &'static HashMap<ModuleKind, String> {
 			.map(|kind| {
 				let hero = schema(kind)
 					.into_iter()
-					.find_map(|parameter| {
-						parameter.meta.layout.hero.map(|hero| hero.to_string())
-					})
+					.find_map(|parameter| parameter.meta.layout.hero.map(|hero| hero.to_string()))
 					.unwrap_or_else(|| "waveform".to_string());
 
 				(kind, hero)
@@ -259,8 +256,8 @@ fn heroes() -> &'static HashMap<ModuleKind, String> {
 pub fn audio_scope(kind: ModuleKind) -> Channels {
 	match hero(kind) {
 		"stereo" => Channels::Stereo,
-		"waveform" | "transfer" | "spectrum" | "spectra" | "compressor" | "limiter"
-		| "gate" | "expander" | "eq" => Channels::Mono,
+		"waveform" | "transfer" | "spectrum" | "spectra" | "compressor" | "limiter" | "gate"
+		| "expander" | "eq" => Channels::Mono,
 		_ => Channels::None,
 	}
 }
@@ -333,7 +330,10 @@ pub fn group(kind: ModuleKind) -> &'static str {
 
 /// Whether a kind runs a script the page can edit.
 pub fn needs_script(kind: ModuleKind) -> bool {
-	matches!(kind, ModuleKind::ScriptDistortion | ModuleKind::ScriptMapper)
+	matches!(
+		kind,
+		ModuleKind::ScriptDistortion | ModuleKind::ScriptMapper
+	)
 }
 
 /// Whether a kind keeps an impulse response the page can load into it.
@@ -362,13 +362,13 @@ pub(crate) fn build(
 		match &*script {
 			crate::script::ScriptSlot::Distortion(worker) => {
 				return Box::new(i_am_effects::ScriptDistortionEffect::new(worker.clone()));
-			},
+			}
 			crate::script::ScriptSlot::Mapper(worker) => {
 				return Box::new(i_am_effects::ScriptMapperEffect::new(
 					sample_rate,
 					worker.clone(),
 				));
-			},
+			}
 		}
 	}
 

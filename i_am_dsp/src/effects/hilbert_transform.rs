@@ -1,5 +1,5 @@
 //! Hilbert transform implementation using IIR all-pass filters.
-//! 
+//!
 //! This module provides a Hilbert transform that outputs complex analytic signals
 //! (real + imaginary parts) using cascaded all-pass filters with pre-computed coefficients.
 
@@ -71,72 +71,145 @@ impl HilbertFilterBank {
 			}),
 			6 => Some(Self {
 				a0_sections: vec![AllPassCoefficients {
-					b: vec![-0.0530168, -0.20355, 0.682386, 0.67196, -1.59411, -0.499962, 1.0],
+					b: vec![
+						-0.0530168, -0.20355, 0.682386, 0.67196, -1.59411, -0.499962, 1.0,
+					],
 					a: vec![-0.499962, -1.59411, 0.67196, 0.682386, -0.20355, -0.0530168],
 				}],
 				a1_sections: vec![AllPassCoefficients {
-					b: vec![-0.0530168, 0.20355, 0.682387, -0.671959, -1.59411, 0.499961, 1.0],
+					b: vec![
+						-0.0530168, 0.20355, 0.682387, -0.671959, -1.59411, 0.499961, 1.0,
+					],
 					a: vec![0.499961, -1.59411, -0.671959, 0.682387, 0.20355, -0.0530168],
 				}],
 			}),
 			7 => Some(Self {
 				a0_sections: vec![AllPassCoefficients {
-					b: vec![0.0318762, -0.175188, -0.368242, 1.08401, 0.820913, -1.89171, -0.499977, 1.0],
-					a: vec![-0.499977, -1.89171, 0.820913, 1.08401, -0.368242, -0.175188, 0.0318762],
+					b: vec![
+						0.0318762, -0.175188, -0.368242, 1.08401, 0.820913, -1.89171, -0.499977,
+						1.0,
+					],
+					a: vec![
+						-0.499977, -1.89171, 0.820913, 1.08401, -0.368242, -0.175188, 0.0318762,
+					],
 				}],
 				a1_sections: vec![AllPassCoefficients {
-					b: vec![-0.0318757, -0.17519, 0.368235, 1.08401, -0.820898, -1.89172, 0.499968, 1.0],
-					a: vec![0.499968, -1.89172, -0.820898, 1.08401, 0.368235, -0.17519, -0.0318757],
+					b: vec![
+						-0.0318757, -0.17519, 0.368235, 1.08401, -0.820898, -1.89172, 0.499968, 1.0,
+					],
+					a: vec![
+						0.499968, -1.89172, -0.820898, 1.08401, 0.368235, -0.17519, -0.0318757,
+					],
 				}],
 			}),
 			8 => Some(Self {
 				a0_sections: vec![AllPassCoefficients {
-					b: vec![0.0191939, 0.0988579, -0.396236, -0.576294, 1.57513, 0.969921, -2.18985, -0.499972, 1.0],
-					a: vec![-0.499972, -2.18985, 0.969921, 1.57513, -0.576294, -0.396236, 0.0988579, 0.0191939],
+					b: vec![
+						0.0191939, 0.0988579, -0.396236, -0.576294, 1.57513, 0.969921, -2.18985,
+						-0.499972, 1.0,
+					],
+					a: vec![
+						-0.499972, -2.18985, 0.969921, 1.57513, -0.576294, -0.396236, 0.0988579,
+						0.0191939,
+					],
 				}],
 				a1_sections: vec![AllPassCoefficients {
-					b: vec![0.0191936, -0.0988598, -0.396232, 0.576306, 1.57513, -0.969941, -2.18984, 0.499983, 1.0],
-					a: vec![0.499983, -2.18984, -0.969941, 1.57513, 0.576306, -0.396232, -0.0988598, 0.0191936],
+					b: vec![
+						0.0191936, -0.0988598, -0.396232, 0.576306, 1.57513, -0.969941, -2.18984,
+						0.499983, 1.0,
+					],
+					a: vec![
+						0.499983, -2.18984, -0.969941, 1.57513, 0.576306, -0.396232, -0.0988598,
+						0.0191936,
+					],
 				}],
 			}),
 			9 => Some(Self {
 				a0_sections: vec![AllPassCoefficients {
-					b: vec![-0.0185115, 0.114128, 0.288976, -0.946864, -0.979066, 2.49793, 1.20744, -2.66373, -0.500211, 1.0],
-					a: vec![-0.500211, -2.66373, 1.20744, 2.49793, -0.979066, -0.946864, 0.288976, 0.114128, -0.0185115],
+					b: vec![
+						-0.0185115, 0.114128, 0.288976, -0.946864, -0.979066, 2.49793, 1.20744,
+						-2.66373, -0.500211, 1.0,
+					],
+					a: vec![
+						-0.500211, -2.66373, 1.20744, 2.49793, -0.979066, -0.946864, 0.288976,
+						0.114128, -0.0185115,
+					],
 				}],
 				a1_sections: vec![AllPassCoefficients {
-					b: vec![0.0184965, 0.114193, -0.288734, -0.947178, 0.978232, 2.4984, -1.2064, -2.66395, 0.499777, 1.0],
-					a: vec![0.499777, -2.66395, -1.2064, 2.4984, 0.978232, -0.947178, -0.288734, 0.114193, 0.0184965],
+					b: vec![
+						0.0184965, 0.114193, -0.288734, -0.947178, 0.978232, 2.4984, -1.2064,
+						-2.66395, 0.499777, 1.0,
+					],
+					a: vec![
+						0.499777, -2.66395, -1.2064, 2.4984, 0.978232, -0.947178, -0.288734,
+						0.114193, 0.0184965,
+					],
 				}],
 			}),
 			10 => Some(Self {
 				a0_sections: vec![AllPassCoefficients {
-					b: vec![-0.0118172, -0.067864, 0.299063, 0.525218, -1.57376, -1.32466, 3.27105, 1.36661, -2.98393, -0.499873, 1.0],
-					a: vec![-0.499873, -2.98393, 1.36661, 3.27105, -1.32466, -1.57376, 0.525218, 0.299063, -0.067864, -0.0118172],
+					b: vec![
+						-0.0118172, -0.067864, 0.299063, 0.525218, -1.57376, -1.32466, 3.27105,
+						1.36661, -2.98393, -0.499873, 1.0,
+					],
+					a: vec![
+						-0.499873, -2.98393, 1.36661, 3.27105, -1.32466, -1.57376, 0.525218,
+						0.299063, -0.067864, -0.0118172,
+					],
 				}],
 				a1_sections: vec![AllPassCoefficients {
-					b: vec![-0.0118128, 0.0678916, 0.298993, -0.525448, -1.57352, 1.32527, 3.27076, -1.36725, -2.9838, 0.500117, 1.0],
-					a: vec![0.500117, -2.9838, -1.36725, 3.27076, 1.32527, -1.57352, -0.525448, 0.298993, 0.0678916, -0.0118128],
+					b: vec![
+						-0.0118128, 0.0678916, 0.298993, -0.525448, -1.57352, 1.32527, 3.27076,
+						-1.36725, -2.9838, 0.500117, 1.0,
+					],
+					a: vec![
+						0.500117, -2.9838, -1.36725, 3.27076, 1.32527, -1.57352, -0.525448,
+						0.298993, 0.0678916, -0.0118128,
+					],
 				}],
 			}),
 			11 => Some(Self {
 				a0_sections: vec![AllPassCoefficients {
-					b: vec![0.0199294, -0.107216, -0.331088, 1.01663, 1.36759, -3.34595, -2.36392, 5.06862, 1.85181, -3.63207, -0.54434, 1.0],
-					a: vec![-0.54434, -3.63207, 1.85181, 5.06862, -2.36392, -3.34595, 1.36759, 1.01663, -0.331088, -0.107216, 0.0199294],
+					b: vec![
+						0.0199294, -0.107216, -0.331088, 1.01663, 1.36759, -3.34595, -2.36392,
+						5.06862, 1.85181, -3.63207, -0.54434, 1.0,
+					],
+					a: vec![
+						-0.54434, -3.63207, 1.85181, 5.06862, -2.36392, -3.34595, 1.36759, 1.01663,
+						-0.331088, -0.107216, 0.0199294,
+					],
 				}],
 				a1_sections: vec![AllPassCoefficients {
-					b: vec![-0.0169911, -0.119998, 0.279881, 1.09243, -1.15163, -3.50323, 1.98552, 5.20722, -1.55243, -3.67641, 0.455659, 1.0],
-					a: vec![0.455659, -3.67641, -1.55243, 5.20722, 1.98552, -3.50323, -1.15163, 1.09243, 0.279881, -0.119998, -0.0169911],
+					b: vec![
+						-0.0169911, -0.119998, 0.279881, 1.09243, -1.15163, -3.50323, 1.98552,
+						5.20722, -1.55243, -3.67641, 0.455659, 1.0,
+					],
+					a: vec![
+						0.455659, -3.67641, -1.55243, 5.20722, 1.98552, -3.50323, -1.15163,
+						1.09243, 0.279881, -0.119998, -0.0169911,
+					],
 				}],
 			}),
 			12 => Some(Self {
 				a0_sections: vec![AllPassCoefficients {
-					b: vec![0.00171837, 0.0445413, -0.141178, -0.495237, 1.1661, 1.77257, -3.61443, -2.83541, 5.28473, 2.11315, -3.69693, -0.599625, 1.0],
-					a: vec![-0.599625, -3.69693, 2.11315, 5.28473, -2.83541, -3.61443, 1.77257, 1.1661, -0.495237, -0.141178, 0.0445413, 0.00171837],
+					b: vec![
+						0.00171837, 0.0445413, -0.141178, -0.495237, 1.1661, 1.77257, -3.61443,
+						-2.83541, 5.28473, 2.11315, -3.69693, -0.599625, 1.0,
+					],
+					a: vec![
+						-0.599625, -3.69693, 2.11315, 5.28473, -2.83541, -3.61443, 1.77257, 1.1661,
+						-0.495237, -0.141178, 0.0445413, 0.00171837,
+					],
 				}],
 				a1_sections: vec![AllPassCoefficients {
-					b: vec![0.00539638, -0.0217539, -0.202435, 0.283653, 1.41853, -1.0863, -4.04949, 1.8076, 5.62455, -1.38356, -3.79653, 0.40037, 1.0],
-					a: vec![0.40037, -3.79653, -1.38356, 5.62455, 1.8076, -4.04949, -1.0863, 1.41853, 0.283653, -0.202435, -0.0217539, 0.00539638],
+					b: vec![
+						0.00539638, -0.0217539, -0.202435, 0.283653, 1.41853, -1.0863, -4.04949,
+						1.8076, 5.62455, -1.38356, -3.79653, 0.40037, 1.0,
+					],
+					a: vec![
+						0.40037, -3.79653, -1.38356, 5.62455, 1.8076, -4.04949, -1.0863, 1.41853,
+						0.283653, -0.202435, -0.0217539, 0.00539638,
+					],
 				}],
 			}),
 			_ => None,
@@ -163,7 +236,7 @@ impl AllPassState {
 	/// Process one sample through this all-pass section
 	fn process(&mut self, input: f64, coeffs: &AllPassCoefficients) -> f64 {
 		let n = coeffs.b.len() - 1;
-		
+
 		let mut numerator = 0.0;
 		for k in 0..=n {
 			let x_val = if k == 0 {
@@ -268,7 +341,7 @@ impl std::ops::Mul<f32> for ComplexSample {
 
 /// An IIR Hilbert transform that outputs complex analytic signals.
 /// An IIR Hilbert transform that outputs complex analytic signals.
-/// 
+///
 /// The Hilbert transform creates a 90-degree phase shift, producing an analytic signal
 /// where the original is the real part and the transformed is the imaginary part.
 pub struct HilbertTransform<const ORDER: usize, const CHANNELS: usize = 2> {
@@ -285,12 +358,13 @@ impl<const ORDER: usize, const CHANNELS: usize> HilbertTransform<ORDER, CHANNELS
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
 		assert!(ORDER >= 2 && ORDER <= 12, "ORDER must be between 2 and 12");
 
-		let filter_bank = HilbertFilterBank::from_order(ORDER)
-			.expect("Invalid filter order");
+		let filter_bank = HilbertFilterBank::from_order(ORDER).expect("Invalid filter order");
 
 		let a0_states = (0..CHANNELS)
 			.map(|_| {
-				filter_bank.a0_sections.iter()
+				filter_bank
+					.a0_sections
+					.iter()
 					.map(|c| AllPassState::new(c.b.len() - 1))
 					.collect()
 			})
@@ -298,7 +372,9 @@ impl<const ORDER: usize, const CHANNELS: usize> HilbertTransform<ORDER, CHANNELS
 
 		let a1_states = (0..CHANNELS)
 			.map(|_| {
-				filter_bank.a1_sections.iter()
+				filter_bank
+					.a1_sections
+					.iter()
 					.map(|c| AllPassState::new(c.b.len() - 1))
 					.collect()
 			})
@@ -313,7 +389,7 @@ impl<const ORDER: usize, const CHANNELS: usize> HilbertTransform<ORDER, CHANNELS
 	}
 
 	/// Apply Hilbert transform to a single sample from one channel.
-	/// 
+	///
 	/// Returns the complex analytic signal where real part is from A0 path
 	/// and imaginary part is from A1 path.
 	pub fn apply_transform_single(&mut self, input: f32, channel: usize) -> ComplexSample {
@@ -331,11 +407,11 @@ impl<const ORDER: usize, const CHANNELS: usize> HilbertTransform<ORDER, CHANNELS
 			imag_part = self.a1_states[channel][section_idx].process(imag_part, coeffs);
 		}
 
-		ComplexSample::new(real_part as f32, - imag_part as f32)
+		ComplexSample::new(real_part as f32, -imag_part as f32)
 	}
 
 	/// Apply Hilbert transform to all channels.
-	/// 
+	///
 	/// Returns an array of complex analytic signals, one per channel.
 	pub fn apply_transform(&mut self, samples: &[f32; CHANNELS]) -> [ComplexSample; CHANNELS] {
 		core::array::from_fn(|ch| self.apply_transform_single(samples[ch], ch))

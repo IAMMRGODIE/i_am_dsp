@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{effects::filter::Biquad, Effect, ProcessContext};
+use crate::{Effect, ProcessContext, effects::filter::Biquad};
 
 /// A simple effect that stacks multiple allpass filters to create a dispersion effect.
 #[derive(Parameters)]
@@ -31,9 +31,9 @@ pub struct Disperser<const CHANNELS: usize = 2> {
 
 impl<const CHANNELS: usize> Disperser<CHANNELS> {
 	/// Create a new disperser with the given sample rate.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// Panics if `CHANNELS` is less than or equal to 0.
 	pub const fn new(sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -83,7 +83,7 @@ impl<const CHANNELS: usize> Disperser<CHANNELS> {
 	}
 
 	/// Compute the complex response of the disperser at the given frequency.
-	/// 
+	///
 	/// Returns a tuple of the amplitude and phase of the response.
 	pub fn complex_response(&self, frequency: f32) -> (f32, f32) {
 		let mut norm = 1.0;
@@ -108,7 +108,12 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Disperser<CHANNELS> {
 		"Disperser"
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], other: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		other: &[&[f32; CHANNELS]],
+		ctx: &mut Box<dyn ProcessContext>,
+	) {
 		for biquad in &mut self.biquads {
 			biquad.process(samples, other, ctx);
 		}
@@ -116,18 +121,18 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Disperser<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::*;
 		use crate::effects::filter::MIN_FREQUENCY;
 		use crate::tools::ui_tools::draw_complex_response;
+		use egui::*;
 
-		egui::Resize::default().resizable([false, true])
+		egui::Resize::default()
+			.resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_disperser"))
-			.show(ui, |ui| 
-		{
-			draw_complex_response(ui, self.sample_rate, |freq| self.complex_response(freq));
-		});
+			.show(ui, |ui| {
+				draw_complex_response(ui, self.sample_rate, |freq| self.complex_response(freq));
+			});
 
 		let max_freq = self.sample_rate as f32 / 2.0;
 
@@ -136,17 +141,17 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Disperser<CHANNELS> {
 				let cutoff_backup = self.cutoff;
 				let bandwidth_backup = self.bandwidth;
 				let mut current_filters = self.biquads.len();
-				ui.add(Slider::new(&mut self.cutoff, MIN_FREQUENCY..=max_freq - MIN_FREQUENCY)
-					.text("Cutoff Frequency (Hz)")
-					.logarithmic(true)
+				ui.add(
+					Slider::new(&mut self.cutoff, MIN_FREQUENCY..=max_freq - MIN_FREQUENCY)
+						.text("Cutoff Frequency (Hz)")
+						.logarithmic(true),
 				);
-				ui.add(Slider::new(&mut self.bandwidth, MIN_FREQUENCY..=10000.0)
-					.text("Bandwidth (Hz)")
-					.logarithmic(true)
+				ui.add(
+					Slider::new(&mut self.bandwidth, MIN_FREQUENCY..=10000.0)
+						.text("Bandwidth (Hz)")
+						.logarithmic(true),
 				);
-				ui.add(Slider::new(&mut current_filters, 0..=200)
-					.text("Amount")
-				);
+				ui.add(Slider::new(&mut current_filters, 0..=200).text("Amount"));
 				if cutoff_backup != self.cutoff || bandwidth_backup != self.bandwidth {
 					self.set_filter_parameters(self.cutoff, self.bandwidth);
 				}

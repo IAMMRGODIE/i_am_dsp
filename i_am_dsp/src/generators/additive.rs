@@ -1,20 +1,24 @@
 //! This is the implementation of AdditiveOsc, which is a type of oscillator that adds up multiple sine waves.
 
-use std::{collections::HashMap, f32::consts::PI, sync::{Arc, Mutex}};
+use std::{
+	collections::HashMap,
+	f32::consts::PI,
+	sync::{Arc, Mutex},
+};
 
 use i_am_dsp_derive::Parameters;
 use rustfft::{Fft, FftPlanner, num_complex::Complex};
 use wide::f32x4;
 
 use crate::{
-	prelude::{bend, Oscillator, Parameters},
+	prelude::{Oscillator, Parameters, bend},
 	tools::interpolate::cubic_interpolate,
 };
 
 /// A trait for generating frequency information for AdditiveOsc
 pub trait GenFreqInfo: Send + Sync + Parameters {
 	/// Returns the ratio and amplitude of the oscillator at the given index
-	/// 
+	///
 	/// the ratio of the frequency must greater than 1.0
 	fn gen_info(&mut self, index: usize, total_amount: usize) -> FreqInfo;
 	#[cfg(feature = "real_time_demo")]
@@ -29,9 +33,9 @@ pub struct FreqInfo {
 	/// The amplitude of the oscillator
 	pub amplitude: f32,
 	/// The damping factor of current frequency
-	/// 
+	///
 	/// 0.0 means no damping.
-	/// 
+	///
 	/// The damping function we use is `exp(-t * damping)`
 	pub damping: f32,
 	/// the phase of the oscillator, in [0.0, 1.0]
@@ -131,7 +135,8 @@ impl WavetableLevel {
 
 		// The inverse transform of positive frequencies alone is complex: its imaginary part is the
 		// sum of the sines and its real part the sum of the cosines.
-		let (sine, cosine): (Vec<f32>, Vec<f32>) = spectrum.iter().map(|bin| (bin.im, bin.re)).unzip();
+		let (sine, cosine): (Vec<f32>, Vec<f32>) =
+			spectrum.iter().map(|bin| (bin.im, bin.re)).unzip();
 
 		Self {
 			size,
@@ -266,7 +271,12 @@ impl Wavetable {
 		let exponent = ((bits >> 23) & 0xff) as i32 - 127;
 		let mantissa = bits & 0x007f_ffff;
 		// The ceiling of the base two logarithm, exactly, from its exponent and its fraction.
-		let level = (if mantissa == 0 { exponent } else { exponent + 1 }).clamp(0, last as i32) as usize;
+		let level = (if mantissa == 0 {
+			exponent
+		} else {
+			exponent + 1
+		})
+		.clamp(0, last as i32) as usize;
 
 		if level >= last {
 			return (last, last, 0.0);
@@ -308,11 +318,7 @@ impl Wavetable {
 
 /// A type of oscillator that adds up multiple sine waves
 #[derive(Parameters)]
-pub struct AdditiveOsc<
-	Freq: GenFreqInfo,
-	const MAX_SINES: usize = 64,
-	const CHANNELS: usize = 2
-> {
+pub struct AdditiveOsc<Freq: GenFreqInfo, const MAX_SINES: usize = 64, const CHANNELS: usize = 2> {
 	#[sub_param]
 	freq_gen: Freq,
 	#[skip]
@@ -352,15 +358,13 @@ pub struct AdditiveOsc<
 	pub gain: f32,
 }
 
-impl<
-	Freq: GenFreqInfo,
-	const MAX_SINES: usize,
-	const CHANNELS: usize
-> AdditiveOsc<Freq, MAX_SINES, CHANNELS> {
+impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>
+	AdditiveOsc<Freq, MAX_SINES, CHANNELS>
+{
 	/// Creates a new AdditiveOsc with the given frequency generator and number of sine waves
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// 1. If the number of sine waves is greater than `MAX_SINES`
 	/// 2. If the number of sine waves is 0
 	/// 3. If the number of channels is 0
@@ -379,22 +383,14 @@ impl<
 			max_amplitude = max_amplitude.max(output.amplitude);
 			output
 		});
-		
-		let calculated_amplitudes = core::array::from_fn(|i| {
-			calculated_ratios[i].amplitude
-		});
 
-		let calculated_dampings = core::array::from_fn(|i| {
-			(- calculated_ratios[i].damping).exp()
-		});
+		let calculated_amplitudes = core::array::from_fn(|i| calculated_ratios[i].amplitude);
 
-		let calculated_phases = core::array::from_fn(|i| {
-			calculated_ratios[i].phase
-		});
+		let calculated_dampings = core::array::from_fn(|i| (-calculated_ratios[i].damping).exp());
 
-		let calculated_ratios = core::array::from_fn(|i| {
-			calculated_ratios[i].ratio
-		});
+		let calculated_phases = core::array::from_fn(|i| calculated_ratios[i].phase);
+
+		let calculated_ratios = core::array::from_fn(|i| calculated_ratios[i].ratio);
 
 		let mut output = Self {
 			freq_gen,
@@ -409,7 +405,7 @@ impl<
 			has_damping: false,
 			max_harmonic: f32::INFINITY,
 			num_sines,
-			gain: 1.0
+			gain: 1.0,
 		};
 		output.update_damping_cache();
 		output.rebuild_table();
@@ -436,23 +432,15 @@ impl<
 			max_amplitude = max_amplitude.max(output.amplitude);
 			output
 		});
-		
-		let calculated_amplitudes = core::array::from_fn(|i| {
-			calculated_ratios[i].amplitude
-		});
 
-		let calculated_dampings = core::array::from_fn(|i| {
-			(- calculated_ratios[i].damping).exp()
-		});
+		let calculated_amplitudes = core::array::from_fn(|i| calculated_ratios[i].amplitude);
 
-		let calculated_phases = core::array::from_fn(|i| {
-			calculated_ratios[i].phase
-		});
+		let calculated_dampings = core::array::from_fn(|i| (-calculated_ratios[i].damping).exp());
 
-		let calculated_ratios = core::array::from_fn(|i| {
-			calculated_ratios[i].ratio
-		});
-		
+		let calculated_phases = core::array::from_fn(|i| calculated_ratios[i].phase);
+
+		let calculated_ratios = core::array::from_fn(|i| calculated_ratios[i].ratio);
+
 		self.max_ratio = max_ratio;
 		self.min_ratio = min_ratio.max(1.0);
 		self.calculated_phases = calculated_phases;
@@ -471,7 +459,7 @@ impl<
 	pub fn rebuild_table(&mut self) {
 		self.table = if self.has_damping {
 			None
-		}else {
+		} else {
 			Wavetable::build(
 				&self.calculated_ratios,
 				&self.calculated_amplitudes,
@@ -484,17 +472,27 @@ impl<
 	/// Reads a group of amplitudes, with the partials above the pitch limit set to zero.
 	#[inline]
 	fn band_limit(&self, amplitudes: &[f32], ratios: f32x4, max_harmonic: f32x4) -> f32x4 {
-		ratios.simd_gt(max_harmonic).select(f32x4::ZERO, f32x4::from(amplitudes))
+		ratios
+			.simd_gt(max_harmonic)
+			.select(f32x4::ZERO, f32x4::from(amplitudes))
 	}
 
 	/// Caches whether any partial decays over time, which costs a `powf` per partial per sample.
 	fn update_damping_cache(&mut self) {
-		self.has_damping = self.calculated_dampings.iter().any(|damping| *damping != UNDAMPED_FACTOR);
+		self.has_damping = self
+			.calculated_dampings
+			.iter()
+			.any(|damping| *damping != UNDAMPED_FACTOR);
 	}
 
 	/// Applies a per channel phase offset to the summed sine and cosine of all partials.
 	#[inline]
-	fn apply_channel_phase(&self, sine: f32, cosine: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
+	fn apply_channel_phase(
+		&self,
+		sine: f32,
+		cosine: f32,
+		phase: [f32; CHANNELS],
+	) -> [f32; CHANNELS] {
 		let mut output = [0.0; CHANNELS];
 
 		for (output, phase) in output.iter_mut().zip(phase) {
@@ -508,7 +506,13 @@ impl<
 
 	/// Plays every partial from the wavetable, which already holds their sum.
 	#[inline]
-	fn play_table(&self, table: &Wavetable, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
+	fn play_table(
+		&self,
+		table: &Wavetable,
+		frequency: f32,
+		time: f32,
+		phase: [f32; CHANNELS],
+	) -> [f32; CHANNELS] {
 		let (sine, cosine) = table.play(time * frequency, self.max_harmonic);
 
 		self.apply_channel_phase(sine, cosine, phase)
@@ -520,7 +524,10 @@ impl<
 	/// partial are only computed once for all channels: a per channel phase is an angle offset, so
 	/// it can be applied to the two sums afterwards.
 	fn play_sines(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
-		let len = self.num_sines.min(MAX_SINES).min(self.calculated_ratios.len());
+		let len = self
+			.num_sines
+			.min(MAX_SINES)
+			.min(self.calculated_ratios.len());
 		let max_harmonic = f32x4::splat(self.max_harmonic);
 
 		if self.has_damping {
@@ -533,7 +540,9 @@ impl<
 					let freq = ratio * frequency;
 					let phase_freq = f32x4::from(&self.calculated_phases[j..end]);
 					let t = time * freq + phase[i] + phase_freq;
-					let amp = self.band_limit(&self.calculated_amplitudes[j..end], ratio, max_harmonic) * self.gain;
+					let amp =
+						self.band_limit(&self.calculated_amplitudes[j..end], ratio, max_harmonic)
+							* self.gain;
 					let damping = f32x4::from(&self.calculated_dampings[j..end]).powf_simd(t);
 
 					*output += ((t * 2.0 * PI).sin() * amp * damping).reduce_add();
@@ -563,11 +572,9 @@ impl<
 	}
 }
 
-impl<
-	Freq: GenFreqInfo,
-	const MAX_SINES: usize,
-	const CHANNELS: usize
-> Oscillator<CHANNELS> for AdditiveOsc<Freq, MAX_SINES, CHANNELS> {
+impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize> Oscillator<CHANNELS>
+	for AdditiveOsc<Freq, MAX_SINES, CHANNELS>
+{
 	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
 		let num_sines = self.num_sines.min(MAX_SINES);
 
@@ -584,58 +591,59 @@ impl<
 		// Everything above this ratio folds back into the audible band at this pitch.
 		self.max_harmonic = if frequency > 0.0 && sample_rate > 0 {
 			sample_rate as f32 / (2.0 * frequency)
-		}else {
+		} else {
 			f32::INFINITY
 		};
 	}
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::*;
 		use crate::tools::ui_tools::gain_ui;
 		use egui::emath::RectTransform;
+		use egui::*;
 
 		Resize::default()
 			.max_width(ui.available_width())
 			.min_width(ui.available_width())
 			.id_salt(format!("{}_additive_osc_ratio", id_prefix))
-			.show(ui, |ui| 
-		{
-			Frame::canvas(ui.style()).show(ui, |ui| {
-				let (_, rect) = ui.allocate_space(ui.available_size());
-				let to_screen = RectTransform::from_to(
-					Rect::from_x_y_ranges(0.0..=1.0, -1.0..=1.0), 
-					rect
-				);
+			.show(ui, |ui| {
+				Frame::canvas(ui.style()).show(ui, |ui| {
+					let (_, rect) = ui.allocate_space(ui.available_size());
+					let to_screen =
+						RectTransform::from_to(Rect::from_x_y_ranges(0.0..=1.0, -1.0..=1.0), rect);
 
-				if MAX_SINES == 1 {
-					let y = self.calculated_amplitudes[0];
-					let pos_1 = to_screen * pos2(0.5, y);
-					let pos_2 = to_screen * pos2(0.5, 0.0);
-					ui.painter().line_segment([pos_1, pos_2], (3.0, Color32::WHITE));
-					return;
-				}
+					if MAX_SINES == 1 {
+						let y = self.calculated_amplitudes[0];
+						let pos_1 = to_screen * pos2(0.5, y);
+						let pos_2 = to_screen * pos2(0.5, 0.0);
+						ui.painter()
+							.line_segment([pos_1, pos_2], (3.0, Color32::WHITE));
+						return;
+					}
 
-				let mid_ratio = (self.max_ratio * self.min_ratio).sqrt();
-				let min_ratio = self.min_ratio.min(mid_ratio / 2.0);
-				let max_ratio = self.max_ratio.max(mid_ratio * 2.0);
-				let max_amp = self.max_amplitude;
+					let mid_ratio = (self.max_ratio * self.min_ratio).sqrt();
+					let min_ratio = self.min_ratio.min(mid_ratio / 2.0);
+					let max_ratio = self.max_ratio.max(mid_ratio * 2.0);
+					let max_amp = self.max_amplitude;
 
-				ui.painter().extend(self.calculated_ratios
-					.iter().zip(self.calculated_amplitudes.iter())
-					.take(self.num_sines)
-					.map(|(ratio, amplitude)| 
-				{
-					let lerped_ratio = (ratio.ln() - min_ratio.ln()) / (max_ratio.ln() - min_ratio.ln());
-					let x = lerped_ratio * 0.99 + 0.005;
-					let y = - amplitude / max_amp;
-					Shape::line_segment([
-						to_screen * pos2(x, y),
-						to_screen * pos2(x, 0.0),
-					], (3.0, Color32::WHITE))
-				}));
+					ui.painter().extend(
+						self.calculated_ratios
+							.iter()
+							.zip(self.calculated_amplitudes.iter())
+							.take(self.num_sines)
+							.map(|(ratio, amplitude)| {
+								let lerped_ratio = (ratio.ln() - min_ratio.ln())
+									/ (max_ratio.ln() - min_ratio.ln());
+								let x = lerped_ratio * 0.99 + 0.005;
+								let y = -amplitude / max_amp;
+								Shape::line_segment(
+									[to_screen * pos2(x, y), to_screen * pos2(x, 0.0)],
+									(3.0, Color32::WHITE),
+								)
+							}),
+					);
+				});
 			});
-		});
 
 		if self.freq_gen.demo_ui(ui, format!("{}_freq_gen", id_prefix)) {
 			self.recaculate_ratio();
@@ -655,25 +663,24 @@ impl<
 }
 
 /// A Simple Bend Frequency Generator
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Parameters)]
+#[derive(Debug, Clone, PartialEq, Parameters)]
 pub struct BendedSawGen {
 	/// How much the frequency should be bent
-	/// 
+	///
 	/// default to 0.0
 	#[range(min = -10.0, max = 10.0)]
 	pub bend_amount: f32,
 	/// must be greater than 0.0
-	/// 
+	///
 	/// default to 1.0
 	pub center_space: f32,
 	/// How much the bend should be shifted
-	/// 
+	///
 	/// default to 0.0
 	#[range(min = -10.0, max = 10.0)]
 	pub total_bend_amount: f32,
 	/// How much the frequency should be scaled
-	/// 
+	///
 	/// default to 1.0
 	pub scale_amount: f32,
 }
@@ -693,7 +700,7 @@ impl GenFreqInfo for BendedSawGen {
 	fn gen_info(&mut self, index: usize, total_amount: usize) -> FreqInfo {
 		if total_amount == 0 {
 			return Default::default();
-		}else if total_amount == 1 {
+		} else if total_amount == 1 {
 			return FreqInfo {
 				ratio: 1.0,
 				amplitude: 1.0,
@@ -714,7 +721,7 @@ impl GenFreqInfo for BendedSawGen {
 		let t = ratio / total_ln;
 		let t = bend(t, self.total_bend_amount);
 		let ratio = (t * total_ln).exp();
-		let amplitude = (2.0 / PI) * (- 1.0_f32).powf(index) / (index + 1.0);
+		let amplitude = (2.0 / PI) * (-1.0_f32).powf(index) / (index + 1.0);
 
 		FreqInfo {
 			ratio,
@@ -732,32 +739,30 @@ impl GenFreqInfo for BendedSawGen {
 
 		Grid::new(format!("{}_bended_saw_gen", id_prefix))
 			.num_columns(4)
-			.show(ui, |ui| 
-		{
-			ui.label("Bend Amount");
-			ui.add(Slider::new(&mut change.bend_amount, -10.0..=10.0));
-			// ui.end_row();
+			.show(ui, |ui| {
+				ui.label("Bend Amount");
+				ui.add(Slider::new(&mut change.bend_amount, -10.0..=10.0));
+				// ui.end_row();
 
-			ui.label("Center Space");
-			ui.add(Slider::new(&mut change.center_space, 0.125..=8.0).logarithmic(true));
-			ui.end_row();
+				ui.label("Center Space");
+				ui.add(Slider::new(&mut change.center_space, 0.125..=8.0).logarithmic(true));
+				ui.end_row();
 
-			ui.label("Total Bend Amount");
-			ui.add(Slider::new(&mut change.total_bend_amount, -10.0..=10.0));
-			// ui.end_row();
+				ui.label("Total Bend Amount");
+				ui.add(Slider::new(&mut change.total_bend_amount, -10.0..=10.0));
+				// ui.end_row();
 
-			ui.label("Scale Amount");
-			ui.add(Slider::new(&mut change.scale_amount, 0.01..=1.0));
-			ui.end_row();
-		});
+				ui.label("Scale Amount");
+				ui.add(Slider::new(&mut change.scale_amount, 0.01..=1.0));
+				ui.end_row();
+			});
 
 		if change != *self {
 			*self = change;
 			true
-		}else {
+		} else {
 			false
 		}
-
 	}
 }
 
@@ -838,8 +843,7 @@ mod tests {
 
 				*output += (2.0 * std::f64::consts::PI * cycles).sin()
 					* osc.calculated_amplitudes[j] as f64
-					* damping
-					* osc.gain as f64;
+					* damping * osc.gain as f64;
 			}
 		}
 
@@ -867,7 +871,8 @@ mod tests {
 
 	#[test]
 	fn the_selected_levels_never_alias() {
-		let osc: AdditiveOsc<BendedSawGen, SINES, 2> = AdditiveOsc::new(BendedSawGen::default(), SINES);
+		let osc: AdditiveOsc<BendedSawGen, SINES, 2> =
+			AdditiveOsc::new(BendedSawGen::default(), SINES);
 		let table = osc.table.as_ref().unwrap();
 
 		// Below a limit of one the oscillator plays nothing at all, so only the rest is a level
@@ -876,8 +881,14 @@ mod tests {
 			let (fine, coarse, blend) = table.select(max_harmonic);
 			let limit = |level: usize| table.max_ratio / 2.0f32.powi(level as i32);
 
-			assert!(limit(fine) <= max_harmonic, "level {fine} keeps partials above {max_harmonic}");
-			assert!(limit(coarse) <= max_harmonic, "level {coarse} keeps partials above {max_harmonic}");
+			assert!(
+				limit(fine) <= max_harmonic,
+				"level {fine} keeps partials above {max_harmonic}"
+			);
+			assert!(
+				limit(coarse) <= max_harmonic,
+				"level {coarse} keeps partials above {max_harmonic}"
+			);
 			assert!(fine <= coarse);
 			assert!((0.0..=1.0).contains(&blend));
 		}
@@ -885,9 +896,12 @@ mod tests {
 
 	#[test]
 	fn the_wavetable_is_band_limited_to_the_played_pitch() {
-		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> = AdditiveOsc::new(BendedSawGen::default(), SINES);
+		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> =
+			AdditiveOsc::new(BendedSawGen::default(), SINES);
 
-		for pitch in [12000.0f32, 6000.0, 3000.0, 1500.0, 750.0, 375.0, 187.5, 93.75] {
+		for pitch in [
+			12000.0f32, 6000.0, 3000.0, 1500.0, 750.0, 375.0, 187.5, 93.75,
+		] {
 			osc.set_pitch(pitch, 48000);
 
 			let table = osc.table.as_ref().unwrap();
@@ -898,10 +912,12 @@ mod tests {
 				let time = step as f32 / 64.0;
 				let output = osc.play_at(1.0, time, [0.0, 0.25]);
 				let fine_reference = reference(&osc, 1.0, time as f64, [0.0, 0.25], limit(fine));
-				let coarse_reference = reference(&osc, 1.0, time as f64, [0.0, 0.25], limit(coarse));
+				let coarse_reference =
+					reference(&osc, 1.0, time as f64, [0.0, 0.25], limit(coarse));
 
 				for (i, output) in output.iter().enumerate() {
-					let expected = fine_reference[i] * (1.0 - blend as f64) + coarse_reference[i] * blend as f64;
+					let expected = fine_reference[i] * (1.0 - blend as f64)
+						+ coarse_reference[i] * blend as f64;
 					let error = (*output as f64 - expected).abs();
 
 					assert!(error < 5e-5, "pitch {pitch} time {time} error {error:e}");
@@ -912,7 +928,8 @@ mod tests {
 
 	#[test]
 	fn a_pitch_above_nyquist_plays_nothing() {
-		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> = AdditiveOsc::new(BendedSawGen::default(), SINES);
+		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> =
+			AdditiveOsc::new(BendedSawGen::default(), SINES);
 		osc.set_pitch(30000.0, 48000);
 
 		assert!(osc.max_harmonic < 1.0);
@@ -921,7 +938,8 @@ mod tests {
 
 	#[test]
 	fn the_sine_fallback_drops_the_partials_above_nyquist() {
-		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> = AdditiveOsc::new(BendedSawGen::default(), SINES);
+		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> =
+			AdditiveOsc::new(BendedSawGen::default(), SINES);
 		// a table built for another number of partials is ignored, which forces the sine path
 		osc.num_sines = SINES / 2;
 		osc.set_pitch(3000.0, 48000);
@@ -932,15 +950,20 @@ mod tests {
 
 	#[test]
 	fn integer_partials_are_played_from_the_wavetable() {
-		let osc: AdditiveOsc<BendedSawGen, SINES, 2> = AdditiveOsc::new(BendedSawGen::default(), SINES);
+		let osc: AdditiveOsc<BendedSawGen, SINES, 2> =
+			AdditiveOsc::new(BendedSawGen::default(), SINES);
 
-		assert!(osc.table.is_some(), "integer ratios should build a wavetable");
+		assert!(
+			osc.table.is_some(),
+			"integer ratios should build a wavetable"
+		);
 		assert!(!osc.has_damping);
 	}
 
 	#[test]
 	fn wavetable_matches_the_exact_sum() {
-		let osc: AdditiveOsc<BendedSawGen, SINES, 2> = AdditiveOsc::new(BendedSawGen::default(), SINES);
+		let osc: AdditiveOsc<BendedSawGen, SINES, 2> =
+			AdditiveOsc::new(BendedSawGen::default(), SINES);
 
 		assert!(max_error(&osc, [0.0, 0.25]) < 5e-5);
 	}
@@ -948,8 +971,11 @@ mod tests {
 	#[test]
 	fn phased_partials_are_played_from_the_wavetable() {
 		let osc: AdditiveOsc<TestGen, SINES, 2> = AdditiveOsc::new(
-			TestGen { phase_scale: 0.13, ..TestGen::clean() },
-			SINES
+			TestGen {
+				phase_scale: 0.13,
+				..TestGen::clean()
+			},
+			SINES,
 		);
 
 		assert!(osc.table.is_some());
@@ -959,41 +985,58 @@ mod tests {
 	#[test]
 	fn non_integer_partials_fall_back_to_sines() {
 		let osc: AdditiveOsc<TestGen, SINES, 2> = AdditiveOsc::new(
-			TestGen { ratio_scale: 1.37, ..TestGen::clean() },
-			SINES
+			TestGen {
+				ratio_scale: 1.37,
+				..TestGen::clean()
+			},
+			SINES,
 		);
 
-		assert!(osc.table.is_none(), "non integer ratios cannot use a wavetable");
+		assert!(
+			osc.table.is_none(),
+			"non integer ratios cannot use a wavetable"
+		);
 		assert!(max_error(&osc, [0.0, 0.25]) < 5e-5);
 	}
 
 	#[test]
 	fn damped_partials_fall_back_to_sines() {
 		let osc: AdditiveOsc<TestGen, SINES, 2> = AdditiveOsc::new(
-			TestGen { damping: 0.5, ..TestGen::clean() },
-			SINES
+			TestGen {
+				damping: 0.5,
+				..TestGen::clean()
+			},
+			SINES,
 		);
 
-		assert!(osc.table.is_none(), "damping is not periodic, so it cannot use a wavetable");
+		assert!(
+			osc.table.is_none(),
+			"damping is not periodic, so it cannot use a wavetable"
+		);
 		assert!(osc.has_damping);
 		assert!(max_error(&osc, [0.0, 0.0]) < 5e-5);
 	}
 
 	#[test]
 	fn a_changed_num_sines_still_plays_every_partial() {
-		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> = AdditiveOsc::new(BendedSawGen::default(), SINES);
+		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> =
+			AdditiveOsc::new(BendedSawGen::default(), SINES);
 		osc.num_sines = SINES / 2;
 
 		assert!(max_error(&osc, [0.0, 0.5]) < 5e-5);
 
 		osc.rebuild_table();
-		assert_eq!(osc.table.as_ref().map(|table| table.num_sines), Some(SINES / 2));
+		assert_eq!(
+			osc.table.as_ref().map(|table| table.num_sines),
+			Some(SINES / 2)
+		);
 		assert!(max_error(&osc, [0.0, 0.5]) < 5e-5);
 	}
 
 	#[test]
 	fn rebuilding_the_table_after_the_ratios_change_keeps_it_usable() {
-		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> = AdditiveOsc::new(BendedSawGen::default(), SINES);
+		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> =
+			AdditiveOsc::new(BendedSawGen::default(), SINES);
 		osc.freq_gen.scale_amount = 2.0;
 		osc.recaculate_ratio();
 

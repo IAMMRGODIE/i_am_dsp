@@ -85,7 +85,10 @@ pub struct SyncedTime {
 impl Default for SyncedTime {
 	/// Off, with a length of one beat for when it is switched on.
 	fn default() -> Self {
-		Self { sync: false, beats: 1.0 }
+		Self {
+			sync: false,
+			beats: 1.0,
+		}
 	}
 }
 
@@ -134,7 +137,9 @@ impl SyncedTime {
 
 	/// The length, in samples, rounded to the nearest whole sample.
 	pub fn samples(&self, infos: &ProcessInfos, free_ms: f32, sample_rate: usize) -> usize {
-		(self.seconds(infos, free_ms) * sample_rate as f32).round().max(0.0) as usize
+		(self.seconds(infos, free_ms) * sample_rate as f32)
+			.round()
+			.max(0.0) as usize
 	}
 
 	/// The rate, in cycles per second, for something that is measured as a frequency rather
@@ -172,7 +177,9 @@ impl SyncedTime {
 			return None;
 		}
 
-		infos.position_beats.map(|position| position / beats_per_cycle)
+		infos
+			.position_beats
+			.map(|position| position / beats_per_cycle)
 	}
 }
 
@@ -293,7 +300,10 @@ mod tests {
 
 	#[test]
 	fn a_free_time_ignores_the_tempo() {
-		let time = SyncedTime { sync: false, beats: 0.5 };
+		let time = SyncedTime {
+			sync: false,
+			beats: 0.5,
+		};
 		let host = infos(Some(120.0), Some(8.0), true);
 
 		assert!(!time.is_synced(&host));
@@ -303,29 +313,44 @@ mod tests {
 
 	#[test]
 	fn a_synced_time_follows_the_tempo() {
-		let time = SyncedTime { sync: true, beats: 0.5 }; // an eighth note
+		let time = SyncedTime {
+			sync: true,
+			beats: 0.5,
+		}; // an eighth note
 
 		// At 120 bpm a beat is half a second, so an eighth note is 250 ms.
 		assert_eq!(time.seconds(&infos(Some(120.0), None, true), 999.0), 0.25);
 		// Half the tempo, twice the length — and the free value is never consulted.
 		assert_eq!(time.seconds(&infos(Some(60.0), None, true), 999.0), 0.5);
-		assert_eq!(time.samples(&infos(Some(120.0), None, true), 999.0, 48_000), 12_000);
+		assert_eq!(
+			time.samples(&infos(Some(120.0), None, true), 999.0, 48_000),
+			12_000
+		);
 	}
 
 	#[test]
 	fn a_synced_time_without_a_tempo_falls_back_to_the_free_value() {
-		let time = SyncedTime { sync: true, beats: 0.5 };
+		let time = SyncedTime {
+			sync: true,
+			beats: 0.5,
+		};
 
 		assert!(!time.is_synced(&infos(None, Some(8.0), true)));
 		assert_eq!(time.seconds(&infos(None, Some(8.0), true), 250.0), 0.25);
 		// A tempo of zero is not a tempo either; nothing falls back to a guessed 120.
-		assert_eq!(time.seconds(&infos(Some(0.0), Some(8.0), true), 250.0), 0.25);
+		assert_eq!(
+			time.seconds(&infos(Some(0.0), Some(8.0), true), 250.0),
+			0.25
+		);
 	}
 
 	#[test]
 	fn a_synced_time_reports_a_rate() {
 		// One cycle every two beats: at 120 bpm that is one cycle per second.
-		let time = SyncedTime { sync: true, beats: 2.0 };
+		let time = SyncedTime {
+			sync: true,
+			beats: 2.0,
+		};
 		assert_eq!(time.rate_hz(&infos(Some(120.0), None, true), 7.0), 1.0);
 		// No tempo: the effect's own rate stands.
 		assert_eq!(time.rate_hz(&infos(None, None, true), 7.0), 7.0);
@@ -333,32 +358,50 @@ mod tests {
 
 	#[test]
 	fn cycles_need_syncing_and_a_position() {
-		let time = SyncedTime { sync: true, beats: 2.0 };
+		let time = SyncedTime {
+			sync: true,
+			beats: 2.0,
+		};
 
 		assert_eq!(time.cycles(&infos(Some(120.0), Some(5.0), true)), Some(2.5));
 		assert_eq!(time.cycles(&infos(Some(120.0), None, true)), None);
 
 		// Sync off means the parameter is not musical, so there is no grid to be in phase
 		// with even when the host reports everything.
-		let free = SyncedTime { sync: false, beats: 2.0 };
+		let free = SyncedTime {
+			sync: false,
+			beats: 2.0,
+		};
 		assert_eq!(free.cycles(&infos(Some(120.0), Some(5.0), true)), None);
 	}
 
 	#[test]
 	fn the_phase_follows_the_host_grid_while_the_transport_runs() {
-		let time = SyncedTime { sync: true, beats: 1.0 };
+		let time = SyncedTime {
+			sync: true,
+			beats: 1.0,
+		};
 		let mut phase = SyncedPhase::new();
 
 		// Beat 4.25 is a quarter of the way through the cycle that starts at beat 4.
-		assert_eq!(phase.advance(&time, &infos(Some(120.0), Some(4.25), true), 500.0, 48_000), 0.25);
+		assert_eq!(
+			phase.advance(&time, &infos(Some(120.0), Some(4.25), true), 500.0, 48_000),
+			0.25
+		);
 		// A seek moves the grid, and the phase with it.
-		assert_eq!(phase.advance(&time, &infos(Some(120.0), Some(2.75), true), 500.0, 48_000), 0.75);
+		assert_eq!(
+			phase.advance(&time, &infos(Some(120.0), Some(2.75), true), 500.0, 48_000),
+			0.75
+		);
 	}
 
 	#[test]
 	fn the_phase_keeps_running_while_the_transport_is_stopped() {
 		// A cycle per eighth note: 250 ms at 120 bpm, which is 12_000 samples at 48 kHz.
-		let time = SyncedTime { sync: true, beats: 0.5 };
+		let time = SyncedTime {
+			sync: true,
+			beats: 0.5,
+		};
 		let stopped = infos(Some(120.0), Some(4.25), false);
 		let mut phase = SyncedPhase::new();
 
@@ -369,12 +412,19 @@ mod tests {
 		}
 
 		// Half of the cycle, and not the frozen quarter the host is still reporting.
-		assert!((phase.phase() - 0.5).abs() < 1e-9, "phase was {}", phase.phase());
+		assert!(
+			(phase.phase() - 0.5).abs() < 1e-9,
+			"phase was {}",
+			phase.phase()
+		);
 	}
 
 	#[test]
 	fn the_phase_free_runs_without_a_position_or_without_syncing() {
-		let time = SyncedTime { sync: true, beats: 1.0 };
+		let time = SyncedTime {
+			sync: true,
+			beats: 1.0,
+		};
 		let mut phase = SyncedPhase::new();
 
 		// Playing, but the host reports no beat timeline: 500 ms per cycle is 24_000 samples.
@@ -382,20 +432,34 @@ mod tests {
 		for _ in 0..12_000 {
 			phase.advance(&time, &no_position, 500.0, 48_000);
 		}
-		assert!((phase.phase() - 0.5).abs() < 1e-9, "phase was {}", phase.phase());
+		assert!(
+			(phase.phase() - 0.5).abs() < 1e-9,
+			"phase was {}",
+			phase.phase()
+		);
 
 		// Syncing off: the effect's own length drives it, 250 ms means 12_000 samples.
-		let free = SyncedTime { sync: false, beats: 1.0 };
+		let free = SyncedTime {
+			sync: false,
+			beats: 1.0,
+		};
 		let mut phase = SyncedPhase::new();
 		for _ in 0..6_000 {
 			phase.advance(&free, &infos(Some(120.0), Some(4.25), true), 250.0, 48_000);
 		}
-		assert!((phase.phase() - 0.5).abs() < 1e-9, "phase was {}", phase.phase());
+		assert!(
+			(phase.phase() - 0.5).abs() < 1e-9,
+			"phase was {}",
+			phase.phase()
+		);
 	}
 
 	#[test]
 	fn resetting_the_phase_starts_the_cycle_again() {
-		let time = SyncedTime { sync: true, beats: 0.5 };
+		let time = SyncedTime {
+			sync: true,
+			beats: 0.5,
+		};
 		let stopped = infos(Some(120.0), Some(0.0), false);
 		let mut phase = SyncedPhase::new();
 
@@ -441,12 +505,20 @@ mod tests {
 
 		// Four beats, not the thirty-two the shared struct allows.
 		match &parameters[1].value {
-			Value::Float { range, .. } => assert_eq!((*range.start(), *range.end()), (0.03125, 4.0)),
+			Value::Float { range, .. } => {
+				assert_eq!((*range.start(), *range.end()), (0.03125, 4.0))
+			}
 			other => panic!("expected a float parameter, got {other:?}"),
 		}
 
-		let time = SyncedTime { sync: delay.sync, beats: delay.beats };
-		assert_eq!(time.samples(&infos(Some(120.0), None, true), delay.delay_time, 48_000), 12_000);
+		let time = SyncedTime {
+			sync: delay.sync,
+			beats: delay.beats,
+		};
+		assert_eq!(
+			time.samples(&infos(Some(120.0), None, true), delay.delay_time, 48_000),
+			12_000
+		);
 	}
 
 	#[test]

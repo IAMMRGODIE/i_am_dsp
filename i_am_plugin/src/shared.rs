@@ -4,28 +4,58 @@
 //! modules that were split out of it keep seeing them, without each one repeating a
 //! block that most of it would not use.
 
-pub(crate) use std::{any::Any, ffi::CStr, fmt::Debug, io::{Read, Write}, pin::Pin, slice::from_raw_parts, sync::{Arc, atomic::{AtomicU32, Ordering}}};
+pub(crate) use std::{
+	any::Any,
+	ffi::CStr,
+	fmt::Debug,
+	io::{Read, Write},
+	pin::Pin,
+	slice::from_raw_parts,
+	sync::{
+		Arc,
+		atomic::{AtomicU32, Ordering},
+	},
+};
 
-pub(crate) use clap_sys::ext::latency::{CLAP_EXT_LATENCY, clap_host_latency};
 pub(crate) use clack_extensions::{
-	audio_ports::{AudioPortFlags, AudioPortInfo, AudioPortType, PluginAudioPorts, PluginAudioPortsImpl}, 
+	audio_ports::{
+		AudioPortFlags, AudioPortInfo, AudioPortType, PluginAudioPorts, PluginAudioPortsImpl,
+	},
 	clap_wrapper::{
-		auv2::PluginFactoryAsAUv2Impl, 
-		vst3::{PluginAsVST3, PluginAsVST3Impl, PluginFactoryAsVST3Impl, PluginInfoAsVST3}
-	}, 
-	gui::{GuiApiType, GuiConfiguration, GuiResizeHints, PluginGui, PluginGuiImpl, Window as GuiWindow}, 
-	latency::{PluginLatency, PluginLatencyImpl}, 
-	note_ports::{NoteDialect, NoteDialects, NotePortInfo, PluginNotePorts, PluginNotePortsImpl}, 
-	params::{ParamInfo, ParamInfoFlags, PluginAudioProcessorParams, PluginMainThreadParams, PluginParams}, 
-	state::{PluginState, PluginStateImpl}
+		auv2::PluginFactoryAsAUv2Impl,
+		vst3::{PluginAsVST3, PluginAsVST3Impl, PluginFactoryAsVST3Impl, PluginInfoAsVST3},
+	},
+	gui::{
+		GuiApiType, GuiConfiguration, GuiResizeHints, PluginGui, PluginGuiImpl, Window as GuiWindow,
+	},
+	latency::{PluginLatency, PluginLatencyImpl},
+	note_ports::{NoteDialect, NoteDialects, NotePortInfo, PluginNotePorts, PluginNotePortsImpl},
+	params::{
+		ParamInfo, ParamInfoFlags, PluginAudioProcessorParams, PluginMainThreadParams, PluginParams,
+	},
+	state::{PluginState, PluginStateImpl},
 };
 pub(crate) use clack_plugin::{
+	entry::DefaultPluginFactory,
+	events::{
+		Match, Pckn,
+		event_types::{
+			NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamGestureBeginEvent,
+			ParamGestureEndEvent, ParamModEvent, ParamValueEvent, TransportEvent, TransportFlags,
+		},
+		spaces::CoreEventSpace,
+	},
 	host::HostMainThreadHandle,
-	entry::DefaultPluginFactory, events::{Match, Pckn, event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamGestureBeginEvent, ParamGestureEndEvent, ParamModEvent, ParamValueEvent, TransportEvent, TransportFlags}, spaces::CoreEventSpace
-	}, plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, prelude::{OutputEvents, SampleType}, process::{Audio, Events, Process, ProcessStatus}
+	plugin::{PluginAudioProcessor, PluginError, PluginMainThread},
+	prelude::{OutputEvents, SampleType},
+	process::{Audio, Events, Process, ProcessStatus},
 };
+pub(crate) use clap_sys::ext::latency::{CLAP_EXT_LATENCY, clap_host_latency};
 pub(crate) use crossbeam_channel::{Receiver, Sender};
-pub(crate) use i_am_dsp::{ProcessContext, ProcessInfos, prelude::{AtomicValue, BeatClock, ParamMap, SetValue, from_binary, to_binary}};
+pub(crate) use i_am_dsp::{
+	ProcessContext, ProcessInfos,
+	prelude::{AtomicValue, BeatClock, ParamMap, SetValue, from_binary, to_binary},
+};
 
 extern crate self as i_am_plugin;
 

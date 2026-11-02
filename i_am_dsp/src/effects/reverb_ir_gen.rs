@@ -1,14 +1,17 @@
 //! Implmentation of the reverb impulse response generator.
 
-use std::f32::{self, consts::PI};
 use i_am_dsp_derive::Parameters;
+use std::f32::{self, consts::PI};
 
-use crate::{prelude::{FftConvolver, Parameters}, Effect};
+use crate::{
+	Effect,
+	prelude::{FftConvolver, Parameters},
+};
 
 /// A trait for generating reverb impulse response.
 pub trait GenIr: Parameters {
 	/// Generate the reverb impulse response.
-	/// 
+	///
 	/// Maximum length of the impulse response, in samples, none for unlimited length.
 	fn gen_ir(&self, maxium_ir_len: Option<usize>) -> Vec<f32>;
 
@@ -20,7 +23,7 @@ pub trait GenIr: Parameters {
 	}
 
 	/// Simple UI for the reverb impulse response generator.
-	/// 
+	///
 	/// Returns `true` if we need regenerate the impulse response.
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) -> bool;
@@ -32,12 +35,12 @@ pub struct Face {
 	/// Shape of the room.
 	pub tri: Triangle,
 	/// The decay factor of the room.
-	/// 
+	///
 	/// 0.0 means no decay, 1.0 means complete decay.
 	pub decay_factor: f32,
 	/// Roughness factor of the room.
-	/// 
-	/// 0.0 means smooth surface, which use accurate reflections, 
+	///
+	/// 0.0 means smooth surface, which use accurate reflections,
 	/// 1.0 means rough surface, which use completely random reflections.
 	pub roughness_factor: f32,
 }
@@ -46,7 +49,7 @@ pub struct Face {
 #[derive(Parameters)]
 pub struct RayTracing {
 	/// Speed of sound, in meters per second.
-	/// 
+	///
 	/// Can be used to simulate reflections from different materials.
 	#[range(min = 1.0, max = 20000.0)]
 	#[logarithmic]
@@ -176,7 +179,11 @@ pub struct Triangle {
 
 #[inline(always)]
 fn cross(a: (f32, f32, f32), b: (f32, f32, f32)) -> (f32, f32, f32) {
-	(a.1 * b.2 - a.2 * b.1, a.2 * b.0 - a.0 * b.2, a.0 * b.1 - a.1 * b.0)
+	(
+		a.1 * b.2 - a.2 * b.1,
+		a.2 * b.0 - a.0 * b.2,
+		a.0 * b.1 - a.1 * b.0,
+	)
 }
 
 #[inline(always)]
@@ -194,7 +201,7 @@ fn normalized(a: (f32, f32, f32)) -> (f32, f32, f32) {
 	let l = len(a);
 	if l == 0.0 {
 		(0.0, 0.0, 0.0)
-	}else {
+	} else {
 		(a.0 / l, a.1 / l, a.2 / l)
 	}
 }
@@ -210,7 +217,7 @@ fn distance_to_line(p: (f32, f32, f32), p0: (f32, f32, f32), d: (f32, f32, f32))
 	if len_d == 0.0 {
 		return distance(p, p0);
 	}
-	
+
 	let delta = (p.0 - p0.0, p.1 - p0.1, p.2 - p0.2);
 	let len = len(cross(delta, d));
 
@@ -219,16 +226,32 @@ fn distance_to_line(p: (f32, f32, f32), p0: (f32, f32, f32), d: (f32, f32, f32))
 
 impl Triangle {
 	fn normal_vector(&self) -> (f32, f32, f32) {
-		let e_1 = (self.v_2.0 - self.v_1.0, self.v_2.1 - self.v_1.1, self.v_2.2 - self.v_1.2);
-		let e_2 = (self.v_3.0 - self.v_1.0, self.v_3.1 - self.v_1.1, self.v_3.2 - self.v_1.2);
+		let e_1 = (
+			self.v_2.0 - self.v_1.0,
+			self.v_2.1 - self.v_1.1,
+			self.v_2.2 - self.v_1.2,
+		);
+		let e_2 = (
+			self.v_3.0 - self.v_1.0,
+			self.v_3.1 - self.v_1.1,
+			self.v_3.2 - self.v_1.2,
+		);
 		let n = cross(e_1, e_2);
 		let len_n = len(n);
 		(n.0 / len_n, n.1 / len_n, n.2 / len_n)
 	}
-	
+
 	fn mt_alg(&self, from: (f32, f32, f32), d: (f32, f32, f32)) -> Option<f32> {
-		let e_1 = (self.v_2.0 - self.v_1.0, self.v_2.1 - self.v_1.1, self.v_2.2 - self.v_1.2);
-		let e_2 = (self.v_3.0 - self.v_1.0, self.v_3.1 - self.v_1.1, self.v_3.2 - self.v_1.2);
+		let e_1 = (
+			self.v_2.0 - self.v_1.0,
+			self.v_2.1 - self.v_1.1,
+			self.v_2.2 - self.v_1.2,
+		);
+		let e_2 = (
+			self.v_3.0 - self.v_1.0,
+			self.v_3.1 - self.v_1.1,
+			self.v_3.2 - self.v_1.2,
+		);
 
 		let p = cross(d, e_2);
 		let det = dot(e_1, p);
@@ -238,7 +261,11 @@ impl Triangle {
 		}
 
 		let inv_det = 1.0 / det;
-		let t = (from.0 - self.v_1.0, from.1 - self.v_1.1, from.2 - self.v_1.2);
+		let t = (
+			from.0 - self.v_1.0,
+			from.1 - self.v_1.1,
+			from.2 - self.v_1.2,
+		);
 		let u = dot(t, p) * inv_det;
 
 		if !(0.0..=1.0).contains(&u) {
@@ -254,11 +281,7 @@ impl Triangle {
 
 		let t = dot(e_2, q) * inv_det;
 
-		if t <= 0.0 {
-			None
-		}else {
-			Some(t)
-		}
+		if t <= 0.0 { None } else { Some(t) }
 	}
 }
 
@@ -298,9 +321,9 @@ impl PointSampler for Ball {
 #[cfg_attr(docsrs, doc(cfg(feature = "room_gen")))]
 impl RayTracing {
 	/// Create a random **convex** room with the given number of points and decay factor.
-	/// 
+	///
 	/// Will place the sound source and listener at the center of the room.
-	/// 
+	///
 	/// Also we will set velocity of sound to 343 m/s (approximately the speed of sound in air).
 	pub fn random_space(
 		sampler: &impl PointSampler,
@@ -310,14 +333,22 @@ impl RayTracing {
 		hearable_distance: f32,
 		sample_rate: usize,
 	) -> Self {
-		let points = (0..max_points).map(|_| sampler.sample_point()).collect::<Vec<_>>();
-		Self::convex_hull_room(&points, decay_factor, roughness_factor, hearable_distance, sample_rate)
+		let points = (0..max_points)
+			.map(|_| sampler.sample_point())
+			.collect::<Vec<_>>();
+		Self::convex_hull_room(
+			&points,
+			decay_factor,
+			roughness_factor,
+			hearable_distance,
+			sample_rate,
+		)
 	}
 
 	/// Create a convex hull room with the given points and decay factor.
-	/// 
+	///
 	/// Will place the sound source and listener at the center of the room.
-	/// 
+	///
 	/// Also we will set velocity of sound to 343 m/s (approximately the speed of sound in air).
 	pub fn convex_hull_room(
 		points: &[(f32, f32, f32)],
@@ -326,9 +357,12 @@ impl RayTracing {
 		hearable_distance: f32,
 		sample_rate: usize,
 	) -> Self {
-    	use parry3d::{math::Vec3, transformation::convex_hull};
+		use parry3d::{math::Vec3, transformation::convex_hull};
 
-		let points = points.iter().map(|p| Vec3::new(p.0, p.1, p.2)).collect::<Vec<_>>();
+		let points = points
+			.iter()
+			.map(|p| Vec3::new(p.0, p.1, p.2))
+			.collect::<Vec<_>>();
 
 		let (vertex, indices) = convex_hull(&points);
 		let mut tris = vec![];
@@ -362,11 +396,14 @@ impl RayTracing {
 		Self {
 			sound_velocity: VELOCITY_OF_SOUND,
 			sample_rate,
-			shape: tris.into_iter().map(|t| Face { 
-				tri: t, 
-				decay_factor, 
-				roughness_factor 
-			}).collect(),
+			shape: tris
+				.into_iter()
+				.map(|t| Face {
+					tri: t,
+					decay_factor,
+					roughness_factor,
+				})
+				.collect(),
 			sound_source,
 			listener,
 			hearable_distance,
@@ -377,14 +414,14 @@ impl RayTracing {
 
 impl RayTracing {
 	/// Create a rectangular room with the given dimensions and decay factor.
-	/// 
+	///
 	/// Will place the sound source and listener at the center of the room.
-	/// 
+	///
 	/// Also we will set velocity of sound to 343 m/s (approximately the speed of sound in air).
 	pub fn rectangular_room(
-		width: f32, 
-		height: f32, 
-		depth: f32, 
+		width: f32,
+		height: f32,
+		depth: f32,
 		decay_factor: f32,
 		hearable_distance: f32,
 		sample_rate: usize,
@@ -401,18 +438,66 @@ impl RayTracing {
 		let v111 = (width, height, depth);
 
 		let tris = vec![
-			Triangle { v_1: v000, v_2: v100, v_3: v110 },
-			Triangle { v_1: v000, v_2: v110, v_3: v010 },
-			Triangle { v_1: v101, v_2: v001, v_3: v011 },
-			Triangle { v_1: v101, v_2: v011, v_3: v111 },
-			Triangle { v_1: v000, v_2: v001, v_3: v011 },
-			Triangle { v_1: v000, v_2: v011, v_3: v010 },
-			Triangle { v_1: v100, v_2: v110, v_3: v111 },
-			Triangle { v_1: v100, v_2: v111, v_3: v101 },
-			Triangle { v_1: v000, v_2: v100, v_3: v101 },
-			Triangle { v_1: v000, v_2: v101, v_3: v001 },
-			Triangle { v_1: v010, v_2: v011, v_3: v111 },
-			Triangle { v_1: v010, v_2: v111, v_3: v110 },
+			Triangle {
+				v_1: v000,
+				v_2: v100,
+				v_3: v110,
+			},
+			Triangle {
+				v_1: v000,
+				v_2: v110,
+				v_3: v010,
+			},
+			Triangle {
+				v_1: v101,
+				v_2: v001,
+				v_3: v011,
+			},
+			Triangle {
+				v_1: v101,
+				v_2: v011,
+				v_3: v111,
+			},
+			Triangle {
+				v_1: v000,
+				v_2: v001,
+				v_3: v011,
+			},
+			Triangle {
+				v_1: v000,
+				v_2: v011,
+				v_3: v010,
+			},
+			Triangle {
+				v_1: v100,
+				v_2: v110,
+				v_3: v111,
+			},
+			Triangle {
+				v_1: v100,
+				v_2: v111,
+				v_3: v101,
+			},
+			Triangle {
+				v_1: v000,
+				v_2: v100,
+				v_3: v101,
+			},
+			Triangle {
+				v_1: v000,
+				v_2: v101,
+				v_3: v001,
+			},
+			Triangle {
+				v_1: v010,
+				v_2: v011,
+				v_3: v111,
+			},
+			Triangle {
+				v_1: v010,
+				v_2: v111,
+				v_3: v110,
+			},
 		];
 
 		// The hand-written triangles above are not wound consistently: some of
@@ -420,30 +505,44 @@ impl RayTracing {
 		// normal points away from the room interior (the centroid) so that
 		// normal_vector() always points into the room.
 		let interior = (width / 2.0, height / 2.0, depth / 2.0);
-		let tris = tris.into_iter().map(|tri| {
-			let center = (
-				(tri.v_1.0 + tri.v_2.0 + tri.v_3.0) / 3.0,
-				(tri.v_1.1 + tri.v_2.1 + tri.v_3.1) / 3.0,
-				(tri.v_1.2 + tri.v_2.2 + tri.v_3.2) / 3.0,
-			);
-			let n = tri.normal_vector();
-			let inward = (interior.0 - center.0, interior.1 - center.1, interior.2 - center.2);
-			if dot(n, inward) < 0.0 {
-				// swap two vertices to reverse the winding (and thus the normal)
-				Triangle { v_1: tri.v_1, v_2: tri.v_3, v_3: tri.v_2 }
-			}else {
-				tri
-			}
-		}).collect::<Vec<_>>();
+		let tris = tris
+			.into_iter()
+			.map(|tri| {
+				let center = (
+					(tri.v_1.0 + tri.v_2.0 + tri.v_3.0) / 3.0,
+					(tri.v_1.1 + tri.v_2.1 + tri.v_3.1) / 3.0,
+					(tri.v_1.2 + tri.v_2.2 + tri.v_3.2) / 3.0,
+				);
+				let n = tri.normal_vector();
+				let inward = (
+					interior.0 - center.0,
+					interior.1 - center.1,
+					interior.2 - center.2,
+				);
+				if dot(n, inward) < 0.0 {
+					// swap two vertices to reverse the winding (and thus the normal)
+					Triangle {
+						v_1: tri.v_1,
+						v_2: tri.v_3,
+						v_3: tri.v_2,
+					}
+				} else {
+					tri
+				}
+			})
+			.collect::<Vec<_>>();
 
 		Self {
 			sound_velocity: VELOCITY_OF_SOUND,
 			sample_rate,
-			shape: tris.into_iter().map(|t| Face { 
-				tri: t, 
-				decay_factor: 0.0, 
-				roughness_factor: 0.0 
-			}).collect(),
+			shape: tris
+				.into_iter()
+				.map(|t| Face {
+					tri: t,
+					decay_factor: 0.0,
+					roughness_factor: 0.0,
+				})
+				.collect(),
 			sound_source,
 			listener,
 			hearable_distance,
@@ -453,7 +552,9 @@ impl RayTracing {
 
 	/// Generate the reverb impulse response.
 	pub fn generate_ir(&self, maxium_ir_len: Option<usize>) -> Vec<f32> {
-		if let Some(max_ir_len) = maxium_ir_len && max_ir_len <= 1 {
+		if let Some(max_ir_len) = maxium_ir_len
+			&& max_ir_len <= 1
+		{
 			return vec![0.0; max_ir_len];
 		}
 
@@ -485,14 +586,22 @@ impl RayTracing {
 			.max_by(|a, b| a.partial_cmp(b).unwrap())
 			.unwrap();
 
-		let output = output.into_iter().map(|inner| inner / output_max).collect::<Vec<_>>();
+		let output = output
+			.into_iter()
+			.map(|inner| inner / output_max)
+			.collect::<Vec<_>>();
 
 		if let Some(max_ir_len) = maxium_ir_len {
-			let mut output = output.into_iter().take(max_ir_len).enumerate().map(|(i, inner)| {
-				let t = i as f32 / (max_ir_len - 1) as f32;
-				let window = (t * PI).cos() * 0.5 + 0.5;
-				inner * window
-			}).collect::<Vec<_>>();
+			let mut output = output
+				.into_iter()
+				.take(max_ir_len)
+				.enumerate()
+				.map(|(i, inner)| {
+					let t = i as f32 / (max_ir_len - 1) as f32;
+					let window = (t * PI).cos() * 0.5 + 0.5;
+					inner * window
+				})
+				.collect::<Vec<_>>();
 			fade_in(&mut output, self.sample_rate);
 			return output;
 		}
@@ -505,7 +614,11 @@ impl RayTracing {
 		while trim_end > 0 && output[trim_end] <= 0.005 {
 			trim_end -= 1;
 		}
-		let mut output = output.into_iter().skip(trim_start).take(trim_end - trim_start + 1).collect::<Vec<_>>();
+		let mut output = output
+			.into_iter()
+			.skip(trim_start)
+			.take(trim_end - trim_start + 1)
+			.collect::<Vec<_>>();
 		fade_in(&mut output, self.sample_rate);
 		output
 	}
@@ -515,7 +628,9 @@ impl RayTracing {
 	/// with the listener facing +x and +y up, +z is the right-hand side. The far
 	/// ear also gets a small ITD. No per-channel random gain is involved.
 	pub fn generate_stereo_ir(&self, maxium_ir_len: Option<usize>) -> [Vec<f32>; 2] {
-		if let Some(max_ir_len) = maxium_ir_len && max_ir_len <= 1 {
+		if let Some(max_ir_len) = maxium_ir_len
+			&& max_ir_len <= 1
+		{
 			return [vec![0.0; max_ir_len], vec![0.0; max_ir_len]];
 		}
 
@@ -583,19 +698,24 @@ impl RayTracing {
 
 		let length = left.len().max(right_channel.len());
 		let audible = |channel: &[f32], index: usize| {
-			channel.get(index).is_some_and(|sample| sample.abs() > 0.005)
+			channel
+				.get(index)
+				.is_some_and(|sample| sample.abs() > 0.005)
 		};
-		let start = (0..length).find(|&index| {
-			audible(&left, index) || audible(&right_channel, index)
-		});
-		let end = (0..length).rev().find(|&index| {
-			audible(&left, index) || audible(&right_channel, index)
-		});
+		let start =
+			(0..length).find(|&index| audible(&left, index) || audible(&right_channel, index));
+		let end = (0..length)
+			.rev()
+			.find(|&index| audible(&left, index) || audible(&right_channel, index));
 		let (Some(start), Some(end)) = (start, end) else {
 			return [vec![], vec![]];
 		};
 		let length = end - start + 1;
-		let mut left = left.into_iter().skip(start).take(length).collect::<Vec<_>>();
+		let mut left = left
+			.into_iter()
+			.skip(start)
+			.take(length)
+			.collect::<Vec<_>>();
 		let mut right_channel = right_channel
 			.into_iter()
 			.skip(start)
@@ -608,17 +728,19 @@ impl RayTracing {
 		[left, right_channel]
 	}
 
-	fn generate_single_point(&self, theta: f32, phi: f32, amp: f32, maxium_ir_len: Option<f32>) -> Vec<Echo> {
+	fn generate_single_point(
+		&self,
+		theta: f32,
+		phi: f32,
+		amp: f32,
+		maxium_ir_len: Option<f32>,
+	) -> Vec<Echo> {
 		const MAX_T_VALUE: f32 = 50.0;
 		const THRESHOLD: f32 = 0.001;
 
 		let range = 0.0..=MAX_T_VALUE;
-		let mut dir = (
-			theta.cos() * phi.sin(),
-			theta.sin() * phi.sin(),
-			phi.cos()
-		);
-		
+		let mut dir = (theta.cos() * phi.sin(), theta.sin() * phi.sin(), phi.cos());
+
 		let mut current_pos = self.sound_source;
 		let mut output = vec![];
 		let mut current_amp = amp;
@@ -631,7 +753,9 @@ impl RayTracing {
 			let mut relative_factor = 0.0;
 			let mut relative_roughness = 0.0;
 			for face in &self.shape {
-				if let Some(t) = face.tri.mt_alg(current_pos, dir) && t < min_t {
+				if let Some(t) = face.tri.mt_alg(current_pos, dir)
+					&& t < min_t
+				{
 					min_t = t;
 					normal = face.tri.normal_vector();
 					relative_factor = face.decay_factor;
@@ -663,7 +787,7 @@ impl RayTracing {
 			current_pos = (
 				current_pos.0 + dir.0 * min_t,
 				current_pos.1 + dir.1 * min_t,
-				current_pos.2 + dir.2 * min_t
+				current_pos.2 + dir.2 * min_t,
 			);
 
 			accumulated_distance += min_t;
@@ -676,19 +800,15 @@ impl RayTracing {
 				let random_dir = (
 					random_theta.cos() * random_phi.sin(),
 					random_theta.sin() * random_phi.sin(),
-					random_phi.cos()
+					random_phi.cos(),
 				);
-	
+
 				let normal_dot_dir = dot(normal, random_dir);
 
 				if normal_dot_dir > 0.0 {
 					break random_dir;
-				}else if normal_dot_dir < 0.0 {
-					break (
-						-random_dir.0,
-						-random_dir.1,
-						-random_dir.2
-					)
+				} else if normal_dot_dir < 0.0 {
+					break (-random_dir.0, -random_dir.1, -random_dir.2);
 				}
 			};
 
@@ -700,13 +820,13 @@ impl RayTracing {
 			dir = (
 				dir.0 - 2.0 * normal_dot_dir * normal.0,
 				dir.1 - 2.0 * normal_dot_dir * normal.1,
-				dir.2 - 2.0 * normal_dot_dir * normal.2
+				dir.2 - 2.0 * normal_dot_dir * normal.2,
 			);
 
 			let dir = normalized((
 				dir.0 * (1.0 - relative_roughness) + random_dir.0 * relative_roughness,
 				dir.1 * (1.0 - relative_roughness) + random_dir.1 * relative_roughness,
-				dir.2 * (1.0 - relative_roughness) + random_dir.2 * relative_roughness
+				dir.2 * (1.0 - relative_roughness) + random_dir.2 * relative_roughness,
 			));
 
 			current_amp *= (1.0 - relative_factor).sqrt();
@@ -717,7 +837,7 @@ impl RayTracing {
 
 			let distance_to_listener = distance_to_line(self.listener, current_pos, dir);
 			let sound_to_listener = distance(current_pos, self.listener);
-			let decay_factor = - self.decay_factor * (accumulated_distance + sound_to_listener);
+			let decay_factor = -self.decay_factor * (accumulated_distance + sound_to_listener);
 			let decayed_amp = current_amp * decay_factor.exp();
 
 			// Only record an echo when the listener lies ahead of the reflection
@@ -730,7 +850,9 @@ impl RayTracing {
 			);
 			if distance_to_listener <= self.hearable_distance && dot(dir, to_listener) > 0.0 {
 				let time = (accumulated_distance + sound_to_listener) / self.sound_velocity;
-				if let Some(max_ir_len) = maxium_ir_len && time > max_ir_len {
+				if let Some(max_ir_len) = maxium_ir_len
+					&& time > max_ir_len
+				{
 					break;
 				}
 				let direction = normalized((
@@ -796,13 +918,26 @@ impl GenIr for RayTracing {
 		let mut hearable_distance = self.hearable_distance;
 		let mut decay_factor = self.decay_factor;
 
-		ui.add(Slider::new(&mut sound_velocity, 1.0..=4000.0).logarithmic(true).text("Sound velocity"));
-		ui.add(Slider::new(&mut hearable_distance, 0.1..=10.0).logarithmic(true).text("Hearable distance"));
-		ui.add(Slider::new(&mut decay_factor, 0.001..=10.0).logarithmic(true).text("Decay factor"));
+		ui.add(
+			Slider::new(&mut sound_velocity, 1.0..=4000.0)
+				.logarithmic(true)
+				.text("Sound velocity"),
+		);
+		ui.add(
+			Slider::new(&mut hearable_distance, 0.1..=10.0)
+				.logarithmic(true)
+				.text("Hearable distance"),
+		);
+		ui.add(
+			Slider::new(&mut decay_factor, 0.001..=10.0)
+				.logarithmic(true)
+				.text("Decay factor"),
+		);
 
-		if sound_velocity != self.sound_velocity ||
-			hearable_distance != self.hearable_distance ||
-			decay_factor != self.decay_factor {
+		if sound_velocity != self.sound_velocity
+			|| hearable_distance != self.hearable_distance
+			|| decay_factor != self.decay_factor
+		{
 			self.sound_velocity = sound_velocity;
 			self.hearable_distance = hearable_distance;
 			self.decay_factor = decay_factor;
@@ -834,21 +969,20 @@ impl<T: GenIr, const CHANNELS: usize> IrBasedReverb<T, CHANNELS> {
 				ir.truncate(48000);
 				ir
 			}),
-			sample_rate
+			sample_rate,
 		);
 		// The convolver's own default is dry 1 / wet 0.0125, which passes the
 		// original and barely any reverb. The IR-based reverb is a wet effect.
 		convolver.dry_gain = 0.0;
 		convolver.wet_gain = 1.0;
 		convolver.normalize_energy();
-		Self { 
-			ir_gen, 
-			convolver
-		}
+		Self { ir_gen, convolver }
 	}
 }
 
-impl<T: GenIr + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for IrBasedReverb<T, CHANNELS> {
+impl<T: GenIr + Send + Sync, const CHANNELS: usize> Effect<CHANNELS>
+	for IrBasedReverb<T, CHANNELS>
+{
 	fn delay(&self) -> usize {
 		self.convolver.delay()
 	}
@@ -859,31 +993,39 @@ impl<T: GenIr + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for IrBased
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn crate::ProcessContext>,
 	) {
-		self.convolver.process(samples, other, process_context);	
+		self.convolver.process(samples, other, process_context);
 	}
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-    	use crate::tools::ui_tools::gain_ui;
+		use crate::tools::ui_tools::gain_ui;
 
 		if self.ir_gen.demo_ui(ui, format!("{}_ir_gen", id_prefix)) {
 			let stereo = self.ir_gen.gen_stereo_ir(None);
-			self.convolver.replace_ir(
-				core::array::from_fn(|channel| {
-					let mut ir = stereo[channel % 2].clone();
-					ir.truncate(48000);
-					ir
-				})
-			);
+			self.convolver.replace_ir(core::array::from_fn(|channel| {
+				let mut ir = stereo[channel % 2].clone();
+				ir.truncate(48000);
+				ir
+			}));
 			self.convolver.normalize_energy();
 		};
-		gain_ui(ui, &mut self.convolver.dry_gain, Some("Dry gain".to_string()), false);
-		gain_ui(ui, &mut self.convolver.wet_gain, Some("Wet gain".to_string()), true);
+		gain_ui(
+			ui,
+			&mut self.convolver.dry_gain,
+			Some("Dry gain".to_string()),
+			false,
+		);
+		gain_ui(
+			ui,
+			&mut self.convolver.wet_gain,
+			Some("Wet gain".to_string()),
+			true,
+		);
 	}
 }
 
@@ -906,7 +1048,11 @@ mod tests {
 			);
 			let n = tri.normal_vector();
 			// 从面中心指向房间内部点的向量
-			let inward = (interior.0 - center.0, interior.1 - center.1, interior.2 - center.2);
+			let inward = (
+				interior.0 - center.0,
+				interior.1 - center.1,
+				interior.2 - center.2,
+			);
 			assert!(dot(n, inward) > 0.0, "face normal points outwards: n={n:?}");
 		}
 	}
@@ -967,21 +1113,22 @@ mod tests {
 		let stereo = rt.generate_stereo_ir(Some(4_800));
 
 		assert!(ir[0].abs() < 0.01, "mono first sample {}", ir[0]);
-		assert!(stereo[0][0].abs() < 0.01, "left first sample {}", stereo[0][0]);
-		assert!(stereo[1][0].abs() < 0.01, "right first sample {}", stereo[1][0]);
+		assert!(
+			stereo[0][0].abs() < 0.01,
+			"left first sample {}",
+			stereo[0][0]
+		);
+		assert!(
+			stereo[1][0].abs() < 0.01,
+			"right first sample {}",
+			stereo[1][0]
+		);
 	}
 
 	#[test]
 	fn test_ray_tracing() {
 		use crate::{effects::reverb_ir_gen::RayTracing, tools::pcm_data::save_pcm_data};
-		let mut rt = RayTracing::rectangular_room(
-			10.0, 
-			10.0, 
-			10.0, 
-			0.001, 
-			3.0, 
-			48000
-		);
+		let mut rt = RayTracing::rectangular_room(10.0, 10.0, 10.0, 0.001, 3.0, 48000);
 		rt.sound_velocity = 200.0;
 		for shape in &mut rt.shape {
 			shape.decay_factor = rand::random_range(0.0..=1.0);
@@ -995,16 +1142,12 @@ mod tests {
 	#[test]
 	#[cfg(feature = "room_gen")]
 	fn test_room_gen() {
-    	use crate::{prelude::{Ball, RayTracing}, tools::pcm_data::save_pcm_data};
+		use crate::{
+			prelude::{Ball, RayTracing},
+			tools::pcm_data::save_pcm_data,
+		};
 
-		let mut rt = RayTracing::random_space(
-			&Ball { radius: 10.0 }, 
-			100, 
-			0.001, 
-			0.0, 
-			3.0, 
-			48000
-		);
+		let mut rt = RayTracing::random_space(&Ball { radius: 10.0 }, 100, 0.001, 0.0, 3.0, 48000);
 		rt.sound_velocity = 200.0;
 		for shape in &mut rt.shape {
 			shape.decay_factor = rand::random_range(0.0..=1.0);

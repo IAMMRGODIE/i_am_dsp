@@ -21,7 +21,11 @@ const DENORMAL_THRESHOLD: f32 = 1e-25;
 use i_am_dsp_derive::Parameters;
 use wide::f32x4;
 
-use crate::{Effect, ProcessContext, prelude::{Parameter, Parameters, Value, from_binary, to_binary}, tools::ring_buffer::RingBuffer};
+use crate::{
+	Effect, ProcessContext,
+	prelude::{Parameter, Parameters, Value, from_binary, to_binary},
+	tools::ring_buffer::RingBuffer,
+};
 
 #[derive(Clone)]
 /// A simple biquad filter
@@ -64,7 +68,7 @@ impl<const CHANNELS: usize> Parameters for Biquad<CHANNELS> {
 					self.a = value;
 					return true;
 				}
-			},
+			}
 			"b" => {
 				if let crate::prelude::SetValue::Serialized(v) = value {
 					let value: [f32; 3] = if let Ok(value) = from_binary(v) {
@@ -75,38 +79,38 @@ impl<const CHANNELS: usize> Parameters for Biquad<CHANNELS> {
 					self.b = value;
 					return true;
 				}
-			},
+			}
 			"a1" => {
 				if let crate::prelude::SetValue::Float(v) = value {
 					self.a[0] = v;
 					return true;
 				}
-			},
+			}
 			"a2" => {
 				if let crate::prelude::SetValue::Float(v) = value {
 					self.a[1] = v;
 					return true;
 				}
-			},
+			}
 			"b0" => {
 				if let crate::prelude::SetValue::Float(v) = value {
 					self.b[0] = v;
 					return true;
 				}
-			},
+			}
 			"b1" => {
 				if let crate::prelude::SetValue::Float(v) = value {
 					self.b[1] = v;
 					return true;
 				}
-			},
+			}
 			"b2" => {
 				if let crate::prelude::SetValue::Float(v) = value {
 					self.b[2] = v;
 					return true;
 				}
-			},
-			_ => {},
+			}
+			_ => {}
 		}
 		false
 	}
@@ -122,7 +126,8 @@ struct GuiState {
 #[cfg(feature = "real_time_demo")]
 #[derive(Default, Clone)]
 enum FilterType {
-	#[default] ByPass,
+	#[default]
+	ByPass,
 	Butterworth(Butterworth),
 	Rbj(RBJFilter),
 }
@@ -130,18 +135,10 @@ enum FilterType {
 #[cfg(feature = "real_time_demo")]
 #[derive(Clone)]
 enum Butterworth {
-	Lowpass {
-		cutoff: f32,
-	},
-	Highpass {
-		cutoff: f32,
-	},
-	Bandpass {
-		cutoff: f32,
-	},
-	Bandstop {
-		cutoff: f32,
-	},
+	Lowpass { cutoff: f32 },
+	Highpass { cutoff: f32 },
+	Bandpass { cutoff: f32 },
+	Bandstop { cutoff: f32 },
 }
 
 #[cfg(feature = "real_time_demo")]
@@ -177,7 +174,7 @@ enum RBJFilter {
 		gain: f32,
 		cutoff: f32,
 		slope: f32,
-	}
+	},
 }
 
 // butterworth filters
@@ -209,11 +206,11 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	fn butterworth_lp(fs: f32, f0: f32, q: f32) -> ([f32; 3], [f32; 2]) {
 		let (k, norm) = Self::get_k_and_norm(fs, f0, q);
 
-		let b0 =  k * k * norm;
-		let b1 =  2.0 * k * k * norm;
-		let b2 =  k * k * norm;
-		let a1 =  2.0 * (k * k - 1.0) * norm;
-		let a2 =  (1.0 - k / q + k * k) * norm;
+		let b0 = k * k * norm;
+		let b1 = 2.0 * k * k * norm;
+		let b2 = k * k * norm;
+		let a1 = 2.0 * (k * k - 1.0) * norm;
+		let a2 = (1.0 - k / q + k * k) * norm;
 
 		([b0, b1, b2], [a1, a2])
 	}
@@ -245,10 +242,10 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	#[inline(always)]
 	#[allow(clippy::type_complexity)]
 	fn butterworth_filter(
-		sample_rate: usize, 
-		mut cutoff: f32, 
-		order: usize, 
-		filter_type: fn(f32, f32, f32) -> ([f32; 3], [f32; 2])
+		sample_rate: usize,
+		mut cutoff: f32,
+		order: usize,
+		filter_type: fn(f32, f32, f32) -> ([f32; 3], [f32; 2]),
 	) -> Vec<Self> {
 		let mut filters = vec![Self::new(sample_rate); order];
 		let sample_rate = sample_rate as f32;
@@ -266,7 +263,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 
 	#[inline(always)]
 	/// Calculate Q value of a butterworth filter.
-	/// 
+	///
 	/// Panics if k or order is out of range.
 	pub fn caculate_butterworth_q_value(k: usize, order: usize) -> f32 {
 		assert!(k <= order && k > 0 && order > 0);
@@ -275,28 +272,28 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Create series connection of butterworth lowpass filter with given order.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0.
 	pub fn butterworth_lowpass(sample_rate: usize, cutoff: f32, order: usize) -> Vec<Self> {
 		Self::butterworth_filter(sample_rate, cutoff, order, Self::butterworth_lp)
 	}
 
 	/// Create series connection of butterworth highpass filter with given order.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0.
 	pub fn butterworth_highpass(sample_rate: usize, cutoff: f32, order: usize) -> Vec<Self> {
 		Self::butterworth_filter(sample_rate, cutoff, order, Self::butterworth_hp)
 	}
 
 	/// Create series connection of butterworth bandpass filter with given order.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0.
 	pub fn butterworth_bandpass(sample_rate: usize, cutoff: f32, order: usize) -> Vec<Self> {
 		Self::butterworth_filter(sample_rate, cutoff, order, Self::butterworth_bp)
 	}
 
 	/// Create series connection of butterworth bandstop filter with given order.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0.
 	pub fn butterworth_bandstop(sample_rate: usize, cutoff: f32, order: usize) -> Vec<Self> {
 		Self::butterworth_filter(sample_rate, cutoff, order, Self::butterworth_bs)
@@ -334,12 +331,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 // RBJ filters
 impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	/// Set the filter to a RBJ peak filter.
-	pub fn set_to_peak(
-		&mut self,
-		cutoff: f32, 
-		gain_db: f32, 
-		bandwidth: f32, 
-	) {
+	pub fn set_to_peak(&mut self, cutoff: f32, gain_db: f32, bandwidth: f32) {
 		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 / 2.0);
 		let sample_rate = self.sample_rate as f32;
 		let w0 = 2.0 * PI * cutoff / sample_rate;
@@ -362,12 +354,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Set the filter to a RBJ low shelf filter.
-	pub fn set_to_low_shelf(
-		&mut self,
-		cutoff: f32, 
-		gain_db: f32, 
-		slope_param: f32, 
-	) {
+	pub fn set_to_low_shelf(&mut self, cutoff: f32, gain_db: f32, slope_param: f32) {
 		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 / 2.0);
 		let sample_rate = self.sample_rate as f32;
 		// RBJ uses A = 10^(dB/40), and its slope S is at most 1: above that the
@@ -384,7 +371,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		let a0 = (a + 1.0) + (a - 1.0) * w0.cos() + 2.0 * a.sqrt() * alpha;
 		let a1 = -2.0 * ((a - 1.0) + (a + 1.0) * w0.cos());
 		let a2 = (a + 1.0) + (a - 1.0) * w0.cos() - 2.0 * a.sqrt() * alpha;
-		
+
 		let b = [b0 / a0, b1 / a0, b2 / a0];
 		let a = [a1 / a0, a2 / a0];
 
@@ -393,12 +380,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Set the filter to a RBJ high shelf filter.
-	pub fn set_to_high_shelf(
-		&mut self,
-		cutoff: f32, 
-		gain_db: f32, 
-		slope_param: f32, 
-	) {
+	pub fn set_to_high_shelf(&mut self, cutoff: f32, gain_db: f32, slope_param: f32) {
 		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 / 2.0);
 		let sample_rate = self.sample_rate as f32;
 		// Same RBJ scaling and slope limit as the low shelf.
@@ -406,14 +388,14 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		let slope_param = slope_param.clamp(0.1, 1.0);
 		let w0 = 2.0 * PI * cutoff / sample_rate;
 		let alpha = w0.sin() / 2.0 * ((a + 1.0 / a) * (1.0 / slope_param - 1.0) + 2.0).sqrt();
-		
+
 		let b0 = a * ((a + 1.0) + (a - 1.0) * w0.cos() + 2.0 * a.sqrt() * alpha);
 		let b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * w0.cos());
 		let b2 = a * ((a + 1.0) + (a - 1.0) * w0.cos() - 2.0 * a.sqrt() * alpha);
 		let a0 = (a + 1.0) - (a - 1.0) * w0.cos() + 2.0 * a.sqrt() * alpha;
 		let a1 = 2.0 * ((a - 1.0) - (a + 1.0) * w0.cos());
 		let a2 = (a + 1.0) - (a - 1.0) * w0.cos() - 2.0 * a.sqrt() * alpha;
-		
+
 		let b = [b0 / a0, b1 / a0, b2 / a0];
 		let a = [a1 / a0, a2 / a0];
 
@@ -422,15 +404,8 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Set the filter to a RBJ bandpass filter.
-	pub fn set_to_bandpass(
-		&mut self,
-		cutoff: f32, 
-		bandwidth: f32,
-	) {
-		let cutoff = cutoff.clamp(
-			MIN_FREQUENCY,
-			self.sample_rate as f32 * MAX_FREQUENCY_RATIO,
-		);
+	pub fn set_to_bandpass(&mut self, cutoff: f32, bandwidth: f32) {
+		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 * MAX_FREQUENCY_RATIO);
 		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
 		let q = cutoff / bandwidth;
 		let alpha = omega_0.sin() / (2.0 * q);
@@ -447,21 +422,14 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Set the filter to a RBJ bandstop filter.
-	pub fn set_to_bandstop(
-		&mut self,
-		cutoff: f32, 
-		bandwidth: f32,
-	) {
-		let cutoff = cutoff.clamp(
-			MIN_FREQUENCY,
-			self.sample_rate as f32 * MAX_FREQUENCY_RATIO,
-		);
+	pub fn set_to_bandstop(&mut self, cutoff: f32, bandwidth: f32) {
+		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 * MAX_FREQUENCY_RATIO);
 		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
 		let q = cutoff / bandwidth;
 		let alpha = omega_0.sin() / (2.0 * q);
 
 		let b0 = 1.0;
-		let b1 = - 2.0 * omega_0.cos();
+		let b1 = -2.0 * omega_0.cos();
 		let b2 = 1.0;
 		let a0 = 1.0 + alpha;
 		let a1 = -2.0 * omega_0.cos();
@@ -472,11 +440,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Set the filter to a RBJ lowpass filter. You can use [`Self::Q1`] as a starting point for the Q value.
-	pub fn set_to_lowpass(
-		&mut self,
-		cutoff: f32,
-		q: f32,
-	) {
+	pub fn set_to_lowpass(&mut self, cutoff: f32, q: f32) {
 		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
 		let alpha = omega_0.sin() / (2.0 * q);
 
@@ -484,7 +448,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		let b1 = b0 * 2.0;
 		let b2 = b0;
 		let a0 = 1.0 + alpha;
-		let a1 = - 2.0 * omega_0.cos();
+		let a1 = -2.0 * omega_0.cos();
 		let a2 = 1.0 - alpha;
 
 		self.b = [b0 / a0, b1 / a0, b2 / a0];
@@ -492,19 +456,15 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Set the filter to a RBJ highpass filter. You can use [`Self::Q1`] as a starting point for the Q value.
-	pub fn set_to_highpass(
-		&mut self,
-		cutoff: f32,
-		q: f32,
-	) {
+	pub fn set_to_highpass(&mut self, cutoff: f32, q: f32) {
 		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
 		let alpha = omega_0.sin() / (2.0 * q);
 
 		let b0 = (1.0 + omega_0.cos()) / 2.0;
-		let b1 = - b0 * 2.0;
+		let b1 = -b0 * 2.0;
 		let b2 = b0;
 		let a0 = 1.0 + alpha;
-		let a1 = - 2.0 * omega_0.cos();
+		let a1 = -2.0 * omega_0.cos();
 		let a2 = 1.0 - alpha;
 
 		self.b = [b0 / a0, b1 / a0, b2 / a0];
@@ -512,92 +472,61 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Create a RBJ peak filter with given parameters.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0
-	pub fn peak(
-		sample_rate: usize, 
-		cutoff: f32, 
-		gain_db: f32, 
-		bandwidth: f32, 
-	) -> Self {
+	pub fn peak(sample_rate: usize, cutoff: f32, gain_db: f32, bandwidth: f32) -> Self {
 		let mut filter = Self::new(sample_rate);
 		filter.set_to_peak(cutoff, gain_db, bandwidth);
 		filter
 	}
 
 	/// Create a RBJ low shelf filter with given parameters.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0
-	pub fn low_shelf(
-		sample_rate: usize, 
-		cutoff: f32, 
-		gain_db: f32, 
-		slope_param: f32, 
-	) -> Self {
+	pub fn low_shelf(sample_rate: usize, cutoff: f32, gain_db: f32, slope_param: f32) -> Self {
 		let mut filter = Self::new(sample_rate);
 		filter.set_to_low_shelf(cutoff, gain_db, slope_param);
 		filter
 	}
 
 	/// Create a RBJ high shelf filter with given parameters.
-	pub fn high_shelf(
-		sample_rate: usize, 
-		cutoff: f32, 
-		gain_db: f32, 
-		slope_param: f32, 
-	) -> Self {
+	pub fn high_shelf(sample_rate: usize, cutoff: f32, gain_db: f32, slope_param: f32) -> Self {
 		let mut filter = Self::new(sample_rate);
 		filter.set_to_high_shelf(cutoff, gain_db, slope_param);
 		filter
 	}
-	
+
 	/// Create a RBJ bandpass filter with given parameters.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0
-	pub fn bandpass(
-		sample_rate: usize, 
-		cutoff: f32, 
-		bandwidth: f32,
-	) -> Self {
+	pub fn bandpass(sample_rate: usize, cutoff: f32, bandwidth: f32) -> Self {
 		let mut filter = Self::new(sample_rate);
 		filter.set_to_bandpass(cutoff, bandwidth);
 		filter
 	}
 
 	/// Create a RBJ bandstop filter with given parameters.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0
-	pub fn bandstop(
-		sample_rate: usize, 
-		cutoff: f32, 
-		bandwidth: f32,
-	) -> Self {
+	pub fn bandstop(sample_rate: usize, cutoff: f32, bandwidth: f32) -> Self {
 		let mut filter = Self::new(sample_rate);
 		filter.set_to_bandstop(cutoff, bandwidth);
 		filter
 	}
 
 	/// Create a RBJ lowpass filter with given parameters.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0
-	pub fn lowpass(
-		sample_rate: usize, 
-		cutoff: f32, 
-		q: f32,
-	) -> Self {
+	pub fn lowpass(sample_rate: usize, cutoff: f32, q: f32) -> Self {
 		let mut filter = Self::new(sample_rate);
 		filter.set_to_lowpass(cutoff, q);
 		filter
 	}
 
 	/// Create a RBJ highpass filter with given parameters.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0
-	pub fn highpass(
-		sample_rate: usize, 
-		cutoff: f32, 
-		q: f32,
-	) -> Self {
+	pub fn highpass(sample_rate: usize, cutoff: f32, q: f32) -> Self {
 		let mut filter = Self::new(sample_rate);
 		filter.set_to_highpass(cutoff, q);
 		filter
@@ -606,7 +535,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 
 impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	/// Create a new instance of the Biquad filter.
-	/// 
+	///
 	/// Panics the program if `CHANNELS` is 0.
 	pub const fn new(sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -626,7 +555,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Calculate the amplitude response of the filter.
-	/// 
+	///
 	/// Returns original value rather than dB value.
 	pub fn amplitude_response(&self, frequency: f32) -> f32 {
 		let frequency = 2.0 * PI * frequency / self.sample_rate as f32;
@@ -635,7 +564,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		let sin_f = frequency.sin();
 		let cos_2f = 2.0 * cos_f * cos_f - 1.0;
 		let sin_2f = 2.0 * cos_f * sin_f;
-		
+
 		let n = (self.b[0] + self.b[1] * cos_f + self.b[2] * cos_2f)
 			.hypot(self.b[1] * sin_f + self.b[2] * sin_2f);
 
@@ -646,7 +575,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Calculate the phase response of the filter.
-	/// 
+	///
 	/// Returns phase in radians.
 	pub fn phase_response(&self, frequency: f32) -> f32 {
 		let frequency = 2.0 * PI * frequency / self.sample_rate as f32;
@@ -657,16 +586,16 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		let sin_2f = 2.0 * cos_f * sin_f;
 
 		let real_n = self.b[0] + self.b[1] * cos_f + self.b[2] * cos_2f;
-		let imag_n = - (self.b[1] * sin_f + self.b[2] * sin_2f);
-		
+		let imag_n = -(self.b[1] * sin_f + self.b[2] * sin_2f);
+
 		let real_d = 1.0 + self.a[0] * cos_f + self.a[1] * cos_2f;
-		let imag_d = - (self.a[0] * sin_f + self.a[1] * sin_2f);
+		let imag_d = -(self.a[0] * sin_f + self.a[1] * sin_2f);
 
 		(imag_n.atan2(real_n) - imag_d.atan2(real_d)).rem_euclid(2.0 * PI)
 	}
 
 	/// Calculate the complex response of the filter.
-	/// 
+	///
 	/// Returns a tuple of the amplitude and phase in radians.
 	pub fn complex_response(&self, frequency: f32) -> (f32, f32) {
 		let frequency = 2.0 * PI * frequency / self.sample_rate as f32;
@@ -677,10 +606,10 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		let sin_2f = 2.0 * cos_f * sin_f;
 
 		let real_n = self.b[0] + self.b[1] * cos_f + self.b[2] * cos_2f;
-		let imag_n = - (self.b[1] * sin_f + self.b[2] * sin_2f);
-		
+		let imag_n = -(self.b[1] * sin_f + self.b[2] * sin_2f);
+
 		let real_d = 1.0 + self.a[0] * cos_f + self.a[1] * cos_2f;
-		let imag_d = - (self.a[0] * sin_f + self.a[1] * sin_2f);
+		let imag_d = -(self.a[0] * sin_f + self.a[1] * sin_2f);
 
 		let amplitude = real_n.hypot(imag_n) / real_d.hypot(imag_d);
 		let phase = (imag_n.atan2(real_n) - imag_d.atan2(real_d)).rem_euclid(2.0 * PI);
@@ -706,7 +635,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	}
 
 	/// Transform the filter to a allpass filter, in most cases....
-	/// 
+	///
 	/// It's equivalent to the transform $Y\[n\] = 1 - 2 Filter(X\[n\])$
 	pub fn transform_to_allpass(&mut self) {
 		self.b[0] = 2.0 * self.b[0] - 1.0;
@@ -740,9 +669,7 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 
 		for channel in 0..CHANNELS {
 			let x = input[channel];
-			let y = self.b[0] * x
-				+ self.b[1] * self.x[0][channel]
-				+ self.b[2] * self.x[1][channel]
+			let y = self.b[0] * x + self.b[1] * self.x[0][channel] + self.b[2] * self.x[1][channel]
 				- self.a[0] * self.y[0][channel]
 				- self.a[1] * self.y[1][channel];
 
@@ -767,7 +694,12 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 		0
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		for i in (0..CHANNELS).step_by(4) {
 			let sample = f32x4::from(&samples[i..(i + 4).min(CHANNELS)]);
 			let x_0 = f32x4::from(&self.x[0][i..(i + 4).min(CHANNELS)]);
@@ -775,12 +707,9 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 			let y_0 = f32x4::from(&self.y[0][i..(i + 4).min(CHANNELS)]);
 			let y_1 = f32x4::from(&self.y[1][i..(i + 4).min(CHANNELS)]);
 
-			let output = 
-				self.b[0] * sample + 
-				self.b[1] * x_0 + 
-				self.b[2] * x_1 - 
-				self.a[0] * y_0 - 
-				self.a[1] * y_1;
+			let output = self.b[0] * sample + self.b[1] * x_0 + self.b[2] * x_1
+				- self.a[0] * y_0
+				- self.a[1] * y_1;
 
 			let output = output.to_array();
 			for j in 0..4.min(CHANNELS - i) {
@@ -795,13 +724,13 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 
 		// // TODO: implement SIMD version of this filter
 		// for (i, sample) in samples.iter_mut().enumerate() {
-		// 	let output = 
-		// 		self.b[0] * *sample + 
-		// 		self.b[1] * self.x[0][i] + 
-		// 		self.b[2] * self.x[1][i] - 
-		// 		self.a[0] * self.y[0][i] - 
+		// 	let output =
+		// 		self.b[0] * *sample +
+		// 		self.b[1] * self.x[0][i] +
+		// 		self.b[2] * self.x[1][i] -
+		// 		self.a[0] * self.y[0][i] -
 		// 		self.a[1] * self.y[1][i];
-			
+
 		// 	let output = if output.is_nan() { 0.0 } else { output };
 
 		// 	self.x[1][i] = self.x[0][i];
@@ -815,8 +744,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::*;
 		use crate::tools::ui_tools::draw_complex_response;
+		use egui::*;
 		use std::ops::RangeInclusive;
 
 		type ChangeFunc<const CHANNELS: usize> = Box<dyn Fn(&mut Biquad<CHANNELS>, f32)>;
@@ -824,10 +753,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 		type ChangeFunc3<const CHANNELS: usize> = Box<dyn Fn(&mut Biquad<CHANNELS>, f32, f32, f32)>;
 
 		fn cutoff_ui<const CHANNELS: usize>(
-			ui: &mut egui::Ui, 
-			cutoff: &mut f32, 
+			ui: &mut egui::Ui,
+			cutoff: &mut f32,
 			max_freq: f32,
-			change_func: ChangeFunc<CHANNELS>
+			change_func: ChangeFunc<CHANNELS>,
 		) -> Option<(ChangeFunc<CHANNELS>, f32)> {
 			let mut cutoff_backup = *cutoff;
 			let slider = Slider::new(&mut cutoff_backup, 10.0..=max_freq - MIN_FREQUENCY)
@@ -843,13 +772,13 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 		}
 
 		fn cutoff_q_ui<const CHANNELS: usize>(
-			ui: &mut egui::Ui, 
+			ui: &mut egui::Ui,
 			cutoff: &mut f32,
 			q: &mut f32,
 			q_range: RangeInclusive<f32>,
 			q_text: impl Into<String>,
 			max_freq: f32,
-			change_func: ChangeFunc2<CHANNELS>
+			change_func: ChangeFunc2<CHANNELS>,
 		) -> Option<(ChangeFunc2<CHANNELS>, f32, f32)> {
 			let mut cutoff_backup = *cutoff;
 			let slider = Slider::new(&mut cutoff_backup, 10.0..=max_freq - MIN_FREQUENCY)
@@ -873,7 +802,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 		}
 
 		fn simulate_ui<const CHANNELS: usize>(
-			ui: &mut egui::Ui, 
+			ui: &mut egui::Ui,
 			params: (&mut f32, &mut f32, &mut f32),
 			max_freq: f32,
 			factor_range: RangeInclusive<f32>,
@@ -892,8 +821,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 			let slider_cutoff = Slider::new(&mut cutoff_backup, 10.0..=max_freq - MIN_FREQUENCY)
 				.text(cutoff_text)
 				.logarithmic(true);
-			let slider_gain = Slider::new(&mut gain_backup, -12.0..=6.0)
-				.text(gain_text);
+			let slider_gain = Slider::new(&mut gain_backup, -12.0..=6.0).text(gain_text);
 			let factor_log = *factor_range.end() > 1000.0;
 			let slider_factor = Slider::new(&mut factor_backup, factor_range)
 				.text(factor_text)
@@ -913,37 +841,62 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 			}
 		}
 
-		egui::Resize::default().resizable([false, true])
+		egui::Resize::default()
+			.resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_filter"))
-			.show(ui, |ui| 
-		{
-			draw_complex_response(ui, self.sample_rate, |freq| self.complex_response(freq));
-		});
+			.show(ui, |ui| {
+				draw_complex_response(ui, self.sample_rate, |freq| self.complex_response(freq));
+			});
 
 		ScrollArea::horizontal().show(ui, |ui| {
 			ui.horizontal(|ui| {
-				if ui.selectable_label(matches!(self.gui_state.filter_type, FilterType::ByPass), "Bypass").clicked() {
+				if ui
+					.selectable_label(
+						matches!(self.gui_state.filter_type, FilterType::ByPass),
+						"Bypass",
+					)
+					.clicked()
+				{
 					self.gui_state.filter_type = FilterType::ByPass;
 					self.b = [1.0, 0.0, 0.0];
 					self.a = [0.0, 0.0];
 				}
-				if ui.selectable_label(matches!(self.gui_state.filter_type, FilterType::Butterworth(_)), "Butterworth").clicked() {
-					self.gui_state.filter_type = FilterType::Butterworth(Butterworth::Lowpass { cutoff: 1000.0 });
+				if ui
+					.selectable_label(
+						matches!(self.gui_state.filter_type, FilterType::Butterworth(_)),
+						"Butterworth",
+					)
+					.clicked()
+				{
+					self.gui_state.filter_type =
+						FilterType::Butterworth(Butterworth::Lowpass { cutoff: 1000.0 });
 					self.set_to_butterworth_lowpass(1000.0);
 				}
 
-				if ui.selectable_label(matches!(self.gui_state.filter_type, FilterType::Rbj(_)), "Rbj").clicked() {
-					self.gui_state.filter_type = FilterType::Rbj(RBJFilter::Lowpass { cutoff: 1000.0 , q: Self::Q1 });
+				if ui
+					.selectable_label(
+						matches!(self.gui_state.filter_type, FilterType::Rbj(_)),
+						"Rbj",
+					)
+					.clicked()
+				{
+					self.gui_state.filter_type = FilterType::Rbj(RBJFilter::Lowpass {
+						cutoff: 1000.0,
+						q: Self::Q1,
+					});
 					self.set_to_lowpass(1000.0, Self::Q1);
 				}
 
-				if ui.selectable_label(self.gui_state.allpass_mode, "Allpass").clicked() {
+				if ui
+					.selectable_label(self.gui_state.allpass_mode, "Allpass")
+					.clicked()
+				{
 					self.gui_state.allpass_mode = !self.gui_state.allpass_mode;
 					if self.gui_state.allpass_mode {
 						self.transform_to_allpass();
-					}else {
+					} else {
 						self.gui_state.filter_type = FilterType::ByPass;
 						self.b = [1.0, 0.0, 0.0];
 						self.a = [0.0, 0.0];
@@ -952,63 +905,152 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 			});
 
 			fn butterworth_gui<const CHANNELS: usize>(
-				ui: &mut egui::Ui, 
+				ui: &mut egui::Ui,
 				butterworth: &mut Butterworth,
-				sample_rate: usize
+				sample_rate: usize,
 			) -> Option<Biquad<CHANNELS>> {
 				let mut output = None;
-				if ui.selectable_label(matches!(butterworth, Butterworth::Lowpass { .. }), "Lowpass").clicked() {
+				if ui
+					.selectable_label(
+						matches!(butterworth, Butterworth::Lowpass { .. }),
+						"Lowpass",
+					)
+					.clicked()
+				{
 					*butterworth = Butterworth::Lowpass { cutoff: 1000.0 };
-					output = Some(Biquad::butterworth_lowpass(sample_rate, 1000.0, 1).pop().unwrap())
+					output = Some(
+						Biquad::butterworth_lowpass(sample_rate, 1000.0, 1)
+							.pop()
+							.unwrap(),
+					)
 				}
-				if ui.selectable_label(matches!(butterworth, Butterworth::Highpass { .. }), "Highpass").clicked() {
+				if ui
+					.selectable_label(
+						matches!(butterworth, Butterworth::Highpass { .. }),
+						"Highpass",
+					)
+					.clicked()
+				{
 					*butterworth = Butterworth::Highpass { cutoff: 1000.0 };
-					output = Some(Biquad::butterworth_highpass(sample_rate, 1000.0, 1).pop().unwrap())
+					output = Some(
+						Biquad::butterworth_highpass(sample_rate, 1000.0, 1)
+							.pop()
+							.unwrap(),
+					)
 				}
-				if ui.selectable_label(matches!(butterworth, Butterworth::Bandpass { .. }), "Bandpass").clicked() {
+				if ui
+					.selectable_label(
+						matches!(butterworth, Butterworth::Bandpass { .. }),
+						"Bandpass",
+					)
+					.clicked()
+				{
 					*butterworth = Butterworth::Bandpass { cutoff: 1000.0 };
-					output = Some(Biquad::butterworth_bandpass(sample_rate, 1000.0, 1).pop().unwrap())
+					output = Some(
+						Biquad::butterworth_bandpass(sample_rate, 1000.0, 1)
+							.pop()
+							.unwrap(),
+					)
 				}
-				if ui.selectable_label(matches!(butterworth, Butterworth::Bandstop { .. }), "Bandstop").clicked() {
+				if ui
+					.selectable_label(
+						matches!(butterworth, Butterworth::Bandstop { .. }),
+						"Bandstop",
+					)
+					.clicked()
+				{
 					*butterworth = Butterworth::Bandstop { cutoff: 1000.0 };
-					output = Some(Biquad::butterworth_bandstop(sample_rate, 1000.0, 1).pop().unwrap())
+					output = Some(
+						Biquad::butterworth_bandstop(sample_rate, 1000.0, 1)
+							.pop()
+							.unwrap(),
+					)
 				}
 
 				output
 			}
 
 			fn rbj_gui<const CHANNELS: usize>(
-				ui: &mut egui::Ui, 
+				ui: &mut egui::Ui,
 				rbj: &mut RBJFilter,
-				sample_rate: usize
+				sample_rate: usize,
 			) -> Option<Biquad<CHANNELS>> {
 				let mut output = None;
-				if ui.selectable_label(matches!(rbj, RBJFilter::Lowpass { .. }), "Lowpass").clicked() {
-					*rbj = RBJFilter::Lowpass { cutoff: 1000.0, q: Biquad::<CHANNELS>::Q1 };
+				if ui
+					.selectable_label(matches!(rbj, RBJFilter::Lowpass { .. }), "Lowpass")
+					.clicked()
+				{
+					*rbj = RBJFilter::Lowpass {
+						cutoff: 1000.0,
+						q: Biquad::<CHANNELS>::Q1,
+					};
 					output = Some(Biquad::lowpass(sample_rate, 1000.0, Biquad::<CHANNELS>::Q1))
 				}
-				if ui.selectable_label(matches!(rbj, RBJFilter::Highpass { .. }), "Highpass").clicked() {
-					*rbj = RBJFilter::Highpass { cutoff: 1000.0, q: Biquad::<CHANNELS>::Q1 };
-					output = Some(Biquad::highpass(sample_rate, 1000.0, Biquad::<CHANNELS>::Q1))
+				if ui
+					.selectable_label(matches!(rbj, RBJFilter::Highpass { .. }), "Highpass")
+					.clicked()
+				{
+					*rbj = RBJFilter::Highpass {
+						cutoff: 1000.0,
+						q: Biquad::<CHANNELS>::Q1,
+					};
+					output = Some(Biquad::highpass(
+						sample_rate,
+						1000.0,
+						Biquad::<CHANNELS>::Q1,
+					))
 				}
-				if ui.selectable_label(matches!(rbj, RBJFilter::Bandpass { .. }), "Bandpass").clicked() {
-					*rbj = RBJFilter::Bandpass { cutoff: 1000.0, q: Biquad::<CHANNELS>::Q1 };
+				if ui
+					.selectable_label(matches!(rbj, RBJFilter::Bandpass { .. }), "Bandpass")
+					.clicked()
+				{
+					*rbj = RBJFilter::Bandpass {
+						cutoff: 1000.0,
+						q: Biquad::<CHANNELS>::Q1,
+					};
 					output = Some(Biquad::bandpass(sample_rate, 1000.0, 100.0))
 				}
-				if ui.selectable_label(matches!(rbj, RBJFilter::Bandstop { .. }), "Bandstop").clicked() {
-					*rbj = RBJFilter::Bandstop { cutoff: 1000.0, q: Biquad::<CHANNELS>::Q1 };
+				if ui
+					.selectable_label(matches!(rbj, RBJFilter::Bandstop { .. }), "Bandstop")
+					.clicked()
+				{
+					*rbj = RBJFilter::Bandstop {
+						cutoff: 1000.0,
+						q: Biquad::<CHANNELS>::Q1,
+					};
 					output = Some(Biquad::bandstop(sample_rate, 1000.0, 100.0))
 				}
-				if ui.selectable_label(matches!(rbj, RBJFilter::Peak { .. }), "Peak").clicked() {
-					*rbj = RBJFilter::Peak { cutoff: 1000.0, gain: -3.01, bandwidth: 100.0 };
+				if ui
+					.selectable_label(matches!(rbj, RBJFilter::Peak { .. }), "Peak")
+					.clicked()
+				{
+					*rbj = RBJFilter::Peak {
+						cutoff: 1000.0,
+						gain: -3.01,
+						bandwidth: 100.0,
+					};
 					output = Some(Biquad::peak(sample_rate, 1000.0, -3.01, 100.0))
 				}
-				if ui.selectable_label(matches!(rbj, RBJFilter::LowShelf { .. }), "LowShelf").clicked() {
-					*rbj = RBJFilter::LowShelf { cutoff: 1000.0, gain: -3.01, slope: 1.5 };
+				if ui
+					.selectable_label(matches!(rbj, RBJFilter::LowShelf { .. }), "LowShelf")
+					.clicked()
+				{
+					*rbj = RBJFilter::LowShelf {
+						cutoff: 1000.0,
+						gain: -3.01,
+						slope: 1.5,
+					};
 					output = Some(Biquad::low_shelf(sample_rate, 1000.0, -3.01, 1.5))
 				}
-				if ui.selectable_label(matches!(rbj, RBJFilter::HighShelf { .. }), "HighShelf").clicked() {
-					*rbj = RBJFilter::HighShelf { cutoff: 1000.0, gain: -3.01, slope: 1.5 };
+				if ui
+					.selectable_label(matches!(rbj, RBJFilter::HighShelf { .. }), "HighShelf")
+					.clicked()
+				{
+					*rbj = RBJFilter::HighShelf {
+						cutoff: 1000.0,
+						gain: -3.01,
+						slope: 1.5,
+					};
 					output = Some(Biquad::high_shelf(sample_rate, 1000.0, -3.01, 1.5))
 				}
 
@@ -1017,16 +1059,17 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 
 			let mut need_change: Option<Biquad<CHANNELS>> = None;
 
-			ui.horizontal(|ui| {
-				match &mut self.gui_state.filter_type {
-					FilterType::Butterworth(inner) => {
-						need_change = need_change.take().or(butterworth_gui(ui, inner, self.sample_rate));
-					}
-					FilterType::Rbj(inner) => {
-						need_change = need_change.take().or(rbj_gui(ui, inner, self.sample_rate))
-					}
-					FilterType::ByPass => {},
+			ui.horizontal(|ui| match &mut self.gui_state.filter_type {
+				FilterType::Butterworth(inner) => {
+					need_change =
+						need_change
+							.take()
+							.or(butterworth_gui(ui, inner, self.sample_rate));
 				}
+				FilterType::Rbj(inner) => {
+					need_change = need_change.take().or(rbj_gui(ui, inner, self.sample_rate))
+				}
+				FilterType::ByPass => {}
 			});
 
 			if let Some(biquad) = need_change {
@@ -1047,111 +1090,123 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Biquad<CHANNELS> {
 			match &mut self.gui_state.filter_type {
 				FilterType::ByPass => {
 					ui.label("Bypassed");
-				},
+				}
 				FilterType::Butterworth(Butterworth::Lowpass { cutoff }) => {
 					change_cutoff = change_cutoff.take().or(cutoff_ui(
-						ui, 
-						cutoff, 
-						max_freq, 
-						Box::new(Self::set_to_butterworth_lowpass)
+						ui,
+						cutoff,
+						max_freq,
+						Box::new(Self::set_to_butterworth_lowpass),
 					));
-				},
+				}
 				FilterType::Butterworth(Butterworth::Highpass { cutoff }) => {
 					change_cutoff = change_cutoff.take().or(cutoff_ui(
-						ui, 
-						cutoff, 
-						max_freq, 
-						Box::new(Self::set_to_butterworth_highpass)
+						ui,
+						cutoff,
+						max_freq,
+						Box::new(Self::set_to_butterworth_highpass),
 					));
-				},
+				}
 				FilterType::Butterworth(Butterworth::Bandpass { cutoff }) => {
 					change_cutoff = change_cutoff.take().or(cutoff_ui(
-						ui, 
+						ui,
 						cutoff,
 						max_freq,
-						Box::new(Self::set_to_butterworth_bandpass)
+						Box::new(Self::set_to_butterworth_bandpass),
 					));
-				},
+				}
 				FilterType::Butterworth(Butterworth::Bandstop { cutoff }) => {
 					change_cutoff = change_cutoff.take().or(cutoff_ui(
-						ui, 
-						cutoff, 
-						max_freq, 
-						Box::new(Self::set_to_butterworth_bandstop)
+						ui,
+						cutoff,
+						max_freq,
+						Box::new(Self::set_to_butterworth_bandstop),
 					));
-				},
+				}
 				FilterType::Rbj(RBJFilter::Lowpass { cutoff, q }) => {
 					change_cutoff_q = change_cutoff_q.take().or(cutoff_q_ui(
-						ui, 
+						ui,
 						cutoff,
 						q,
 						0.01..=10.0,
 						"Q",
 						max_freq,
-						Box::new(Self::set_to_lowpass)
+						Box::new(Self::set_to_lowpass),
 					));
-				},
+				}
 				FilterType::Rbj(RBJFilter::Highpass { cutoff, q }) => {
 					change_cutoff_q = change_cutoff_q.take().or(cutoff_q_ui(
-						ui, 
+						ui,
 						cutoff,
 						q,
 						0.01..=10.0,
 						"Q",
 						max_freq,
-						Box::new(Self::set_to_highpass)
+						Box::new(Self::set_to_highpass),
 					));
-				},
+				}
 				FilterType::Rbj(RBJFilter::Bandpass { cutoff, q }) => {
 					change_cutoff_q = change_cutoff_q.take().or(cutoff_q_ui(
-						ui, 
+						ui,
 						cutoff,
 						q,
 						MIN_FREQUENCY..=10000.0,
 						"BandWidth",
 						max_freq,
-						Box::new(Self::set_to_bandpass)
+						Box::new(Self::set_to_bandpass),
 					));
-				},
+				}
 				FilterType::Rbj(RBJFilter::Bandstop { cutoff, q }) => {
 					change_cutoff_q = change_cutoff_q.take().or(cutoff_q_ui(
-						ui, 
+						ui,
 						cutoff,
 						q,
 						MIN_FREQUENCY..=10000.0,
 						"BandWidth",
 						max_freq,
-						Box::new(Self::set_to_bandstop)
+						Box::new(Self::set_to_bandstop),
 					));
-				},
-				FilterType::Rbj(RBJFilter::Peak { cutoff, gain, bandwidth }) => {
+				}
+				FilterType::Rbj(RBJFilter::Peak {
+					cutoff,
+					gain,
+					bandwidth,
+				}) => {
 					change_simulated = change_simulated.take().or(simulate_ui(
-						ui, 
+						ui,
 						(cutoff, gain, bandwidth),
 						max_freq,
 						MIN_FREQUENCY..=10000.0,
 						vec!["Cutoff", "Gain(dB)", "Bandwidth"],
-						Box::new(Self::set_to_peak)
+						Box::new(Self::set_to_peak),
 					));
-				},
-				FilterType::Rbj(RBJFilter::LowShelf { cutoff, gain, slope }) => {
+				}
+				FilterType::Rbj(RBJFilter::LowShelf {
+					cutoff,
+					gain,
+					slope,
+				}) => {
 					change_simulated = change_simulated.take().or(simulate_ui(
-						ui, 
+						ui,
 						(cutoff, gain, slope),
 						max_freq,
 						0.5..=2.0,
 						vec!["Cutoff", "Gain(dB)", "Slope"],
-						Box::new(Self::set_to_low_shelf)
+						Box::new(Self::set_to_low_shelf),
 					));
-				},
-				FilterType::Rbj(RBJFilter::HighShelf { cutoff, gain, slope }) => {
+				}
+				FilterType::Rbj(RBJFilter::HighShelf {
+					cutoff,
+					gain,
+					slope,
+				}) => {
 					change_simulated = change_simulated.take().or(simulate_ui(
-						ui, 
+						ui,
 						(cutoff, gain, slope),
 						max_freq,
 						0.5..=2.0,
 						vec!["Cutoff", "Gain(dB)", "Slope"],
-						Box::new(Self::set_to_high_shelf)
+						Box::new(Self::set_to_high_shelf),
 					));
 				}
 			}
@@ -1236,8 +1291,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Lowpass<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
@@ -1250,20 +1305,25 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Lowpass<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::Slider;
 		use crate::tools::ui_tools::draw_complex_response;
+		use egui::Slider;
 
-		egui::Resize::default().resizable([false, true])
+		egui::Resize::default()
+			.resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_lowpass_resize"))
-			.show(ui, |ui| 
-		{
-
-			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
-		});
+			.show(ui, |ui| {
+				draw_complex_response(ui, self.filter.sample_rate, |freq| {
+					self.filter.complex_response(freq)
+				});
+			});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
+			ui.add(
+				Slider::new(&mut self.cutoff, 10.0..=21000.0)
+					.text("Cutoff")
+					.logarithmic(true),
+			);
 			ui.add(Slider::new(&mut self.q, 0.01..=10.0).text("Q"));
 		});
 	}
@@ -1312,8 +1372,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Highpass<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
@@ -1326,20 +1386,25 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Highpass<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::Slider;
 		use crate::tools::ui_tools::draw_complex_response;
+		use egui::Slider;
 
-		egui::Resize::default().resizable([false, true])
+		egui::Resize::default()
+			.resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_lowpass_resize"))
-			.show(ui, |ui| 
-		{
-
-			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
-		});
+			.show(ui, |ui| {
+				draw_complex_response(ui, self.filter.sample_rate, |freq| {
+					self.filter.complex_response(freq)
+				});
+			});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
+			ui.add(
+				Slider::new(&mut self.cutoff, 10.0..=21000.0)
+					.text("Cutoff")
+					.logarithmic(true),
+			);
 			ui.add(Slider::new(&mut self.q, 0.01..=10.0).text("Q"));
 		});
 	}
@@ -1390,8 +1455,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Bandpass<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
@@ -1404,21 +1469,30 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Bandpass<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::Slider;
 		use crate::tools::ui_tools::draw_complex_response;
+		use egui::Slider;
 
-		egui::Resize::default().resizable([false, true])
+		egui::Resize::default()
+			.resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_lowpass_resize"))
-			.show(ui, |ui| 
-		{
-
-			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
-		});
+			.show(ui, |ui| {
+				draw_complex_response(ui, self.filter.sample_rate, |freq| {
+					self.filter.complex_response(freq)
+				});
+			});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
-			ui.add(Slider::new(&mut self.bandwidth, 10.0..=10000.0).text("Bandwidth").logarithmic(true));
+			ui.add(
+				Slider::new(&mut self.cutoff, 10.0..=21000.0)
+					.text("Cutoff")
+					.logarithmic(true),
+			);
+			ui.add(
+				Slider::new(&mut self.bandwidth, 10.0..=10000.0)
+					.text("Bandwidth")
+					.logarithmic(true),
+			);
 		});
 	}
 }
@@ -1462,8 +1536,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Bandstop<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
@@ -1473,21 +1547,30 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Bandstop<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::Slider;
 		use crate::tools::ui_tools::draw_complex_response;
+		use egui::Slider;
 
-		egui::Resize::default().resizable([false, true])
+		egui::Resize::default()
+			.resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_lowpass_resize"))
-			.show(ui, |ui| 
-		{
-
-			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
-		});
+			.show(ui, |ui| {
+				draw_complex_response(ui, self.filter.sample_rate, |freq| {
+					self.filter.complex_response(freq)
+				});
+			});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
-			ui.add(Slider::new(&mut self.bandwidth, 10.0..=10000.0).text("Bandwidth").logarithmic(true));
+			ui.add(
+				Slider::new(&mut self.cutoff, 10.0..=21000.0)
+					.text("Cutoff")
+					.logarithmic(true),
+			);
+			ui.add(
+				Slider::new(&mut self.bandwidth, 10.0..=10000.0)
+					.text("Bandwidth")
+					.logarithmic(true),
+			);
 		});
 	}
 }
@@ -1542,13 +1625,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Peak<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
 		if self.cached != Some((self.cutoff, self.gain, self.bandwidth)) {
-			self.filter.set_to_peak(self.cutoff, self.gain, self.bandwidth);
+			self.filter
+				.set_to_peak(self.cutoff, self.gain, self.bandwidth);
 			self.cached = Some((self.cutoff, self.gain, self.bandwidth));
 		}
 		self.filter.process(samples, other, process_context);
@@ -1556,22 +1640,35 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Peak<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::Slider;
 		use crate::tools::ui_tools::draw_complex_response;
+		use egui::Slider;
 
-		egui::Resize::default().resizable([false, true])
+		egui::Resize::default()
+			.resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_lowpass_resize"))
-			.show(ui, |ui| 
-		{
-
-			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
-		});
+			.show(ui, |ui| {
+				draw_complex_response(ui, self.filter.sample_rate, |freq| {
+					self.filter.complex_response(freq)
+				});
+			});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
-			ui.add(Slider::new(&mut self.gain, 0.01..=4.0).text("Gain").logarithmic(true));
-			ui.add(Slider::new(&mut self.bandwidth, 10.0..=10000.0).text("Bandwidth").logarithmic(true));
+			ui.add(
+				Slider::new(&mut self.cutoff, 10.0..=21000.0)
+					.text("Cutoff")
+					.logarithmic(true),
+			);
+			ui.add(
+				Slider::new(&mut self.gain, 0.01..=4.0)
+					.text("Gain")
+					.logarithmic(true),
+			);
+			ui.add(
+				Slider::new(&mut self.bandwidth, 10.0..=10000.0)
+					.text("Bandwidth")
+					.logarithmic(true),
+			);
 		});
 	}
 }
@@ -1624,13 +1721,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HighShelf<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
 		if self.cached != Some((self.cutoff, self.gain, self.slope)) {
-			self.filter.set_to_high_shelf(self.cutoff, self.gain, self.slope);
+			self.filter
+				.set_to_high_shelf(self.cutoff, self.gain, self.slope);
 			self.cached = Some((self.cutoff, self.gain, self.slope));
 		}
 		self.filter.process(samples, other, process_context);
@@ -1638,20 +1736,30 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HighShelf<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::Slider;
 		use crate::tools::ui_tools::draw_complex_response;
+		use egui::Slider;
 
-		egui::Resize::default().resizable([false, true])
+		egui::Resize::default()
+			.resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_lowpass_resize"))
-			.show(ui, |ui| 
-		{
-			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
-		});
+			.show(ui, |ui| {
+				draw_complex_response(ui, self.filter.sample_rate, |freq| {
+					self.filter.complex_response(freq)
+				});
+			});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
-			ui.add(Slider::new(&mut self.gain, 0.01..=4.0).text("Gain").logarithmic(true));
+			ui.add(
+				Slider::new(&mut self.cutoff, 10.0..=21000.0)
+					.text("Cutoff")
+					.logarithmic(true),
+			);
+			ui.add(
+				Slider::new(&mut self.gain, 0.01..=4.0)
+					.text("Gain")
+					.logarithmic(true),
+			);
 			ui.add(Slider::new(&mut self.slope, 0.5..=2.0).text("Slope"));
 		});
 	}
@@ -1705,13 +1813,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for LowShelf<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
 		if self.cached != Some((self.cutoff, self.gain, self.slope)) {
-			self.filter.set_to_low_shelf(self.cutoff, self.gain, self.slope);
+			self.filter
+				.set_to_low_shelf(self.cutoff, self.gain, self.slope);
 			self.cached = Some((self.cutoff, self.gain, self.slope));
 		}
 		self.filter.process(samples, other, process_context);
@@ -1719,20 +1828,30 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for LowShelf<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::Slider;
 		use crate::tools::ui_tools::draw_complex_response;
+		use egui::Slider;
 
-		egui::Resize::default().resizable([false, true])
+		egui::Resize::default()
+			.resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_lowpass_resize"))
-			.show(ui, |ui| 
-		{
-			draw_complex_response(ui, self.filter.sample_rate, |freq| self.filter.complex_response(freq));
-		});
+			.show(ui, |ui| {
+				draw_complex_response(ui, self.filter.sample_rate, |freq| {
+					self.filter.complex_response(freq)
+				});
+			});
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.cutoff, 10.0..=21000.0).text("Cutoff").logarithmic(true));
-			ui.add(Slider::new(&mut self.gain, 0.01..=4.0).text("Gain").logarithmic(true));
+			ui.add(
+				Slider::new(&mut self.cutoff, 10.0..=21000.0)
+					.text("Cutoff")
+					.logarithmic(true),
+			);
+			ui.add(
+				Slider::new(&mut self.gain, 0.01..=4.0)
+					.text("Gain")
+					.logarithmic(true),
+			);
 			ui.add(Slider::new(&mut self.slope, 0.5..=2.0).text("Slope"));
 		});
 	}
@@ -1754,7 +1873,7 @@ impl<const CHANNELS: usize> CombsFilter<CHANNELS> {
 	pub fn new(feedback: f32, delay_samples: usize) -> Self {
 		Self {
 			feedback,
-			history: core::array::from_fn(|_| RingBuffer::new(delay_samples))
+			history: core::array::from_fn(|_| RingBuffer::new(delay_samples)),
 		}
 	}
 
@@ -1789,8 +1908,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for CombsFilter<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		_: &[&[f32; CHANNELS]],
 		_: &mut Box<dyn ProcessContext>,
 	) {
@@ -1810,9 +1929,17 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for CombsFilter<CHANNELS> {
 		use egui::Slider;
 
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.feedback, 0.01..=0.99).text("Feedback").logarithmic(true));
+			ui.add(
+				Slider::new(&mut self.feedback, 0.01..=0.99)
+					.text("Feedback")
+					.logarithmic(true),
+			);
 			let mut delay_samples = self.delay_samples();
-			ui.add(Slider::new(&mut delay_samples, 16..=1024).logarithmic(true).text("Delay (samples)"));
+			ui.add(
+				Slider::new(&mut delay_samples, 16..=1024)
+					.logarithmic(true)
+					.text("Delay (samples)"),
+			);
 			if delay_samples != self.delay_samples() {
 				self.resize_history(delay_samples);
 			}
@@ -1882,8 +2009,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for AllpassFilter<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		_: &[&[f32; CHANNELS]],
 		_: &mut Box<dyn ProcessContext>,
 	) {
@@ -1891,7 +2018,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for AllpassFilter<CHANNELS> {
 			let processed = self.processed_history[i][0];
 			let unprocessed = self.unprocessed_history[i][0];
 			let sample_backup = *sample;
-			*sample = - *sample * self.feedback + unprocessed + self.feedback * processed;
+			*sample = -*sample * self.feedback + unprocessed + self.feedback * processed;
 			// See the combs filter: keep the loop out of the subnormal range.
 			if sample.abs() <= DENORMAL_THRESHOLD {
 				*sample = 0.0;
@@ -1906,16 +2033,23 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for AllpassFilter<CHANNELS> {
 		use egui::Slider;
 
 		ui.horizontal(|ui| {
-			ui.add(Slider::new(&mut self.feedback, 0.01..=0.99).text("Feedback").logarithmic(true));
+			ui.add(
+				Slider::new(&mut self.feedback, 0.01..=0.99)
+					.text("Feedback")
+					.logarithmic(true),
+			);
 			let mut delay_samples = self.delay_samples();
-			ui.add(Slider::new(&mut delay_samples, 16..=1024).logarithmic(true).text("Delay (samples)"));
+			ui.add(
+				Slider::new(&mut delay_samples, 16..=1024)
+					.logarithmic(true)
+					.text("Delay (samples)"),
+			);
 			if delay_samples != self.delay_samples() {
 				self.resize_history(delay_samples);
 			}
 		});
 	}
 }
-
 
 #[cfg(test)]
 mod tests {

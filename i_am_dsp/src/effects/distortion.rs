@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{prelude::MIN_FREQUENCY, Effect, ProcessContext};
+use crate::{Effect, ProcessContext, prelude::MIN_FREQUENCY};
 
 /// A Hard Clipper which clamps the signal between -threshold and threshold.
 #[derive(Parameters)]
@@ -31,12 +31,17 @@ impl HardClipper {
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for HardClipper {
-	fn process(&mut self, input: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		input: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		for val in input.iter_mut() {
 			*val = val.clamp(-self.threshold, self.threshold) * self.gain;
 		}
 	}
-	
+
 	fn delay(&self) -> usize {
 		0
 	}
@@ -48,15 +53,15 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HardClipper {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
-	use crate::tools::ui_tools::gain_ui;
+		use crate::tools::ui_tools::gain_ui;
 
 		ui.add(egui::Slider::new(&mut self.threshold, 0.0..=1.0).text("Threshold"));
 		gain_ui(ui, &mut self.gain, None, false);
-	}			
+	}
 }
 
 /// A Soft Clipper which saturates the signal at the threshold.
-/// 
+///
 /// The function is defined as: $f(x) := \tanh(x / \alpha)$
 #[derive(Parameters)]
 pub struct SoftClipper {
@@ -76,12 +81,17 @@ impl SoftClipper {
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for SoftClipper {
-	fn process(&mut self, input: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		input: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		for val in input.iter_mut() {
 			*val = (*val / self.alpha).tanh() * self.gain;
 		}
 	}
-	
+
 	fn delay(&self) -> usize {
 		0
 	}
@@ -95,9 +105,13 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for SoftClipper {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use crate::tools::ui_tools::gain_ui;
 
-		ui.add(egui::Slider::new(&mut self.alpha, 0.01..=1.0).text("Alpha").logarithmic(true));
+		ui.add(
+			egui::Slider::new(&mut self.alpha, 0.01..=1.0)
+				.text("Alpha")
+				.logarithmic(true),
+		);
 		gain_ui(ui, &mut self.gain, None, false);
-	}			
+	}
 }
 
 /// A clipper with two shapes: a hard one and a soft one.
@@ -174,7 +188,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Clipper {
 }
 
 /// An overdrive effect.
-/// 
+///
 /// The function is defined as: $f(x) := 2 / (1 + e^{-k x}) - 1$
 #[derive(Parameters)]
 pub struct Overdrive {
@@ -195,13 +209,18 @@ impl Overdrive {
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for Overdrive {
-	fn process(&mut self, input: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		input: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		for val in input.iter_mut() {
-			*val = 2.0 / (1.0 + (- *val * self.k).exp()) - 1.0;
+			*val = 2.0 / (1.0 + (-*val * self.k).exp()) - 1.0;
 			*val *= self.gain;
 		}
 	}
-	
+
 	fn delay(&self) -> usize {
 		0
 	}
@@ -215,13 +234,17 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Overdrive {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use crate::tools::ui_tools::gain_ui;
 
-		ui.add(egui::Slider::new(&mut self.k, 0.01..=10.0).text("k").logarithmic(true));
+		ui.add(
+			egui::Slider::new(&mut self.k, 0.01..=10.0)
+				.text("k")
+				.logarithmic(true),
+		);
 		gain_ui(ui, &mut self.gain, None, false);
-	}			
+	}
 }
 
 /// A Bit Crusher effect.
-/// 
+///
 /// The function is defined as: $f(x) := \operatorname{round}(x * bits) / bits$
 #[derive(Parameters)]
 pub struct BitCrusher {
@@ -242,13 +265,18 @@ impl BitCrusher {
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for BitCrusher {
-	fn process(&mut self, input: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		input: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		for val in input.iter_mut() {
 			*val = (self.bits as f32 * *val).round() / (self.bits as f32);
 			*val *= self.gain;
 		}
 	}
-	
+
 	fn delay(&self) -> usize {
 		0
 	}
@@ -262,13 +290,17 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for BitCrusher {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use crate::tools::ui_tools::gain_ui;
 
-		ui.add(egui::Slider::new(&mut self.bits, 1..=128).text("Bits").logarithmic(true));
+		ui.add(
+			egui::Slider::new(&mut self.bits, 1..=128)
+				.text("Bits")
+				.logarithmic(true),
+		);
 		gain_ui(ui, &mut self.gain, None, false);
-	}			
+	}
 }
 
 /// A Saturator effect.
-/// 
+///
 /// The function is defined as: $f(x) := \frac{x}{1 + \frac{|x|}{a}^p} \cdot (1 + \frac{1}{a}^p)$
 #[derive(Parameters)]
 pub struct Saturator {
@@ -305,12 +337,17 @@ pub fn saturate(sample: f32, a: f32, p: f32) -> f32 {
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for Saturator {
-	fn process(&mut self, input: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		input: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		for val in input.iter_mut() {
 			*val = saturate(*val, self.a, self.p) * self.gain;
 		}
 	}
-	
+
 	fn delay(&self) -> usize {
 		0
 	}
@@ -324,10 +361,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Saturator {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use crate::tools::ui_tools::gain_ui;
 
-		ui.add(egui::Slider::new(&mut self.a, 0.01..=5.0).text("a").logarithmic(true));
+		ui.add(
+			egui::Slider::new(&mut self.a, 0.01..=5.0)
+				.text("a")
+				.logarithmic(true),
+		);
 		ui.add(egui::Slider::new(&mut self.p, 1.0..=10.0).text("p"));
 		gain_ui(ui, &mut self.gain, None, false);
-	}			
+	}
 }
 
 const EMPTY_COUNT_THRESHOLD: usize = 50;
@@ -368,7 +409,7 @@ impl<const CHANNELS: usize> Downsampler<CHANNELS> {
 	}
 
 	/// Sets the target sample rate for the downsampler.
-	/// 
+	///
 	/// Will clamp the target sample rate to the range [10.0, sample_rate].
 	pub fn set_target_sample_rate(&mut self, sample_rate: f32) {
 		self.target_sample_rate = sample_rate.clamp(MIN_FREQUENCY, self.sample_rate as f32);
@@ -390,10 +431,15 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Downsampler<CHANNELS> {
 		"Downsampler"
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		if samples.iter().all(|&x| x == 0.0) {
 			self.empty_count += 1;
-		}else {
+		} else {
 			self.empty_count = 0;
 		}
 
@@ -421,10 +467,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Downsampler<CHANNELS> {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use crate::tools::ui_tools::gain_ui;
 
-		ui.add(egui::Slider::new(
-			&mut self.target_sample_rate, 
-			MIN_FREQUENCY..=self.sample_rate as f32
-		).text("Target Sample Rate").logarithmic(true));
+		ui.add(
+			egui::Slider::new(
+				&mut self.target_sample_rate,
+				MIN_FREQUENCY..=self.sample_rate as f32,
+			)
+			.text("Target Sample Rate")
+			.logarithmic(true),
+		);
 		gain_ui(ui, &mut self.gain, None, false);
 	}
 }
@@ -601,30 +651,30 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Distortion<CHANNELS> {
 				for value in samples.iter_mut() {
 					*value = (*value / self.alpha.max(0.01)).tanh();
 				}
-			},
+			}
 			2 => {
 				for value in samples.iter_mut() {
 					*value = 2.0 / (1.0 + (-*value * self.k).exp()) - 1.0;
 				}
-			},
+			}
 			3 => {
 				for value in samples.iter_mut() {
 					*value = saturate(*value, self.a.max(0.01), self.p);
 				}
-			},
+			}
 			4 => {
 				let steps = self.bits.max(1) as f32;
 
 				for value in samples.iter_mut() {
 					*value = (steps * *value).round() / steps;
 				}
-			},
+			}
 			5 => self.downsample(samples),
 			_ => {
 				for value in samples.iter_mut() {
 					*value = value.clamp(-self.threshold, self.threshold);
 				}
-			},
+			}
 		}
 
 		for value in samples.iter_mut() {
@@ -684,7 +734,10 @@ mod distortion_tests {
 	/// The six shapers are not six names for the same curve.
 	#[test]
 	fn each_mode_uses_its_own_shape() {
-		assert!((shaped(0, 2.0) - 0.8).abs() < 1e-6, "the hard clipper honours its threshold");
+		assert!(
+			(shaped(0, 2.0) - 0.8).abs() < 1e-6,
+			"the hard clipper honours its threshold"
+		);
 		assert!(
 			(shaped(1, 2.0) - (2.0_f32 / 0.5).tanh()).abs() < 1e-5,
 			"the soft clipper uses its softness"
@@ -692,7 +745,10 @@ mod distortion_tests {
 		assert!(shaped(2, 2.0) > 0.9, "overdrive is a saturating curve");
 		assert!(shaped(3, 2.0) > 0.0, "saturator is finite and positive");
 		assert!((shaped(4, 0.33) - 0.375).abs() < 1e-6, "bitcrush quantises");
-		assert!(shaped(5, 0.5).is_finite(), "downsample starts from silence, not NaN");
+		assert!(
+			shaped(5, 0.5).is_finite(),
+			"downsample starts from silence, not NaN"
+		);
 	}
 
 	/// A downsample rate above the host rate has nothing to hold, so it is clamped

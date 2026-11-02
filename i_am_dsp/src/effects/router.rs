@@ -65,7 +65,11 @@ impl StereoRouter {
 	}
 
 	fn linear(db: f32) -> f32 {
-		if db <= -59.5 { 0.0 } else { 10.0_f32.powf(db / 20.0) }
+		if db <= -59.5 {
+			0.0
+		} else {
+			10.0_f32.powf(db / 20.0)
+		}
 	}
 }
 

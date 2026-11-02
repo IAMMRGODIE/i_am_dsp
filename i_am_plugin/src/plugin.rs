@@ -16,19 +16,15 @@ use crate::editor::Editor;
 /// crate, not by this one.
 ///
 /// Will automatically generate the id for audio ports.
-/// 
+///
 /// Currently dynamical audio ports are not supported.
 pub trait Plugin: Processor {
 	/// The plugin's descriptor.
 	const DESCRIPTOR: Descriptor;
 	/// The input ports of the plugin.
-	const INPUT_PORTS: &'static [AudioPort] = &[AudioPort {
-		name: "Main",
-	}];
+	const INPUT_PORTS: &'static [AudioPort] = &[AudioPort { name: "Main" }];
 	/// The output ports of the plugin.
-	const OUTPUT_PORTS: &'static [AudioPort] = &[AudioPort {
-		name: "Main",
-	}];
+	const OUTPUT_PORTS: &'static [AudioPort] = &[AudioPort { name: "Main" }];
 	/// The MIDI input ports of the plugin.
 	const INPUT_MIDI_PORTS: &'static [MidiPort] = &[];
 	/// The MIDI output ports of the plugin.
@@ -154,7 +150,7 @@ pub struct WindowOptions {
 	/// The title of the plugin GUI.
 	pub title: String,
 	/// The resize hints of the plugin GUI.
-	/// 
+	///
 	/// None for can't resize.
 	pub resize_hints: Option<GuiResizeHints>,
 }

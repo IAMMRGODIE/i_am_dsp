@@ -45,9 +45,9 @@ pub use scope::{Channels, Scope};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use i_am_plugin::{Editor, Plugin};
-pub use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
 use i_am_plugin::wry::WryEditor;
+pub use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
+use i_am_plugin::{Editor, Plugin};
 
 /// The page itself.
 const PAGE: &str = include_str!("page/index.html");
@@ -198,54 +198,54 @@ pub fn editor_with_page<P: Plugin>(
 			}
 
 			match request.path {
-			"/" | "/index.html" => ProtocolResponse::html(page.html),
-			"/kit.css" => ProtocolResponse {
-				status: 200,
-				content_type: "text/css; charset=utf-8",
-				body: page.css.as_bytes().to_vec(),
-			},
-			"/kit.js" => ProtocolResponse {
-				status: 200,
-				content_type: "text/javascript; charset=utf-8",
-				body: page.js.as_bytes().to_vec(),
-			},
-			"/card.css" => ProtocolResponse {
-				status: 200,
-				content_type: "text/css; charset=utf-8",
-				body: CARD_STYLE.as_bytes().to_vec(),
-			},
-			"/card.js" => ProtocolResponse {
-				status: 200,
-				content_type: "text/javascript; charset=utf-8",
-				body: CARD_SCRIPT.as_bytes().to_vec(),
-			},
-			"/face" => ProtocolResponse::json(page_face.clone()),
-			"/state" => ProtocolResponse::json(face::state_json_with_bypass(
-				&state_map,
-				&state_sections,
-				state_bypass.load(Ordering::Relaxed),
-			)),
-			"/scope" => ProtocolResponse {
-				status: 200,
-				content_type: "application/octet-stream",
-				body: scope.snapshot(),
-			},
-			"/stereo" => ProtocolResponse {
-				status: 200,
-				content_type: "application/octet-stream",
-				body: scope.stereo_snapshot(),
-			},
-			"/note" => ProtocolResponse::json(format!("{{\"note\":{}}}", scope.note())),
-			"/allowed" => {
-				ProtocolResponse::json(format!("{{\"notes\":{}}}", scope.allowed_notes()))
-			}
-			"/meter" => {
-				let (input, sidechain) = scope.meter();
-				ProtocolResponse::json(format!(
-					"{{\"input\":{input:.2},\"sidechain\":{sidechain:.2}}}"
-				))
-			},
-			_ => ProtocolResponse::not_found(),
+				"/" | "/index.html" => ProtocolResponse::html(page.html),
+				"/kit.css" => ProtocolResponse {
+					status: 200,
+					content_type: "text/css; charset=utf-8",
+					body: page.css.as_bytes().to_vec(),
+				},
+				"/kit.js" => ProtocolResponse {
+					status: 200,
+					content_type: "text/javascript; charset=utf-8",
+					body: page.js.as_bytes().to_vec(),
+				},
+				"/card.css" => ProtocolResponse {
+					status: 200,
+					content_type: "text/css; charset=utf-8",
+					body: CARD_STYLE.as_bytes().to_vec(),
+				},
+				"/card.js" => ProtocolResponse {
+					status: 200,
+					content_type: "text/javascript; charset=utf-8",
+					body: CARD_SCRIPT.as_bytes().to_vec(),
+				},
+				"/face" => ProtocolResponse::json(page_face.clone()),
+				"/state" => ProtocolResponse::json(face::state_json_with_bypass(
+					&state_map,
+					&state_sections,
+					state_bypass.load(Ordering::Relaxed),
+				)),
+				"/scope" => ProtocolResponse {
+					status: 200,
+					content_type: "application/octet-stream",
+					body: scope.snapshot(),
+				},
+				"/stereo" => ProtocolResponse {
+					status: 200,
+					content_type: "application/octet-stream",
+					body: scope.stereo_snapshot(),
+				},
+				"/note" => ProtocolResponse::json(format!("{{\"note\":{}}}", scope.note())),
+				"/allowed" => {
+					ProtocolResponse::json(format!("{{\"notes\":{}}}", scope.allowed_notes()))
+				}
+				"/meter" => {
+					let (input, sidechain) = scope.meter();
+					ProtocolResponse::json(format!(
+						"{{\"input\":{input:.2},\"sidechain\":{sidechain:.2}}}"
+					))
+				}
+				_ => ProtocolResponse::not_found(),
 			}
 		})
 		.with_url("webgui://localhost/"),
@@ -580,7 +580,10 @@ mod ui_contract_tests {
 		for script in [CARD_SCRIPT, include_str!("page/kit.js")] {
 			assert!(script.contains("Math.asinh"), "missing symlog forward map");
 			assert!(script.contains("Math.sinh"), "missing symlog inverse map");
-			assert!(!script.contains("atanKnee"), "the old atan curve is still present");
+			assert!(
+				!script.contains("atanKnee"),
+				"the old atan curve is still present"
+			);
 		}
 	}
 
@@ -600,8 +603,14 @@ mod ui_contract_tests {
 				"missing {kind} hero"
 			);
 		}
-		assert!(CARD_SCRIPT.contains("notePickerHandle"), "the note picker handle is missing");
-		assert!(CARD_STYLE.contains(".mcard-note.on"), "the note picker needs a selected state");
+		assert!(
+			CARD_SCRIPT.contains("notePickerHandle"),
+			"the note picker handle is missing"
+		);
+		assert!(
+			CARD_STYLE.contains(".mcard-note.on"),
+			"the note picker needs a selected state"
+		);
 		assert!(
 			include_str!("page/kit.js").contains("buildNotePicker"),
 			"the faceplate does not build the note picker"
@@ -621,7 +630,10 @@ mod ui_contract_tests {
 			".mcard-select:hover",
 			".mcard-slider-track:hover",
 		] {
-			assert!(CARD_STYLE.contains(selector), "missing shared hover {selector}");
+			assert!(
+				CARD_STYLE.contains(selector),
+				"missing shared hover {selector}"
+			);
 		}
 
 		assert!(STYLE.contains(".face-knob .knob:hover{"));
@@ -673,7 +685,10 @@ mod ui_contract_tests {
 	#[test]
 	fn a_mode_is_the_shared_select() {
 		let start = SCRIPT.find("function buildMode").expect("buildMode");
-		let end = SCRIPT[start..].find("function buildFace").expect("buildFace") + start;
+		let end = SCRIPT[start..]
+			.find("function buildFace")
+			.expect("buildFace")
+			+ start;
 		let mode = &SCRIPT[start..end];
 
 		assert!(mode.contains("IAmCard.choiceHandle"));

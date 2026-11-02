@@ -3,7 +3,11 @@
 use std::path::{Path, PathBuf};
 
 /// The directory cargo places build artifacts in.
-pub fn target_dir(explicit: Option<&Path>, workspace_root: Option<&Path>, manifest_dir: &Path) -> PathBuf {
+pub fn target_dir(
+	explicit: Option<&Path>,
+	workspace_root: Option<&Path>,
+	manifest_dir: &Path,
+) -> PathBuf {
 	if let Some(dir) = explicit {
 		return dir.to_path_buf();
 	}

@@ -159,8 +159,7 @@ mod tests {
 		let mut energy = 0.0_f32;
 
 		for index in 0..16_384 {
-			let value = (std::f32::consts::TAU * frequency * index as f32 / 48_000.0)
-				.sin() * 0.5;
+			let value = (std::f32::consts::TAU * frequency * index as f32 / 48_000.0).sin() * 0.5;
 			let bands = crossover.split([value, value], &mut context);
 			let sum = bands[0][0] + bands[1][0] + bands[2][0];
 
@@ -176,16 +175,15 @@ mod tests {
 	/// across the whole audible range.
 	#[test]
 	fn the_three_bands_sum_flat() {
-		for frequency in [30.0, 60.0, 120.0, 240.0, 1_000.0, 2_000.0, 4_000.0, 10_000.0] {
+		for frequency in [
+			30.0, 60.0, 120.0, 240.0, 1_000.0, 2_000.0, 4_000.0, 10_000.0,
+		] {
 			let level = level(frequency, 120.0, 2_000.0);
 			let reference = 0.5 / 2.0_f32.sqrt();
 
 			let decibels = 20.0 * (level / reference).log10();
 
-			assert!(
-				decibels.abs() < 0.1,
-				"{frequency} Hz: {decibels:.3} dB"
-			);
+			assert!(decibels.abs() < 0.1, "{frequency} Hz: {decibels:.3} dB");
 		}
 	}
 

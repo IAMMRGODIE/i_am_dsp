@@ -13,15 +13,14 @@
 use std::path::Path;
 
 use i_am_effects::{
-	AllpassWeb, BalanceWeb, ChorusWeb, CombWeb, CompressorWeb, CrusherWeb, DelayWeb,
-	ConvolverWeb, DisperserWeb, DistortionWeb, FilterWeb, FlangerWeb, GainWeb, IrReverbWeb, PhaserWeb,
-	OttWeb, ScriptDistortionWeb, ScriptMapperWeb, VocoderWeb, StftVocoderWeb,
-	TapeStopWeb, GateWeb, ExpanderWeb, LimiterWeb, TransientWeb, RouterWeb, EqWeb,
-	AutoTuneWeb, FormantFilterWeb, ParticleWiderWeb, PitchWeb, ResonatorWeb, ReverbWeb, SchroederWeb,
-	ShifterWeb, SpectralRetuneWeb, AUTOTUNE_VISIBLE,
-	UnstablizerWeb, WidthWeb, CHORUS_HEADER, CHORUS_SWITCHES, COMPRESSOR_VISIBLE, DELAY_HEADER, DELAY_SWITCHES,
-	DISTORTION_VISIBLE, FLANGER_HEADER, FLANGER_SWITCHES, PHASER_HEADER, PHASER_SWITCHES,
-	PITCH_VISIBLE, SHIFTER_VISIBLE,
+	AUTOTUNE_VISIBLE, AllpassWeb, AutoTuneWeb, BalanceWeb, CHORUS_HEADER, CHORUS_SWITCHES,
+	COMPRESSOR_VISIBLE, ChorusWeb, CombWeb, CompressorWeb, ConvolverWeb, CrusherWeb, DELAY_HEADER,
+	DELAY_SWITCHES, DISTORTION_VISIBLE, DelayWeb, DisperserWeb, DistortionWeb, EqWeb, ExpanderWeb,
+	FLANGER_HEADER, FLANGER_SWITCHES, FilterWeb, FlangerWeb, FormantFilterWeb, GainWeb, GateWeb,
+	IrReverbWeb, LimiterWeb, OttWeb, PHASER_HEADER, PHASER_SWITCHES, PITCH_VISIBLE,
+	ParticleWiderWeb, PhaserWeb, PitchWeb, ResonatorWeb, ReverbWeb, RouterWeb, SHIFTER_VISIBLE,
+	SchroederWeb, ScriptDistortionWeb, ScriptMapperWeb, ShifterWeb, SpectralRetuneWeb,
+	StftVocoderWeb, TapeStopWeb, TransientWeb, UnstablizerWeb, VocoderWeb, WidthWeb,
 };
 use i_am_effects::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -48,7 +47,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"distortion" => {
 			let plugin = DistortionWeb::new();
 			(
@@ -60,7 +59,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"filter" => {
 			let plugin = FilterWeb::new();
 			(
@@ -73,7 +72,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"comb" => {
 			let plugin = CombWeb::new();
 			(
@@ -83,7 +82,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"allpass" => {
 			let plugin = AllpassWeb::new();
 			(
@@ -93,7 +92,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"unstablizer" => {
 			let plugin = UnstablizerWeb::new();
 			(
@@ -104,7 +103,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"particle_wider" => {
 			let plugin = ParticleWiderWeb::new();
 			(
@@ -115,18 +114,17 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"schroeder" => {
 			let plugin = SchroederWeb::new();
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Schroeder", "#e0b36a", (700.0, 340.0))
-						.with_clear(),
+					&Faceplate::new("I Am Schroeder", "#e0b36a", (700.0, 340.0)).with_clear(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"width" => {
 			let plugin = WidthWeb::new();
 			(
@@ -136,7 +134,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"pitch" => {
 			let plugin = PitchWeb::new();
 			(
@@ -149,7 +147,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"autotune" => {
 			let plugin = AutoTuneWeb::new();
 			(
@@ -162,7 +160,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"spectral_retune" | "retune" => {
 			let plugin = SpectralRetuneWeb::new();
 			(
@@ -173,7 +171,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"shifter" => {
 			let plugin = ShifterWeb::new();
 			(
@@ -186,7 +184,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"disperser" => {
 			let plugin = DisperserWeb::new();
 			(
@@ -196,7 +194,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"balance" => {
 			let plugin = BalanceWeb::new();
 			(
@@ -206,29 +204,27 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"ir_reverb" => {
 			let plugin = IrReverbWeb::new();
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am IR Reverb", "#7bd3ff", (700.0, 340.0))
-						.with_clear(),
+					&Faceplate::new("I Am IR Reverb", "#7bd3ff", (700.0, 340.0)).with_clear(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"reverb" => {
 			let plugin = ReverbWeb::new();
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Reverb", "#6c8cff", (700.0, 340.0))
-						.with_clear(),
+					&Faceplate::new("I Am Reverb", "#6c8cff", (700.0, 340.0)).with_clear(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"compressor" => {
 			let plugin = CompressorWeb::new();
 			(
@@ -240,7 +236,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"chorus" => {
 			let plugin = ChorusWeb::new();
 			(
@@ -252,7 +248,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"flanger" => {
 			let plugin = FlangerWeb::new();
 			(
@@ -264,7 +260,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"phaser" => {
 			let plugin = PhaserWeb::new();
 			(
@@ -276,7 +272,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"delay" => {
 			let plugin = DelayWeb::new();
 			(
@@ -289,7 +285,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"stft_vocoder" => {
 			let plugin = StftVocoderWeb::new();
 			(
@@ -300,8 +296,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
-
+		}
 
 		"eq" => {
 			let plugin = EqWeb::new();
@@ -314,7 +309,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"tape_stop" => {
 			let plugin = TapeStopWeb::new();
 			(
@@ -324,7 +319,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"gate" => {
 			let plugin = GateWeb::new();
 			(
@@ -334,7 +329,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"expander" => {
 			let plugin = ExpanderWeb::new();
 			(
@@ -344,7 +339,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"limiter" => {
 			let plugin = LimiterWeb::new();
 			(
@@ -354,7 +349,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"resonator" => {
 			let plugin = ResonatorWeb::new();
 			(
@@ -364,7 +359,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"formant" | "formant_filter" => {
 			let plugin = FormantFilterWeb::new();
 			(
@@ -374,7 +369,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"transient" => {
 			let plugin = TransientWeb::new();
 			(
@@ -384,7 +379,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"router" => {
 			let plugin = RouterWeb::new();
 			(
@@ -394,7 +389,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"vocoder" => {
 			let plugin = VocoderWeb::new();
 			(
@@ -404,7 +399,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"ott" => {
 			let plugin = OttWeb::new();
 			(
@@ -414,7 +409,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"script_mapper" => {
 			let plugin = ScriptMapperWeb::new();
 			(
@@ -426,7 +421,7 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"script_distortion" => {
 			let plugin = ScriptDistortionWeb::new();
 			(
@@ -438,18 +433,17 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"convolver" => {
 			let plugin = ConvolverWeb::new();
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Convolver", "#b08cff", (520.0, 330.0))
-						.with_clear(),
+					&Faceplate::new("I Am Convolver", "#b08cff", (520.0, 330.0)).with_clear(),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		"crusher" => {
 			let plugin = CrusherWeb::new();
 			(
@@ -459,13 +453,13 @@ fn main() {
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
-		},
+		}
 		other => {
 			eprintln!(
 				"unknown product {other}; expected gain, distortion, filter, comb, allpass, width, pitch, shifter, disperser, balance, compressor, reverb, schroeder, particle_wider, unstablizer, ir_reverb, chorus, flanger, phaser, delay or crusher"
 			);
 			std::process::exit(2);
-		},
+		}
 	};
 
 	if let Err(error) = std::fs::create_dir_all(&directory) {

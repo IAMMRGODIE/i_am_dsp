@@ -1,11 +1,11 @@
 //! clap_plugin
 
+use crate::audio::AudioProcessor;
+use crate::latency::LatencyWatch;
+use crate::main_thread::PluginMain;
+use crate::plugin::{Plugin, PluginAuExt};
 use crate::shared::*;
 use clack_extensions::timer::PluginTimer;
-use crate::plugin::{Plugin, PluginAuExt};
-use crate::main_thread::{PluginMain};
-use crate::latency::{LatencyWatch};
-use crate::audio::{AudioProcessor};
 
 /// A wrapper around a plugin that implements the `clack_plugin::Plugin` trait.
 #[derive(Default)]
@@ -43,7 +43,9 @@ impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> {
 		out
 	}
 
-	fn new_shared(_: clack_plugin::prelude::HostSharedHandle<'_>) -> Result<Self::Shared<'_>, PluginError> {
+	fn new_shared(
+		_: clack_plugin::prelude::HostSharedHandle<'_>,
+	) -> Result<Self::Shared<'_>, PluginError> {
 		Ok(())
 	}
 
@@ -69,7 +71,7 @@ impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> {
 			title: options.title,
 			resize_hints: options.resize_hints,
 			param_map,
-			processor: Box::pin(processor), 
+			processor: Box::pin(processor),
 			host: Some(host),
 			latency,
 			parent: None,
@@ -98,15 +100,20 @@ impl<P: Plugin> PluginNotePortsImpl for PluginMain<P> {
 	fn count(&mut self, is_input: bool) -> u32 {
 		if is_input {
 			P::INPUT_MIDI_PORTS.len() as u32
-		}else {
+		} else {
 			P::OUTPUT_MIDI_PORTS.len() as u32
 		}
 	}
 
-	fn get(&mut self, index: u32, is_input: bool, writer: &mut clack_extensions::note_ports::NotePortInfoWriter) {
+	fn get(
+		&mut self,
+		index: u32,
+		is_input: bool,
+		writer: &mut clack_extensions::note_ports::NotePortInfoWriter,
+	) {
 		let ports = if is_input {
 			P::INPUT_MIDI_PORTS
-		}else {
+		} else {
 			P::OUTPUT_MIDI_PORTS
 		};
 
@@ -131,7 +138,10 @@ impl<P: Plugin> clack_plugin::plugin::Plugin for ClapPlugin<P> {
 	type AudioProcessor<'a> = AudioProcessor<'a, P>;
 	type MainThread<'a> = PluginMain<P>;
 
-	fn declare_extensions(builder: &mut clack_plugin::prelude::PluginExtensions<Self>, _: Option<&Self::Shared<'_>>) {
+	fn declare_extensions(
+		builder: &mut clack_plugin::prelude::PluginExtensions<Self>,
+		_: Option<&Self::Shared<'_>>,
+	) {
 		builder
 			.register::<PluginAudioPorts>()
 			.register::<PluginParams>()
@@ -156,10 +166,10 @@ impl<P: Plugin> ClapPlugin<P> {
 		if let Some(vendor) = P::DESCRIPTOR.vendor {
 			if let Ok(vendor) = CStr::from_bytes_until_nul(vendor.as_bytes()) {
 				Some(vendor)
-			}else {
+			} else {
 				None
 			}
-		}else {
+		} else {
 			None
 		},
 		Some(&Self::VST3_ID),
@@ -172,34 +182,37 @@ impl<P: Plugin> PluginAsVST3Impl for PluginMain<P> {
 		16
 	}
 
-	fn supported_note_expressions(&mut self) -> clack_extensions::clap_wrapper::vst3::SupportedNoteExpressions {
+	fn supported_note_expressions(
+		&mut self,
+	) -> clack_extensions::clap_wrapper::vst3::SupportedNoteExpressions {
 		clack_extensions::clap_wrapper::vst3::SupportedNoteExpressions::empty()
 	}
 }
 
-impl<P: Plugin> PluginFactoryAsVST3Impl for ClapPlugin<P> 
-{
+impl<P: Plugin> PluginFactoryAsVST3Impl for ClapPlugin<P> {
 	fn get_vst3_info(&self, index: u32) -> Option<&PluginInfoAsVST3<'_>> {
 		if index == 0 {
 			Some(&Self::VST3_PLUGIN_INFO)
-		}else {
+		} else {
 			None
 		}
 	}
 }
 
 impl<P: PluginAuExt> PluginFactoryAsAUv2Impl for ClapPlugin<P> {
-	fn get_auv2_info(&self, index: u32) -> Option<clack_extensions::clap_wrapper::auv2::PluginInfoAsAUv2> {
+	fn get_auv2_info(
+		&self,
+		index: u32,
+	) -> Option<clack_extensions::clap_wrapper::auv2::PluginInfoAsAUv2> {
 		if index == 0 {
 			// A four-character code is not guaranteed to be valid UTF-8, so this
 			// has to be a checked conversion rather than `from_utf8_unchecked`.
 			Some(clack_extensions::clap_wrapper::auv2::PluginInfoAsAUv2::new(
 				str::from_utf8(&P::AU_TYPE).expect("`AU_TYPE` must be valid UTF-8"),
-				str::from_utf8(&P::AU_SUBTYPE).expect("`AU_SUBTYPE` must be valid UTF-8")
+				str::from_utf8(&P::AU_SUBTYPE).expect("`AU_SUBTYPE` must be valid UTF-8"),
 			))
-		}else {
+		} else {
 			None
 		}
 	}
 }
-

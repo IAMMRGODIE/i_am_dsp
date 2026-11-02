@@ -76,13 +76,13 @@ fn main() {
 				eprintln!("error: {error}");
 				std::process::exit(1);
 			}
-		},
+		}
 		Err(error) => {
 			eprintln!("error: {error}");
 			eprintln!();
 			print!("{}", USAGE);
 			std::process::exit(2);
-		},
+		}
 	}
 }
 
@@ -152,7 +152,7 @@ impl Args {
 			let (flag, inline) = match raw.split_once('=') {
 				Some((flag, value)) if flag.starts_with("--") => {
 					(flag.to_string(), Some(value.to_string()))
-				},
+				}
 				_ => (raw.clone(), None),
 			};
 
@@ -172,7 +172,7 @@ impl Args {
 				"-p" | "--package" => args.package = Some(value!("--package")),
 				"--manifest-path" => {
 					args.manifest_path = Some(PathBuf::from(value!("--manifest-path")));
-				},
+				}
 				"--release" => args.release = true,
 				"--debug" => args.release = false,
 				"--features" => args.features = Some(value!("--features")),
@@ -198,7 +198,7 @@ impl Args {
 						return Err(format!("unexpected extra argument `{other}`"));
 					}
 					args.library = Some(PathBuf::from(other));
-				},
+				}
 			}
 		}
 
@@ -230,7 +230,8 @@ fn parse_arch(value: &str) -> Result<Arch, String> {
 }
 
 fn run(args: Args) -> Result<(), String> {
-	let cwd = std::env::current_dir().map_err(|e| format!("cannot read the current directory: {e}"))?;
+	let cwd =
+		std::env::current_dir().map_err(|e| format!("cannot read the current directory: {e}"))?;
 	let cwd_manifest = cwd.join("Cargo.toml");
 
 	// Which crate are we dealing with? This is best effort when the caller passes
@@ -243,7 +244,9 @@ fn run(args: Args) -> Result<(), String> {
 			package,
 		)?)?)
 	} else {
-		CrateInfo::load(&cwd_manifest).ok().filter(|info| info.is_package)
+		CrateInfo::load(&cwd_manifest)
+			.ok()
+			.filter(|info| info.is_package)
 	};
 	let info = info.as_ref();
 
@@ -262,7 +265,7 @@ fn run(args: Args) -> Result<(), String> {
 				return Err(format!("`{}` is not a file", path.display()));
 			}
 			path.clone()
-		},
+		}
 		None => {
 			let Some(info) = info else {
 				return Err("pass the built library as an argument, or -p PACKAGE".into());
@@ -274,7 +277,7 @@ fn run(args: Args) -> Result<(), String> {
 				);
 			}
 			lookup_library(&args, info)?
-		},
+		}
 	};
 
 	let format = args.format.unwrap_or_else(Format::host);
@@ -285,7 +288,11 @@ fn run(args: Args) -> Result<(), String> {
 		.clone()
 		.or_else(|| info.and_then(|info| info.plugin_name.clone()))
 		.or_else(|| info.and_then(|info| info.package_name.clone()))
-		.or_else(|| library.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
+		.or_else(|| {
+			library
+				.file_stem()
+				.map(|stem| stem.to_string_lossy().into_owned())
+		})
 		.filter(|name| !name.trim().is_empty())
 		.ok_or_else(|| "cannot determine the plug-in name; pass --name NAME".to_string())?;
 	validate_name(&name)?;
@@ -326,7 +333,10 @@ fn run(args: Args) -> Result<(), String> {
 
 	field("plugin", &name);
 	field("library", library.display());
-	field("platform", format!("{} / {}", format_label(format), arch_label(arch)));
+	field(
+		"platform",
+		format!("{} / {}", format_label(format), arch_label(arch)),
+	);
 
 	let mut written: Vec<(Kind, PathBuf)> = Vec::new();
 
@@ -339,7 +349,9 @@ fn run(args: Args) -> Result<(), String> {
 					.iter()
 					.map(String::as_str)
 					.filter(|name| {
-						name.starts_with("Get") || name.starts_with("Init") || name.starts_with("Exit")
+						name.starts_with("Get")
+							|| name.starts_with("Init")
+							|| name.starts_with("Exit")
 					})
 					.collect();
 				if entry_points.is_empty() {
@@ -347,7 +359,7 @@ fn run(args: Args) -> Result<(), String> {
 				} else {
 					field("vst3", format!("exported {}", entry_points.join(", ")));
 				}
-			},
+			}
 			Presence::Unknown => field("vst3", &check.detail),
 			Presence::Missing => {
 				if !args.force {
@@ -363,7 +375,7 @@ fn run(args: Args) -> Result<(), String> {
 					"warning: `{}` does not export GetPluginFactory; writing the bundle anyway (--force)",
 					library.display()
 				);
-			},
+			}
 		}
 
 		let path = bundle::write_vst3(&library, &out_dir, &meta, format, arch, args.single_file)?;
@@ -402,7 +414,7 @@ fn run(args: Args) -> Result<(), String> {
 					Err(error) => {
 						eprintln!("error: {error}");
 						failures += 1;
-					},
+					}
 				}
 			}
 		}
@@ -451,7 +463,10 @@ fn build(args: &Args, info: &CrateInfo) -> Result<(), String> {
 			.env("TEMP", &scratch)
 			.env("TMPDIR", &scratch);
 
-		println!("system temp is not writable; building with {}", scratch.display());
+		println!(
+			"system temp is not writable; building with {}",
+			scratch.display()
+		);
 	}
 
 	println!(
@@ -459,7 +474,9 @@ fn build(args: &Args, info: &CrateInfo) -> Result<(), String> {
 		info.package_name.as_deref().unwrap_or("<unknown package>"),
 		if args.release { "release" } else { "debug" }
 	);
-	let status = command.status().map_err(|e| format!("cannot run cargo: {e}"))?;
+	let status = command
+		.status()
+		.map_err(|e| format!("cannot run cargo: {e}"))?;
 	if !status.success() {
 		return Err(format!("cargo build failed ({status})"));
 	}
@@ -491,9 +508,9 @@ fn system_temp_is_writable() -> bool {
 }
 
 fn lookup_library(args: &Args, info: &CrateInfo) -> Result<PathBuf, String> {
-	let file_name = info
-		.library_file_name()
-		.ok_or_else(|| "cannot determine the library file name; pass the library path".to_string())?;
+	let file_name = info.library_file_name().ok_or_else(|| {
+		"cannot determine the library file name; pass the library path".to_string()
+	})?;
 	let target_dir = cargo_target_dir(args, info);
 	let profile = if args.release { "release" } else { "debug" };
 	target::find_library(&target_dir, &file_name, profile, args.target.as_deref())

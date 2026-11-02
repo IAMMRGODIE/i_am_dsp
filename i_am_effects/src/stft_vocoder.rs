@@ -1,13 +1,11 @@
 //! The web product for the library's STFT vocoder.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use i_am_dsp::prelude::{ParamMap, Parameter, ProcessContext, SetValue, StftVocoderEffect};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
-use i_am_plugin::{
-	AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions,
-};
+use i_am_plugin::{AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions};
 use i_am_web_gui::Scope;
 
 /// The product.

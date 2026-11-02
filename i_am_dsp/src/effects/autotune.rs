@@ -166,7 +166,8 @@ impl<const CHANNELS: usize> AutoTune<CHANNELS> {
 			return 1.0;
 		};
 
-		let Some(target_note) = nearest_allowed_note(estimate.midi_note, self.allowed_mask()) else {
+		let Some(target_note) = nearest_allowed_note(estimate.midi_note, self.allowed_mask())
+		else {
 			return 1.0;
 		};
 
@@ -259,7 +260,11 @@ mod tests {
 		}
 
 		fn next_event(&mut self) -> Option<NoteEvent> {
-			if self.events.is_empty() { None } else { Some(self.events.remove(0)) }
+			if self.events.is_empty() {
+				None
+			} else {
+				Some(self.events.remove(0))
+			}
 		}
 
 		fn send_event(&mut self, event: NoteEvent) {
@@ -289,8 +294,16 @@ mod tests {
 		let mut tuner = AutoTune::<1>::new(48_000);
 		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
 			events: vec![
-				NoteEvent::NoteOn { channel: 0, note: 60, velocity: 1.0 },
-				NoteEvent::NoteOn { channel: 0, note: 64, velocity: 1.0 },
+				NoteEvent::NoteOn {
+					channel: 0,
+					note: 60,
+					velocity: 1.0,
+				},
+				NoteEvent::NoteOn {
+					channel: 0,
+					note: 64,
+					velocity: 1.0,
+				},
 			],
 		});
 		let mut frame = [0.0];
@@ -303,13 +316,7 @@ mod tests {
 		let mut tuner = AutoTune::<1>::new(48_000);
 		tuner.algorithm = 1;
 		tuner.speed = 0.0;
-		tuner.notes = (1 << 0)
-			| (1 << 2)
-			| (1 << 4)
-			| (1 << 5)
-			| (1 << 7)
-			| (1 << 9)
-			| (1 << 11);
+		tuner.notes = (1 << 0) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 11);
 		let mut context: Box<dyn ProcessContext> = Box::new(TestContext { events: vec![] });
 		let mut output = Vec::new();
 
@@ -324,7 +331,9 @@ mod tests {
 		let mut meter = PitchTracker::new(48_000, 2_048);
 		let mut estimate = None;
 		for sample in &output[12_000..] {
-			if let Some(next) = meter.process_sample(*sample) && next.clarity > 0.5 {
+			if let Some(next) = meter.process_sample(*sample)
+				&& next.clarity > 0.5
+			{
 				estimate = Some(next.frequency);
 			}
 		}

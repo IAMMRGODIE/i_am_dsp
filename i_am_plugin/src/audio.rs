@@ -1,14 +1,14 @@
 //! audio
 
+use crate::latency::LatencyPublisher;
+use crate::main_thread::PluginMain;
+use crate::plugin::Plugin;
 use crate::shared::*;
-use crate::plugin::{Plugin};
-use crate::main_thread::{PluginMain};
-use crate::latency::{LatencyPublisher};
 
 /// The processor itself is owned by [`PluginMain`] on the main thread; this struct only
 /// keeps its address, stored as an `usize` because [`AudioProcessor`] has to be `Send`
 /// while raw pointers are not.
-/// 
+///
 /// While the audio thread uses `&mut P` here, the main thread can still reach the same
 /// `P` through `&P` (`on_message`, `delay`, `synced_view`, …) or, when loading state,
 /// through `&mut P`. Those references overlap, so a plugin must share state between the

@@ -80,7 +80,7 @@ fn coefficients(
 				-2.0 * ((a - 1.0) + (a + 1.0) * cos),
 				(a + 1.0) + (a - 1.0) * cos - two_sqrt_a_alpha,
 			)
-		},
+		}
 		// High shelf.
 		2 => {
 			let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
@@ -92,7 +92,7 @@ fn coefficients(
 				2.0 * ((a - 1.0) - (a + 1.0) * cos),
 				(a + 1.0) - (a - 1.0) * cos - two_sqrt_a_alpha,
 			)
-		},
+		}
 		// Low cut (highpass).
 		3 => (
 			(1.0 + cos) * 0.5,
@@ -112,20 +112,10 @@ fn coefficients(
 			1.0 - alpha,
 		),
 		// Notch.
-		_ => (
-			1.0,
-			-2.0 * cos,
-			1.0,
-			1.0 + alpha,
-			-2.0 * cos,
-			1.0 - alpha,
-		),
+		_ => (1.0, -2.0 * cos, 1.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha),
 	};
 
-	(
-		[b0 / a0, b1 / a0, b2 / a0],
-		[a1 / a0, a2 / a0],
-	)
+	([b0 / a0, b1 / a0, b2 / a0], [a1 / a0, a2 / a0])
 }
 
 /// The number of 12 dB/oct sections a band uses. Only the cut types read the
@@ -467,9 +457,7 @@ impl<const CHANNELS: usize> ParametricEq<CHANNELS> {
 			b6_slope: 0,
 			output: 0.0,
 			sample_rate: sample_rate as f32,
-			filters: core::array::from_fn(|_| {
-				core::array::from_fn(|_| Biquad::new(sample_rate))
-			}),
+			filters: core::array::from_fn(|_| core::array::from_fn(|_| Biquad::new(sample_rate))),
 			last: [BandSettings::default(); EQ_BANDS],
 		};
 
@@ -708,7 +696,10 @@ mod tests {
 
 		let shallow = render(0);
 		let steep = render(3);
-		assert!(steep < shallow * 0.05, "12 dB/oct {shallow}, 48 dB/oct {steep}");
+		assert!(
+			steep < shallow * 0.05,
+			"12 dB/oct {shallow}, 48 dB/oct {steep}"
+		);
 	}
 
 	/// The band count and channel count are generic.

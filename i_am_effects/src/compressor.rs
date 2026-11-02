@@ -263,7 +263,9 @@ impl CompressorEffect {
 	/// The lookahead in samples. The host asks for the latency before anything
 	/// has been processed, so it cannot wait for `process` to write it through.
 	fn lookahead_samples(&self) -> usize {
-		(self.lookahead * self.inner.sample_rate as f32 / 1000.0).round().clamp(0.0, 4096.0) as usize
+		(self.lookahead * self.inner.sample_rate as f32 / 1000.0)
+			.round()
+			.clamp(0.0, 4096.0) as usize
 	}
 }
 
@@ -293,7 +295,9 @@ impl Effect<2> for CompressorEffect {
 			AudioIoChooser::Current
 		};
 		self.inner.enveloper.kind = self.enveloper.clamp(0, 3);
-		self.inner.enveloper.set_peak_times(self.env_attack, self.env_release);
+		self.inner
+			.enveloper
+			.set_peak_times(self.env_attack, self.env_release);
 		self.inner.enveloper.set_rectify_cutoff(self.env_cutoff);
 		self.inner.enveloper.set_gain(self.env_gain);
 		self.inner.enveloper.set_infos(context.infos());

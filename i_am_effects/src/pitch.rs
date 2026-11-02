@@ -2,7 +2,7 @@
 //! phase-vocoder pitch shifter and the pitch-synchronous PSOLA mode.
 
 use i_am_dsp::prelude::{
-	Effect, PhaseVocoder, PitchShift, PitchShifter, Psola, ProcessContext, overlap_add_gain,
+	Effect, PhaseVocoder, PitchShift, PitchShifter, ProcessContext, Psola, overlap_add_gain,
 };
 use i_am_dsp_derive::Parameters;
 

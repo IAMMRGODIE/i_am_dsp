@@ -8,7 +8,9 @@ use rubato::{
 	audioadapter_buffers::direct::{SequentialSliceOfSlices, SequentialSliceOfVecs},
 };
 use symphonia::core::{
-	codecs::{CodecParameters, audio::AudioDecoderOptions}, formats::{TrackType, probe::Hint}, io::{MediaSource, MediaSourceStream},
+	codecs::{CodecParameters, audio::AudioDecoderOptions},
+	formats::{TrackType, probe::Hint},
+	io::{MediaSource, MediaSourceStream},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -44,7 +46,9 @@ pub struct PcmOutput<const CHANNELS: usize> {
 }
 
 /// Load PCM data from a binary file.
-pub fn load_from_binary<const CHANNELS: usize>(data: impl MediaSource) -> Result<PcmOutput<CHANNELS>, ReadFileError> {
+pub fn load_from_binary<const CHANNELS: usize>(
+	data: impl MediaSource,
+) -> Result<PcmOutput<CHANNELS>, ReadFileError> {
 	let stream = MediaSourceStream::new(Box::new(data), Default::default());
 	let mut binding = Hint::new();
 	let hint = binding.with_extension("wav");
@@ -66,7 +70,9 @@ pub fn load_from_binary<const CHANNELS: usize>(data: impl MediaSource) -> Result
 		_ => return Err(ReadFileError::NoAudioTrack),
 	};
 
-	let audio_sample_rate = audio_params.sample_rate.ok_or(ReadFileError::MissingSampleRate)? as usize;
+	let audio_sample_rate = audio_params
+		.sample_rate
+		.ok_or(ReadFileError::MissingSampleRate)? as usize;
 
 	let mut decoder = symphonia::default::get_codecs()
 		.make_audio_decoder(audio_params, &AudioDecoderOptions::default())?;
@@ -75,7 +81,7 @@ pub fn load_from_binary<const CHANNELS: usize>(data: impl MediaSource) -> Result
 
 	while let Some(packet) = format.next_packet()? {
 		let buf = decoder.decode(&packet)?;
-	
+
 		let mut frames: Vec<Vec<f32>> = Vec::new();
 		buf.copy_to_vecs_planar(&mut frames);
 		for (id, plane) in frames.iter().enumerate() {
@@ -93,7 +99,9 @@ pub fn load_from_binary<const CHANNELS: usize>(data: impl MediaSource) -> Result
 }
 
 /// Load PCM data that is already in memory.
-pub fn load_from_bytes<const CHANNELS: usize>(data: Vec<u8>) -> Result<PcmOutput<CHANNELS>, ReadFileError> {
+pub fn load_from_bytes<const CHANNELS: usize>(
+	data: Vec<u8>,
+) -> Result<PcmOutput<CHANNELS>, ReadFileError> {
 	load_from_binary(std::io::Cursor::new(data))
 }
 
@@ -118,7 +126,8 @@ pub fn resample<const CHANNELS: usize>(
 		oversampling_factor: 256,
 		window: WindowFunction::BlackmanHarris2,
 	};
-	let mut resampler = Async::<f32>::new_sinc(ratio, 1.1, &parameters, 4096, CHANNELS, FixedAsync::Input)?;
+	let mut resampler =
+		Async::<f32>::new_sinc(ratio, 1.1, &parameters, 4096, CHANNELS, FixedAsync::Input)?;
 
 	let mut output = [const { Vec::new() }; CHANNELS];
 	let mut scratch = [const { Vec::new() }; CHANNELS];
@@ -180,10 +189,15 @@ pub fn resample<const CHANNELS: usize>(
 }
 
 /// Load PCM data from a WAV file.
-pub fn load_from_file<const CHANNELS: usize>(path: impl AsRef<Path>) -> Result<PcmOutput<CHANNELS>, ReadFileError> {
+pub fn load_from_file<const CHANNELS: usize>(
+	path: impl AsRef<Path>,
+) -> Result<PcmOutput<CHANNELS>, ReadFileError> {
 	let path = path.as_ref();
 	if path.extension().map(|ext| ext != "wav").unwrap_or(true) {
-		return Err(ReadFileError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Only Wav files are supported for now")));
+		return Err(ReadFileError::Io(std::io::Error::new(
+			std::io::ErrorKind::InvalidInput,
+			"Only Wav files are supported for now",
+		)));
 	}
 
 	let file = std::fs::File::open(path)?;
@@ -191,14 +205,14 @@ pub fn load_from_file<const CHANNELS: usize>(path: impl AsRef<Path>) -> Result<P
 }
 
 /// Save PCM data to a WAV file.
-/// 
+///
 /// # Panics
-/// 
+///
 /// Panics if pcm_data is empty.
 pub fn save_pcm_data(
-	path: impl AsRef<Path>, 
-	pcm_data: &[Vec<f32>], 
-	sample_rate: usize
+	path: impl AsRef<Path>,
+	pcm_data: &[Vec<f32>],
+	sample_rate: usize,
 ) -> Result<(), hound::Error> {
 	assert!(!pcm_data.is_empty(), "PCM data must not be empty");
 	let channels = pcm_data.len();
@@ -210,7 +224,11 @@ pub fn save_pcm_data(
 		sample_format: hound::SampleFormat::Float,
 	};
 
-	let max_channel_len = pcm_data.iter().map(|channel| channel.len()).max().unwrap_or(0);
+	let max_channel_len = pcm_data
+		.iter()
+		.map(|channel| channel.len())
+		.max()
+		.unwrap_or(0);
 
 	let mut writer = hound::WavWriter::create(path, spec)?;
 
@@ -218,12 +236,12 @@ pub fn save_pcm_data(
 		for frame in pcm_data.iter() {
 			if i < frame.len() {
 				writer.write_sample(frame[i])?;
-			}else {
+			} else {
 				writer.write_sample(0.0)?;
 			}
 		}
 	}
-	
+
 	writer.finalize()?;
 
 	Ok(())

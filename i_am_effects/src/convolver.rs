@@ -12,16 +12,12 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use i_am_dsp::prelude::{
-	Effect, FftConvolver, ParamMap, Parameter, ProcessContext, SetValue,
-};
+use i_am_dsp::prelude::{Effect, FftConvolver, ParamMap, Parameter, ProcessContext, SetValue};
 use i_am_dsp::tools::pcm_data::{load_from_bytes, resample};
 use i_am_dsp_derive::Parameters;
 use i_am_plugin::processor::EffectMessage;
 use i_am_plugin::processor::EffectProcessor;
-use i_am_plugin::{
-	AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions,
-};
+use i_am_plugin::{AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions};
 use i_am_web_gui::{ProtocolRequest, ProtocolResponse, Scope};
 use serde::{Deserialize, Serialize};
 
@@ -73,12 +69,8 @@ impl IrData {
 			return self.clone();
 		}
 
-		let [left, right] = resample(
-			[self.left.clone(), self.right.clone()],
-			self.rate,
-			rate,
-		)
-		.unwrap_or_else(|_| [self.left.clone(), self.right.clone()]);
+		let [left, right] = resample([self.left.clone(), self.right.clone()], self.rate, rate)
+			.unwrap_or_else(|_| [self.left.clone(), self.right.clone()]);
 
 		Self::from_samples(self.name.clone(), rate, left, right)
 	}
@@ -206,10 +198,7 @@ impl IrSlot {
 			if index > 0 {
 				peaks.push(',');
 			}
-			let _ = std::fmt::Write::write_fmt(
-				&mut peaks,
-				format_args!("[{low:.3},{high:.3}]"),
-			);
+			let _ = std::fmt::Write::write_fmt(&mut peaks, format_args!("[{low:.3},{high:.3}]"));
 		}
 
 		format!(
@@ -442,8 +431,8 @@ fn pick_ir(slot: Arc<IrSlot>) {
 		// takes over: it is dispatched by WebView2 inside the same input event.
 		std::thread::sleep(std::time::Duration::from_millis(50));
 
-		let mut dialog = rfd::FileDialog::new()
-			.add_filter("Impulse response", &["wav", "flac", "mp3", "ogg"]);
+		let mut dialog =
+			rfd::FileDialog::new().add_filter("Impulse response", &["wav", "flac", "mp3", "ogg"]);
 
 		if owner != 0 {
 			let owner = Owner(owner);
@@ -489,8 +478,8 @@ pub fn decode_ir(bytes: &[u8], sample_rate: usize, name: String) -> Result<IrDat
 	let mut pcm = load_from_bytes::<2>(bytes.to_vec()).map_err(|error| error.to_string())?;
 
 	if pcm.sample_rate != sample_rate {
-		pcm.pcm_data =
-			resample(pcm.pcm_data, pcm.sample_rate, sample_rate).map_err(|error| error.to_string())?;
+		pcm.pcm_data = resample(pcm.pcm_data, pcm.sample_rate, sample_rate)
+			.map_err(|error| error.to_string())?;
 		pcm.sample_rate = sample_rate;
 	}
 
@@ -566,7 +555,9 @@ fn peaks_of(left: &[f32], right: &[f32]) -> Vec<(f32, f32)> {
 
 	for bucket in 0..buckets {
 		let start = bucket * length / buckets;
-		let end = (((bucket + 1) * length) / buckets).max(start + 1).min(length);
+		let end = (((bucket + 1) * length) / buckets)
+			.max(start + 1)
+			.min(length);
 		let mut low = f32::INFINITY;
 		let mut high = f32::NEG_INFINITY;
 
@@ -612,16 +603,16 @@ fn ir_route(request: &ProtocolRequest<'_>, slot: &IrSlot) -> Option<ProtocolResp
 				Ok(ir) => {
 					slot.set(Arc::new(ir));
 					Some(ProtocolResponse::json("{\"ok\":true}"))
-				},
+				}
 				Err(error) => {
 					slot.fail(error.clone());
 					Some(ProtocolResponse::json(format!(
 						"{{\"error\":\"{}\"}}",
 						json_escape(&error)
 					)))
-				},
+				}
 			}
-		},
+		}
 		"GET" => Some(ProtocolResponse::json(slot.json())),
 		_ => Some(ProtocolResponse::not_found()),
 	}
@@ -666,8 +657,11 @@ fn json_escape(value: &str) -> String {
 			'\r' => out.push_str("\\r"),
 			'\t' => out.push_str("\\t"),
 			character if (character as u32) < 0x20 => {
-				let _ = std::fmt::Write::write_fmt(&mut out, format_args!("\\u{:04x}", character as u32));
-			},
+				let _ = std::fmt::Write::write_fmt(
+					&mut out,
+					format_args!("\\u{:04x}", character as u32),
+				);
+			}
 			character => out.push(character),
 		}
 	}
@@ -749,9 +743,9 @@ impl i_am_dsp::Processor for ConvolverWeb {
 					if self.scope.note() == *note as i32 {
 						self.scope.set_note(-1);
 					}
-				},
+				}
 				i_am_dsp::NoteEvent::ImmediateStop => self.scope.set_note(-1),
-				_ => {},
+				_ => {}
 			}
 		}
 
@@ -794,10 +788,7 @@ impl Plugin for ConvolverWeb {
 		const FACE_FRACTION: f64 = 0.85;
 
 		WindowOptions::new()
-			.with_size((
-				SIZE.0 as f64 / FACE_FRACTION,
-				SIZE.1 as f64 / FACE_FRACTION,
-			))
+			.with_size((SIZE.0 as f64 / FACE_FRACTION, SIZE.1 as f64 / FACE_FRACTION))
 			.with_title("I Am Convolver")
 			.with_resize_hints(GuiResizeHints {
 				can_resize_horizontally: true,
@@ -861,8 +852,8 @@ mod tests {
 		static NEXT: AtomicUsize = AtomicUsize::new(0);
 		// The system temp directory is not writable in every build environment, so
 		// the workspace's own target directory holds the fixture files.
-		let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-			.join("../target/convolver-tests");
+		let directory =
+			std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/convolver-tests");
 		std::fs::create_dir_all(&directory).expect("a temp directory");
 		let path = directory.join(format!("ir-{}.wav", NEXT.fetch_add(1, Ordering::Relaxed)));
 		save_pcm_data(&path, channels, rate).expect("a wav file");
@@ -893,7 +884,10 @@ mod tests {
 		assert_eq!(ir.right.len(), 3);
 		assert_eq!(ir.name, "click.wav");
 		assert!(!ir.peaks.is_empty());
-		assert_eq!(ir.fingerprint, fingerprint(&ir.name, ir.rate, &ir.left, &ir.right));
+		assert_eq!(
+			ir.fingerprint,
+			fingerprint(&ir.name, ir.rate, &ir.left, &ir.right)
+		);
 	}
 
 	#[test]
@@ -1032,7 +1026,10 @@ mod tests {
 		fresh.process(&mut frame, &[], &mut context);
 
 		assert!(fresh.convolver.is_some());
-		assert!(fresh_slot.load().is_some(), "the state load also fills the slot");
+		assert!(
+			fresh_slot.load().is_some(),
+			"the state load also fills the slot"
+		);
 	}
 
 	#[test]
@@ -1046,6 +1043,9 @@ mod tests {
 
 	#[test]
 	fn the_page_name_is_unescaped() {
-		assert_eq!(percent_decode("Vintage%20Plate%2B.wav"), "Vintage Plate+.wav");
+		assert_eq!(
+			percent_decode("Vintage%20Plate%2B.wav"),
+			"Vintage Plate+.wav"
+		);
 	}
 }

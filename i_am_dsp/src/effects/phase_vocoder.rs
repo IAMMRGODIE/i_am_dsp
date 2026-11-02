@@ -3,9 +3,9 @@
 use std::{f32::consts::PI, sync::Arc};
 
 use i_am_dsp_derive::Parameters;
-use rustfft::{num_complex::Complex, Fft, FftPlanner};
+use rustfft::{Fft, FftPlanner, num_complex::Complex};
 
-use crate::{prelude::Parameters, tools::{ring_buffer::RingBuffer}, Effect};
+use crate::{Effect, prelude::Parameters, tools::ring_buffer::RingBuffer};
 
 const OVERLAP_RATIO: usize = 4;
 
@@ -24,7 +24,12 @@ pub trait FrequencyMapper: Parameters {
 	/// magnitudes leaves every bin where it is, and should return the analysis
 	/// phase instead, so that the overlapping frames add back up instead of
 	/// cancelling each other.
-	fn synthesis_phase(&mut self, frequency: f32, analysis_phase: f32, propagated_phase: f32) -> f32 {
+	fn synthesis_phase(
+		&mut self,
+		frequency: f32,
+		analysis_phase: f32,
+		propagated_phase: f32,
+	) -> f32 {
 		let _ = (frequency, analysis_phase);
 		propagated_phase
 	}
@@ -39,7 +44,8 @@ pub trait FrequencyMapper: Parameters {
 
 fn window(window_size: usize, index: usize, offset: usize, window_factor: f32) -> f32 {
 	let index = (index + offset) % window_size;
-	0.5 * (window_factor - (1.0 - window_factor) * (2.0 * PI * index as f32 / window_size as f32).cos())
+	0.5 * (window_factor
+		- (1.0 - window_factor) * (2.0 * PI * index as f32 / window_size as f32).cos())
 }
 
 fn bin_frequencie(sample_rate: usize, window_size: usize, k: usize) -> f32 {
@@ -64,7 +70,7 @@ pub fn overlap_add_gain(window_factor: f32) -> f32 {
 }
 
 /// The Phase Vocoder effect.
-/// 
+///
 /// The window function is as follows:
 /// $$
 /// w(n) = \frac{1}{2}(window_factor - (1.0 - window_factor) * \cos(\frac{2 \pi (n + window_offset \% window_size)}{window_size})
@@ -119,7 +125,7 @@ pub struct PhaseVocoder<Mapper: FrequencyMapper, const CHANNELS: usize> {
 
 impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNELS> {
 	/// Creates a new Phase Vocoder effect with the given mapper and window size.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0
 	pub fn new(mapper: Mapper, window_size: usize, sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -207,28 +213,34 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 		for channel in 0..CHANNELS {
 			for (i, value) in self.temp_buffer[channel].iter_mut().enumerate() {
 				*value = Complex::new(
-					window(self.window_size, i, self.window_offset, self.window_factor) * self.input_buffer[channel][i], 
-					0.0
+					window(self.window_size, i, self.window_offset, self.window_factor)
+						* self.input_buffer[channel][i],
+					0.0,
 				);
 				self.output_temp_buffer[channel][i] = Complex::ZERO;
 			}
-	
+
 			self.fft.process(&mut self.temp_buffer[channel]);
-	
-			for (k, value) in self.temp_buffer[channel].iter().enumerate().take(self.window_size / 2 + 1) {
+
+			for (k, value) in self.temp_buffer[channel]
+				.iter()
+				.enumerate()
+				.take(self.window_size / 2 + 1)
+			{
 				if k == 0 {
 					self.output_temp_buffer[channel][0] = *value;
 					continue;
 				}
-	
+
 				let magnitude = value.norm();
 				let bin_center_freq = bin_frequencie(self.sample_rate, self.window_size, k);
-				let (mapped_freq, magnitude) = self.mapper.map_frequency(bin_center_freq, magnitude);
-	
+				let (mapped_freq, magnitude) =
+					self.mapper.map_frequency(bin_center_freq, magnitude);
+
 				if mapped_freq < 0.0 || mapped_freq >= self.sample_rate as f32 / 2.0 {
 					continue;
 				}
-	
+
 				// The phase a bin at the mapped frequency gains over one hop, plus
 				// the input's own phase deviation from its bin centre. The synthesis
 				// phase accumulates, so a bin moved to another frequency keeps a
@@ -236,9 +248,8 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 				// input bin's phase and beating against its new position.
 				let center_advance =
 					2.0 * PI * bin_center_freq * self.frame_hop as f32 / self.sample_rate as f32;
-				let deviation = wrap_phase(
-					value.arg() - self.prev_analysis_phase[channel][k] - center_advance,
-				);
+				let deviation =
+					wrap_phase(value.arg() - self.prev_analysis_phase[channel][k] - center_advance);
 				// A bin that sits off its centre is sharpened by the same ratio the
 				// mapping applies to the centre, so a pitch shift keeps the exact
 				// input frequency instead of shifting it by the raw deviation.
@@ -253,43 +264,46 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 
 				self.prev_analysis_phase[channel][k] = value.arg();
 
-				let new_phase = self.mapper.synthesis_phase(bin_center_freq, value.arg(), propagated_phase);
+				let new_phase =
+					self.mapper
+						.synthesis_phase(bin_center_freq, value.arg(), propagated_phase);
 				self.prev_synthesis_phase[channel][k] = new_phase;
-	
+
 				// Place the bin at its nearest output bin and let the accumulated
 				// phase carry the exact frequency. Splitting it across two bins with
 				// the same phase would put two out-of-phase sinusoids into the same
 				// frame, which is heard as rough noise.
-				let new_idx =
-					(mapped_freq / self.sample_rate as f32 * self.window_size as f32).round()
-						as usize;
+				let new_idx = (mapped_freq / self.sample_rate as f32 * self.window_size as f32)
+					.round() as usize;
 
 				if new_idx <= self.window_size / 2 {
 					self.output_temp_buffer[channel][new_idx] +=
 						Complex::from_polar(magnitude, new_phase);
 				}
 			}
-	
+
 			self.output_temp_buffer[channel][0].im = 0.0;
 			self.output_temp_buffer[channel][self.window_size / 2].im = 0.0;
 			for i in 1..self.window_size / 2 {
-				self.output_temp_buffer[channel][self.window_size - i] = self.output_temp_buffer[channel][i].conj();	
+				self.output_temp_buffer[channel][self.window_size - i] =
+					self.output_temp_buffer[channel][i].conj();
 			}
-	
+
 			self.ifft.process(&mut self.output_temp_buffer[channel]);
-	
+
 			for i in 0..self.window_size {
-				self.output_buffer[channel][i] += 
-					self.output_temp_buffer[channel][i].re * 
-					window(self.window_size, i, self.window_offset, self.window_factor) / 
-					self.window_size as f32 *
-					self.gain;
+				self.output_buffer[channel][i] += self.output_temp_buffer[channel][i].re
+					* window(self.window_size, i, self.window_offset, self.window_factor)
+					/ self.window_size as f32
+					* self.gain;
 			}
 		}
 	}
 }
 
-impl<Mapper: FrequencyMapper + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for PhaseVocoder<Mapper, CHANNELS> {
+impl<Mapper: FrequencyMapper + Send + Sync, const CHANNELS: usize> Effect<CHANNELS>
+	for PhaseVocoder<Mapper, CHANNELS>
+{
 	fn delay(&self) -> usize {
 		self.window_size / 2
 	}
@@ -300,8 +314,8 @@ impl<Mapper: FrequencyMapper + Send + Sync, const CHANNELS: usize> Effect<CHANNE
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		_: &[&[f32; CHANNELS]],
 		_: &mut Box<dyn crate::ProcessContext>,
 	) {
@@ -310,7 +324,7 @@ impl<Mapper: FrequencyMapper + Send + Sync, const CHANNELS: usize> Effect<CHANNE
 			*sample = self.output_buffer[i][self.output_count] * 4.0;
 		}
 
-		self.output_count = (self.output_count + 1) % self.output_buffer[0].capacity(); 
+		self.output_count = (self.output_count + 1) % self.output_buffer[0].capacity();
 		self.input_count += 1;
 
 		if self.input_count >= self.frame_hop {
@@ -318,7 +332,9 @@ impl<Mapper: FrequencyMapper + Send + Sync, const CHANNELS: usize> Effect<CHANNE
 				buffer.extend_defaults(self.frame_hop);
 			}
 			self.input_count -= self.frame_hop;
-			self.output_count = (self.output_count + self.output_buffer[0].capacity() - self.frame_hop) % self.output_buffer[0].capacity();
+			self.output_count = (self.output_count + self.output_buffer[0].capacity()
+				- self.frame_hop)
+				% self.output_buffer[0].capacity();
 			self.process_inner();
 		}
 	}
@@ -326,18 +342,21 @@ impl<Mapper: FrequencyMapper + Send + Sync, const CHANNELS: usize> Effect<CHANNE
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
 		use crate::tools::ui_tools::gain_ui;
-    	use egui::*;
+		use egui::*;
 
 		self.mapper.demo_ui(ui, format!("{}_mapper", id_prefix));
 
 		let window_size_backup = usize::BITS - self.window_size.leading_zeros();
 		let mut window_size = window_size_backup;
-		ui.add(Slider::new(&mut window_size, 7..=12).text("Window Size")
-			.custom_formatter(|val, _| {
-				let size = 2usize.pow(val as u32);
-				format!("{}", size)
-			}));
-		
+		ui.add(
+			Slider::new(&mut window_size, 7..=12)
+				.text("Window Size")
+				.custom_formatter(|val, _| {
+					let size = 2usize.pow(val as u32);
+					format!("{}", size)
+				}),
+		);
+
 		if window_size_backup != window_size {
 			let _ = self.renew_window_size(2usize.pow(window_size));
 		}
@@ -367,18 +386,17 @@ impl FrequencyMapper for PitchShift {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use egui::*;
 
-		ui.add(Slider::new(&mut self.shift, 0.25..=4.0)
-			.text("Pitch Shift")
-			.logarithmic(true)
+		ui.add(
+			Slider::new(&mut self.shift, 0.25..=4.0)
+				.text("Pitch Shift")
+				.logarithmic(true),
 		);
 	}
 }
 
 impl Default for PitchShift {
 	fn default() -> Self {
-		Self {
-			shift: 1.0,
-		}
+		Self { shift: 1.0 }
 	}
 }
 
@@ -392,7 +410,6 @@ pub struct FreqShift {
 	pub freq: f32,
 }
 
-
 impl FrequencyMapper for FreqShift {
 	fn map_frequency(&mut self, frequency: f32, amplitude: f32) -> (f32, f32) {
 		let new_freq = frequency + self.freq;
@@ -403,9 +420,7 @@ impl FrequencyMapper for FreqShift {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use egui::*;
 
-		ui.add(Slider::new(&mut self.freq, -2000.0..=2000.0)
-			.text("Frequency Shift")
-		);
+		ui.add(Slider::new(&mut self.freq, -2000.0..=2000.0).text("Frequency Shift"));
 	}
 }
 
@@ -447,13 +462,15 @@ impl FrequencyMapper for NoteAnchoredShift {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use egui::*;
 
-		ui.add(Slider::new(&mut self.shift, 0.25..=4.0)
-			.text("Shift")
-			.logarithmic(true)
+		ui.add(
+			Slider::new(&mut self.shift, 0.25..=4.0)
+				.text("Shift")
+				.logarithmic(true),
 		);
-		ui.add(Slider::new(&mut self.anchor, 20.0..=20000.0)
-			.text("Anchor (Hz)")
-			.logarithmic(true)
+		ui.add(
+			Slider::new(&mut self.anchor, 20.0..=20000.0)
+				.text("Anchor (Hz)")
+				.logarithmic(true),
 		);
 	}
 }
@@ -476,7 +493,11 @@ mod tests {
 		}
 
 		fn synthesis_phase(&mut self, _: f32, analysis_phase: f32, propagated_phase: f32) -> f32 {
-			if self.keep_phase > 0.5 { analysis_phase } else { propagated_phase }
+			if self.keep_phase > 0.5 {
+				analysis_phase
+			} else {
+				propagated_phase
+			}
 		}
 
 		#[cfg(feature = "real_time_demo")]
@@ -491,7 +512,9 @@ mod tests {
 		let sample_rate = 48000;
 		let window_size = 2048;
 		let mut vocoder: PhaseVocoder<Identity, 1> = PhaseVocoder::new(
-			Identity { keep_phase: if keep_phase { 1.0 } else { 0.0 } },
+			Identity {
+				keep_phase: if keep_phase { 1.0 } else { 0.0 },
+			},
 			window_size,
 			sample_rate,
 		);

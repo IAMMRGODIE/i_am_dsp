@@ -2,14 +2,17 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{prelude::{OscTable, Oscillator, WaveTable}, tools::ring_buffer::RingBuffer};
+use crate::{
+	prelude::{OscTable, Oscillator, WaveTable},
+	tools::ring_buffer::RingBuffer,
+};
 
 /// A simple pluck generator based on Karplus-Strong algorithm
 #[derive(Parameters)]
 pub struct SimplePluck<
-	InitialFill: Oscillator<CHANNELS> + Send, 
-	Coeff: Oscillator<CHANNELS> + Send, 
-	const CHANNELS: usize = 2
+	InitialFill: Oscillator<CHANNELS> + Send,
+	Coeff: Oscillator<CHANNELS> + Send,
+	const CHANNELS: usize = 2,
 > {
 	#[skip]
 	buffer: [RingBuffer<f32>; CHANNELS],
@@ -43,22 +46,26 @@ pub struct SimplePluck<
 
 impl<
 	InitialFill: Oscillator<CHANNELS> + Send,
-	Coeff: Oscillator<CHANNELS> + Send, 
-	const CHANNELS: usize
-> SimplePluck<InitialFill, Coeff, CHANNELS> {
+	Coeff: Oscillator<CHANNELS> + Send,
+	const CHANNELS: usize,
+> SimplePluck<InitialFill, Coeff, CHANNELS>
+{
 	/// Create a new SimpleString
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// Panics if `CHANNELS == 0` or `coef_len <= 0.0`
 	pub fn new(
-		sample_rate: usize, 
-		inital_fill: InitialFill, 
-		coef: Coeff, 
+		sample_rate: usize,
+		inital_fill: InitialFill,
+		coef: Coeff,
 		coef_len: f32,
-		sample_len: f32
+		sample_len: f32,
 	) -> Self {
-		assert!(CHANNELS > 0 && coef_len > 0.0, "CHANNELS and coef_len must be greater than 0");
+		assert!(
+			CHANNELS > 0 && coef_len > 0.0,
+			"CHANNELS and coef_len must be greater than 0"
+		);
 		let buffer = std::array::from_fn(|_| RingBuffer::new(96));
 		let cache = std::array::from_fn(|_| Vec::new());
 		let mut out = Self {
@@ -107,7 +114,9 @@ impl<
 					break;
 				}
 
-				if stop_when_coeff_ends && i as f32 >= self.coef_len * self.sample_rate as f32 / 1000.0 {
+				if stop_when_coeff_ends
+					&& i as f32 >= self.coef_len * self.sample_rate as f32 / 1000.0
+				{
 					break;
 				}
 			}
@@ -121,9 +130,10 @@ impl<
 
 impl<
 	InitialFill: Oscillator<CHANNELS> + Send,
-	Coeff: Oscillator<CHANNELS> + Send, 
-	const CHANNELS: usize
-> Oscillator<CHANNELS> for SimplePluck<InitialFill, Coeff, CHANNELS> {
+	Coeff: Oscillator<CHANNELS> + Send,
+	const CHANNELS: usize,
+> Oscillator<CHANNELS> for SimplePluck<InitialFill, Coeff, CHANNELS>
+{
 	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
 		let mut output = [0.0; CHANNELS];
 
@@ -138,12 +148,13 @@ impl<
 				let buffer_len = (self.buffer[0].capacity() as f32 / factor).min(cache_len);
 				let warpped_t = (t - cache_len) % (2.0 * buffer_len);
 
-				cache_len - if warpped_t >= buffer_len {
-					2.0 * buffer_len - warpped_t
-				}else {
-					warpped_t
-				}
-			}else {
+				cache_len
+					- if warpped_t >= buffer_len {
+						2.0 * buffer_len - warpped_t
+					} else {
+						warpped_t
+					}
+			} else {
 				t
 			};
 			*out = cache.sample(t / cache.len() as f32, 0);
@@ -155,18 +166,28 @@ impl<
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
 		use crate::tools::ui_tools::draw_waveform;
-		
+
 		let width = ui.available_width();
-		egui::Resize::default().resizable([false, true])
-		// .auto_sized()
-		.min_width(width)
-		.max_width(width)
-		.id_salt(format!("{id_prefix}_wavtable"))
-		.show(ui, |ui| {
-			draw_waveform(ui, None, &self.cache.iter().map(|x| &x[..]).collect::<Vec<_>>(), &None, false, false);
-		});
+		egui::Resize::default()
+			.resizable([false, true])
+			// .auto_sized()
+			.min_width(width)
+			.max_width(width)
+			.id_salt(format!("{id_prefix}_wavtable"))
+			.show(ui, |ui| {
+				draw_waveform(
+					ui,
+					None,
+					&self.cache.iter().map(|x| &x[..]).collect::<Vec<_>>(),
+					&None,
+					false,
+					false,
+				);
+			});
 		ui.collapsing("Initial Fill", |ui| {
-			self.initial_fill.0.demo_ui(ui, format!("{id_prefix}_inital_fill"));
+			self.initial_fill
+				.0
+				.demo_ui(ui, format!("{id_prefix}_inital_fill"));
 		});
 		ui.collapsing("Coefficient", |ui| {
 			self.coef.0.demo_ui(ui, format!("{id_prefix}_coef"));

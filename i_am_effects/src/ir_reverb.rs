@@ -51,9 +51,7 @@ impl IrWorker {
 
 		// Dropping the old FFT partitions on the audio thread is what makes the
 		// swap stutter; release them here instead.
-		std::thread::spawn(move || {
-			while garbage_rx.recv().is_ok() {}
-		});
+		std::thread::spawn(move || while garbage_rx.recv().is_ok() {});
 
 		Self {
 			requests,
@@ -66,8 +64,8 @@ impl IrWorker {
 fn generator(request: IrRequest) -> RayTracing {
 	// The ray tracer decays by exp(-decay * distance); this puts T60 at the
 	// requested time using the current speed of sound.
-	let decay = (6.9 / ((request.decay_time.max(1.0) / 1_000.0) * request.sound_velocity))
-		.clamp(1e-4, 1.0);
+	let decay =
+		(6.9 / ((request.decay_time.max(1.0) / 1_000.0) * request.sound_velocity)).clamp(1e-4, 1.0);
 	let mut generator = RayTracing::rectangular_room(
 		request.size,
 		request.size * 0.7,
@@ -286,7 +284,10 @@ mod tests {
 				first = samples[0];
 			}
 
-			assert!(samples.iter().all(|sample| sample.is_finite()), "{samples:?}");
+			assert!(
+				samples.iter().all(|sample| sample.is_finite()),
+				"{samples:?}"
+			);
 		}
 
 		assert!(first.abs() < 0.01, "dry leaked at sample 0: {first}");

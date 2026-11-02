@@ -291,7 +291,11 @@ mod tests {
 		}
 
 		fn next_event(&mut self) -> Option<NoteEvent> {
-			if self.events.is_empty() { None } else { Some(self.events.remove(0)) }
+			if self.events.is_empty() {
+				None
+			} else {
+				Some(self.events.remove(0))
+			}
 		}
 
 		fn send_event(&mut self, event: NoteEvent) {
@@ -337,8 +341,16 @@ mod tests {
 		let mut effect = SpectralRetuneEffect::new(48_000);
 		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
 			events: vec![
-				NoteEvent::NoteOn { channel: 0, note: 60, velocity: 1.0 },
-				NoteEvent::NoteOn { channel: 0, note: 64, velocity: 1.0 },
+				NoteEvent::NoteOn {
+					channel: 0,
+					note: 60,
+					velocity: 1.0,
+				},
+				NoteEvent::NoteOn {
+					channel: 0,
+					note: 64,
+					velocity: 1.0,
+				},
 			],
 			infos: crate::ProcessInfos::default(),
 		});

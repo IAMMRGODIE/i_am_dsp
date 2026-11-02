@@ -6,18 +6,21 @@ use i_am_dsp_derive::Parameters;
 
 #[cfg(feature = "real_time_demo")]
 use crate::tools::ring_buffer::RingBuffer;
-use crate::{Generator, NoteEvent, ProcessInfos, prelude::{Oscillator, SyncedTime}};
+use crate::{
+	Generator, NoteEvent, ProcessInfos,
+	prelude::{Oscillator, SyncedTime},
+};
 
 pub(crate) struct Note {
 	// pub channel: u8,
 	pub note: usize,
-	pub velocity: f32,	
+	pub velocity: f32,
 }
 
 /// A tuning system that converts MIDI note numbers to frequencies in Hz
 pub trait Tuning {
 	/// Returns frequency in Hz for given MIDI note number
-	/// 
+	///
 	/// Note: We allow note number to be float to allow for microtonal tuning
 	fn get_frequency(&self, note: f32) -> f32;
 }
@@ -86,8 +89,8 @@ pub struct JustIntonation;
 impl Tuning for JustIntonation {
 	fn get_frequency(&self, note: f32) -> f32 {
 		const JUST_RATIOS: [f32; 12] = [
-			1.000000, 1.066667, 1.125, 1.2, 1.25, 1.333333,
-			1.406_25, 1.5, 1.6, 1.666667, 1.777778, 1.875,
+			1.000000, 1.066667, 1.125, 1.2, 1.25, 1.333333, 1.406_25, 1.5, 1.6, 1.666667, 1.777778,
+			1.875,
 		];
 		scale_frequency(note, &JUST_RATIOS)
 	}
@@ -102,8 +105,8 @@ pub struct PythagoreanTuning;
 impl Tuning for PythagoreanTuning {
 	fn get_frequency(&self, note: f32) -> f32 {
 		const PYTHAGOREAN_RATIOS: [f32; 12] = [
-			1.000000, 1.067871, 1.125, 1.201355, 1.265625, 1.333333,
-			1.423828, 1.5, 1.601807, 1.687_5, 1.802032, 1.898438,
+			1.000000, 1.067871, 1.125, 1.201355, 1.265625, 1.333333, 1.423828, 1.5, 1.601807,
+			1.687_5, 1.802032, 1.898438,
 		];
 		scale_frequency(note, &PYTHAGOREAN_RATIOS)
 	}
@@ -137,10 +140,12 @@ impl<const N: usize> Tuning for ScaleTuning<N> {
 }
 
 /// A major pentatonic scale preset built on top of ScaleTuning.
-pub const PENTATONIC: ScaleTuning<5> = ScaleTuning::new([1.0, 9.0 / 8.0, 5.0 / 4.0, 3.0 / 2.0, 5.0 / 3.0]);
+pub const PENTATONIC: ScaleTuning<5> =
+	ScaleTuning::new([1.0, 9.0 / 8.0, 5.0 / 4.0, 3.0 / 2.0, 5.0 / 3.0]);
 
 /// A minor pentatonic scale preset built on top of ScaleTuning.
-pub const PENTATONIC_MINOR: ScaleTuning<5> = ScaleTuning::new([1.0, 6.0 / 5.0, 4.0 / 3.0, 3.0 / 2.0, 9.0 / 5.0]);
+pub const PENTATONIC_MINOR: ScaleTuning<5> =
+	ScaleTuning::new([1.0, 6.0 / 5.0, 4.0 / 3.0, 3.0 / 2.0, 9.0 / 5.0]);
 /// The stage lengths an envelope runs at, in milliseconds.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct EnvelopeTimes {
@@ -188,7 +193,8 @@ pub struct PlayingNote<const CHANNELS: usize> {
 	pub current_pitch_factor: f32,
 }
 
-type NoteProcessor<const CHANNELS: usize> = Box<dyn Fn(&mut [f32; CHANNELS], &PlayingNote<CHANNELS>, usize) + Send + Sync>;
+type NoteProcessor<const CHANNELS: usize> =
+	Box<dyn Fn(&mut [f32; CHANNELS], &PlayingNote<CHANNELS>, usize) + Send + Sync>;
 
 impl<const CHANNELS: usize> PlayingNote<CHANNELS> {
 	/// Get how long since the note has been playing in ms
@@ -207,34 +213,32 @@ impl<const CHANNELS: usize> PlayingNote<CHANNELS> {
 	}
 
 	/// Get the release time of the playing note in ms
-	/// 
+	///
 	/// If the note is not in release phase, returns None.
 	pub fn release_time(&self, sample_rate: usize) -> Option<f32> {
-		self.release.as_ref().map(|(_, count)| *count as f32 / sample_rate as f32 * 1000.0)
+		self.release
+			.as_ref()
+			.map(|(_, count)| *count as f32 / sample_rate as f32 * 1000.0)
 	}
 
 	/// Get the release level of the playing note
-	/// 
+	///
 	/// If the note is not in release phase, returns None.
 	pub fn release_level(&self) -> Option<f32> {
 		self.release.as_ref().map(|(level, _)| *level)
 	}
 }
 
-/// A warper to play an oscillator with ADSR envelope. 
-/// 
+/// A warper to play an oscillator with ADSR envelope.
+///
 /// Adsr supports Midi Events, but cannot distinguish the note'channel.
-/// 
+///
 /// Actually this is AHDSR.
-/// 
+///
 /// The Bend function of Adsr is $\frac{\exp(bend_factor * time) - 1}{\exp(bend_factor) - 1}$
 #[derive(Parameters)]
 #[default_float_range(min = 0.0, max = 4000.0)]
-pub struct Adsr<
-	Osc: Oscillator<CHANNELS>,
-	TuningSys: Tuning,
-	const CHANNELS: usize
-> {
+pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize> {
 	#[sub_param]
 	/// The oscillator to be played with ADSR envelope
 	pub oscillator: Osc,
@@ -243,7 +247,7 @@ pub struct Adsr<
 	#[skip]
 	note_playing: HashMap<usize, Vec<PlayingNote<CHANNELS>>>,
 	/// The sample rate of the audio processing system
-	/// 
+	///
 	/// Saves in Hz
 	#[skip]
 	pub sample_rate: usize,
@@ -308,7 +312,7 @@ pub struct Adsr<
 	#[range(min = -10.0, max = 10.0)]
 	pub unison_bend: f32,
 	/// The blend of each unison, 0.0 for no blend
-	/// 
+	///
 	/// This will lower the amplitude of "side" unison.
 	#[range(min = 0.0, max = 1.0)]
 	pub unison_blend: f32,
@@ -342,9 +346,9 @@ pub struct Adsr<
 	#[skip]
 	times: EnvelopeTimes,
 	/// The effect attach to a single note, if any.
-	/// 
+	///
 	/// Takes a mutable reference to the buffer, the playing note, and the sample rate.
-	/// 
+	///
 	/// Note: this field will **not** be saved in the preset file.
 	#[skip]
 	pub note_effect: Option<NoteProcessor<CHANNELS>>,
@@ -354,22 +358,16 @@ pub struct Adsr<
 	history: [RingBuffer<f32>; CHANNELS],
 }
 
-impl<
-	Osc: Oscillator<CHANNELS>,
-	TuningSys: Tuning,
-	const CHANNELS: usize
-> Adsr<Osc, TuningSys, CHANNELS> {
+impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
+	Adsr<Osc, TuningSys, CHANNELS>
+{
 	/// Create a new Adsr with given oscillator and tuning system
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// 1. If `sample_rate` is 0.
 	/// 2. If `CHANNELS` is 0.
-	pub fn new(
-		oscillator: Osc,
-		tuning_sys: TuningSys,
-		sample_rate: usize,
-	) -> Self {
+	pub fn new(oscillator: Osc, tuning_sys: TuningSys, sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0);
 		assert!(sample_rate > 0);
 
@@ -465,14 +463,14 @@ impl<
 			let v = 1.0 + (self.sustain_level - 1.0) * a;
 			return v;
 		}
-		
+
 		self.sustain_level
 	}
 
 	/// Replaces the attached effect to a single note.
-	pub fn replace_note_efftct<T>(&mut self, effect: T) 
-	where 
-		T: Fn(&mut [f32; CHANNELS], &PlayingNote<CHANNELS>, usize) + 'static + Send + Sync
+	pub fn replace_note_efftct<T>(&mut self, effect: T)
+	where
+		T: Fn(&mut [f32; CHANNELS], &PlayingNote<CHANNELS>, usize) + 'static + Send + Sync,
 	{
 		self.note_effect = Some(Box::new(effect));
 	}
@@ -495,14 +493,18 @@ impl<
 impl<
 	Osc: Oscillator<CHANNELS> + Send + Sync,
 	TuningSys: Tuning + Send + Sync,
-	const CHANNELS: usize
-> Generator<CHANNELS> for Adsr<Osc, TuningSys, CHANNELS> {
+	const CHANNELS: usize,
+> Generator<CHANNELS> for Adsr<Osc, TuningSys, CHANNELS>
+{
 	#[cfg(feature = "real_time_demo")]
 	fn name(&self) -> &str {
 		"ADSRed Generator"
 	}
 
-	fn generate(&mut self, process_context: &mut Box<dyn crate::ProcessContext>) -> [f32; CHANNELS] {
+	fn generate(
+		&mut self,
+		process_context: &mut Box<dyn crate::ProcessContext>,
+	) -> [f32; CHANNELS] {
 		for event in process_context.events() {
 			match event {
 				NoteEvent::NoteOn {
@@ -510,29 +512,34 @@ impl<
 					velocity,
 					channel,
 				} => {
-					let note = Note { 
-						// channel: *channel, 
-						note: *note, 
-						velocity: *velocity 
+					let note = Note {
+						// channel: *channel,
+						note: *note,
+						velocity: *velocity,
 					};
-					let phases = (0..self.unisons).map(|_| {
-						if self.random_phase != 0.0 {
-							std::array::from_fn(|_| {
-								(rand::random_range(0.0..=self.random_phase) + self.phase_start) % 1.0
-							})
-						}else {
-							[self.phase_start; CHANNELS]
-						}
-					}).collect();
-					let mut pan_factors = (0..self.unisons).map(|_| {
-						rand::random_range(-1.0..=1.0)
-					}).collect::<Vec<_>>();
+					let phases = (0..self.unisons)
+						.map(|_| {
+							if self.random_phase != 0.0 {
+								std::array::from_fn(|_| {
+									(rand::random_range(0.0..=self.random_phase) + self.phase_start)
+										% 1.0
+								})
+							} else {
+								[self.phase_start; CHANNELS]
+							}
+						})
+						.collect();
+					let mut pan_factors = (0..self.unisons)
+						.map(|_| rand::random_range(-1.0..=1.0))
+						.collect::<Vec<_>>();
 
 					let mean = pan_factors.iter().sum::<f32>() / pan_factors.len() as f32;
-					pan_factors.iter_mut().for_each(|inner| {
-						*inner -= mean
-					});
-					let max = pan_factors.iter().max_by(|a, b| a.abs().partial_cmp(&b.abs()).unwrap()).unwrap().abs();
+					pan_factors.iter_mut().for_each(|inner| *inner -= mean);
+					let max = pan_factors
+						.iter()
+						.max_by(|a, b| a.abs().partial_cmp(&b.abs()).unwrap())
+						.unwrap()
+						.abs();
 					pan_factors.iter_mut().for_each(|inner| {
 						if max != 0.0 {
 							*inner /= max;
@@ -548,32 +555,32 @@ impl<
 						last_phase: vec![0.0; self.unisons],
 						last_time: 0.0,
 						current_pitch_factor: 1.0,
-						channel: *channel
+						channel: *channel,
 					};
-					self.note_playing.entry(playing_note.note.note).or_default().push(playing_note);
+					self.note_playing
+						.entry(playing_note.note.note)
+						.or_default()
+						.push(playing_note);
 				}
-				NoteEvent::NoteOff {
-					note,
-					..
-				} => {
+				NoteEvent::NoteOff { note, .. } => {
 					if let Some(playing_notes) = self.note_playing.remove(note) {
 						for mut playing_note in playing_notes {
 							let sample = self.sample_count(playing_note.count);
 							playing_note.release = Some((sample, playing_note.count));
-							self.note_playing.entry(*note).or_default().push(playing_note);
-						} 
+							self.note_playing
+								.entry(*note)
+								.or_default()
+								.push(playing_note);
+						}
 					}
 				}
-				NoteEvent::Stop {
-					note,
-					..
-				} => {
+				NoteEvent::Stop { note, .. } => {
 					self.note_playing.remove(note);
 				}
 				NoteEvent::ImmediateStop => {
 					self.note_playing.clear();
 				}
-				_ => {},
+				_ => {}
 			}
 		}
 
@@ -586,22 +593,22 @@ impl<
 		note_playing.retain(|note, playing_notes| {
 			playing_notes.retain_mut(|playing_note| {
 				let unisons = playing_note.phase_start.len();
-				
+
 				let gain = if let Some((release, release_count)) = playing_note.release {
 					let time = (playing_note.count - release_count) as f32 / sample_rate * 1000.0;
 					let Some(gain) = self.sample_release_time(time) else {
-						process_context.send_event(NoteEvent::NoteEnd { 
-							channel: playing_note.channel, 
-							note: playing_note.note() 
+						process_context.send_event(NoteEvent::NoteEnd {
+							channel: playing_note.channel,
+							note: playing_note.note(),
 						});
 						return false;
 					};
 					gain * playing_note.note.velocity * release
-				}else {
+				} else {
 					let time = playing_note.count as f32 / sample_rate * 1000.0;
 					self.sample_time(time) * playing_note.note.velocity
 				};
-	
+
 				let time = playing_note.count as f32 / sample_rate;
 				let mut output_samples = [0.0; CHANNELS];
 				let mid_point = (unisons - 1) as f32 / 2.0;
@@ -609,44 +616,46 @@ impl<
 				for i in 0..unisons {
 					let index = if mid_point == 0.0 {
 						0.0
-					}else {
+					} else {
 						(i as f32 - mid_point) / mid_point
 					};
 					let blend = 1.0 - index.abs() * self.unison_blend;
 					let index = if index >= 0.0 {
 						bend(index, self.unison_bend)
-					}else {
-						- bend(index.abs(), self.unison_bend)
+					} else {
+						-bend(index.abs(), self.unison_bend)
 					};
 					let detune_factor = self.unison_detune * index;
 					let pitch_factor = playing_note.current_pitch_factor * self.pitch_factor;
-					let frequency = self.tuning_sys.get_frequency(*note as f32 + detune_factor) * pitch_factor;
-	
-					let t = frequency * (time - playing_note.last_time) + playing_note.last_phase[i];
+					let frequency =
+						self.tuning_sys.get_frequency(*note as f32 + detune_factor) * pitch_factor;
+
+					let t =
+						frequency * (time - playing_note.last_time) + playing_note.last_phase[i];
 					playing_note.last_phase[i] = t;
-					
+
 					self.oscillator.set_pitch(frequency, self.sample_rate);
 					let samples = self.oscillator.play_at(
-						1.0, 
+						1.0,
 						t,
 						if self.random_phase_by_channel {
 							playing_note.phase_start[i]
-						}else {
+						} else {
 							std::array::from_fn(|_| playing_note.phase_start[i][0])
-						}
+						},
 					);
-					
+
 					for (j, output_samples) in output_samples.iter_mut().enumerate() {
 						// let pan_gain = i as f32 / channels_f32 * index * 2.0 - index + 1.0;
 						let gain_factor = if CHANNELS == 1 {
 							1.0
-						}else {
+						} else {
 							let angle_uniformed = j as f32 / (CHANNELS - 1) as f32;
 							let pan_factor = self.pan_position(playing_note.pan_factors[i]);
 							let delta = (angle_uniformed - pan_factor).abs();
 							2.0 - delta * 2.0
 						};
-						
+
 						*output_samples += samples[j] * gain / unisons as f32 * blend * gain_factor;
 					}
 				}
@@ -657,9 +666,9 @@ impl<
 				for i in 0..CHANNELS {
 					output[i] += output_samples[i] * gain;
 				}
-	
+
 				playing_note.count += 1;
-	
+
 				true
 			});
 			!playing_notes.is_empty()
@@ -680,17 +689,17 @@ impl<
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::*;
-		use egui::emath::RectTransform;
 		use crate::tools::ui_tools::draw_envelope;
 		use crate::tools::ui_tools::{gain_ui, synced_time_ui};
+		use egui::emath::RectTransform;
+		use egui::*;
 
 		CollapsingHeader::new("Oscillator Settings")
 			.id_salt(format!("{}_oscillator_settings", id_prefix))
-			.show(ui, |ui| 
-		{
-			self.oscillator.demo_ui(ui, format!("{}_oscillator", id_prefix));
-		});
+			.show(ui, |ui| {
+				self.oscillator
+					.demo_ui(ui, format!("{}_oscillator", id_prefix));
+			});
 
 		ui.horizontal(|ui| {
 			Frame::canvas(ui.style()).show(ui, |ui| {
@@ -698,10 +707,8 @@ impl<
 				let (_, rect) = ui.allocate_space(Vec2::splat(100.0));
 				let total_time = self.times.total();
 				let none_release_time = self.times.held();
-				let to_screen = RectTransform::from_to(
-					Rect::from_x_y_ranges(0.0..=1.0, -1.0..=0.0), 
-					rect
-				);
+				let to_screen =
+					RectTransform::from_to(Rect::from_x_y_ranges(0.0..=1.0, -1.0..=0.0), rect);
 
 				let mut positions = vec![Pos2::ZERO; POINTS];
 
@@ -709,40 +716,38 @@ impl<
 					let time = i as f32 / POINTS as f32 * total_time;
 					let sample = if time < none_release_time {
 						self.sample_time(time)
-					}else {
-						self.sample_release_time(time - none_release_time).unwrap_or(0.0) * self.sustain_level
+					} else {
+						self.sample_release_time(time - none_release_time)
+							.unwrap_or(0.0) * self.sustain_level
 					};
-					*position = pos2(time / total_time, - sample);
+					*position = pos2(time / total_time, -sample);
 					*position = to_screen * *position;
 				}
 
-				ui.painter().extend([
-					Shape::line(positions, (3.0, Color32::WHITE))
-				]);
+				ui.painter()
+					.extend([Shape::line(positions, (3.0, Color32::WHITE))]);
 			});
 
-			Frame::canvas(ui.style()).show(ui, |ui| {				
+			Frame::canvas(ui.style()).show(ui, |ui| {
 				let (_, rect) = ui.allocate_space(Vec2::splat(100.0));
-				let to_screen = RectTransform::from_to(
-					Rect::from_x_y_ranges(-1.0..=1.0, -1.0..=0.0), 
-					rect
-				);
+				let to_screen =
+					RectTransform::from_to(Rect::from_x_y_ranges(-1.0..=1.0, -1.0..=0.0), rect);
 
 				let mid_point = (self.unisons - 1) as f32 / 2.0;
 				let shapes = (0..self.unisons).map(|i| {
 					let index = if mid_point == 0.0 {
 						0.0
-					}else {
+					} else {
 						(i as f32 - mid_point) / mid_point
 					};
 					let blend = 1.0 - index.abs() * self.unison_blend;
 					let index = if index >= 0.0 {
 						bend(index, self.unison_bend)
-					}else {
-						- bend(index.abs(), self.unison_bend)
+					} else {
+						-bend(index.abs(), self.unison_bend)
 					};
 					let detune_factor = self.unison_detune * index / 2.0;
-					let position_1 = to_screen * pos2(detune_factor, - blend);
+					let position_1 = to_screen * pos2(detune_factor, -blend);
 					let position_2 = to_screen * pos2(detune_factor, 0.0);
 					Shape::line(vec![position_1, position_2], (3.0, Color32::WHITE))
 				});
@@ -750,75 +755,114 @@ impl<
 				ui.painter().extend(shapes);
 			});
 
-			
 			let history = self.history.iter().collect::<Vec<_>>();
 			draw_envelope(ui, &history, true);
 		});
 
 		ui.separator();
 
-		Grid::new(format!("{}_adsr_grid", id_prefix)).num_columns(6).show(ui, |ui| {
-			ui.label("Delay time");
-			synced_time_ui(ui, "adsr_delay", &mut self.delay, &mut self.delay_time, 0.0..=1000.0, "Delay (ms)");
-			ui.label("Attack time");
-			synced_time_ui(ui, "adsr_attack", &mut self.attack, &mut self.attack_time, 0.0..=1000.0, "Attack (ms)");
-			ui.label("Hold Time");
-			synced_time_ui(ui, "adsr_hold", &mut self.hold, &mut self.hold_time, 0.0..=1000.0, "Hold (ms)");
-			ui.end_row();
-			
-			ui.label("Decay Time");
-			synced_time_ui(ui, "adsr_decay", &mut self.decay, &mut self.decay_time, 0.0..=1000.0, "Decay (ms)");
-			ui.label("Sustain Level");
-			gain_ui(ui, &mut self.sustain_level, Some("".to_string()), true);
-			ui.label("Release Time");
-			synced_time_ui(ui, "adsr_release", &mut self.release, &mut self.release_time, 0.0..=1000.0, "Release (ms)");
-			ui.end_row();
+		Grid::new(format!("{}_adsr_grid", id_prefix))
+			.num_columns(6)
+			.show(ui, |ui| {
+				ui.label("Delay time");
+				synced_time_ui(
+					ui,
+					"adsr_delay",
+					&mut self.delay,
+					&mut self.delay_time,
+					0.0..=1000.0,
+					"Delay (ms)",
+				);
+				ui.label("Attack time");
+				synced_time_ui(
+					ui,
+					"adsr_attack",
+					&mut self.attack,
+					&mut self.attack_time,
+					0.0..=1000.0,
+					"Attack (ms)",
+				);
+				ui.label("Hold Time");
+				synced_time_ui(
+					ui,
+					"adsr_hold",
+					&mut self.hold,
+					&mut self.hold_time,
+					0.0..=1000.0,
+					"Hold (ms)",
+				);
+				ui.end_row();
 
-			ui.label("Attack bend");
-			ui.add(Slider::new(&mut self.attack_bend, -10.0..=10.0));
-			ui.label("Decay bend");
-			ui.add(Slider::new(&mut self.decay_bend, -10.0..=10.0));
-			ui.label("Release bend");
-			ui.add(Slider::new(&mut self.release_bend, -10.0..=10.0));
-			ui.end_row();
+				ui.label("Decay Time");
+				synced_time_ui(
+					ui,
+					"adsr_decay",
+					&mut self.decay,
+					&mut self.decay_time,
+					0.0..=1000.0,
+					"Decay (ms)",
+				);
+				ui.label("Sustain Level");
+				gain_ui(ui, &mut self.sustain_level, Some("".to_string()), true);
+				ui.label("Release Time");
+				synced_time_ui(
+					ui,
+					"adsr_release",
+					&mut self.release,
+					&mut self.release_time,
+					0.0..=1000.0,
+					"Release (ms)",
+				);
+				ui.end_row();
 
-			ui.label("Unison");
-			ui.add(Slider::new(&mut self.unisons, 1..=32).text(""));
-			ui.label("Unison detune");
-			ui.add(Slider::new(&mut self.unison_detune, 0.0..=2.0).suffix("notes"));
-			ui.label("Unison bend");
-			ui.add(Slider::new(&mut self.unison_bend, -10.0..=10.0));
-			ui.end_row();
+				ui.label("Attack bend");
+				ui.add(Slider::new(&mut self.attack_bend, -10.0..=10.0));
+				ui.label("Decay bend");
+				ui.add(Slider::new(&mut self.decay_bend, -10.0..=10.0));
+				ui.label("Release bend");
+				ui.add(Slider::new(&mut self.release_bend, -10.0..=10.0));
+				ui.end_row();
 
-			ui.label("Unison blend");
-			ui.add(Slider::new(&mut self.unison_blend, 0.0..=1.0));
-			ui.label("Random Phase");
-			ui.add(Slider::new(&mut self.random_phase, 0.0..=1.0));
-			ui.label("Phase Start");
-			ui.add(Slider::new(&mut self.phase_start, 0.0..=1.0));
-			ui.end_row();
+				ui.label("Unison");
+				ui.add(Slider::new(&mut self.unisons, 1..=32).text(""));
+				ui.label("Unison detune");
+				ui.add(Slider::new(&mut self.unison_detune, 0.0..=2.0).suffix("notes"));
+				ui.label("Unison bend");
+				ui.add(Slider::new(&mut self.unison_bend, -10.0..=10.0));
+				ui.end_row();
 
-			ui.label("Pan");
-			ui.add(Slider::new(&mut self.pan, -1.0..=1.0));
-			ui.label("Random Pan");
-			ui.add(Slider::new(&mut self.random_pan, 0.0..=1.0));
-			ui.label("Pitch Factor");
-			ui.add(Slider::new(&mut self.pitch_factor, 0.25..=4.0).logarithmic(true));
-			ui.label("Gain");
-			gain_ui(ui, &mut self.gain, Some("".to_string()), false);
-			ui.end_row();
-			
-			if ui.selectable_label(self.random_phase_by_channel, "Random Channel").clicked() {
-				self.random_phase_by_channel = !self.random_phase_by_channel
-			}
-		});
+				ui.label("Unison blend");
+				ui.add(Slider::new(&mut self.unison_blend, 0.0..=1.0));
+				ui.label("Random Phase");
+				ui.add(Slider::new(&mut self.random_phase, 0.0..=1.0));
+				ui.label("Phase Start");
+				ui.add(Slider::new(&mut self.phase_start, 0.0..=1.0));
+				ui.end_row();
+
+				ui.label("Pan");
+				ui.add(Slider::new(&mut self.pan, -1.0..=1.0));
+				ui.label("Random Pan");
+				ui.add(Slider::new(&mut self.random_pan, 0.0..=1.0));
+				ui.label("Pitch Factor");
+				ui.add(Slider::new(&mut self.pitch_factor, 0.25..=4.0).logarithmic(true));
+				ui.label("Gain");
+				gain_ui(ui, &mut self.gain, Some("".to_string()), false);
+				ui.end_row();
+
+				if ui
+					.selectable_label(self.random_phase_by_channel, "Random Channel")
+					.clicked()
+				{
+					self.random_phase_by_channel = !self.random_phase_by_channel
+				}
+			});
 	}
 }
 
 pub(crate) fn bend(t: f32, bend: f32) -> f32 {
 	if bend == 0.0 {
 		t
-	}else {
+	} else {
 		((t * bend).exp() - 1.0) / (bend.exp() - 1.0)
 	}
 }
@@ -907,7 +951,10 @@ mod tests {
 		let mut adsr = adsr();
 		adsr.attack = SyncedTime::synced(1.0);
 
-		let infos = ProcessInfos { playing: false, ..infos_with_tempo(120.0) };
+		let infos = ProcessInfos {
+			playing: false,
+			..infos_with_tempo(120.0)
+		};
 		adsr.update_times(&infos);
 		assert!((adsr.times.attack - 500.0).abs() < 1e-3);
 	}

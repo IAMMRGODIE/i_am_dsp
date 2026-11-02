@@ -13,11 +13,11 @@ use i_am_dsp_derive::Parameters;
 use rand::random_range;
 
 use crate::{
+	Effect, ProcessContext,
 	effects::{
-		phase_vocoder::{overlap_add_gain, FrequencyMapper, PhaseVocoder},
+		phase_vocoder::{FrequencyMapper, PhaseVocoder, overlap_add_gain},
 		stereo_control::{Gain, StereoController},
 	},
-	Effect, ProcessContext,
 };
 
 /// The window size the plug-in starts with, in samples.
@@ -85,8 +85,16 @@ impl FrequencyMapper for ParticleRandomizer {
 		use egui::Slider;
 
 		ui.add(Slider::new(&mut self.depth, 0.0..=1.0).text("Depth"));
-		ui.add(Slider::new(&mut self.low_frequency, 1.0..=30000.0).text("Low Frequency (Hz)").logarithmic(true));
-		ui.add(Slider::new(&mut self.high_frequency, 1.0..=30000.0).text("High Frequency (Hz)").logarithmic(true));
+		ui.add(
+			Slider::new(&mut self.low_frequency, 1.0..=30000.0)
+				.text("Low Frequency (Hz)")
+				.logarithmic(true),
+		);
+		ui.add(
+			Slider::new(&mut self.high_frequency, 1.0..=30000.0)
+				.text("High Frequency (Hz)")
+				.logarithmic(true),
+		);
 		ui.checkbox(&mut self.allow_negative, "Allow Negative Magnitudes");
 	}
 }
@@ -111,7 +119,11 @@ pub struct ParticleWider {
 impl ParticleWider {
 	/// Creates a new particle wider for the given sample rate.
 	pub fn new(sample_rate: usize) -> Self {
-		let vocoder = PhaseVocoder::new(ParticleRandomizer::default(), DEFAULT_WINDOW_SIZE, sample_rate);
+		let vocoder = PhaseVocoder::new(
+			ParticleRandomizer::default(),
+			DEFAULT_WINDOW_SIZE,
+			sample_rate,
+		);
 		let mut wider = Self {
 			input_gain: Gain::new(1.0),
 			stereo_control: StereoController::new(),
@@ -160,9 +172,20 @@ impl Effect<2> for ParticleWider {
 		use crate::tools::ui_tools::gain_ui;
 
 		self.vocoder.demo_ui(ui, format!("{}_vocoder", id_prefix));
-		self.stereo_control.demo_ui(ui, format!("{}_stereo", id_prefix));
-		gain_ui(ui, &mut self.input_gain.gain, Some("Input Gain".to_string()), false);
-		gain_ui(ui, &mut self.output_gain.gain, Some("Output Gain".to_string()), false);
+		self.stereo_control
+			.demo_ui(ui, format!("{}_stereo", id_prefix));
+		gain_ui(
+			ui,
+			&mut self.input_gain.gain,
+			Some("Input Gain".to_string()),
+			false,
+		);
+		gain_ui(
+			ui,
+			&mut self.output_gain.gain,
+			Some("Output Gain".to_string()),
+			false,
+		);
 	}
 }
 
@@ -253,7 +276,13 @@ mod tests {
 			.zip(input.iter())
 			.map(|(output, input)| (output - input).abs())
 			.sum();
-		assert!(difference > 1.0, "the randomized signal is identical to the input");
-		assert!(output.iter().all(|sample| sample.is_finite()), "the output is not finite");
+		assert!(
+			difference > 1.0,
+			"the randomized signal is identical to the input"
+		);
+		assert!(
+			output.iter().all(|sample| sample.is_finite()),
+			"the output is not finite"
+		);
 	}
 }

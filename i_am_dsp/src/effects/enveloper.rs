@@ -3,15 +3,10 @@
 use i_am_dsp_derive::Parameters;
 
 use crate::{
-	effects::prelude::{
-		hilbert_transform, 
-		Convolver, 
-		HilbertTransform
-	}, 
-	prelude::{Parameters, SyncedTime}, 
-	tools::ring_buffer::RingBuffer, 
-	Effect, 
-	ProcessContext
+	Effect, ProcessContext,
+	effects::prelude::{Convolver, HilbertTransform, hilbert_transform},
+	prelude::{Parameters, SyncedTime},
+	tools::ring_buffer::RingBuffer,
 };
 
 /// The main trait for envelopes
@@ -29,7 +24,7 @@ pub trait Enveloper<const CHANNELS: usize = 2>: Parameters {
 	fn set_infos(&mut self, infos: &crate::ProcessInfos) {
 		let _ = infos;
 	}
-	
+
 	#[cfg(feature = "real_time_demo")]
 	/// The name of the envelope, used to identify the envelope in the demo UI
 	fn name(&self) -> &str {
@@ -45,7 +40,12 @@ pub trait Enveloper<const CHANNELS: usize = 2>: Parameters {
 }
 
 impl<const CHANNELS: usize, T: Enveloper<CHANNELS> + Sync + Send> Effect<CHANNELS> for T {
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		ctx: &mut Box<dyn ProcessContext>,
+	) {
 		self.set_infos(ctx.infos());
 		self.input_value(samples);
 	}
@@ -66,7 +66,7 @@ impl<const CHANNELS: usize, T: Enveloper<CHANNELS> + Sync + Send> Effect<CHANNEL
 }
 
 /// An envelope with history
-/// 
+///
 /// This is mainly used for the demo UI, to show the history of the envelope
 #[derive(Parameters)]
 pub struct EnvelopeWithHistory<T: Enveloper<CHANNELS>, const CHANNELS: usize = 2> {
@@ -78,9 +78,9 @@ pub struct EnvelopeWithHistory<T: Enveloper<CHANNELS>, const CHANNELS: usize = 2
 
 impl<const CHANNELS: usize, T: Enveloper<CHANNELS>> EnvelopeWithHistory<T, CHANNELS> {
 	/// Create a new envelope with history
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0;
 	pub fn new(env: T, history_len: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -93,14 +93,16 @@ impl<const CHANNELS: usize, T: Enveloper<CHANNELS>> EnvelopeWithHistory<T, CHANN
 	}
 
 	/// Change the length of the history
-	/// 
+	///
 	/// This will clear the history
 	pub fn change_length(&mut self, history_len: usize) {
 		self.env_history = core::array::from_fn(|_| RingBuffer::new(history_len));
 	}
 }
 
-impl<const CHANNELS: usize, T: Enveloper<CHANNELS>> Enveloper<CHANNELS> for EnvelopeWithHistory<T, CHANNELS> {
+impl<const CHANNELS: usize, T: Enveloper<CHANNELS>> Enveloper<CHANNELS>
+	for EnvelopeWithHistory<T, CHANNELS>
+{
 	fn input_value(&mut self, input: &mut [f32; CHANNELS]) {
 		self.envelope.input_value(input);
 		for (i, val) in self.envelope.get_current_envelope().into_iter().enumerate() {
@@ -127,21 +129,26 @@ impl<const CHANNELS: usize, T: Enveloper<CHANNELS>> Enveloper<CHANNELS> for Enve
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::*;
 		use crate::tools::ui_tools::draw_envelope;
+		use egui::*;
 
-		egui::Resize::default().resizable([false, true])
+		egui::Resize::default()
+			.resizable([false, true])
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_envelope_with_history"))
-			.show(ui, |ui| 
-		{
-			draw_envelope(ui, &self.env_history.iter().collect::<Vec<&RingBuffer<f32>>>(), false)
-		});
+			.show(ui, |ui| {
+				draw_envelope(
+					ui,
+					&self.env_history.iter().collect::<Vec<&RingBuffer<f32>>>(),
+					false,
+				)
+			});
 
 		ScrollArea::neither().show(ui, |ui| {
 			ui.allocate_space(Vec2::new(ui.available_width(), 1.0));
-			self.envelope.demo_ui(ui, format!("{} with history", id_prefix))
+			self.envelope
+				.demo_ui(ui, format!("{} with history", id_prefix))
 		});
 	}
 }
@@ -161,7 +168,7 @@ pub struct IIRHilbertEnvelope<const ORDER: usize, const CHANNELS: usize = 2> {
 
 impl<const ORDER: usize, const CHANNELS: usize> IIRHilbertEnvelope<ORDER, CHANNELS> {
 	/// Create a new IIR Hilbert Envelope
-	/// 
+	///
 	/// Paniics if `CHANNELS` is 0;
 	pub fn new(sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -174,7 +181,9 @@ impl<const ORDER: usize, const CHANNELS: usize> IIRHilbertEnvelope<ORDER, CHANNE
 	}
 }
 
-impl<const ORDER: usize, const CHANNELS: usize> Enveloper<CHANNELS> for IIRHilbertEnvelope<ORDER, CHANNELS> {
+impl<const ORDER: usize, const CHANNELS: usize> Enveloper<CHANNELS>
+	for IIRHilbertEnvelope<ORDER, CHANNELS>
+{
 	fn delay(&self) -> usize {
 		0
 	}
@@ -226,7 +235,7 @@ pub struct RectifyEnvelope<const CHANNELS: usize = 2> {
 
 impl<const CHANNELS: usize> RectifyEnvelope<CHANNELS> {
 	/// Create a new Rectify Envelope
-	/// 
+	///
 	/// Paniics if `CHANNELS` is 0;
 	pub const fn new(sample_rate: usize, cutoff: f32) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -281,9 +290,10 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for RectifyEnvelope<CHANNELS> {
 		use crate::{effects::filter::MIN_FREQUENCY, tools::ui_tools::gain_ui};
 		let max_freq = self.sample_rate as f32 / 2.0;
 
-		ui.add(egui::Slider::new(&mut self.cutoff, MIN_FREQUENCY..=max_freq - MIN_FREQUENCY)
-			.text("Cutoff Frequency (Hz)")
-			.logarithmic(true)
+		ui.add(
+			egui::Slider::new(&mut self.cutoff, MIN_FREQUENCY..=max_freq - MIN_FREQUENCY)
+				.text("Cutoff Frequency (Hz)")
+				.logarithmic(true),
 		);
 		gain_ui(ui, &mut self.gain_factor, None, false);
 	}
@@ -329,9 +339,9 @@ pub struct PeakDetector<const CHANNELS: usize = 2> {
 
 impl<const CHANNELS: usize> PeakDetector<CHANNELS> {
 	/// Create a new Peak Detector
-	/// 
+	///
 	/// `attack_time` and `release_time` are in milliseconds.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0;
 	pub const fn new(sample_rate: usize, attack_time: f32, release_time: f32) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -339,9 +349,15 @@ impl<const CHANNELS: usize> PeakDetector<CHANNELS> {
 		let last_history = [0.0; CHANNELS];
 		Self {
 			attack_time,
-			attack: SyncedTime { sync: false, beats: 1.0 },
+			attack: SyncedTime {
+				sync: false,
+				beats: 1.0,
+			},
 			release_time,
-			release: SyncedTime { sync: false, beats: 1.0 },
+			release: SyncedTime {
+				sync: false,
+				beats: 1.0,
+			},
 			attack_ms: attack_time,
 			release_ms: release_time,
 			sample_rate,
@@ -384,7 +400,7 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for PeakDetector<CHANNELS> {
 			let is_attacking = input[i] > self.last_history[i];
 			if is_attacking {
 				*val = attack_factor * input[i].abs() + (1.0 - attack_factor) * *val;
-			}else {
+			} else {
 				*val *= 1.0 - release_factor;
 			}
 			self.last_history[i] = input[i].abs();
@@ -400,12 +416,25 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for PeakDetector<CHANNELS> {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		use crate::tools::ui_tools::{gain_ui, synced_time_ui};
 
-		synced_time_ui(ui, "peak_attack", &mut self.attack, &mut self.attack_time, 0.0..=1000.0, "Attack Time (ms)");
-		synced_time_ui(ui, "peak_release", &mut self.release, &mut self.release_time, 0.0..=1000.0, "Release Time (ms)");
+		synced_time_ui(
+			ui,
+			"peak_attack",
+			&mut self.attack,
+			&mut self.attack_time,
+			0.0..=1000.0,
+			"Attack Time (ms)",
+		);
+		synced_time_ui(
+			ui,
+			"peak_release",
+			&mut self.release,
+			&mut self.release_time,
+			0.0..=1000.0,
+			"Release Time (ms)",
+		);
 		gain_ui(ui, &mut self.gain_factor, None, false);
 	}
 }
-
 
 /// Teager-Kaiser Energy Operator Envelope
 #[derive(Parameters)]
@@ -428,7 +457,7 @@ impl<const CHANNELS: usize> Default for TkeoEnvelope<CHANNELS> {
 
 impl<const CHANNELS: usize> TkeoEnvelope<CHANNELS> {
 	/// Create a new Tkeo Envelope
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0;
 	pub const fn new() -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -459,11 +488,14 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for TkeoEnvelope<CHANNELS> {
 		self.data_history[0] = self.data_history[1];
 		self.data_history[1] = self.data_history[2];
 		self.data_history[2] = *input;
-		
+
 		*input = self.data_history[1];
 
 		for (i, val) in self.envlope_history.iter_mut().enumerate() {
-			*val = (self.data_history[1][i] * self.data_history[1][i] - self.data_history[0][i] * self.data_history[2][i]).abs().sqrt();
+			*val = (self.data_history[1][i] * self.data_history[1][i]
+				- self.data_history[0][i] * self.data_history[2][i])
+				.abs()
+				.sqrt();
 		}
 	}
 
@@ -497,7 +529,7 @@ pub struct FIRHilbertEnvelope<const CHANNELS: usize> {
 
 impl<const CHANNELS: usize> FIRHilbertEnvelope<CHANNELS> {
 	/// Create a new FIR Hilbert Envelope
-	/// 
+	///
 	/// Panic if `ir_len` is not odd or `CHANNELS` is zero.
 	pub fn new(ir_len: usize) -> Self {
 		assert!(CHANNELS > 0 && ir_len % 2 == 1);
@@ -518,7 +550,7 @@ impl<const CHANNELS: usize> FIRHilbertEnvelope<CHANNELS> {
 		assert!(ir_len % 2 == 1);
 		self.ir_len = ir_len;
 		self.convolver.replace_ir(
-			hilbert_transform(ir_len), 
+			hilbert_transform(ir_len),
 			&crate::effects::prelude::DelyaCaculateMode::Fir,
 		);
 	}
@@ -558,8 +590,7 @@ impl<const CHANNELS: usize> Enveloper<CHANNELS> for FIRHilbertEnvelope<CHANNELS>
 		use crate::tools::ui_tools::gain_ui;
 
 		let mut ir_len = self.ir_len;
-		ui.add(egui::Slider::new(&mut ir_len, 15..=1023)
-			.text("IR Length (samples)"));
+		ui.add(egui::Slider::new(&mut ir_len, 15..=1023).text("IR Length (samples)"));
 
 		gain_ui(ui, &mut self.gain_factor, None, false);
 
@@ -596,8 +627,16 @@ mod tests {
 
 		// A beat and half a beat at 120 bpm.
 		detector.set_infos(&infos_with_tempo(120.0));
-		assert!((detector.attack_ms - 500.0).abs() < 1e-3, "attack {}", detector.attack_ms);
-		assert!((detector.release_ms - 250.0).abs() < 1e-3, "release {}", detector.release_ms);
+		assert!(
+			(detector.attack_ms - 500.0).abs() < 1e-3,
+			"attack {}",
+			detector.attack_ms
+		);
+		assert!(
+			(detector.release_ms - 250.0).abs() < 1e-3,
+			"release {}",
+			detector.release_ms
+		);
 
 		detector.attack = SyncedTime::default();
 		detector.release = SyncedTime::default();
@@ -616,7 +655,11 @@ mod tests {
 		detector.set_infos(&infos_with_tempo(120.0));
 
 		// A sixteenth note at 120 bpm is 125 ms, which is 6_000 samples.
-		assert!((detector.release_ms - 125.0).abs() < 1e-3, "{}", detector.release_ms);
+		assert!(
+			(detector.release_ms - 125.0).abs() < 1e-3,
+			"{}",
+			detector.release_ms
+		);
 
 		// A rise is followed at once.
 		let mut input = [1.0];

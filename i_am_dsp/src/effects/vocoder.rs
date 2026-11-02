@@ -3,8 +3,8 @@
 //! those envelopes. The modulator is the sidechain when one is connected, and the
 //! main input otherwise, which makes the self-vocoded "Vocodex" sound.
 
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use i_am_dsp_derive::Parameters;
 
@@ -311,8 +311,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for VocoderEffect<CHANNELS> {
 			carrier = state.carrier[0].process_sample(carrier);
 			carrier = state.carrier[1].process_sample(carrier);
 
-			let mut modulator_band =
-				state.modulator[0].process_sample([modulator; CHANNELS]);
+			let mut modulator_band = state.modulator[0].process_sample([modulator; CHANNELS]);
 			modulator_band = state.modulator[1].process_sample(modulator_band);
 			let level = modulator_band
 				.iter()
@@ -332,11 +331,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for VocoderEffect<CHANNELS> {
 			}
 
 			if write_meters {
-				let level = carrier
-					.iter()
-					.map(|sample| sample.abs())
-					.sum::<f32>()
-					/ CHANNELS as f32;
+				let level =
+					carrier.iter().map(|sample| sample.abs()).sum::<f32>() / CHANNELS as f32;
 				meters.set(band, envelope, level * envelope);
 			}
 		}
@@ -347,7 +343,6 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for VocoderEffect<CHANNELS> {
 		}
 	}
 }
-
 
 /// The STFT vocoder: two analyses (carrier and modulator) and one synthesis,
 /// with the modulator's spectral shape imposed on the carrier's magnitudes and
@@ -478,8 +473,10 @@ impl<const CHANNELS: usize> StftVocoderEffect<CHANNELS> {
 
 		for channel in 0..CHANNELS {
 			for index in 0..window {
-				self.carrier_spectrum[channel][index] =
-					Complex::new(self.window_table[index] * self.carrier_input[channel][index], 0.0);
+				self.carrier_spectrum[channel][index] = Complex::new(
+					self.window_table[index] * self.carrier_input[channel][index],
+					0.0,
+				);
 			}
 			fft.process(&mut self.carrier_spectrum[channel]);
 		}
@@ -538,8 +535,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for StftVocoderEffect<CHANNELS> {
 		other: &[&[f32; CHANNELS]],
 		_: &mut Box<dyn ProcessContext>,
 	) {
-		let size = [512, 1_024, 2_048, 4_096]
-			[self.window_size.clamp(0, 3) as usize];
+		let size = [512, 1_024, 2_048, 4_096][self.window_size.clamp(0, 3) as usize];
 
 		if size != self.last_window {
 			self.renew(size);
@@ -762,7 +758,10 @@ mod tests {
 
 		assert!(band_energy.is_finite(), "{band_energy}");
 		assert!(stft_energy.is_finite(), "{stft_energy}");
-		assert!(stft_energy > 1e-9, "the mono STFT was silent: {stft_energy}");
+		assert!(
+			stft_energy > 1e-9,
+			"the mono STFT was silent: {stft_energy}"
+		);
 	}
 
 	#[test]

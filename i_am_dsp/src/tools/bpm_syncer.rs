@@ -44,10 +44,12 @@ use crate::parameters::Parameters;
 /// assert_eq!(old, new as f32);
 /// # }
 /// ```
-#[deprecated(note = "use `BeatClock`, which is anchorable, ramp-aware and free of the accumulation rounding")]
+#[deprecated(
+	note = "use `BeatClock`, which is anchorable, ramp-aware and free of the accumulation rounding"
+)]
 pub struct BpmSyncer {
 	current_signature: f64,
-	sample_rate: usize
+	sample_rate: usize,
 }
 
 impl BpmSyncer {
@@ -55,7 +57,7 @@ impl BpmSyncer {
 	pub fn new(sample_rate: usize) -> Self {
 		Self {
 			current_signature: 0.0,
-			sample_rate
+			sample_rate,
 		}
 	}
 

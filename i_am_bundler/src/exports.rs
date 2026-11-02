@@ -39,7 +39,7 @@ pub fn check_vst3(library: &Path) -> EntryPointCheck {
 				detail: format!("cannot read the library: {e}"),
 				exported: Vec::new(),
 			};
-		},
+		}
 	};
 
 	if bytes.starts_with(b"MZ") {
@@ -47,7 +47,11 @@ pub fn check_vst3(library: &Path) -> EntryPointCheck {
 			Some(names) => {
 				let present = names.iter().any(|name| name == "GetPluginFactory");
 				EntryPointCheck {
-					presence: if present { Presence::Present } else { Presence::Missing },
+					presence: if present {
+						Presence::Present
+					} else {
+						Presence::Missing
+					},
 					detail: format!(
 						"PE export table read ({} symbol{} exported)",
 						names.len(),
@@ -55,7 +59,7 @@ pub fn check_vst3(library: &Path) -> EntryPointCheck {
 					),
 					exported: names,
 				}
-			},
+			}
 			None => EntryPointCheck {
 				presence: Presence::Unknown,
 				detail: "the file starts with `MZ` but its export table could not be read".into(),
@@ -78,7 +82,9 @@ pub fn check_vst3(library: &Path) -> EntryPointCheck {
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-	haystack.windows(needle.len()).any(|window| window == needle)
+	haystack
+		.windows(needle.len())
+		.any(|window| window == needle)
 }
 
 fn read_u16(bytes: &[u8], offset: usize) -> Option<u16> {

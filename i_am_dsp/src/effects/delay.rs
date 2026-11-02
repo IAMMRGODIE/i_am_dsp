@@ -2,7 +2,12 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{ProcessInfos, generators::wavetable::WaveTable, prelude::{SyncedPhase, SyncedTime}, tools::{interpolate::cubic_interpolate, ring_buffer::RingBuffer}, Effect, ProcessContext};
+use crate::{
+	Effect, ProcessContext, ProcessInfos,
+	generators::wavetable::WaveTable,
+	prelude::{SyncedPhase, SyncedTime},
+	tools::{interpolate::cubic_interpolate, ring_buffer::RingBuffer},
+};
 
 /// How many samples the cubic interpolation of the delay reads.
 const INTERPOLATION_TAPS: usize = 4;
@@ -86,17 +91,13 @@ pub struct PureDelay<const CHANNELS: usize = 2> {
 
 impl<const CHANNELS: usize> PureDelay<CHANNELS> {
 	/// Creates a new pure delay with a given delay time and sample rate.
-	/// 
+	///
 	/// The maximum delay time is limited by the maximum delay length.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// `CHANNELS` is 0
-	pub fn new(
-		maxium_delay_length: usize,
-		delay_time: f32, 
-		sample_rate: usize
-	) -> Self {
+	pub fn new(maxium_delay_length: usize, delay_time: f32, sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
 
 		// The glide starts where the parameter is, so a fresh delay has no transient to
@@ -133,7 +134,9 @@ impl<const CHANNELS: usize> PureDelay<CHANNELS> {
 
 	/// Returns the maximum delay time that can be set without overflowing the buffer.
 	pub fn maxium_delay_time(&self) -> f32 {
-		self.history[0].len().saturating_sub(INTERPOLATION_TAPS - 1) as f32 / self.sample_rate as f32 * 1000.0
+		self.history[0].len().saturating_sub(INTERPOLATION_TAPS - 1) as f32
+			/ self.sample_rate as f32
+			* 1000.0
 	}
 
 	/// Returns the history length.
@@ -179,12 +182,19 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
 		// thing that knows it.
 		if self.tempo.sync {
 			self.target_delay.round().max(0.0) as usize
-		}else {
-			(self.delay_time / 1000.0 * self.sample_rate as f32).round().max(0.0) as usize
+		} else {
+			(self.delay_time / 1000.0 * self.sample_rate as f32)
+				.round()
+				.max(0.0) as usize
 		}
 	}
-	
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		ctx: &mut Box<dyn ProcessContext>,
+	) {
 		let capacity = self.history[0].len();
 		// The interpolation reads the sample before the integer part of the delay
 		// and the two after it, so the last slots cannot be addressed.
@@ -196,7 +206,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
 		self.target_delay = target;
 		self.smoothed_delay = (self.smoothed_delay
 			+ (target - self.smoothed_delay) * glide_coefficient(self.sample_rate))
-			.clamp(0.0, max_delay);
+		.clamp(0.0, max_delay);
 
 		let delay = self.smoothed_delay;
 		let whole = delay.floor() as usize;
@@ -223,7 +233,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
 		}
 
 		if ctx.should_stop() {
-			self.clear_history();	
+			self.clear_history();
 		}
 	}
 
@@ -231,16 +241,20 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PureDelay<CHANNELS> {
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		let delay_range = 1.0..=self.maxium_delay_time();
 
-		crate::tools::ui_tools::synced_time_ui(ui, "pure_delay", &mut self.tempo, &mut self.delay_time, delay_range, "Delay Time (ms)");
+		crate::tools::ui_tools::synced_time_ui(
+			ui,
+			"pure_delay",
+			&mut self.tempo,
+			&mut self.delay_time,
+			delay_range,
+			"Delay Time (ms)",
+		);
 	}
 }
 
 /// A delay effect that delays the signal by a variable amount of time.
 #[derive(Parameters)]
-pub struct Delay<
-	DelayedEffect: Effect<CHANNELS>, 
-	const CHANNELS: usize = 2
-> {
+pub struct Delay<DelayedEffect: Effect<CHANNELS>, const CHANNELS: usize = 2> {
 	#[skip]
 	history: [RingBuffer<f32>; CHANNELS],
 	#[sub_param]
@@ -263,7 +277,7 @@ pub struct Delay<
 	/// The sample rate of the audio signal, saves in Hz
 	pub sample_rate: usize,
 	/// a factor that controls the decay rate of the delay effect
-	/// 
+	///
 	/// must be between 0 and 1
 	#[range(min = 0.0, max = 0.95)]
 	#[unit(percent)]
@@ -315,23 +329,19 @@ pub struct Delay<
 	target_delay: f32,
 }
 
-
-impl<
-	DelayedEffect: Effect<CHANNELS>, 
-	const CHANNELS: usize
-> Delay<DelayedEffect, CHANNELS> {
+impl<DelayedEffect: Effect<CHANNELS>, const CHANNELS: usize> Delay<DelayedEffect, CHANNELS> {
 	/// Creates a new delay effect with a given delay time, sample rate, and decay factor.
-	/// 
+	///
 	/// The maximum delay time is limited by the maximum delay length.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// `CHANNELS` is 0
 	pub fn new(
 		delayed_effect: DelayedEffect,
 		maxium_delay_length: usize,
-		delay_time: f32, 
-		sample_rate: usize
+		delay_time: f32,
+		sample_rate: usize,
 	) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
 		let history = core::array::from_fn(|_| RingBuffer::new(maxium_delay_length));
@@ -357,9 +367,9 @@ impl<
 	}
 
 	/// caculate the maxium delay time that can be set without overflowing the buffer
-	/// 
+	///
 	/// sample lower than epsilon will treated as zero
-	/// 
+	///
 	/// panics if the decay factor is less than zero or greater than one
 	pub fn max_delay_time(&self, epsilon: f32) -> f32 {
 		assert!(self.decay_factor > 0.0 && self.decay_factor < 1.0);
@@ -403,10 +413,9 @@ impl<
 	}
 }
 
-impl<
-	DelayedEffect: Effect<CHANNELS>, 
-	const CHANNELS: usize
-> Effect<CHANNELS> for Delay<DelayedEffect, CHANNELS> {
+impl<DelayedEffect: Effect<CHANNELS>, const CHANNELS: usize> Effect<CHANNELS>
+	for Delay<DelayedEffect, CHANNELS>
+{
 	#[cfg(feature = "real_time_demo")]
 	fn name(&self) -> &str {
 		"Delay"
@@ -421,21 +430,25 @@ impl<
 		// the repeats are the effect, not latency.
 		0
 	}
-	
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		ctx: &mut Box<dyn ProcessContext>,
+	) {
 		let dry = *samples;
 		let history_len = self.history[0].capacity();
 		// The interpolation reads one sample either side of the delay, so the last few slots
 		// cannot be addressed.
 		let max_delay = history_len.saturating_sub(INTERPOLATION_TAPS) as f32;
 
-		let target = (self.tempo.seconds(ctx.infos(), self.delay_time)
-			* self.sample_rate as f32)
+		let target = (self.tempo.seconds(ctx.infos(), self.delay_time) * self.sample_rate as f32)
 			.clamp(0.0, max_delay);
 		self.target_delay = target;
 		self.smoothed_delay = (self.smoothed_delay
 			+ (target - self.smoothed_delay) * glide_coefficient(self.sample_rate))
-			.clamp(0.0, max_delay);
+		.clamp(0.0, max_delay);
 
 		let delay_samples = self.smoothed_delay;
 		let t = delay_samples.fract();
@@ -467,7 +480,7 @@ impl<
 			// The chain is driven by the sum: the repeats are the effect, and the dry signal
 			// keeps the stereo image.
 			Some(samples.iter().sum::<f32>() / CHANNELS as f32)
-		}else {
+		} else {
 			None
 		};
 
@@ -477,12 +490,8 @@ impl<
 				Some(mono) => {
 					let previous = if i == 0 { CHANNELS - 1 } else { i - 1 };
 					let repeat = delayed[previous] * self.wet_gain * self.decay_factor;
-					if i == 0 {
-						mono + repeat
-					}else {
-						repeat
-					}
-				},
+					if i == 0 { mono + repeat } else { repeat }
+				}
 				None => samples[i] + delayed[i] * self.wet_gain * self.decay_factor,
 			};
 
@@ -490,7 +499,8 @@ impl<
 			delayed_sample_output[i] = delayed[i] * self.decay_factor;
 		}
 
-		self.delayed_effect.process(&mut delayed_sample_output, &[], ctx);
+		self.delayed_effect
+			.process(&mut delayed_sample_output, &[], ctx);
 
 		if self.pingpong && CHANNELS == 2 {
 			// The chain still alternates the repeats internally; the pan decides how
@@ -504,32 +514,43 @@ impl<
 			samples[0] = dry[0] * self.dry_gain + left * left_left + right * right_left;
 			samples[1] = dry[1] * self.dry_gain + left * left_right + right * right_right;
 		} else {
-			delayed_sample_output.into_iter().enumerate().for_each(|(i, mut inner)| {
-				inner *= self.wet_gain;
-				samples[i] = dry[i] * self.dry_gain + inner;
-			});
+			delayed_sample_output
+				.into_iter()
+				.enumerate()
+				.for_each(|(i, mut inner)| {
+					inner *= self.wet_gain;
+					samples[i] = dry[i] * self.dry_gain + inner;
+				});
 		}
 
 		if ctx.should_stop() {
-			self.clear_history();	
+			self.clear_history();
 		}
 	}
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-    	use crate::tools::ui_tools::gain_ui;
+		use crate::tools::ui_tools::gain_ui;
 
 		// Ping-pong no longer shortens the usable delay: each side runs the whole time and
 		// feeds the other, instead of the read offset being stretched across the channels.
-		let delay_range = 1.0..=1000.0_f32.min(self.history[0].capacity() as f32
-			/ self.sample_rate as f32 * 1000.0);
+		let delay_range = 1.0..=1000.0_f32
+			.min(self.history[0].capacity() as f32 / self.sample_rate as f32 * 1000.0);
 
 		ui.checkbox(&mut self.pingpong, "Ping-Pong");
-		crate::tools::ui_tools::synced_time_ui(ui, &id_prefix, &mut self.tempo, &mut self.delay_time, delay_range, "Delay Time (ms)");
+		crate::tools::ui_tools::synced_time_ui(
+			ui,
+			&id_prefix,
+			&mut self.tempo,
+			&mut self.delay_time,
+			delay_range,
+			"Delay Time (ms)",
+		);
 		ui.add(egui::Slider::new(&mut self.decay_factor, 0.01..=0.8).text("Decay Factor"));
 		gain_ui(ui, &mut self.wet_gain, Some("Wet Gain".to_string()), false);
 
-		self.delayed_effect.demo_ui(ui, format!("{}_delayed_effect", id_prefix));
+		self.delayed_effect
+			.demo_ui(ui, format!("{}_delayed_effect", id_prefix));
 	}
 }
 
@@ -601,13 +622,9 @@ pub struct Flanger<Lfo: WaveTable, const CHANNELS: usize = 2> {
 
 impl<Lfo: WaveTable, const CHANNELS: usize> Flanger<Lfo, CHANNELS> {
 	/// Creates a new flanger effect with a given sample rate and LFO.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0.
-	pub fn new(
-		maxium_delay_length: usize,
-		sample_rate: usize,
-		lfo: Lfo,
-	) -> Self {
+	pub fn new(maxium_delay_length: usize, sample_rate: usize, lfo: Lfo) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
 
 		let history = core::array::from_fn(|_| RingBuffer::new(maxium_delay_length));
@@ -653,7 +670,9 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Flanger<Lfo, CHANNELS> {
 	}
 }
 
-impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for Flanger<Lfo, CHANNELS> {
+impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS>
+	for Flanger<Lfo, CHANNELS>
+{
 	#[cfg(feature = "real_time_demo")]
 	fn name(&self) -> &str {
 		"Flanger"
@@ -662,13 +681,21 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for F
 	fn delay(&self) -> usize {
 		0
 	}
-	
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		ctx: &mut Box<dyn ProcessContext>,
+	) {
 		let delay_time = self.center_delay_time / 1000.0 * self.sample_rate as f32;
 		let lfo_amp = self.lfo_amplitude / 1000.0 * self.sample_rate as f32;
-		let phase = self
-			.phase
-			.advance_rate(&self.tempo, ctx.infos(), self.lfo_frequency, self.sample_rate) as f32;
+		let phase = self.phase.advance_rate(
+			&self.tempo,
+			ctx.infos(),
+			self.lfo_frequency,
+			self.sample_rate,
+		) as f32;
 		let lfo_sample = self.lfo.sample(phase, 0) * lfo_amp;
 
 		let sample_pos = lfo_sample + delay_time;
@@ -677,7 +704,8 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for F
 
 		for (i, sample) in samples.iter_mut().enumerate() {
 			let sampled = read_delayed(&self.history[i], sample_pos);
-			let feed_back = read_delayed(&self.processed_history[i], sample_pos) * self.feed_back_gain;
+			let feed_back =
+				read_delayed(&self.processed_history[i], sample_pos) * self.feed_back_gain;
 			let wet = sampled + feed_back;
 
 			self.history[i].push(dry[i]);
@@ -688,19 +716,34 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for F
 		}
 
 		if ctx.should_stop() {
-			self.clear_history();	
+			self.clear_history();
 		}
 	}
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
-    	use crate::tools::ui_tools::gain_ui;
+		use crate::tools::ui_tools::gain_ui;
 
-		ui.add(egui::Slider::new(&mut self.center_delay_time, 0.01..=10.0).text("Center Delay Time (ms)"));
+		ui.add(
+			egui::Slider::new(&mut self.center_delay_time, 0.01..=10.0)
+				.text("Center Delay Time (ms)"),
+		);
 		// ui.add(egui::Slider::new(&mut self.decay_factor, 0.01..=0.8).text("Decay Factor"));
-		crate::tools::ui_tools::synced_time_ui(ui, "flanger", &mut self.tempo, &mut self.lfo_frequency, 0.01..=20.0, "LFO Frequency (Hz)");
+		crate::tools::ui_tools::synced_time_ui(
+			ui,
+			"flanger",
+			&mut self.tempo,
+			&mut self.lfo_frequency,
+			0.01..=20.0,
+			"LFO Frequency (Hz)",
+		);
 		ui.add(egui::Slider::new(&mut self.lfo_amplitude, 0.01..=10.0).text("LFO Amplitude(ms)"));
-		gain_ui(ui, &mut self.feed_back_gain, Some("Feed Back Gain".to_string()), true);
+		gain_ui(
+			ui,
+			&mut self.feed_back_gain,
+			Some("Feed Back Gain".to_string()),
+			true,
+		);
 		gain_ui(ui, &mut self.wet_gain, Some("Wet Gain".to_string()), false);
 	}
 }
@@ -763,7 +806,7 @@ pub struct Chorus<Lfo: WaveTable, const CHANNELS: usize = 2> {
 
 impl<Lfo: WaveTable, const CHANNELS: usize> Chorus<Lfo, CHANNELS> {
 	/// Creates a new chorus effect with a given sample rate and LFO.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0.
 	pub fn new(
 		maxium_delay_length: usize,
@@ -805,7 +848,9 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Chorus<Lfo, CHANNELS> {
 	}
 }
 
-impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for Chorus<Lfo, CHANNELS> {
+impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS>
+	for Chorus<Lfo, CHANNELS>
+{
 	#[cfg(feature = "real_time_demo")]
 	fn name(&self) -> &str {
 		"Chorus"
@@ -814,13 +859,21 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for C
 	fn delay(&self) -> usize {
 		0
 	}
-	
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		ctx: &mut Box<dyn ProcessContext>,
+	) {
 		let delay_time = self.center_delay_time / 1000.0 * self.sample_rate as f32;
 		let lfo_amp = self.lfo_amplitude / 1000.0 * self.sample_rate as f32;
-		let phase = self
-			.phase
-			.advance_rate(&self.tempo, ctx.infos(), self.lfo_frequency, self.sample_rate) as f32;
+		let phase = self.phase.advance_rate(
+			&self.tempo,
+			ctx.infos(),
+			self.lfo_frequency,
+			self.sample_rate,
+		) as f32;
 
 		let dry = *samples;
 		let mut wet = [0.0; CHANNELS];
@@ -843,18 +896,27 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for C
 			*sample = dry[i] * self.dry_gain + wet[i] / self.delay_lines as f32 * self.wet_gain;
 		});
 
-
 		if ctx.should_stop() {
-			self.clear_history();	
+			self.clear_history();
 		}
 	}
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
-    	use crate::tools::ui_tools::gain_ui;
+		use crate::tools::ui_tools::gain_ui;
 
-		ui.add(egui::Slider::new(&mut self.center_delay_time, 5.0..=20.0).text("Center Delay Time (ms)"));
-		crate::tools::ui_tools::synced_time_ui(ui, "chorus", &mut self.tempo, &mut self.lfo_frequency, 0.01..=2.0, "LFO Frequency (Hz)");
+		ui.add(
+			egui::Slider::new(&mut self.center_delay_time, 5.0..=20.0)
+				.text("Center Delay Time (ms)"),
+		);
+		crate::tools::ui_tools::synced_time_ui(
+			ui,
+			"chorus",
+			&mut self.tempo,
+			&mut self.lfo_frequency,
+			0.01..=2.0,
+			"LFO Frequency (Hz)",
+		);
 		ui.add(egui::Slider::new(&mut self.lfo_amplitude, 5.0..=20.0).text("LFO Amplitude(ms)"));
 		ui.add(egui::Slider::new(&mut self.delay_lines, 1..=50).text("Delay Lines"));
 		gain_ui(ui, &mut self.wet_gain, Some("Wet Gain".to_string()), false);
@@ -890,10 +952,14 @@ mod tests {
 				.iter()
 				.enumerate()
 				.map(|(i, x)| i as f32 * x.abs())
-				.sum::<f32>() / total;
+				.sum::<f32>()
+				/ total;
 			let expected = delay_time / 1000.0 * 48_000.0;
 
-			assert!((total - 1.0).abs() < 0.2, "delay {delay_time} ms lost energy: {total}");
+			assert!(
+				(total - 1.0).abs() < 0.2,
+				"delay {delay_time} ms lost energy: {total}"
+			);
 			assert!(
 				(centroid - expected).abs() < 1.5,
 				"delay {delay_time} ms landed at {centroid}, expected {expected}"
@@ -1092,9 +1158,24 @@ mod tests {
 
 		let echoes = echo_samples_with(&mut delay, 48_000 / 2, [1.0, 0.0]);
 
-		assert_eq!(echoes[0].first(), Some(&4_800), "left repeats: {:?}", echoes[0]);
-		assert_eq!(echoes[1].first(), Some(&9_600), "right repeats: {:?}", echoes[1]);
-		assert_eq!(echoes[0].get(1), Some(&14_400), "left repeats: {:?}", echoes[0]);
+		assert_eq!(
+			echoes[0].first(),
+			Some(&4_800),
+			"left repeats: {:?}",
+			echoes[0]
+		);
+		assert_eq!(
+			echoes[1].first(),
+			Some(&9_600),
+			"right repeats: {:?}",
+			echoes[1]
+		);
+		assert_eq!(
+			echoes[0].get(1),
+			Some(&14_400),
+			"left repeats: {:?}",
+			echoes[0]
+		);
 	}
 
 	/// The alternation has to survive a source that is on *both* sides. Feeding each line its
@@ -1109,10 +1190,30 @@ mod tests {
 		let echoes = echo_samples_with(&mut delay, 48_000 / 2, [1.0, 1.0]);
 
 		// One side at a time, in turn.
-		assert_eq!(echoes[0].first(), Some(&4_800), "left repeats: {:?}", echoes[0]);
-		assert_eq!(echoes[1].first(), Some(&9_600), "right repeats: {:?}", echoes[1]);
-		assert_eq!(echoes[0].get(1), Some(&14_400), "left repeats: {:?}", echoes[0]);
-		assert_eq!(echoes[1].get(1), Some(&19_200), "right repeats: {:?}", echoes[1]);
+		assert_eq!(
+			echoes[0].first(),
+			Some(&4_800),
+			"left repeats: {:?}",
+			echoes[0]
+		);
+		assert_eq!(
+			echoes[1].first(),
+			Some(&9_600),
+			"right repeats: {:?}",
+			echoes[1]
+		);
+		assert_eq!(
+			echoes[0].get(1),
+			Some(&14_400),
+			"left repeats: {:?}",
+			echoes[0]
+		);
+		assert_eq!(
+			echoes[1].get(1),
+			Some(&19_200),
+			"right repeats: {:?}",
+			echoes[1]
+		);
 	}
 
 	/// Without ping-pong both sides repeat into themselves, at the same distance.
@@ -1125,7 +1226,11 @@ mod tests {
 
 		assert_eq!(echoes[0].first(), Some(&4_800));
 		assert_eq!(echoes[0].get(1), Some(&9_600));
-		assert!(echoes[1].is_empty(), "the other side is silent: {:?}", echoes[1]);
+		assert!(
+			echoes[1].is_empty(),
+			"the other side is silent: {:?}",
+			echoes[1]
+		);
 	}
 
 	/// Moving a delay time has to move the read head, and a read head that teleports is a
@@ -1154,7 +1259,11 @@ mod tests {
 		for _ in 0..48_000 / 5 {
 			delay.process(&mut frame, &[], &mut ctx);
 		}
-		assert!((delay.smoothed_delay - 4_800.0).abs() < 1.0, "settled at {}", delay.smoothed_delay);
+		assert!(
+			(delay.smoothed_delay - 4_800.0).abs() < 1.0,
+			"settled at {}",
+			delay.smoothed_delay
+		);
 	}
 
 	/// A synced delay takes its time from the tempo, and reports it to whoever asks for the
@@ -1172,7 +1281,11 @@ mod tests {
 
 		// An eighth note at 120 bpm is 250 ms, which is 12_000 samples — not the 480 the free
 		// value asks for.
-		assert!((delay.smoothed_delay - 12_000.0).abs() < 1.0, "read {}", delay.smoothed_delay);
+		assert!(
+			(delay.smoothed_delay - 12_000.0).abs() < 1.0,
+			"read {}",
+			delay.smoothed_delay
+		);
 		assert_eq!(delay.delay(), 12_000);
 	}
 
@@ -1208,7 +1321,10 @@ mod tests {
 		assert!(right[0] < 0.01 && right[1] > 0.4, "right repeat: {right:?}");
 
 		let centre = first_repeat(0.0);
-		assert!((centre[0] - centre[1]).abs() < 1e-4, "centre repeat: {centre:?}");
+		assert!(
+			(centre[0] - centre[1]).abs() < 1e-4,
+			"centre repeat: {centre:?}"
+		);
 		assert!(centre[0] > 0.3, "centre repeat: {centre:?}");
 	}
 
@@ -1228,7 +1344,11 @@ mod tests {
 			let input = (core::f32::consts::TAU * 440.0 * i as f32 / 48_000.0).sin() * 0.5;
 			let mut frame = [input, input];
 			chorus.process(&mut frame, &[], &mut ctx);
-			assert!((frame[0] - input).abs() < 1e-6, "dry sample {i}: {}", frame[0]);
+			assert!(
+				(frame[0] - input).abs() < 1e-6,
+				"dry sample {i}: {}",
+				frame[0]
+			);
 		}
 	}
 

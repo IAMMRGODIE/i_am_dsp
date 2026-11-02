@@ -143,7 +143,8 @@ struct BiquadState {
 impl BiquadState {
 	fn process(&mut self, coef: Biquad, x: f32) -> f32 {
 		let y = coef.b0 * x + coef.b1 * self.x1 + coef.b2 * self.x2
-			- coef.a1 * self.y1 - coef.a2 * self.y2;
+			- coef.a1 * self.y1
+			- coef.a2 * self.y2;
 
 		self.x2 = self.x1;
 		self.x1 = x;
@@ -399,10 +400,10 @@ impl OttCore {
 			let threshold = settings.band_threshold[band];
 
 			// Downward, with the louder channel driving the linked detector.
-			state.rms_down_sq = alpha_rms * state.rms_down_sq
-				+ (1.0 - alpha_rms) * (band_left * band_left);
-			state.rms_down_right_sq = alpha_rms * state.rms_down_right_sq
-				+ (1.0 - alpha_rms) * (band_right * band_right);
+			state.rms_down_sq =
+				alpha_rms * state.rms_down_sq + (1.0 - alpha_rms) * (band_left * band_left);
+			state.rms_down_right_sq =
+				alpha_rms * state.rms_down_right_sq + (1.0 - alpha_rms) * (band_right * band_right);
 
 			let level_left = state.rms_down_sq.sqrt();
 			let level_right = state.rms_down_right_sq.sqrt();
@@ -422,10 +423,10 @@ impl OttCore {
 			band_right *= gain;
 
 			// Upward, on the post-downward signal.
-			state.rms_up_sq = alpha_rms * state.rms_up_sq
-				+ (1.0 - alpha_rms) * (band_left * band_left);
-			state.rms_up_right_sq = alpha_rms * state.rms_up_right_sq
-				+ (1.0 - alpha_rms) * (band_right * band_right);
+			state.rms_up_sq =
+				alpha_rms * state.rms_up_sq + (1.0 - alpha_rms) * (band_left * band_left);
+			state.rms_up_right_sq =
+				alpha_rms * state.rms_up_right_sq + (1.0 - alpha_rms) * (band_right * band_right);
 
 			let level_left = state.rms_up_sq.sqrt();
 			let level_right = state.rms_up_right_sq.sqrt();
@@ -485,7 +486,10 @@ impl OttMeters {
 	/// Stores the net gain in dB, in hundredths.
 	pub fn set(&self, bands: [f32; 3]) {
 		for (meter, value) in self.bands.iter().zip(bands) {
-			meter.store((value.clamp(GR_MIN, GR_MAX) * 100.0) as i32, Ordering::Relaxed);
+			meter.store(
+				(value.clamp(GR_MIN, GR_MAX) * 100.0) as i32,
+				Ordering::Relaxed,
+			);
 		}
 	}
 
@@ -498,7 +502,6 @@ impl OttMeters {
 		]
 	}
 }
-
 
 #[cfg(test)]
 mod moved_tests {

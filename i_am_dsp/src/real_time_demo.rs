@@ -1,23 +1,31 @@
 //! This is a simple real-time audio processing demo.
-//! 
+//!
 //! To start with, see [`DspDemo`]
 
-use crate::{prelude::*, tools::{ring_buffer::RingBuffer, ui_tools::gain_ui}};
+use crate::{
+	prelude::*,
+	tools::{ring_buffer::RingBuffer, ui_tools::gain_ui},
+};
 
 #[cfg(feature = "string")]
 use crate::generators::string_engine::StringInstrument;
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{
+	collections::HashMap,
+	sync::{Arc, Mutex},
+};
 
 #[cfg(feature = "standalone")]
 use std::collections::HashSet;
 
-
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 #[cfg(feature = "standalone")]
-use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, StreamConfig};
+use cpal::{
+	StreamConfig,
+	traits::{DeviceTrait, HostTrait, StreamTrait},
+};
 #[cfg(feature = "standalone")]
 use crossbeam_channel::{Receiver, TryRecvError};
-use egui::{vec2, Grid, Slider};
+use egui::{Grid, Slider, vec2};
 
 #[cfg(feature = "standalone")]
 use egui::Key;
@@ -62,7 +70,7 @@ impl ProcessContext for SimpleContext {
 
 lazy_static::lazy_static! {
 	/// The List of available Generators
-	/// 
+	///
 	/// You can also add your own Generator by adding a tuple to this list.
 	pub static ref GENERATOR_LIST: Vec<(String, GneratorConstructor)> = {
 		let mut list: Vec<(String, GneratorConstructor)> = vec![
@@ -176,7 +184,7 @@ lazy_static::lazy_static! {
 	};
 
 	/// The List of available Effects
-	/// 
+	///
 	/// You can also add your own Effect by adding a tuple to this list.
 	pub static ref EFFECT_LIST: Vec<(String, Vec<(String, EffectConstructor)>)> = {
 		let mut filter_effects: Vec<(String, EffectConstructor)> = vec![
@@ -219,14 +227,14 @@ lazy_static::lazy_static! {
 		];
 
 		filter_effects.sort_by(|a, b| a.0.cmp(&b.0));
-		
+
 		let mut convolver_effects: Vec<(String, EffectConstructor)> = vec![
 			(
 				"Convolver".to_string(),
 				Box::new(|_| {
 					let hilbert_transform = hilbert_transform::<2>(511);
 					let output = Convolver::new(hilbert_transform, &DelyaCaculateMode::Fir);
-					Box::new(output) as Box<dyn Effect> 
+					Box::new(output) as Box<dyn Effect>
 				})
 			),
 			(
@@ -234,50 +242,50 @@ lazy_static::lazy_static! {
 				Box::new(|sample_rate| {
 					let id = convolve_identity::<2>(8192);
 					let output = FftConvolver::<2, 256>::new(id, sample_rate);
-					Box::new(output) as Box<dyn Effect> 
+					Box::new(output) as Box<dyn Effect>
 				})
 			),
 			(
 				"Reverb".to_string(),
 				Box::new(|sample_rate| {
 					let effect: Reverb<Biquad<2>, 8, 2> = Reverb::new(
-						Biquad::new(sample_rate), 
-						sample_rate, 
+						Biquad::new(sample_rate),
+						sample_rate,
 						Default::default(),
 						10,
 						10.0
 					);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 			(
 				"Reverb(IR-Based)".to_string(),
 				Box::new(|sample_rate| {
 					let ir_gen = RayTracing::rectangular_room(
-						10.0, 
-						10.0, 
-						10.0, 
-						0.005, 
-						1.0, 
+						10.0,
+						10.0,
+						10.0,
+						0.005,
+						1.0,
 						sample_rate
 					);
 					let reverb = IrBasedReverb::new(ir_gen, sample_rate);
-					Box::new(reverb) as Box<dyn Effect> 
+					Box::new(reverb) as Box<dyn Effect>
 				})
 			),
 			(
 				"Hybrid Reverb".to_string(),
 				Box::new(|sample_rate| {
 					let ir_gen = RayTracing::rectangular_room(
-						10.0, 
-						10.0, 
-						10.0, 
-						0.005, 
-						1.0, 
+						10.0,
+						10.0,
+						10.0,
+						0.005,
+						1.0,
 						sample_rate
 					);
 					let reverb = HybridReverb::<2, 8>::new(ir_gen, sample_rate, 1.0, 1.0);
-					Box::new(reverb) as Box<dyn Effect> 
+					Box::new(reverb) as Box<dyn Effect>
 				})
 			)
 		];
@@ -289,21 +297,21 @@ lazy_static::lazy_static! {
 				"IIR Frequency Shifter".to_string(),
 				Box::new(|sample_rate| {
 					let effect = IIRFreqShifter::<10>::new(sample_rate, 0.0);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 			(
 				"FIR Frequency Shifter".to_string(),
 				Box::new(|sample_rate| {
 					let effect = FIRFreqShifter::new(sample_rate, 0.0);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 			(
 				"FFT Frequency Shifter".to_string(),
 				Box::new(|sample_rate| {
 					let effect = PhaseVocoder::new(FreqShift::default(), 1024, sample_rate);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 			(
@@ -318,7 +326,7 @@ lazy_static::lazy_static! {
 				"Phaser".to_string(),
 				Box::new(|sample_rate| {
 					let effect = Phaser::new(SineWave, 10, sample_rate);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 			(
@@ -352,7 +360,7 @@ lazy_static::lazy_static! {
 					let env = IIRHilbertEnvelope::<10>::new(sample_rate);
 					let env = EnvelopeWithHistory::new(env, 32768);
 					let effect = Compressor::new(env, sample_rate, 46.0, 200.0, -3.0, 5.0);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 			(
@@ -361,7 +369,7 @@ lazy_static::lazy_static! {
 					let env = FIRHilbertEnvelope::new(127);
 					let env = EnvelopeWithHistory::new(env, 32768);
 					let effect = Compressor::new(env, sample_rate, 46.0, 200.0, -3.0, 5.0);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 			(
@@ -370,7 +378,7 @@ lazy_static::lazy_static! {
 					let env = RectifyEnvelope::new(sample_rate, 1000.0);
 					let env = EnvelopeWithHistory::new(env, 32768);
 					let effect = Compressor::new(env, sample_rate, 46.0, 200.0, -3.0, 5.0);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 			(
@@ -379,7 +387,7 @@ lazy_static::lazy_static! {
 					let env = PeakDetector::new(sample_rate, 46.0, 200.0);
 					let env = EnvelopeWithHistory::new(env, 32768);
 					let effect = Compressor::new(env, sample_rate, 46.0, 200.0, -3.0, 5.0);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 			(
@@ -388,7 +396,7 @@ lazy_static::lazy_static! {
 					let env = TkeoEnvelope::new();
 					let env = EnvelopeWithHistory::new(env, 32768);
 					let effect = Compressor::new(env, sample_rate, 46.0, 200.0, -3.0, 5.0);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 		];
@@ -433,28 +441,28 @@ lazy_static::lazy_static! {
 				"Delay".to_string(),
 				Box::new(|sample_rate| {
 					let delay = Delay::new((), 65536, 50.0, sample_rate);
-					Box::new(delay) as Box<dyn Effect> 
+					Box::new(delay) as Box<dyn Effect>
 				})
 			),
 			(
 				"Pure Delay".to_string(),
 				Box::new(|sample_rate| {
 					let delay = PureDelay::new(65536, 50.0, sample_rate);
-					Box::new(delay) as Box<dyn Effect> 
+					Box::new(delay) as Box<dyn Effect>
 				})
 			),
 			(
 				"Flanger".to_string(),
 				Box::new(|sample_rate| {
 					let effect = Flanger::new(8192, sample_rate, SineWave);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 			(
 				"Chorus".to_string(),
 				Box::new(|sample_rate| {
 					let effect = Chorus::new(8192, 10, sample_rate, SineWave);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 		];
@@ -466,7 +474,7 @@ lazy_static::lazy_static! {
 				"Waveform".to_string(),
 				Box::new(|_| {
 					let effect = Waveform::<2>::new(32768);
-					Box::new(effect) as Box<dyn Effect> 
+					Box::new(effect) as Box<dyn Effect>
 				})
 			),
 		];
@@ -478,7 +486,7 @@ lazy_static::lazy_static! {
 			("Delay".to_string(), delay_effects),
 			("Distortion".to_string(), distortion_effects),
 			// ("Envelope".to_string(), envelope_effects),
-			("Filter".to_string(), filter_effects), 
+			("Filter".to_string(), filter_effects),
 			("Reverb".to_string(), convolver_effects),
 			("Other".to_string(), other_effects),
 			("Visual".to_string(), visual_effects),
@@ -488,7 +496,7 @@ lazy_static::lazy_static! {
 }
 
 /// The DspDemo struct
-/// 
+///
 /// Saves the state of the DSP demo and provides methods to update and draw the UI.
 pub struct DspDemo {
 	#[cfg(feature = "standalone")]
@@ -511,37 +519,44 @@ pub struct DspDemo {
 impl serde::Serialize for DspDemo {
 	fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
 	where
-		S: serde::Serializer 
+		S: serde::Serializer,
 	{
 		use serde::ser::Error;
 		let data = match self.persist_data() {
 			Ok(data) => data,
 			Err(e) => {
-				return std::result::Result::Err(S::Error::custom(format!("Failed to serialize DspDemo: {}", e)));
+				return std::result::Result::Err(S::Error::custom(format!(
+					"Failed to serialize DspDemo: {}",
+					e
+				)));
 			}
 		};
-		data.serialize(serializer)	
+		data.serialize(serializer)
 	}
 }
 
 impl<'de> serde::Deserialize<'de> for DspDemo {
 	fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
 	where
-		D: serde::Deserializer<'de> 
+		D: serde::Deserializer<'de>,
 	{
 		use serde::de::Error;
 		let data: Vec<PersistData> = Vec::deserialize(deserializer)?;
 		let mut demo = match DspDemo::new(Some(48000)) {
 			Ok(demo) => demo,
 			Err(e) => {
-				return std::result::Result::Err(D::Error::custom(format!("Failed to create DspDemo: {}", e)));
+				return std::result::Result::Err(D::Error::custom(format!(
+					"Failed to create DspDemo: {}",
+					e
+				)));
 			}
 		};
 		match demo.load_persist_data(data) {
 			Ok(_) => Ok(demo),
-			Err(e) => {
-				std::result::Result::Err(D::Error::custom(format!("Failed to load persist data: {}", e)))
-			}
+			Err(e) => std::result::Result::Err(D::Error::custom(format!(
+				"Failed to load persist data: {}",
+				e
+			))),
 		}
 	}
 }
@@ -603,36 +618,36 @@ pub enum ChangedValue {
 		change_to: SetValue,
 		// /// is the parameter controlled by an LFO?
 		// is_lfo_controlling: bool,
-	}
+	},
 }
 
 impl ChangedValue {
 	fn is_param_same(&self, other: &Self) -> bool {
 		match (self, other) {
-			(ChangedValue::Generator { 
-				index, 
-				identifier, 
-				.. 
-			}, ChangedValue::Generator { 
-				index: other_index, 
-				identifier: other_identifier, 
-				.. 
-			}) => {
-				*index == *other_index && identifier == other_identifier
-			},
-			(ChangedValue::Effect { 
-				track, 
-				index, 
-				identifier, 
-				.. 
-			}, ChangedValue::Effect { 
-				track: other_track, 
-				index: other_index, 
-				identifier: other_identifier,
-				.. 
-			}) => {
-				*track == *other_track && *index == *other_index && identifier == other_identifier
-			},
+			(
+				ChangedValue::Generator {
+					index, identifier, ..
+				},
+				ChangedValue::Generator {
+					index: other_index,
+					identifier: other_identifier,
+					..
+				},
+			) => *index == *other_index && identifier == other_identifier,
+			(
+				ChangedValue::Effect {
+					track,
+					index,
+					identifier,
+					..
+				},
+				ChangedValue::Effect {
+					track: other_track,
+					index: other_index,
+					identifier: other_identifier,
+					..
+				},
+			) => *track == *other_track && *index == *other_index && identifier == other_identifier,
 			_ => false,
 		}
 	}
@@ -706,7 +721,7 @@ impl FloatOrInt {
 			FloatOrInt::Float(value) => {
 				binary.push(1u8);
 				binary.extend_from_slice(&value.to_le_bytes());
-			},
+			}
 			FloatOrInt::Int(value) => {
 				binary.push(0u8);
 				binary.extend_from_slice(&value.to_le_bytes());
@@ -720,7 +735,7 @@ impl FloatOrInt {
 			let mut bytes = [0u8; 4];
 			bytes.copy_from_slice(&binary[1..]);
 			FloatOrInt::Float(f32::from_le_bytes(bytes))
-		}else {
+		} else {
 			let mut bytes = [0u8; 4];
 			bytes.copy_from_slice(&binary[1..]);
 			FloatOrInt::Int(i32::from_le_bytes(bytes))
@@ -753,7 +768,7 @@ impl LfoedParam {
 		if let Some(track) = self.track {
 			binary.push(1u8);
 			binary.extend_from_slice(&(track as u64).to_le_bytes());
-		}else {
+		} else {
 			binary.push(0u8);
 		}
 		binary.extend_from_slice(&(self.index as u64).to_le_bytes());
@@ -777,7 +792,7 @@ impl LfoedParam {
 			bytes.copy_from_slice(&binary[1..]);
 			track = Some(usize::from_le_bytes(bytes));
 			binary = current;
-		}else {
+		} else {
 			let current = binary.split_off(1);
 			binary = current;
 		}
@@ -786,8 +801,7 @@ impl LfoedParam {
 		index.copy_from_slice(&binary[0..8]);
 		let index = u64::from_le_bytes(index) as usize;
 		let identifier_len = u64::from_le_bytes(binary[8..16].try_into().unwrap()) as usize;
-		let identifier = String::from_utf8_lossy(&binary[16..16 + identifier_len])
-			.to_string();
+		let identifier = String::from_utf8_lossy(&binary[16..16 + identifier_len]).to_string();
 		let current = binary.split_off(16 + identifier_len);
 		binary = current;
 		let mut current = binary.split_off(5);
@@ -825,7 +839,7 @@ pub enum PersistData {
 		/// The gain of the generator.
 		gain: f32,
 		/// The parameters of the generator.
-		params: Vec<Parameter>
+		params: Vec<Parameter>,
 	},
 	/// The data of an effect.
 	Effect {
@@ -838,7 +852,7 @@ pub enum PersistData {
 		/// The number of track of the effect.
 		track: usize,
 		/// The index of the effect in the track.
-		index: usize
+		index: usize,
 	},
 	/// The data of an LFO.
 	Lfo {
@@ -848,7 +862,7 @@ pub enum PersistData {
 		lfoed_params: Vec<Vec<u8>>,
 		/// Whether the LFO is in trig mode.
 		trig: bool,
-	}
+	},
 }
 
 impl SharedData {
@@ -858,9 +872,15 @@ impl SharedData {
 	/// latency of the slowest output track plus the latency of the master
 	/// bus effects, which every track passes through.
 	fn delay(&self) -> usize {
-		let max_track_delay = (0..MAX_OUTPUT_TRACKS).map(|i| {
-			self.effects[i].iter().map(|e| e.effect.delay()).sum::<usize>()
-		}).max().unwrap_or(0);
+		let max_track_delay = (0..MAX_OUTPUT_TRACKS)
+			.map(|i| {
+				self.effects[i]
+					.iter()
+					.map(|e| e.effect.delay())
+					.sum::<usize>()
+			})
+			.max()
+			.unwrap_or(0);
 		let master_delay = self.effects[MAX_OUTPUT_TRACKS]
 			.iter()
 			.map(|e| e.effect.delay())
@@ -876,7 +896,7 @@ impl SharedData {
 				path: generator.path.clone(),
 				output_track: generator.output_track,
 				gain: generator.gain,
-				params
+				params,
 			};
 			generators.push(persist_data);
 		}
@@ -890,7 +910,7 @@ impl SharedData {
 					mix: effect.mix,
 					params,
 					track: i,
-					index: j
+					index: j,
 				};
 				effects.push(persist_data);
 			}
@@ -899,7 +919,11 @@ impl SharedData {
 		let mut lfo = vec![];
 		for lfo_params in self.lfos.iter() {
 			let params = lfo_params.lfo.get_parameters();
-			let lfoed_params = lfo_params.params.iter().map(|param| param.as_binary()).collect();
+			let lfoed_params = lfo_params
+				.params
+				.iter()
+				.map(|param| param.as_binary())
+				.collect();
 			let persist_data = PersistData::Lfo {
 				params,
 				lfoed_params,
@@ -918,16 +942,27 @@ impl SharedData {
 
 	fn from_persist_data(data: Vec<PersistData>, sample_rate: usize) -> Self {
 		let mut generators = vec![];
-		let mut effects: [HashMap<usize, EffectWarpper>; MAX_OUTPUT_TRACKS + 1] = std::array::from_fn(|_| HashMap::new());
+		let mut effects: [HashMap<usize, EffectWarpper>; MAX_OUTPUT_TRACKS + 1] =
+			std::array::from_fn(|_| HashMap::new());
 		let mut lfos = vec![];
 
-		let generator_list = GENERATOR_LIST.iter().map(|(path, generator)| {
-			(path.clone(), generator)
-		}).collect::<HashMap<_, _>>();
+		let generator_list = GENERATOR_LIST
+			.iter()
+			.map(|(path, generator)| (path.clone(), generator))
+			.collect::<HashMap<_, _>>();
 
-		let effect_list = EFFECT_LIST.iter().map(|(path, effect)| {
-			(path.clone(), effect.iter().map(|(key, value)| (key.clone(), value)).collect::<HashMap<_, _>>())
-		}).collect::<HashMap<_, _>>();
+		let effect_list = EFFECT_LIST
+			.iter()
+			.map(|(path, effect)| {
+				(
+					path.clone(),
+					effect
+						.iter()
+						.map(|(key, value)| (key.clone(), value))
+						.collect::<HashMap<_, _>>(),
+				)
+			})
+			.collect::<HashMap<_, _>>();
 
 		for data in data {
 			match data {
@@ -935,7 +970,7 @@ impl SharedData {
 					path,
 					output_track,
 					gain,
-					params
+					params,
 				} => {
 					let Some(generator) = generator_list.get(&path) else {
 						continue;
@@ -950,13 +985,13 @@ impl SharedData {
 						output_track,
 						gain,
 					});
-				},
+				}
 				PersistData::Effect {
 					path,
 					mix,
 					params,
 					track,
-					index
+					index,
 				} => {
 					let Some(effect) = effect_list.get(&path.0) else {
 						continue;
@@ -975,10 +1010,10 @@ impl SharedData {
 						dry_delay: std::array::from_fn(|_| RingBuffer::new(0)),
 					};
 					effects[track].insert(index, effect_warpper);
-				},
-				PersistData::Lfo { 
-					params, 
-					lfoed_params ,
+				}
+				PersistData::Lfo {
+					params,
+					lfoed_params,
 					trig,
 				} => {
 					let mut lfo = EditableLfo::new();
@@ -1011,12 +1046,12 @@ impl SharedData {
 			out_effects[i] = effects;
 		}
 
-		Self { 
-			generators, 
-			lfos, 
-			sample_rate, 
+		Self {
+			generators,
+			lfos,
+			sample_rate,
 			current_phase: 0.0,
-			effects: out_effects, 
+			effects: out_effects,
 			track_delay: std::array::from_fn(|_| std::array::from_fn(|_| RingBuffer::new(0))),
 			#[cfg(feature = "standalone")]
 			ctx: Some(SimpleContext {
@@ -1037,9 +1072,10 @@ impl SharedData {
 	}
 
 	fn generate(&mut self, ctx: &mut Box<dyn ProcessContext>) -> [f32; 2] {
-		let need_retrig = ctx.events().iter().any(|event| {
-			matches!(event, NoteEvent::NoteOn { .. })
-		});
+		let need_retrig = ctx
+			.events()
+			.iter()
+			.any(|event| matches!(event, NoteEvent::NoteOn { .. }));
 		for lfo in &mut self.lfos {
 			if need_retrig && lfo.trig {
 				lfo.phase = 0.0;
@@ -1047,49 +1083,47 @@ impl SharedData {
 
 			let value = lfo.lfo.sample(lfo.phase / lfo.lfo.lfo_frequency, 0);
 			lfo.params.retain(|param| {
-				let set_value = if let (
-					FloatOrInt::Float(start), 
-					FloatOrInt::Float(end)
-				) = (&param.start, &param.end) {
+				let set_value = if let (FloatOrInt::Float(start), FloatOrInt::Float(end)) =
+					(&param.start, &param.end)
+				{
 					let start = *start;
 					let end = *end;
 					let value = if param.logarithmic {
 						(start.ln() + (end.ln() - start.ln()) * value).exp()
-					}else {
+					} else {
 						start + (end - start) * value
 					};
 					SetValue::Float(value)
-				}else if let (
-					FloatOrInt::Int(start), 
-					FloatOrInt::Int(end)
-				) = (&param.start, &param.end) {
+				} else if let (FloatOrInt::Int(start), FloatOrInt::Int(end)) =
+					(&param.start, &param.end)
+				{
 					let start = *start as f32;
 					let end = *end as f32;
 					let value = if param.logarithmic {
 						(start.ln() + (end.ln() - start.ln()) * value).exp()
-					}else {
+					} else {
 						start + (end - start) * value
 					};
 					SetValue::Int(value as i32)
-				}else {
+				} else {
 					SetValue::Nothing
 				};
 				if let Some(track) = &param.track {
 					if let Some(inner) = self.effects[*track].get_mut(param.index) {
 						inner.effect.set_parameter(&param.identifier, set_value)
-					}else {
+					} else {
 						false
 					}
-				}else if let Some(inner) = self.generators.get_mut(param.index) {
+				} else if let Some(inner) = self.generators.get_mut(param.index) {
 					inner.generator.set_parameter(&param.identifier, set_value)
-				}else {
+				} else {
 					false
 				}
 			});
 			lfo.phase += lfo.lfo.lfo_frequency / self.sample_rate as f32;
 			if lfo.lfo.one_shot {
 				lfo.phase = lfo.phase.clamp(0.0, 1.0);
-			}else {
+			} else {
 				lfo.phase %= 1.0;
 			}
 		}
@@ -1122,26 +1156,31 @@ impl SharedData {
 				break;
 			}
 
-			let other_tracks = (0..MAX_OUTPUT_TRACKS).filter_map(|id| {
-				if id != i {
-					Some(output_tracks[id])
-				}else {
-					None
-				}
-			}).collect::<Vec<_>>();
+			let other_tracks = (0..MAX_OUTPUT_TRACKS)
+				.filter_map(|id| {
+					if id != i {
+						Some(output_tracks[id])
+					} else {
+						None
+					}
+				})
+				.collect::<Vec<_>>();
 
 			let other_tracks_ref = other_tracks.iter().collect::<Vec<_>>();
 
-			
 			for effect in effects.iter_mut() {
 				// The effect's process() output is delayed by effect.delay(), so
 				// delay the dry signal by the same amount before mixing, otherwise
 				// dry and wet are time-misaligned and the mix comb-filters.
 				let dry = output_tracks[i];
 				let dry_delayed = effect.align_dry(dry);
-				effect.effect.process(&mut output_tracks[i], &other_tracks_ref, ctx);
-				output_tracks[i][0] = dry_delayed[0] * (1.0 - effect.mix) + output_tracks[i][0] * effect.mix;
-				output_tracks[i][1] = dry_delayed[1] * (1.0 - effect.mix) + output_tracks[i][1] * effect.mix;
+				effect
+					.effect
+					.process(&mut output_tracks[i], &other_tracks_ref, ctx);
+				output_tracks[i][0] =
+					dry_delayed[0] * (1.0 - effect.mix) + output_tracks[i][0] * effect.mix;
+				output_tracks[i][1] =
+					dry_delayed[1] * (1.0 - effect.mix) + output_tracks[i][1] * effect.mix;
 			}
 		}
 
@@ -1187,9 +1226,9 @@ impl SharedData {
 
 impl DspDemo {
 	/// Create a new DspDemo instance
-	/// 
+	///
 	/// Error may occur if no output device is available or if the stream cannot be created.
-	/// 
+	///
 	/// User should provide the sample rate if `standalone` feature is disabled.
 	pub fn new(sample_rate: Option<usize>) -> Result<Self> {
 		// let mut delay_buffers = [RingBuffer::new(0), RingBuffer::new(0)];
@@ -1200,7 +1239,7 @@ impl DspDemo {
 				let host = cpal::default_host();
 				let device = host.default_output_device()
 					.ok_or_else(|| anyhow!("No output device available"))?;
-			
+
 				let config = device.default_output_config()?;
 				let config = StreamConfig::from(config);
 				let sample_rate = config.sample_rate as usize;
@@ -1290,7 +1329,7 @@ impl DspDemo {
 					move |err| {
 						error_sender.send(format!("Stream error: {}", err)).expect("canot send error message");
 					},
-					None 
+					None
 				)?;
 
 				stream.play()?;
@@ -1322,7 +1361,7 @@ impl DspDemo {
 			// Err(TryLockError::WouldBlock) => return,
 			Err(_) => {
 				return Err(anyhow!("Shared data has been poisoned"));
-			},
+			}
 		};
 		Ok(shared_data.delay())
 	}
@@ -1336,7 +1375,7 @@ impl DspDemo {
 			Err(_) => {
 				self.current_error = Some("Shared data has been poisoned".to_string());
 				return [0.0, 0.0];
-			},
+			}
 		};
 
 		shared_data.generate(ctx)
@@ -1344,33 +1383,44 @@ impl DspDemo {
 
 	/// Get an iterator of parameter changes.
 	pub fn change_history(&self) -> impl Iterator<Item = &ListenedValue> {
-		self.changed_history.range(0..CHANGE_HISTORY_LEN).filter_map(|inner| inner.as_ref())
+		self.changed_history
+			.range(0..CHANGE_HISTORY_LEN)
+			.filter_map(|inner| inner.as_ref())
 	}
 
 	/// Get a value from a generator, only numerical values are supported.
-	/// 
+	///
 	/// Return value is in normalized range [0.0, 1.0].
-	pub fn get_generator_value_normalized(&self, index: usize, identifier: &str) -> Result<Option<f32>> {
+	pub fn get_generator_value_normalized(
+		&self,
+		index: usize,
+		identifier: &str,
+	) -> Result<Option<f32>> {
 		let lock_result = self.shared_data.lock();
 		let shared_data = match lock_result {
 			Ok(data) => data,
 			// Err(TryLockError::WouldBlock) => return,
 			Err(_) => {
 				return Err(anyhow!("Shared data has been poisoned"));
-			},
+			}
 		};
 		if let Some(generator) = shared_data.generators.get(index) {
 			let parameters = generator.generator.get_parameters();
-			if let Some(parameter) = parameters.iter().find(|param| param.identifier == identifier) {
+			if let Some(parameter) = parameters
+				.iter()
+				.find(|param| param.identifier == identifier)
+			{
 				return match &parameter.value {
 					Value::Float { value, range, .. } => {
-						let normalized = (*value - *range.start()) / (*range.end() - *range.start());
+						let normalized =
+							(*value - *range.start()) / (*range.end() - *range.start());
 						Ok(Some(normalized))
-					},
+					}
 					Value::Int { value, range, .. } => {
-						let normalized = (*value as f32 - *range.start() as f32) / (*range.end() - *range.start()) as f32;
+						let normalized = (*value as f32 - *range.start() as f32)
+							/ (*range.end() - *range.start()) as f32;
 						Ok(Some(normalized))
-					},
+					}
 					_ => Ok(None),
 				};
 			}
@@ -1379,28 +1429,40 @@ impl DspDemo {
 	}
 
 	/// Get a value from an effect, only numerical values are supported.
-	pub fn get_effect_value_normalized(&self, track: usize, index: usize, identifier: &str) -> Result<Option<f32>> {
+	pub fn get_effect_value_normalized(
+		&self,
+		track: usize,
+		index: usize,
+		identifier: &str,
+	) -> Result<Option<f32>> {
 		let lock_result = self.shared_data.lock();
 		let shared_data = match lock_result {
 			Ok(data) => data,
 			// Err(TryLockError::WouldBlock) => return,
 			Err(_) => {
 				return Err(anyhow!("Shared data has been poisoned"));
-			},
+			}
 		};
-		
-		if let Some(effects) = shared_data.effects.get(track) && let Some(effect) = effects.get(index) {
+
+		if let Some(effects) = shared_data.effects.get(track)
+			&& let Some(effect) = effects.get(index)
+		{
 			let parameters = effect.effect.get_parameters();
-			if let Some(parameter) = parameters.iter().find(|param| param.identifier == identifier) {
+			if let Some(parameter) = parameters
+				.iter()
+				.find(|param| param.identifier == identifier)
+			{
 				return match &parameter.value {
 					Value::Float { value, range, .. } => {
-						let normalized = (*value - *range.start()) / (*range.end() - *range.start());
+						let normalized =
+							(*value - *range.start()) / (*range.end() - *range.start());
 						Ok(Some(normalized))
-					},
+					}
 					Value::Int { value, range, .. } => {
-						let normalized = (*value as f32 - *range.start() as f32) / (*range.end() - *range.start()) as f32;
+						let normalized = (*value as f32 - *range.start() as f32)
+							/ (*range.end() - *range.start()) as f32;
 						Ok(Some(normalized))
-					},
+					}
 					_ => Ok(None),
 				};
 			}
@@ -1410,24 +1472,24 @@ impl DspDemo {
 	}
 
 	/// Change the value of a parameter.
-	/// 
-	/// Returns `true` if the value is changed, `false` 
+	///
+	/// Returns `true` if the value is changed, `false`
 	/// false will occur if the parameter is not found.
-	pub fn change_value(&mut self, value: ChangedValue) -> Result<bool>  {
+	pub fn change_value(&mut self, value: ChangedValue) -> Result<bool> {
 		let lock_result = self.shared_data.lock();
 		let mut shared_data = match lock_result {
 			Ok(data) => data,
 			// Err(TryLockError::WouldBlock) => return,
 			Err(_) => {
 				return Err(anyhow!("Shared data has been poisoned"));
-			},
+			}
 		};
 		match value {
-			ChangedValue::Effect { 
-				track, 
-				index, 
-				identifier, 
-				change_to 
+			ChangedValue::Effect {
+				track,
+				index,
+				identifier,
+				change_to,
 			} => {
 				if track > MAX_OUTPUT_TRACKS {
 					return Ok(false);
@@ -1438,18 +1500,18 @@ impl DspDemo {
 				};
 
 				Ok(effects.effect.set_parameter(&identifier, change_to))
-			},
-			ChangedValue::Generator { 
-				index, 
-				identifier, 
-				change_to 
+			}
+			ChangedValue::Generator {
+				index,
+				identifier,
+				change_to,
 			} => {
 				let Some(generators) = shared_data.generators.get_mut(index) else {
 					return Ok(false);
 				};
 
 				Ok(generators.generator.set_parameter(&identifier, change_to))
-			},
+			}
 		}
 	}
 
@@ -1461,13 +1523,13 @@ impl DspDemo {
 			// Err(TryLockError::WouldBlock) => return,
 			Err(_) => {
 				return Err(anyhow!("Shared data has been poisoned"));
-			},
+			}
 		};
 		Ok(shared_data.get_persist_data())
 	}
 
 	/// Change the sample rate of the current state.
-	/// 
+	///
 	/// Note: this function will recreate the state with the new sample rate, so it may take some time to complete.
 	pub fn change_sample_rate(&mut self, sample_rate: usize) -> Result<()> {
 		if self.sample_rate == sample_rate {
@@ -1480,7 +1542,7 @@ impl DspDemo {
 			// Err(TryLockError::WouldBlock) => return,
 			Err(_) => {
 				return Err(anyhow!("Shared data has been poisoned"));
-			},
+			}
 		};
 		let shard_persisted_data = shared_data.get_persist_data();
 		*shared_data = SharedData::from_persist_data(shard_persisted_data, sample_rate);
@@ -1498,7 +1560,7 @@ impl DspDemo {
 			// Err(TryLockError::WouldBlock) => return,
 			Err(_) => {
 				return Err(anyhow!("Shared data has been poisoned"));
-			},
+			}
 		};
 		*shared_data_old = shared_data;
 		Ok(())
@@ -1519,7 +1581,7 @@ impl DspDemo {
 		cfg_if::cfg_if! {
 			if #[cfg(feature = "standalone")] {
 				let recv_result = self.error_receiver.try_recv();
-		
+
 				match recv_result {
 					Ok(err_msg) => self.current_error = Some(err_msg),
 					Err(TryRecvError::Empty) => {}
@@ -1534,7 +1596,7 @@ impl DspDemo {
 			Err(_) => {
 				self.current_error = Some("Shared data has been poisoned".to_string());
 				return;
-			},
+			}
 		};
 
 		egui::Panel::top("state_pan").show(ui, |ui| {
@@ -1542,7 +1604,7 @@ impl DspDemo {
 				for track in 0..=MAX_OUTPUT_TRACKS {
 					let text = if track == MAX_OUTPUT_TRACKS {
 						"Master".to_string()
-					}else {
+					} else {
 						format!("Track {track}")
 					};
 					ui.selectable_value(&mut self.current_track_effect, track, text);
@@ -1552,129 +1614,156 @@ impl DspDemo {
 
 		#[cfg(feature = "standalone")]
 		let mut clear_all_notes = false;
-		egui::Panel::bottom("lfo_panel").resizable(true).show(ui, |ui| {
-			egui::Panel::bottom("midi_panel").show(ui, |ui| {
-				#[cfg(feature = "standalone")]
-				{
-					let mut key_holding = self.key_holding.iter().copied().collect::<Vec<_>>();
-					key_holding.sort();
-					let keys = key_holding.into_iter().map(format_note).collect::<Vec<_>>();
-					ui.horizontal(|ui| {
-						let mut shift = self.note_shift;
-						ui.add(Slider::new(&mut shift, -36..=36).text("Note Shift"));
-						if shift != self.note_shift {
-							self.note_shift = shift;
-							clear_all_notes = true;
-						}
-	
-						if ui.button("Clear All Notes").clicked() {
-							clear_all_notes = true;
-						}
-						if keys.is_empty() {
-							ui.label("no note playing")
-						}else {
-							ui.label(format!("Playing: [{}]", keys.join(", ")))
-						}
-					});
-				}
-				
-				ui.separator();
-			});
-			let current_phase = shared_data.current_phase;
-			egui::CentralPanel::default().show(ui, |ui| {
-				egui::ScrollArea::vertical().show(ui, |ui| {
-					let mut should_remove_lfo = None;
-					for (i, lfo) in shared_data.lfos.iter_mut().enumerate() {
-						let id_prefix = format!("Lfo {i}: ");
-						ui.collapsing(format!("Lfo {i}"), |ui| {
-							lfo.lfo.demo_ui(ui, id_prefix);
-							let mut should_remove = None;
-							ui.collapsing("Params", |ui| {
-								Grid::new(format!("Lfo {i} Params")).show(ui, |ui| {
-									for (j, param) in lfo.params.iter_mut().enumerate() {
-										let name = if let Some(track) = &param.track {
-											format!("Effect {} (at track {track})", param.index)
-										}else {
-											format!("Generator {}", param.index)
-										};
-										ui.label(name);
-										ui.label(&param.identifier);
-										if let (
-											FloatOrInt::Float(start), 
-											FloatOrInt::Float(end),
-											FloatOrInt::Float(max), 
-											FloatOrInt::Float(min),
-										) = (
-											&mut param.start, 
-											&mut param.end,
-											&param.max, 
-											&param.min,
-										) {
-											let range = *min..=*max;
-											ui.add(Slider::new(start, range.clone()).text("Start").logarithmic(param.logarithmic));
-											ui.add(Slider::new(end, range).text("End").logarithmic(param.logarithmic));
-										}else if let (
-											FloatOrInt::Int(start), 
-											FloatOrInt::Int(end),
-											FloatOrInt::Int(max), 
-											FloatOrInt::Int(min),
-										) = (
-											&mut param.start, 
-											&mut param.end,
-											&param.max, 
-											&param.min,
-										) {
-											let range = *min..=*max;
-											ui.add(Slider::new(start, range.clone()).text("Start").logarithmic(param.logarithmic));
-											ui.add(Slider::new(end, range).text("End").logarithmic(param.logarithmic));
-										}	
+		egui::Panel::bottom("lfo_panel")
+			.resizable(true)
+			.show(ui, |ui| {
+				egui::Panel::bottom("midi_panel").show(ui, |ui| {
+					#[cfg(feature = "standalone")]
+					{
+						let mut key_holding = self.key_holding.iter().copied().collect::<Vec<_>>();
+						key_holding.sort();
+						let keys = key_holding.into_iter().map(format_note).collect::<Vec<_>>();
+						ui.horizontal(|ui| {
+							let mut shift = self.note_shift;
+							ui.add(Slider::new(&mut shift, -36..=36).text("Note Shift"));
+							if shift != self.note_shift {
+								self.note_shift = shift;
+								clear_all_notes = true;
+							}
 
-										if ui.button("Remove Param").clicked() {
-											should_remove = Some(j)
+							if ui.button("Clear All Notes").clicked() {
+								clear_all_notes = true;
+							}
+							if keys.is_empty() {
+								ui.label("no note playing")
+							} else {
+								ui.label(format!("Playing: [{}]", keys.join(", ")))
+							}
+						});
+					}
+
+					ui.separator();
+				});
+				let current_phase = shared_data.current_phase;
+				egui::CentralPanel::default().show(ui, |ui| {
+					egui::ScrollArea::vertical().show(ui, |ui| {
+						let mut should_remove_lfo = None;
+						for (i, lfo) in shared_data.lfos.iter_mut().enumerate() {
+							let id_prefix = format!("Lfo {i}: ");
+							ui.collapsing(format!("Lfo {i}"), |ui| {
+								lfo.lfo.demo_ui(ui, id_prefix);
+								let mut should_remove = None;
+								ui.collapsing("Params", |ui| {
+									Grid::new(format!("Lfo {i} Params")).show(ui, |ui| {
+										for (j, param) in lfo.params.iter_mut().enumerate() {
+											let name = if let Some(track) = &param.track {
+												format!("Effect {} (at track {track})", param.index)
+											} else {
+												format!("Generator {}", param.index)
+											};
+											ui.label(name);
+											ui.label(&param.identifier);
+											if let (
+												FloatOrInt::Float(start),
+												FloatOrInt::Float(end),
+												FloatOrInt::Float(max),
+												FloatOrInt::Float(min),
+											) = (
+												&mut param.start,
+												&mut param.end,
+												&param.max,
+												&param.min,
+											) {
+												let range = *min..=*max;
+												ui.add(
+													Slider::new(start, range.clone())
+														.text("Start")
+														.logarithmic(param.logarithmic),
+												);
+												ui.add(
+													Slider::new(end, range)
+														.text("End")
+														.logarithmic(param.logarithmic),
+												);
+											} else if let (
+												FloatOrInt::Int(start),
+												FloatOrInt::Int(end),
+												FloatOrInt::Int(max),
+												FloatOrInt::Int(min),
+											) = (
+												&mut param.start,
+												&mut param.end,
+												&param.max,
+												&param.min,
+											) {
+												let range = *min..=*max;
+												ui.add(
+													Slider::new(start, range.clone())
+														.text("Start")
+														.logarithmic(param.logarithmic),
+												);
+												ui.add(
+													Slider::new(end, range)
+														.text("End")
+														.logarithmic(param.logarithmic),
+												);
+											}
+
+											if ui.button("Remove Param").clicked() {
+												should_remove = Some(j)
+											}
+											ui.end_row();
 										}
-										ui.end_row();
+									});
+									if let Some(Some(inner)) = ui
+										.menu_button("Add Param", |ui| {
+											draw_change_history(ui, &self.changed_history)
+										})
+										.inner
+									{
+										lfo.params.push(inner);
 									}
 								});
-								if let Some(Some(inner)) = ui.menu_button("Add Param", |ui| {
-									draw_change_history(ui, &self.changed_history)
-								}).inner {
-									lfo.params.push(inner);
+								if ui.selectable_label(lfo.trig, "Trig").clicked() {
+									lfo.trig = !lfo.trig;
+									if !lfo.trig {
+										lfo.phase = current_phase;
+									}
+								}
+								if let Some(j) = should_remove {
+									lfo.params.remove(j);
+								}
+								if ui.button("Remove Lfo").clicked() {
+									should_remove_lfo = Some(i);
 								}
 							});
-							if ui.selectable_label(lfo.trig, "Trig").clicked() {
-								lfo.trig = !lfo.trig;
-								if !lfo.trig {
-									lfo.phase = current_phase;
-								}
-							}
-							if let Some(j) = should_remove {
-								lfo.params.remove(j);
-							}
-							if ui.button("Remove Lfo").clicked() {
-								should_remove_lfo = Some(i);
-							}
-						});
-					}
-					if ui.button("Add Lfo").clicked() {
-						let current_phase = shared_data.current_phase;
-						shared_data.lfos.push(LfoedParams {
-							lfo: EditableLfo::default(),
-							params: vec![],
-							phase: current_phase,
-							trig: false,
-						});
-					}
-	
-					if let Some(i) = should_remove_lfo {
-						shared_data.lfos.remove(i);
-					}
+						}
+						if ui.button("Add Lfo").clicked() {
+							let current_phase = shared_data.current_phase;
+							shared_data.lfos.push(LfoedParams {
+								lfo: EditableLfo::default(),
+								params: vec![],
+								phase: current_phase,
+								trig: false,
+							});
+						}
+
+						if let Some(i) = should_remove_lfo {
+							shared_data.lfos.remove(i);
+						}
+					});
 				});
 			});
-		});
 		#[cfg(feature = "standalone")]
 		{
 			let mut ctx = shared_data.ctx.take().unwrap();
-			simulate_midi(ui, &mut ctx, &mut self.key_holding, clear_all_notes, self.note_shift);
+			simulate_midi(
+				ui,
+				&mut ctx,
+				&mut self.key_holding,
+				clear_all_notes,
+				self.note_shift,
+			);
 			shared_data.ctx = Some(ctx);
 		}
 
@@ -1697,26 +1786,29 @@ impl DspDemo {
 					for (param_old, param_new) in params_old.into_iter().zip(params_new) {
 						if param_old != param_new {
 							let range = get_range(&param_new.value);
-							let history = ListenedValue { 
-								history: ChangedValue::Generator { 
-									index: i, 
-									identifier: param_old.identifier, 
-									change_to: param_new.value.to_set_value(), 
+							let history = ListenedValue {
+								history: ChangedValue::Generator {
+									index: i,
+									identifier: param_old.identifier,
+									change_to: param_new.value.to_set_value(),
 								},
-								range
+								range,
 							};
 							let len = self.changed_history.capacity();
 							if let Some(history_old) = &self.changed_history[len - 1] {
 								if !(history_old.history.is_param_same(&history.history)) {
 									self.changed_history.push(Some(history));
 								}
-							}else {
+							} else {
 								self.changed_history.push(Some(history));
 							}
 						}
 					}
 					gain_ui(ui, &mut generator.gain, None, false);
-					ui.add(egui::Slider::new(&mut generator.output_track, 0..=MAX_OUTPUT_TRACKS - 1).text("Output Track"));
+					ui.add(
+						egui::Slider::new(&mut generator.output_track, 0..=MAX_OUTPUT_TRACKS - 1)
+							.text("Output Track"),
+					);
 					if ui.button("Remove Generator").clicked() {
 						should_remove = Some(i);
 					}
@@ -1732,9 +1824,12 @@ impl DspDemo {
 							should_swap = Some((i, i + 1));
 						}
 					}
-					if let Some(Some(inner)) = ui.menu_button("Replace", |ui| {
-						generator_add_menu(ui, self.sample_rate, track_available)
-					}).inner {
+					if let Some(Some(inner)) = ui
+						.menu_button("Replace", |ui| {
+							generator_add_menu(ui, self.sample_rate, track_available)
+						})
+						.inner
+					{
 						should_replace = Some((i, inner));
 					};
 				});
@@ -1750,12 +1845,15 @@ impl DspDemo {
 			if let Some(i) = should_remove {
 				shared_data.generators.remove(i);
 			}
-			if let Some(Some(inner)) = ui.menu_button("Add Generator", |ui| {
-				generator_add_menu(ui, self.sample_rate, track_available)
-			}).inner {
+			if let Some(Some(inner)) = ui
+				.menu_button("Add Generator", |ui| {
+					generator_add_menu(ui, self.sample_rate, track_available)
+				})
+				.inner
+			{
 				shared_data.generators.push(inner);
 			}
-			
+
 			ui.separator();
 
 			ui.heading("Effects");
@@ -1769,7 +1867,7 @@ impl DspDemo {
 				let name = effect.effect.name().to_string();
 				ui.collapsing(format!("Effect {i}: {name}"), |ui| {
 					let prefix = format!("Effect {i}: {name}");
-					
+
 					let params_old = effect.effect.get_parameters();
 					effect.effect.demo_ui(ui, prefix);
 					let params_new = effect.effect.get_parameters();
@@ -1777,12 +1875,12 @@ impl DspDemo {
 					for (param_old, param_new) in params_old.into_iter().zip(params_new) {
 						if param_old != param_new {
 							let range = get_range(&param_new.value);
-							let history = ListenedValue { 
-								history: ChangedValue::Effect { 
-									track: self.current_track_effect, 
-									index: i, 
-									identifier: param_old.identifier, 
-									change_to: param_new.value.to_set_value(), 
+							let history = ListenedValue {
+								history: ChangedValue::Effect {
+									track: self.current_track_effect,
+									index: i,
+									identifier: param_old.identifier,
+									change_to: param_new.value.to_set_value(),
 								},
 								range,
 							};
@@ -1792,7 +1890,7 @@ impl DspDemo {
 								if !(history_old.history.is_param_same(&history.history)) {
 									self.changed_history.push(Some(history));
 								}
-							}else {
+							} else {
 								self.changed_history.push(Some(history));
 							}
 						}
@@ -1813,9 +1911,10 @@ impl DspDemo {
 					if ui.button("Remove").clicked() {
 						should_remove = Some(i);
 					}
-					if let Some(Some(inner)) = ui.menu_button("Replace", |ui| {
-						effect_add_menu(ui, self.sample_rate)
-					}).inner {
+					if let Some(Some(inner)) = ui
+						.menu_button("Replace", |ui| effect_add_menu(ui, self.sample_rate))
+						.inner
+					{
 						should_replace = Some((i, inner));
 					};
 				});
@@ -1831,9 +1930,10 @@ impl DspDemo {
 			if let Some(i) = should_remove {
 				shared_data.effects[current_track].remove(i);
 			}
-			if let Some(Some(inner)) = ui.menu_button("Add Effect", |ui| {
-				effect_add_menu(ui, self.sample_rate)
-			}).inner {
+			if let Some(Some(inner)) = ui
+				.menu_button("Add Effect", |ui| effect_add_menu(ui, self.sample_rate))
+				.inner
+			{
 				shared_data.effects[current_track].push(inner);
 			}
 		});
@@ -1854,18 +1954,24 @@ impl eframe::App for DspDemo {
 		egui::CentralPanel::default().show(ui, |ui| {
 			self.ui(ui);
 		});
-	
+
 		ui.ctx().request_repaint();
 	}
 }
-
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 
 	fn compressor_with_lookahead(lookahead: usize) -> Compressor<RectifyEnvelope<2>, 2> {
-		let mut compressor = Compressor::new(RectifyEnvelope::<2>::new(48_000, 48_000.0), 48_000, 1.0, 100.0, 0.0, 1.0);
+		let mut compressor = Compressor::new(
+			RectifyEnvelope::<2>::new(48_000, 48_000.0),
+			48_000,
+			1.0,
+			100.0,
+			0.0,
+			1.0,
+		);
 		compressor.lookahead = lookahead;
 		compressor
 	}
@@ -1890,10 +1996,20 @@ mod tests {
 			let delayed = wrapper.align_dry([i as f32, i as f32 * 2.0]);
 			let expected = i as isize - 16;
 			if expected >= 0 {
-				assert!((delayed[0] - expected as f32).abs() < 1e-6, "ch0 at {i}: {} vs {expected}", delayed[0]);
-				assert!((delayed[1] - expected as f32 * 2.0).abs() < 1e-6, "ch1 at {i}");
-			}else {
-				assert_eq!(delayed[0], 0.0, "ch0 should be silence before latency, at {i}");
+				assert!(
+					(delayed[0] - expected as f32).abs() < 1e-6,
+					"ch0 at {i}: {} vs {expected}",
+					delayed[0]
+				);
+				assert!(
+					(delayed[1] - expected as f32 * 2.0).abs() < 1e-6,
+					"ch1 at {i}"
+				);
+			} else {
+				assert_eq!(
+					delayed[0], 0.0,
+					"ch0 should be silence before latency, at {i}"
+				);
 				assert_eq!(delayed[1], 0.0);
 			}
 		}
@@ -1905,7 +2021,9 @@ mod tests {
 	#[test]
 	fn align_dry_resizes_when_latency_changes() {
 		let mut wrapper = wrapper_of(compressor_with_lookahead(4));
-		for i in 0..12usize { wrapper.align_dry([i as f32, 0.0]); }
+		for i in 0..12usize {
+			wrapper.align_dry([i as f32, 0.0]);
+		}
 
 		// change latency via a new effect with different latency
 		wrapper.effect = Box::new(compressor_with_lookahead(8));
@@ -1916,7 +2034,11 @@ mod tests {
 			// inputs, the delay must be the new latency
 			if i >= 8 {
 				let expected = i - 8;
-				assert!((delayed[0] - expected as f32).abs() < 1e-6, "ch0 at {i}: {} vs {expected}", delayed[0]);
+				assert!(
+					(delayed[0] - expected as f32).abs() < 1e-6,
+					"ch0 at {i}: {} vs {expected}",
+					delayed[0]
+				);
 			}
 		}
 	}
@@ -1945,7 +2067,11 @@ mod tests {
 		assert_eq!(shared.delay(), 64 + 8);
 	}
 }
-fn generator_add_menu(ui: &mut egui::Ui, sample_rate: usize, output_track: usize) -> Option<GeneratorWarpper> {
+fn generator_add_menu(
+	ui: &mut egui::Ui,
+	sample_rate: usize,
+	output_track: usize,
+) -> Option<GeneratorWarpper> {
 	let mut output = None;
 	let mut path = None;
 	for (name, generator) in GENERATOR_LIST.iter() {
@@ -1962,13 +2088,13 @@ fn generator_add_menu(ui: &mut egui::Ui, sample_rate: usize, output_track: usize
 	}
 
 	if let (Some(generator), Some(path)) = (output, path) {
-		Some(GeneratorWarpper { 
+		Some(GeneratorWarpper {
 			path,
-			generator, 
-			output_track, 
-			gain: 1.0 
+			generator,
+			output_track,
+			gain: 1.0,
 		})
-	}else {
+	} else {
 		None
 	}
 }
@@ -1995,13 +2121,13 @@ fn effect_add_menu(ui: &mut egui::Ui, sample_rate: usize) -> Option<EffectWarppe
 	}
 
 	if let (Some(effect), Some((path_1, path_2))) = (output, path) {
-		Some(EffectWarpper { 
-			path: (path_1, path_2), 
-			effect, 
-			mix: 1.0, 
+		Some(EffectWarpper {
+			path: (path_1, path_2),
+			effect,
+			mix: 1.0,
 			dry_delay: std::array::from_fn(|_| RingBuffer::new(0)),
 		})
-	}else {
+	} else {
 		None
 	}
 }
@@ -2049,8 +2175,8 @@ lazy_static::lazy_static! {
 
 #[cfg(feature = "standalone")]
 fn simulate_midi(
-	ui: &mut egui::Ui, 
-	ctx: &mut SimpleContext, 
+	ui: &mut egui::Ui,
+	ctx: &mut SimpleContext,
 	key_holding: &mut HashSet<usize>,
 	clear_all: bool,
 	note_shift: isize,
@@ -2060,23 +2186,31 @@ fn simulate_midi(
 			if input.key_down(*key) {
 				let note = if note_shift >= 0 {
 					note + note_shift as usize
-				}else {
+				} else {
 					note.saturating_sub(note_shift.unsigned_abs())
 				};
 				if key_holding.insert(note) {
 					// println!("semi-note on: {}", note);
-					ctx.send_event(NoteEvent::NoteOn { channel: 0, note, velocity: 1.0 });
+					ctx.send_event(NoteEvent::NoteOn {
+						channel: 0,
+						note,
+						velocity: 1.0,
+					});
 					// dbg!("q");
 				}
-			}else if input.key_released(*key) {
+			} else if input.key_released(*key) {
 				let note = if note_shift >= 0 {
 					note + note_shift as usize
-				}else {
+				} else {
 					note.saturating_sub(note_shift.unsigned_abs())
 				};
 				if key_holding.remove(&note) {
 					// println!("semi-note off: {}", note);
-					ctx.send_event(NoteEvent::NoteOff { channel: 0, note, velocity: 1.0 });
+					ctx.send_event(NoteEvent::NoteOff {
+						channel: 0,
+						note,
+						velocity: 1.0,
+					});
 				}
 			}
 		}
@@ -2089,26 +2223,26 @@ fn simulate_midi(
 
 fn get_range(value: &Value) -> Option<(FloatOrInt, FloatOrInt, bool)> {
 	match value {
-		Value::Float { range, logarithmic,.. } => {
-			Some((
-				FloatOrInt::Float(*range.start()), 
-				FloatOrInt::Float(*range.end()),
-				*logarithmic
-			))
-		},
-		Value::Int { range, logarithmic, .. } => {
-			Some((
-				FloatOrInt::Int(*range.start()), 
-				FloatOrInt::Int(*range.end()),
-				*logarithmic
-			))
-		},
+		Value::Float {
+			range, logarithmic, ..
+		} => Some((
+			FloatOrInt::Float(*range.start()),
+			FloatOrInt::Float(*range.end()),
+			*logarithmic,
+		)),
+		Value::Int {
+			range, logarithmic, ..
+		} => Some((
+			FloatOrInt::Int(*range.start()),
+			FloatOrInt::Int(*range.end()),
+			*logarithmic,
+		)),
 		_ => None,
 	}
 }
 
 fn draw_change_history(
-	ui: &mut egui::Ui, 
+	ui: &mut egui::Ui,
 	history: &RingBuffer<Option<ListenedValue>>,
 ) -> Option<LfoedParam> {
 	let mut output = None;
@@ -2121,8 +2255,13 @@ fn draw_change_history(
 		};
 
 		match &history.history {
-			ChangedValue::Generator { index, identifier, .. } => {
-				if ui.button(format!("Generator {}: {}", index, identifier)).clicked() {
+			ChangedValue::Generator {
+				index, identifier, ..
+			} => {
+				if ui
+					.button(format!("Generator {}: {}", index, identifier))
+					.clicked()
+				{
 					output = Some(LfoedParam {
 						track: None,
 						index: *index,
@@ -2131,14 +2270,22 @@ fn draw_change_history(
 						max: range.1,
 						start: range.0,
 						end: range.1,
-						logarithmic: range.2
+						logarithmic: range.2,
 					});
 					ui.close();
 					break;
-				} 
-			},
-			ChangedValue::Effect { track, index, identifier, .. } => {
-				if ui.button(format!("Effect {}: {}", index, identifier)).clicked() {
+				}
+			}
+			ChangedValue::Effect {
+				track,
+				index,
+				identifier,
+				..
+			} => {
+				if ui
+					.button(format!("Effect {}: {}", index, identifier))
+					.clicked()
+				{
 					output = Some(LfoedParam {
 						track: Some(*track),
 						index: *index,
@@ -2147,7 +2294,7 @@ fn draw_change_history(
 						max: range.1,
 						start: range.0,
 						end: range.1,
-						logarithmic: range.2
+						logarithmic: range.2,
 					});
 					ui.close();
 					break;

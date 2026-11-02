@@ -20,13 +20,13 @@ use crate::allpass::AllpassEffect;
 use crate::comb::CombEffect;
 use crate::compressor::CompressorEffect;
 use crate::convolver::{ConvolverEffect, IrSlot};
-use crate::script_distortion::{ScriptDistortionEffect, distortion_worker};
-use crate::script_mapper::{ScriptMapperEffect, mapper_worker};
+use crate::disperser::Dispersion;
 use crate::ir_reverb::IrReverbEffect;
 use crate::ott::OttEffect;
-use crate::disperser::Dispersion;
 use crate::particle_wider::ParticleWiderEffect;
 use crate::schroeder::SchroederEffect;
+use crate::script_distortion::{ScriptDistortionEffect, distortion_worker};
+use crate::script_mapper::{ScriptMapperEffect, mapper_worker};
 use crate::shifter::ShifterEffect;
 use crate::unstablizer::UnstablizerEffect;
 use crate::{PITCH_VISIBLE, PitchEffect, ReverbEffect};
@@ -90,7 +90,12 @@ fn crusher(sample_rate: usize) -> Box<dyn Effect<2>> {
 }
 
 fn chorus(sample_rate: usize) -> Box<dyn Effect<2>> {
-	Box::new(Chorus::<SineWave, 2>::new(1 << 14, 4, sample_rate, SineWave))
+	Box::new(Chorus::<SineWave, 2>::new(
+		1 << 14,
+		4,
+		sample_rate,
+		SineWave,
+	))
 }
 
 fn phaser(sample_rate: usize) -> Box<dyn Effect<2>> {
@@ -104,7 +109,6 @@ fn reverb(sample_rate: usize) -> Box<dyn Effect<2>> {
 fn pitch(sample_rate: usize) -> Box<dyn Effect<2>> {
 	Box::new(PitchEffect::new(sample_rate))
 }
-
 
 fn comb(sample_rate: usize) -> Box<dyn Effect<2>> {
 	Box::new(CombEffect::new(sample_rate))
@@ -562,7 +566,6 @@ pub const ROUTER: ModuleDescriptor = ModuleDescriptor {
 	build: router,
 };
 
-
 /// The autotune product, which follows the notes the host plays.
 pub const AUTOTUNE: ModuleDescriptor = ModuleDescriptor {
 	id: "autotune",
@@ -639,7 +642,6 @@ pub const STFT_VOCODER: ModuleDescriptor = ModuleDescriptor {
 	build_with_ir: None,
 	build: stft_vocoder,
 };
-
 
 /// The OTT product.
 pub const OTT: ModuleDescriptor = ModuleDescriptor {

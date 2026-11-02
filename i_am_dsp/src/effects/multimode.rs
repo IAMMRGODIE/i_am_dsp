@@ -219,7 +219,10 @@ mod tests {
 		assert!(level(0, 100.0) > 0.3, "the lowpass passes what is below it");
 		assert!(level(0, 10_000.0) < 0.05, "and rejects what is above it");
 
-		assert!(level(1, 100.0) < 0.05, "the highpass rejects what is below it");
+		assert!(
+			level(1, 100.0) < 0.05,
+			"the highpass rejects what is below it"
+		);
 		assert!(level(1, 10_000.0) > 0.3, "and passes what is above it");
 
 		assert!(level(2, 1_000.0) > 0.2, "the bandpass passes its centre");
@@ -267,7 +270,10 @@ mod tests {
 		let steep = level_with(0, 8_000.0, 0.0, 3);
 
 		assert!(steep < shallow * 0.1, "48 dB/oct rejects far more than 12");
-		assert!(level_with(0, 100.0, 0.0, 3) > 0.3, "and still passes the band");
+		assert!(
+			level_with(0, 100.0, 0.0, 3) > 0.3,
+			"and still passes the band"
+		);
 	}
 	/// A large shelf gain at the old slope limit used to take the square root of
 	/// a negative number; it has to stay finite for every shelf extreme.
@@ -284,8 +290,8 @@ mod tests {
 					let mut context: Box<dyn ProcessContext> = Box::new(());
 
 					for index in 0..512 {
-						let input = (std::f32::consts::TAU * 440.0 * index as f32 / 48_000.0).sin()
-							* 0.5;
+						let input =
+							(std::f32::consts::TAU * 440.0 * index as f32 / 48_000.0).sin() * 0.5;
 						let mut samples = [input, input];
 						filter.process(&mut samples, &[], &mut context);
 
@@ -298,5 +304,4 @@ mod tests {
 			}
 		}
 	}
-
 }

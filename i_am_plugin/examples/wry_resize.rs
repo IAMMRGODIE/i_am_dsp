@@ -17,17 +17,19 @@ mod imp {
 	use std::ffi::c_void;
 	use std::time::{Duration, Instant};
 
-	use i_am_dsp::prelude::{ParamMap, Parameter, Parameters, SetValue};
 	use i_am_dsp::ProcessContext;
+	use i_am_dsp::prelude::{ParamMap, Parameter, Parameters, SetValue};
 	use i_am_plugin::wry::WryEditor;
-	use i_am_plugin::{Descriptor, Editor, EditorContext, ParentWindow, Plugin, Processor, WindowSize};
+	use i_am_plugin::{
+		Descriptor, Editor, EditorContext, ParentWindow, Plugin, Processor, WindowSize,
+	};
 	use windows_sys::Win32::Foundation::HWND;
 	use windows_sys::Win32::Graphics::Gdi::{COLOR_WINDOW, UpdateWindow};
 	use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 	use windows_sys::Win32::UI::WindowsAndMessaging::{
 		CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, MSG,
-		PM_REMOVE, PeekMessageW, RegisterClassW, SW_SHOW, SetWindowPos, ShowWindow, TranslateMessage,
-		SWP_NOZORDER, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+		PM_REMOVE, PeekMessageW, RegisterClassW, SW_SHOW, SWP_NOZORDER, SetWindowPos, ShowWindow,
+		TranslateMessage, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 	};
 
 	const HTML: &str = r#"<!doctype html>
@@ -58,7 +60,6 @@ mod imp {
 	}
 
 	pub struct DemoProcessor;
-
 
 	impl Parameters for DemoProcessor {
 		fn get_parameters(&self) -> Vec<Parameter> {
@@ -148,7 +149,9 @@ mod imp {
 
 			let parent = ParentWindow::from_win32_hwnd(hwnd).expect("a nonzero HWND");
 			let (sender, receiver) = crossbeam_channel::unbounded::<DemoMessage>();
-			let mut editor = DemoProcessor.editor().expect("the demo plug-in has an editor");
+			let mut editor = DemoProcessor
+				.editor()
+				.expect("the demo plug-in has an editor");
 
 			editor.open(EditorContext {
 				parent,

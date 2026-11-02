@@ -4,23 +4,23 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
-use crossbeam_channel::Sender;
 use crate::log::{clear_error, note};
 use crate::{Editor, EditorContext, EditorError, ParentWindow, Plugin, WindowSize};
+use crossbeam_channel::Sender;
 use windows_sys::Win32::Foundation::{
 	ERROR_ACCESS_DENIED, GetLastError, HWND, LPARAM, LRESULT, SetLastError, WPARAM,
 };
 use windows_sys::Win32::Graphics::Gdi::COLOR_WINDOW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-	CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, IsWindow, KillTimer,
-	RegisterClassW, GWLP_WNDPROC, GetParent, SetParent, SetTimer, SetWindowLongPtrW, SetWindowPos,
-	ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, WM_TIMER, WNDCLASSW, WS_CHILD,
+	CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_WNDPROC, GetClientRect, GetParent,
+	IsWindow, KillTimer, RegisterClassW, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SetParent,
+	SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_TIMER, WNDCLASSW, WS_CHILD,
 	WS_CLIPCHILDREN, WS_VISIBLE,
 };
-use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
-use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::WebViewBuilderExtWindows;
+use wry::dpi::{PhysicalPosition, PhysicalSize};
 
 /// COM already initialized on this thread with another apartment model.
 const RPC_E_CHANGED_MODE: i32 = 0x8001_0106u32 as i32;
@@ -451,7 +451,6 @@ pub struct WryEditor<P: Plugin> {
 }
 
 impl<P: Plugin> WryEditor<P> {
-
 	/// Make the page the size of the room the host's window has.
 	///
 	/// Called from the window's timer: a host can resize without calling
@@ -673,10 +672,7 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		// A WebContext may borrow the builder, so it has to outlive the build call.
 		// The data folder has to be writable: a plug-in loaded from Program Files
 		// cannot use WebView2's default, which sits next to the host's executable.
-		let data_directory = self
-			.data_directory
-			.clone()
-			.or_else(default_data_directory);
+		let data_directory = self.data_directory.clone().or_else(default_data_directory);
 		note(&format!("profile: {data_directory:?}"));
 		if let Some(directory) = &data_directory {
 			log_profile_size(directory);
@@ -687,12 +683,11 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		// CreateCoreWebView2Environment apart from one in the WebView itself.
 		#[cfg(windows)]
 		{
-			use windows_sys::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+			use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 			// SAFETY: a null reserved pointer is what CoInitializeEx expects; the
 			// host's existing apartment, if any, is left in place.
-			let result = unsafe {
-				CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32)
-			};
+			let result =
+				unsafe { CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32) };
 			note(&format!("com: {result:#x}"));
 
 			if result == RPC_E_CHANGED_MODE {
@@ -734,10 +729,9 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 			None
 		};
 		let size = match parent_size {
-			Some((width, height)) => WindowSize::new(
-				(width / self.scale) as f32,
-				(height / self.scale) as f32,
-			),
+			Some((width, height)) => {
+				WindowSize::new((width / self.scale) as f32, (height / self.scale) as f32)
+			}
 			None => size,
 		};
 		self.size = size;
@@ -750,9 +744,12 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		));
 
 		let window = create_host_window(parent_hwnd, size, scale)?;
-		note(&format!("window: created {}x{} logical", size.width, size.height));
-		let outer_parent = ParentWindow::from_win32_hwnd(window)
-			.ok_or("the host window handle was invalid")?;
+		note(&format!(
+			"window: created {}x{} logical",
+			size.width, size.height
+		));
+		let outer_parent =
+			ParentWindow::from_win32_hwnd(window).ok_or("the host window handle was invalid")?;
 
 		let protocols = std::mem::take(&mut self.protocols);
 		let url = self.url.take();
@@ -764,9 +761,7 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 			move || -> Result<wry::WebView, EditorError> {
 				WEB_CONTEXT.with(move |shared| {
 					let mut shared = shared.try_borrow_mut().map_err(|_| {
-						EditorError::from(
-							"WebView2 context is already in use; re-entrant GUI open",
-						)
+						EditorError::from("WebView2 context is already in use; re-entrant GUI open")
 					})?;
 
 					if shared.is_none() {
@@ -841,7 +836,8 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 				}
 				let message = panic_payload(payload.as_ref());
 				note(&format!("panic in open: {message}"));
-				let error = EditorError::from(format!("WebView2 panicked while opening: {message}"));
+				let error =
+					EditorError::from(format!("WebView2 panicked while opening: {message}"));
 				report_error(&error);
 				return Err(error);
 			}
@@ -943,9 +939,7 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 		if previous.is_null() {
 			let last_error = unsafe { GetLastError() };
 			if last_error != 0 {
-				let error = EditorError::from(format!(
-					"SetParent failed: {last_error}"
-				));
+				let error = EditorError::from(format!("SetParent failed: {last_error}"));
 				report_error(&error);
 				return Err(error);
 			}
@@ -981,7 +975,10 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 					.set_bounds(Self::bounds(size, self.scale))
 					.map_err(EditorError::new)?;
 			}
-			note(&format!("set_parent: resized to {}x{}", size.width, size.height));
+			note(&format!(
+				"set_parent: resized to {}x{}",
+				size.width, size.height
+			));
 		}
 
 		Ok(())
@@ -1053,7 +1050,7 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 				Err(error) => {
 					note(&format!("set_size: bounds failed: {error}"));
 					return Err(EditorError::new(error));
-				},
+				}
 			}
 		}
 

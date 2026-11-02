@@ -1,8 +1,8 @@
 //! The scripted frequency mapper: the script maps every bin to a new frequency and
 //! amplitude, rendered into a frequency/amplitude table for the audio thread.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use i_am_dsp::prelude::{
 	Effect, FrequencyMapper, ParamMap, Parameter, PhaseVocoder, ProcessContext, SetValue,
@@ -10,9 +10,7 @@ use i_am_dsp::prelude::{
 };
 use i_am_dsp_derive::Parameters;
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
-use i_am_plugin::{
-	AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions,
-};
+use i_am_plugin::{AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions};
 use i_am_web_gui::{ProtocolRequest, ProtocolResponse, Scope};
 
 use crate::script::{CompiledScript, ScriptWorker, json_escape};
@@ -49,11 +47,7 @@ pub struct MapperTable {
 
 impl MapperTable {
 	/// Renders the script over the whole grid.
-	fn render(
-		script: &CompiledScript,
-		params: [f32; 4],
-		sample_rate: f32,
-	) -> Result<Self, String> {
+	fn render(script: &CompiledScript, params: [f32; 4], sample_rate: f32) -> Result<Self, String> {
 		let nyquist = (sample_rate * 0.5).max(1_000.0);
 		let mut scope = CompiledScript::scope(params);
 		scope.push("a", 0.0_f32);
@@ -136,8 +130,8 @@ impl MapperTable {
 				let t = index as f32 / (POINTS - 1) as f32;
 				let frequency = MIN_HZ * (MAX_HZ / MIN_HZ).powf(t);
 				let grid = (t * (FREQ_POINTS - 1) as f32).round() as usize;
-				let row = ((0.0 - MIN_DB) / (MAX_DB - MIN_DB) * (AMP_POINTS - 1) as f32)
-					.round() as usize;
+				let row =
+					((0.0 - MIN_DB) / (MAX_DB - MIN_DB) * (AMP_POINTS - 1) as f32).round() as usize;
 				let index = row * FREQ_POINTS + grid;
 
 				[frequency, self.freqs[index], self.amps[index]]
@@ -216,7 +210,9 @@ impl FrequencyMapper for ScriptMapper {
 		// With a 2048 frame and fourfold overlap that is about 96 thousand
 		// evaluations a second, rather than the table's sixteen thousand renders
 		// per change.
-		if self.realtime && let Some(script) = self.realtime_script.clone() {
+		if self.realtime
+			&& let Some(script) = self.realtime_script.clone()
+		{
 			let _ = self.scope.set_value("x", input);
 			let _ = self.scope.set_value("a", amplitude);
 			let _ = self.scope.set_value("p1", self.params[0]);
@@ -229,9 +225,9 @@ impl FrequencyMapper for ScriptMapper {
 				&& mapped_frequency.is_finite()
 				&& mapped_amplitude.is_finite()
 			{
-				let mapped_frequency =
-					(input + (mapped_frequency.clamp(1.0, self.nyquist) - input) * mix)
-						.clamp(1.0, self.nyquist);
+				let mapped_frequency = (input
+					+ (mapped_frequency.clamp(1.0, self.nyquist) - input) * mix)
+					.clamp(1.0, self.nyquist);
 				let mapped_amplitude =
 					amplitude + (mapped_amplitude.clamp(0.0, 10_000.0) - amplitude) * mix;
 
@@ -246,8 +242,7 @@ impl FrequencyMapper for ScriptMapper {
 		};
 
 		let (mapped_frequency, mapped_amplitude) = table.sample(input, amplitude);
-		let mapped_frequency =
-			(input + (mapped_frequency - input) * mix).clamp(1.0, self.nyquist);
+		let mapped_frequency = (input + (mapped_frequency - input) * mix).clamp(1.0, self.nyquist);
 		let mapped_amplitude = amplitude + (mapped_amplitude - amplitude) * mix;
 
 		self.moved = (mapped_frequency - input).abs() > 0.5;
@@ -260,7 +255,11 @@ impl FrequencyMapper for ScriptMapper {
 		analysis_phase: f32,
 		propagated_phase: f32,
 	) -> f32 {
-		if self.moved { propagated_phase } else { analysis_phase }
+		if self.moved {
+			propagated_phase
+		} else {
+			analysis_phase
+		}
 	}
 }
 
@@ -532,10 +531,7 @@ fn route(
 
 /// The worker a new script mapper starts with.
 pub fn mapper_worker() -> Arc<ScriptWorker<MapperTable>> {
-	let worker = ScriptWorker::spawn(
-		MapperTable::render,
-		MapperTable::curve_points,
-	);
+	let worker = ScriptWorker::spawn(MapperTable::render, MapperTable::curve_points);
 	worker.set_source(DEFAULT_SCRIPT.to_string());
 	worker
 }
@@ -655,13 +651,9 @@ impl Plugin for ScriptMapperWeb {
 	}
 
 	fn editor(&self) -> Option<Box<dyn Editor<Self>>> {
-		let face = i_am_web_gui::Faceplate::new(
-			"I Am Script Mapper",
-			"#8ad3ff",
-			(700.0, 560.0),
-		)
-		.with_script()
-		.with_header(&["window_size", "realtime"]);
+		let face = i_am_web_gui::Faceplate::new("I Am Script Mapper", "#8ad3ff", (700.0, 560.0))
+			.with_script()
+			.with_header(&["window_size", "realtime"]);
 		let worker = self.worker.clone();
 		let map = self.processor.param_map();
 		let sample_rate = self.processor.sample_rate() as f32;
@@ -733,7 +725,9 @@ mod tests {
 		let mut mapper = ScriptMapper {
 			realtime,
 			realtime_script: if realtime {
-				Some(Arc::new(CompiledScript::compile(source).expect("a compiled script")))
+				Some(Arc::new(
+					CompiledScript::compile(source).expect("a compiled script"),
+				))
 			} else {
 				None
 			},
@@ -746,8 +740,7 @@ mod tests {
 		};
 		mapper.nyquist = 24_000.0;
 
-		let mut vocoder: PhaseVocoder<ScriptMapper, 2> =
-			PhaseVocoder::new(mapper, 2048, 48_000);
+		let mut vocoder: PhaseVocoder<ScriptMapper, 2> = PhaseVocoder::new(mapper, 2048, 48_000);
 		vocoder.window_factor = 0.6;
 		vocoder.gain = 1.0 / overlap_add_gain(vocoder.window_factor);
 
@@ -790,9 +783,8 @@ mod tests {
 
 	#[test]
 	fn the_realtime_mapping_runs_the_script_per_bin() {
-		let script = Arc::new(
-			CompiledScript::compile("[x * 2.0, a * 0.5]").expect("a compiled script"),
-		);
+		let script =
+			Arc::new(CompiledScript::compile("[x * 2.0, a * 0.5]").expect("a compiled script"));
 		let mut mapper = ScriptMapper {
 			realtime: true,
 			realtime_script: Some(script),
@@ -824,7 +816,9 @@ mod tests {
 		};
 
 		let body = String::from_utf8(
-			route(&get, &worker, &map, 48_000.0).expect("the script route").body,
+			route(&get, &worker, &map, 48_000.0)
+				.expect("the script route")
+				.body,
 		)
 		.expect("utf-8");
 		assert!(body.contains("\"source\""), "{body}");
@@ -836,7 +830,9 @@ mod tests {
 			body: b"[x * 2.0, a]",
 		};
 		assert_eq!(
-			route(&post, &worker, &map, 48_000.0).expect("the route").status,
+			route(&post, &worker, &map, 48_000.0)
+				.expect("the route")
+				.status,
 			200
 		);
 
@@ -854,7 +850,9 @@ mod tests {
 			body: &[],
 		};
 		let body = String::from_utf8(
-			route(&curve, &worker, &map, 48_000.0).expect("the curve route").body,
+			route(&curve, &worker, &map, 48_000.0)
+				.expect("the curve route")
+				.body,
 		)
 		.expect("utf-8");
 		assert!(body.contains("\"points\""), "{body}");

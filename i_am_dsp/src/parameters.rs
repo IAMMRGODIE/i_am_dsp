@@ -1,6 +1,9 @@
 //! A helper trait for report parameters change to hosts.
 
-use std::{ops::{Index, RangeInclusive}, sync::{Arc, atomic::Ordering}};
+use std::{
+	ops::{Index, RangeInclusive},
+	sync::{Arc, atomic::Ordering},
+};
 
 use bimap::BiMap;
 use ciborium::{from_reader, into_writer};
@@ -87,9 +90,7 @@ fn format_beats(beats: f64) -> String {
 			// A power-of-two denominator is a note value; 3, 5, 7 and the rest are not.
 			if (1.0..=128.0).contains(&denominator) {
 				let denominator = denominator as u32;
-				if denominator.is_power_of_two()
-					&& (4.0 / denominator as f64 - note).abs() < 1e-4
-				{
+				if denominator.is_power_of_two() && (4.0 / denominator as f64 - note).abs() < 1e-4 {
 					return format!("1/{}{}", denominator, suffix);
 				}
 			}
@@ -326,8 +327,8 @@ impl Parameter {
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 /// A helper enum for parameter values, but its atomic.
-/// 
-/// Note: we don't support something like [`Value::Serialized`] here, 
+///
+/// Note: we don't support something like [`Value::Serialized`] here,
 /// since we need a lock to update the value, and may be expensive to update.
 pub enum AtomicValue {
 	/// A floating-point value with a range.
@@ -353,25 +354,26 @@ pub enum AtomicValue {
 		changed: AtomicBool,
 	},
 	/// A boolean value.
-	Bool{
+	Bool {
 		/// The actual value.
 		value: AtomicBool,
 		/// Whether the value has been changed.
 		changed: AtomicBool,
 	},
 	/// A placeholder value, used for parameters that are not yet implemented or is None.
-	#[default] Nothing,
+	#[default]
+	Nothing,
 }
 
 impl AtomicValue {
 	/// Loads the value with the given ordering.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// Panics if order is [`Ordering::Release`] or [`Ordering::AcqRel`].
 	pub fn load(&self, order: Ordering) -> SetValue {
 		match self {
-			Self::Bool{ value, ..} => SetValue::Bool(value.load(order)),
+			Self::Bool { value, .. } => SetValue::Bool(value.load(order)),
 			Self::Float { value, .. } => SetValue::Float(value.load(order)),
 			Self::Int { value, .. } => SetValue::Int(value.load(order)),
 			Self::Nothing => SetValue::Nothing,
@@ -399,59 +401,75 @@ impl AtomicValue {
 	}
 
 	/// Stores the value with the given ordering
-	/// 
+	///
 	/// Returns true if the value is updated, false for value type mismatch.
-	/// 
+	///
 	/// Will clamp the value to the range if it is out of range.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// Panics if order is [`Ordering::Release`] or [`Ordering::AcqRel`].
 	pub fn store(&self, value: impl Into<SetValue>, order: Ordering) -> bool {
 		let value = value.into();
 		match (self, value) {
-			(Self::Bool{ value: v, changed }, SetValue::Bool(value)) => {
+			(Self::Bool { value: v, changed }, SetValue::Bool(value)) => {
 				v.store(value, order);
 				changed.store(true, order);
 				true
-			},
-			(Self::Float { value: v, range, changed, .. }, SetValue::Float(value)) => {
+			}
+			(
+				Self::Float {
+					value: v,
+					range,
+					changed,
+					..
+				},
+				SetValue::Float(value),
+			) => {
 				let value = value.clamp(*range.start(), *range.end());
 				changed.store(true, order);
 				v.store(value, order);
 				true
-			},
-			(Self::Int { value: v, range, changed, .. }, SetValue::Int(value)) => {
+			}
+			(
+				Self::Int {
+					value: v,
+					range,
+					changed,
+					..
+				},
+				SetValue::Int(value),
+			) => {
 				let value = value.clamp(*range.start(), *range.end());
 				v.store(value, order);
 				changed.store(true, order);
 				true
-			},
+			}
 			(Self::Nothing, SetValue::Nothing) => true,
 			_ => false,
 		}
 	}
 
 	/// Atomically updates the value with the given ordering and a closure.
-	/// 
+	///
 	/// Returns the old value if the closure returns `None`, otherwise returns the new value.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// Panics if order is [`Ordering::Release`] or [`Ordering::AcqRel`].
 	pub fn fetch_update<T>(
 		&self,
 		set_order: Ordering,
 		fetch_order: Ordering,
 		f: impl Fn(SetValue) -> Option<T>,
-	) -> Result<SetValue, SetValue> 
-	where 
+	) -> Result<SetValue, SetValue>
+	where
 		T: Into<SetValue>,
 	{
 		let value = self.load(fetch_order);
 		if let Some(new_value) = f(value) {
 			self.store(new_value, set_order);
-		}else {
+		} else {
 			return Err(self.load(fetch_order));
 		};
 
@@ -461,17 +479,17 @@ impl AtomicValue {
 	/// Sets the changed flag with the given ordering.
 	pub fn set_changed(&self, changed: bool, order: Ordering) {
 		match self {
-			Self::Bool{ changed: c, .. } => c.store(changed, order),
+			Self::Bool { changed: c, .. } => c.store(changed, order),
 			Self::Float { changed: c, .. } => c.store(changed, order),
 			Self::Int { changed: c, .. } => c.store(changed, order),
-			Self::Nothing => {},
+			Self::Nothing => {}
 		}
 	}
 
 	/// Returns true if the value has been changed.
 	pub fn is_chanegd(&self) -> bool {
 		match self {
-			Self::Bool{ changed, .. } => changed.load(Ordering::Relaxed),
+			Self::Bool { changed, .. } => changed.load(Ordering::Relaxed),
 			Self::Float { changed, .. } => changed.load(Ordering::Relaxed),
 			Self::Int { changed, .. } => changed.load(Ordering::Relaxed),
 			Self::Nothing => false,
@@ -508,15 +526,16 @@ pub enum Value {
 	/// Also the crate will mark this value as non-editable in the host UI.
 	Serialized(Vec<u8>),
 	/// A placeholder value, used for parameters that are not yet implemented or is None.
-	#[default] Nothing,
+	#[default]
+	Nothing,
 }
 
 impl Value {
 	/// Returns the value as a set value.
 	pub fn to_set_value(self) -> SetValue {
 		match self {
-			Value::Float { value,.. } => SetValue::Float(value),
-			Value::Int { value,.. } => SetValue::Int(value),
+			Value::Float { value, .. } => SetValue::Float(value),
+			Value::Int { value, .. } => SetValue::Int(value),
 			Value::Bool(value) => SetValue::Bool(value),
 			Value::Serialized(data) => SetValue::Serialized(data),
 			Value::Nothing => SetValue::Nothing,
@@ -551,19 +570,27 @@ impl Value {
 	/// Returns the value as an atomic value.
 	pub fn to_atomic_value(self) -> AtomicValue {
 		match self {
-			Value::Float { value, range, logarithmic } => AtomicValue::Float {
+			Value::Float {
+				value,
+				range,
+				logarithmic,
+			} => AtomicValue::Float {
 				value: AtomicF32::new(value),
 				range,
 				logarithmic,
 				changed: AtomicBool::new(false),
 			},
-			Value::Int { value, range, logarithmic } => AtomicValue::Int {
+			Value::Int {
+				value,
+				range,
+				logarithmic,
+			} => AtomicValue::Int {
 				value: AtomicI32::new(value),
 				range,
 				logarithmic,
 				changed: AtomicBool::new(false),
 			},
-			Value::Bool(value) => AtomicValue::Bool{
+			Value::Bool(value) => AtomicValue::Bool {
 				value: AtomicBool::new(value),
 				changed: AtomicBool::new(false),
 			},
@@ -585,7 +612,8 @@ pub enum SetValue {
 	/// A boolean value.
 	Bool(bool),
 	/// A placeholder value, used for parameters that are not yet implemented or is None.
-	#[default] Nothing
+	#[default]
+	Nothing,
 }
 
 impl From<f32> for SetValue {
@@ -746,7 +774,7 @@ pub trait Parameters {
 	/// Returns a list of parameters with their current values.
 	fn get_parameters(&self) -> Vec<Parameter>;
 	/// Sets the value of a parameter, will return false if identifier is not found.
-	/// 
+	///
 	/// Host should call this method to update the value and make sure the value is within the valid range.
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool;
 
@@ -808,18 +836,22 @@ impl Parameters for Complex<f32> {
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
 		match identifier {
-			"re" => if let SetValue::Float(v) = value {
-				self.re = v;
-				true
-			} else {
-				false
-			},
-			"im" => if let SetValue::Float(v) = value {
-				self.im = v;
-				true
-			} else {
-				false
-			},
+			"re" => {
+				if let SetValue::Float(v) = value {
+					self.re = v;
+					true
+				} else {
+					false
+				}
+			}
+			"im" => {
+				if let SetValue::Float(v) = value {
+					self.im = v;
+					true
+				} else {
+					false
+				}
+			}
 			_ => false,
 		}
 	}
@@ -986,7 +1018,9 @@ impl Parameters for String {
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		if identifier == "data" && let SetValue::Serialized(data) = value {
+		if identifier == "data"
+			&& let SetValue::Serialized(data) = value
+		{
 			*self = String::from_utf8_lossy(&data).to_string();
 			return true;
 		}
@@ -1029,7 +1063,7 @@ impl<T: Parameters> Parameters for Option<T> {
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
 		if let SetValue::Nothing = value {
 			*self = None;
-		}else if let Some(p) = self {
+		} else if let Some(p) = self {
 			return p.set_parameter(identifier, value);
 		}
 
@@ -1038,34 +1072,38 @@ impl<T: Parameters> Parameters for Option<T> {
 }
 
 /// A helper function
-/// 
+///
 /// It can be used to convert any type implementing the `Serialize` trait to a binary format.
 /// We will use cbor as the binary format.
-/// 
+///
 /// # Panics
-/// 
+///
 /// This function will panic if the value cannot be serialized.
-pub fn to_binary<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, ciborium::ser::Error<std::io::Error>> {
+pub fn to_binary<T: serde::Serialize>(
+	value: &T,
+) -> Result<Vec<u8>, ciborium::ser::Error<std::io::Error>> {
 	let mut output = vec![];
 	into_writer(value, &mut output)?;
 	Ok(output)
 }
 
 /// A helper function
-/// 
+///
 /// It can be used to convert a binary format to any type implementing the `Deserialize` trait.
 /// We will use cbor as the binary format.
-/// 
+///
 /// # Panics
-/// 
+///
 /// This function will panic if the data cannot be deserialized.
-pub fn from_binary<T: serde::de::DeserializeOwned>(data: Vec<u8>) -> Result<T, ciborium::de::Error<std::io::Error>> {
+pub fn from_binary<T: serde::de::DeserializeOwned>(
+	data: Vec<u8>,
+) -> Result<T, ciborium::de::Error<std::io::Error>> {
 	let slice = data.as_slice();
 	from_reader(slice)
 }
 
 /// A simple wrapper around a sturct makes it possible to have a sturct with multiple parameter setters.
-/// 
+///
 /// Though you need set params manually, it can be useful when you want to parameterize a complex struct.
 pub struct Paramed<T: Parameters> {
 	/// The struct that we want to parameterize.
@@ -1091,7 +1129,10 @@ impl<T: Parameters> Parameters for Paramed<T> {
 }
 
 impl<const CHANNELS: usize, T: Generator<CHANNELS>> Generator<CHANNELS> for Paramed<T> {
-	fn generate(&mut self, process_context: &mut Box<dyn crate::ProcessContext>) -> [f32; CHANNELS] {
+	fn generate(
+		&mut self,
+		process_context: &mut Box<dyn crate::ProcessContext>,
+	) -> [f32; CHANNELS] {
 		self.sync_params();
 		self.value.generate(process_context)
 	}
@@ -1113,8 +1154,8 @@ impl<const CHANNELS: usize, T: Effect<CHANNELS>> Effect<CHANNELS> for Paramed<T>
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn crate::ProcessContext>,
 	) {
@@ -1163,7 +1204,10 @@ impl<T: Parameters> Paramed<T> {
 	}
 
 	/// Create a new parameterized object with additional parameters.
-	pub fn new_with_additional(to_parameterize: T, additional_params: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) -> Self {
+	pub fn new_with_additional(
+		to_parameterize: T,
+		additional_params: impl IntoIterator<Item = (String, Arc<AtomicValue>)>,
+	) -> Self {
 		let mut empty_self = Self {
 			value: to_parameterize,
 			params: ParamMap::new(),
@@ -1177,26 +1221,31 @@ impl<T: Parameters> Paramed<T> {
 	pub fn sync_params(&mut self) {
 		for (id, param) in self.params.values.iter().enumerate() {
 			if let Some(identifier) = self.params.query_param_id(id) {
-				self.value.set_parameter(identifier, param.load(Ordering::SeqCst));
+				self.value
+					.set_parameter(identifier, param.load(Ordering::SeqCst));
 			}
 		}
 	}
 
 	/// Get the parameter map.
-	/// 
+	///
 	/// This function will return a [`ParamMap`] object, which can be used to query and set parameter values.
 	pub fn param_map(&self) -> ParamMap {
 		self.params.clone()
 	}
 
 	/// Update the parameter map.
-	/// 
+	///
 	/// Useful for those structs that have unfixed number of parameters.
-	/// 
+	///
 	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`Self::param_map`].
 	pub fn update_map(&mut self) {
 		let entries = self.value.get_parameters().into_iter().map(|param| {
-			(param.identifier, param.meta, Arc::new(param.value.to_atomic_value()))
+			(
+				param.identifier,
+				param.meta,
+				Arc::new(param.value.to_atomic_value()),
+			)
 		});
 
 		let overrides = self.value.stable_id_overrides();
@@ -1204,14 +1253,26 @@ impl<T: Parameters> Paramed<T> {
 	}
 
 	/// Update the parameter map and add additional parameters.
-	/// 
+	///
 	/// Useful for those structs that have unfixed number of parameters.
-	/// 
+	///
 	/// Note: this function will **not** affect the previous [`ParamMap`] got from [`Self::param_map`].
-	pub fn update_map_with_additional(&mut self, additional_params: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) {
-		let mut entries = self.value.get_parameters().into_iter().map(|param| {
-			(param.identifier, param.meta, Arc::new(param.value.to_atomic_value()))
-		}).collect::<Vec<_>>();
+	pub fn update_map_with_additional(
+		&mut self,
+		additional_params: impl IntoIterator<Item = (String, Arc<AtomicValue>)>,
+	) {
+		let mut entries = self
+			.value
+			.get_parameters()
+			.into_iter()
+			.map(|param| {
+				(
+					param.identifier,
+					param.meta,
+					Arc::new(param.value.to_atomic_value()),
+				)
+			})
+			.collect::<Vec<_>>();
 
 		// Parameters the caller adds by hand carry no metadata; a host falls back to its own
 		// defaults for them.
@@ -1326,7 +1387,7 @@ pub enum StableIdScheme {
 
 #[derive(Debug, Clone)]
 /// A helper struct for managing parameter values for using [`Paramed`] struct.
-/// 
+///
 /// This struct should be cheap to clone and will assosiated with one specific parameterized object.
 pub struct ParamMap {
 	values: Arc<Vec<Arc<AtomicValue>>>,
@@ -1349,8 +1410,13 @@ impl Index<&str> for ParamMap {
 	type Output = AtomicValue;
 
 	fn index(&self, index: &str) -> &Self::Output {
-		let index = self.id.get_by_left(index).unwrap_or_else(|| panic!("index `{}` not found", index));
-		self.values.get(*index).unwrap_or_else(|| panic!("index `{}` not found", index))
+		let index = self
+			.id
+			.get_by_left(index)
+			.unwrap_or_else(|| panic!("index `{}` not found", index));
+		self.values
+			.get(*index)
+			.unwrap_or_else(|| panic!("index `{}` not found", index))
 	}
 }
 
@@ -1391,12 +1457,19 @@ impl ParamMap {
 		// resolves the same way. A pin that collides with an earlier one is left to the scheme
 		// rather than aliasing two parameters onto one id.
 		for (index, (identifier, _, _)) in entries.iter().enumerate() {
-			let Some(id) = overrides.iter().find(|(pinned, _)| pinned == identifier).map(|(_, id)| *id) else {
+			let Some(id) = overrides
+				.iter()
+				.find(|(pinned, _)| pinned == identifier)
+				.map(|(_, id)| *id)
+			else {
 				continue;
 			};
 
 			if by_stable_id.contains_left(&id) {
-				debug_assert!(false, "two parameters are pinned to the same host id ({id})");
+				debug_assert!(
+					false,
+					"two parameters are pinned to the same host id ({id})"
+				);
 				continue;
 			}
 
@@ -1409,7 +1482,9 @@ impl ParamMap {
 		// order rather than declaration order, so that when two identifiers collide, which of
 		// them keeps the canonical id does not depend on how the fields happen to be laid out:
 		// the assignment is a pure function of the set of identifiers.
-		let mut order = (0..entries.len()).filter(|index| !assigned[*index]).collect::<Vec<_>>();
+		let mut order = (0..entries.len())
+			.filter(|index| !assigned[*index])
+			.collect::<Vec<_>>();
 		if scheme == StableIdScheme::Identifier {
 			order.sort_by(|left, right| entries[*left].0.cmp(&entries[*right].0));
 		}
@@ -1455,7 +1530,8 @@ impl ParamMap {
 	/// reproduce the position-based ids an older build handed out.
 	pub fn new_with(map: impl IntoIterator<Item = (String, Arc<AtomicValue>)>) -> Self {
 		Self::build(
-			map.into_iter().map(|(id, value)| (id, ParameterMeta::default(), value)),
+			map.into_iter()
+				.map(|(id, value)| (id, ParameterMeta::default(), value)),
 			StableIdScheme::default(),
 			&[],
 		)
@@ -1467,7 +1543,8 @@ impl ParamMap {
 		scheme: StableIdScheme,
 	) -> Self {
 		Self::build(
-			map.into_iter().map(|(id, value)| (id, ParameterMeta::default(), value)),
+			map.into_iter()
+				.map(|(id, value)| (id, ParameterMeta::default(), value)),
 			scheme,
 			&[],
 		)
@@ -1488,12 +1565,12 @@ impl ParamMap {
 		let index = self.id.get_by_left(id)?;
 		let value = self.values.get(*index)?;
 		// self.update_queue(*index);
-		
+
 		Some(value.clone())
 	}
 
 	/// Set the parameter value by its identifier.
-	/// 
+	///
 	/// Returns `true` if the parameter is set successfully, `false` otherwise.
 	pub fn set(&self, id: &str, to_set: impl Into<SetValue>, ordering: Ordering) -> bool {
 		let Some(index) = self.id.get_by_left(id) else {
@@ -1504,9 +1581,9 @@ impl ParamMap {
 		};
 
 		value.store(to_set, ordering);
-		
+
 		true
-	} 
+	}
 
 	/// Query the parameter value by its index.
 	pub fn query_param_index(&self, id: &str) -> Option<usize> {
@@ -1556,7 +1633,7 @@ impl ParamMap {
 	}
 
 	/// Iterate over the parameter values and their indices.
-	/// 
+	///
 	/// Will automatically set the `changed` flag to `false` for each value.
 	pub fn iter_changed(&self) -> impl Iterator<Item = (usize, &Arc<AtomicValue>)> {
 		self.values.iter().enumerate().filter(|(_, val)| {
@@ -1571,8 +1648,8 @@ impl ParamMap {
 
 #[cfg(test)]
 mod tests {
-	use i_am_dsp_derive::Parameters;
 	use super::*;
+	use i_am_dsp_derive::Parameters;
 
 	#[derive(Parameters, Default)]
 	struct MyParameters {
@@ -1590,7 +1667,7 @@ mod tests {
 		boo: bool,
 
 		#[skip]
-		_e: Vec<f32>
+		_e: Vec<f32>,
 	}
 
 	#[derive(Parameters, Default)]
@@ -1602,7 +1679,6 @@ mod tests {
 		#[serde]
 		h: (f32, f32),
 	}
-
 
 	#[cfg(feature = "layout")]
 	#[derive(Parameters, Default)]
@@ -1653,7 +1729,10 @@ mod tests {
 		assert_eq!(voices.step, Some(1.0));
 		assert_eq!(voices.size, ParamSize::Small);
 
-		assert!(layout("plain").is_empty(), "a parameter that declares nothing keeps an empty layout");
+		assert!(
+			layout("plain").is_empty(),
+			"a parameter that declares nothing keeps an empty layout"
+		);
 	}
 
 	fn string_to_binary(s: &String) -> Vec<u8> {
@@ -1692,8 +1771,14 @@ mod tests {
 	/// The id is a pure function of the identifier, and never the value hosts reserve.
 	#[test]
 	fn stable_ids_are_a_pure_function_of_the_identifier() {
-		assert_eq!(stable_parameter_id("delay_time"), stable_parameter_id("delay_time"));
-		assert_ne!(stable_parameter_id("delay_time"), stable_parameter_id("decay_factor"));
+		assert_eq!(
+			stable_parameter_id("delay_time"),
+			stable_parameter_id("delay_time")
+		);
+		assert_ne!(
+			stable_parameter_id("delay_time"),
+			stable_parameter_id("decay_factor")
+		);
 
 		// A VST3 host only keeps the low 31 bits of a parameter id, so anything above that
 		// would address a different parameter there; `u32::MAX` is reserved for "no id".
@@ -1733,9 +1818,22 @@ mod tests {
 
 	#[test]
 	fn a_unit_reads_back_what_it_wrote() {
-		for beats in [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 1.0 / 3.0, 2.0 / 3.0] {
+		for beats in [
+			0.25,
+			0.5,
+			0.75,
+			1.0,
+			1.5,
+			2.0,
+			3.0,
+			4.0,
+			1.0 / 3.0,
+			2.0 / 3.0,
+		] {
 			let text = Unit::Beats.format(beats);
-			let parsed = Unit::Beats.parse(&text).expect("what it wrote has to read back");
+			let parsed = Unit::Beats
+				.parse(&text)
+				.expect("what it wrote has to read back");
 			assert!(
 				(parsed - beats).abs() < 1e-6,
 				"`{text}` read back as {parsed}, not {beats}"
@@ -1772,13 +1870,21 @@ mod tests {
 	fn parameter_map_hands_out_distinct_stable_ids() {
 		let param_map = Paramed::new(MyParameters::default()).param_map();
 		let ids = (0..param_map.len())
-			.map(|index| param_map.query_stable_id(index).expect("every index has a stable id"))
+			.map(|index| {
+				param_map
+					.query_stable_id(index)
+					.expect("every index has a stable id")
+			})
 			.collect::<Vec<_>>();
 
 		let mut distinct = ids.clone();
 		distinct.sort_unstable();
 		distinct.dedup();
-		assert_eq!(distinct.len(), ids.len(), "two parameters were given the same stable id");
+		assert_eq!(
+			distinct.len(),
+			ids.len(),
+			"two parameters were given the same stable id"
+		);
 
 		for (index, id) in ids.iter().enumerate() {
 			assert_eq!(param_map.query_stable_id(index), Some(*id));
@@ -1788,9 +1894,18 @@ mod tests {
 
 		// The derived identifier is what the id is derived from, so the two have to agree.
 		assert_eq!(param_map.query_stable_id(0), Some(stable_parameter_id("a")));
-		assert_eq!(param_map.query_stable_id(2), Some(stable_parameter_id("Foo")));
-		assert_eq!(param_map.query_stable_id(3), Some(stable_parameter_id("d.f")));
-		assert_eq!(param_map.query_stable_id(6), Some(stable_parameter_id("boo")));
+		assert_eq!(
+			param_map.query_stable_id(2),
+			Some(stable_parameter_id("Foo"))
+		);
+		assert_eq!(
+			param_map.query_stable_id(3),
+			Some(stable_parameter_id("d.f"))
+		);
+		assert_eq!(
+			param_map.query_stable_id(6),
+			Some(stable_parameter_id("boo"))
+		);
 
 		// An id no parameter was given resolves to nothing.
 		assert!(param_map.get_by_stable_id(u32::MAX).is_none());
@@ -1817,14 +1932,20 @@ mod tests {
 		);
 
 		let entry = |identifier: &str| {
-			(identifier.to_string(), Arc::new(Value::Bool(true).to_atomic_value()))
+			(
+				identifier.to_string(),
+				Arc::new(Value::Bool(true).to_atomic_value()),
+			)
 		};
 
 		let param_map = ParamMap::new_with([entry(FIRST), entry(SECOND)]);
 		let first = param_map.query_stable_id(0).unwrap();
 		let second = param_map.query_stable_id(1).unwrap();
 
-		assert_ne!(first, second, "colliding identifiers were aliased onto one id");
+		assert_ne!(
+			first, second,
+			"colliding identifiers were aliased onto one id"
+		);
 		assert_eq!(param_map.query_param_index_by_stable_id(first), Some(0));
 		assert_eq!(param_map.query_param_index_by_stable_id(second), Some(1));
 
@@ -1840,7 +1961,10 @@ mod tests {
 	#[test]
 	fn the_position_scheme_reproduces_positional_ids() {
 		let entry = |identifier: &str| {
-			(identifier.to_string(), Arc::new(Value::Bool(true).to_atomic_value()))
+			(
+				identifier.to_string(),
+				Arc::new(Value::Bool(true).to_atomic_value()),
+			)
 		};
 
 		let positional = ParamMap::new_with_scheme(
@@ -1860,20 +1984,22 @@ mod tests {
 	#[test]
 	fn a_pinned_id_wins_over_the_scheme() {
 		let entry = |identifier: &str| {
-			(identifier.to_string(), Arc::new(Value::Bool(true).to_atomic_value()))
+			(
+				identifier.to_string(),
+				Arc::new(Value::Bool(true).to_atomic_value()),
+			)
 		};
 		let overrides = [("something_else".to_string(), 4021u32)];
 
 		let entries = [entry("something_else"), entry("other")]
 			.map(|(identifier, value)| (identifier, ParameterMeta::default(), value));
-		let param_map = ParamMap::build(
-			entries,
-			StableIdScheme::Identifier,
-			&overrides,
-		);
+		let param_map = ParamMap::build(entries, StableIdScheme::Identifier, &overrides);
 		assert_eq!(param_map.query_stable_id(0), Some(4021));
 		assert_eq!(param_map.query_param_index_by_stable_id(4021), Some(0));
-		assert_eq!(param_map.query_stable_id(1), Some(stable_parameter_id("other")));
+		assert_eq!(
+			param_map.query_stable_id(1),
+			Some(stable_parameter_id("other"))
+		);
 	}
 
 	/// Pinned ids are handed out before the scheme does, so a pin that lands on a position
@@ -1881,20 +2007,23 @@ mod tests {
 	#[test]
 	fn a_pin_that_lands_on_a_position_moves_that_position() {
 		let entry = |identifier: &str| {
-			(identifier.to_string(), Arc::new(Value::Bool(true).to_atomic_value()))
+			(
+				identifier.to_string(),
+				Arc::new(Value::Bool(true).to_atomic_value()),
+			)
 		};
 		let overrides = [("one".to_string(), 0u32)];
 
 		let entries = [entry("zero"), entry("one")]
 			.map(|(identifier, value)| (identifier, ParameterMeta::default(), value));
-		let param_map = ParamMap::build(
-			entries,
-			StableIdScheme::Position,
-			&overrides,
-		);
+		let param_map = ParamMap::build(entries, StableIdScheme::Position, &overrides);
 
 		assert_eq!(param_map.query_stable_id(1), Some(0), "the pinned id wins");
-		assert_ne!(param_map.query_stable_id(0), Some(0), "the position has to move, not alias");
+		assert_ne!(
+			param_map.query_stable_id(0),
+			Some(0),
+			"the position has to move, not alias"
+		);
 		assert_eq!(param_map.query_param_index_by_stable_id(0), Some(1));
 	}
 }

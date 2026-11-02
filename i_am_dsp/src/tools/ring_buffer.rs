@@ -1,7 +1,7 @@
 //! Ring buffer implementation.
 
-use std::ops::IndexMut;
 use std::ops::Index;
+use std::ops::IndexMut;
 use std::ops::Range;
 
 use rand::random_range;
@@ -16,16 +16,16 @@ use crate::prelude::SetValue;
 pub struct RingBuffer<T: Default> {
 	capacity: usize,
 	current_pos: usize,
-	buffer: Vec<T>
+	buffer: Vec<T>,
 }
 
 impl<T: Default + Clone> RingBuffer<T> {
 	/// Extends the buffer with the given length by cloning the default value.
-	/// 
+	///
 	/// Returns `false` if the buffer's capacity is less than the given length.
 	pub fn extend_defaults(&mut self, len: usize) -> bool {
 		if self.capacity() < len {
-			return false
+			return false;
 		}
 
 		for _ in 0..len {
@@ -34,7 +34,7 @@ impl<T: Default + Clone> RingBuffer<T> {
 
 		true
 	}
-	
+
 	/// Resizes the buffer to the given capacity.
 	pub fn resize(&mut self, new_capacity: usize) {
 		self.capacity = new_capacity;
@@ -60,7 +60,7 @@ impl<T: Default> RingBuffer<T> {
 		Self {
 			capacity,
 			current_pos: 0,
-			buffer: (0..capacity).map(|_| T::default()).collect()
+			buffer: (0..capacity).map(|_| T::default()).collect(),
 		}
 	}
 
@@ -94,7 +94,7 @@ impl<T: Default> RingBuffer<T> {
 	}
 
 	/// Returns a reference to the underlying buffer.
-	/// 
+	///
 	/// Note: This buffer's start position may not be same with [`Self::current_pos`]
 	/// unless [`Self::current_pos`] returns 0.
 	pub fn underlying_buffer(&self) -> &[T] {
@@ -102,7 +102,7 @@ impl<T: Default> RingBuffer<T> {
 	}
 
 	/// Returns a mutable reference to the underlying buffer.
-	/// 
+	///
 	/// Note: This buffer's start position may not be same with [`Self::current_pos`]
 	/// unless [`Self::current_pos`] returns 0.
 	pub fn underlying_buffer_mut(&mut self) -> &mut [T] {
@@ -115,7 +115,7 @@ impl<T: Default> RingBuffer<T> {
 			buffer: &self.buffer,
 			current_pos: self.current_pos,
 			start: range.start,
-			end: range.end
+			end: range.end,
 		}
 	}
 
@@ -218,7 +218,7 @@ impl<T: Default + Clone> Clone for RingBuffer<T> {
 		Self {
 			capacity: self.capacity,
 			current_pos: self.current_pos,
-			buffer: self.buffer.clone()
+			buffer: self.buffer.clone(),
 		}
 	}
 }
@@ -228,14 +228,14 @@ pub struct RangendRingBufferIterator<'a, T: Default> {
 	buffer: &'a [T],
 	current_pos: usize,
 	start: usize,
-	end: usize
+	end: usize,
 }
 
 impl<'a, T: Default> DoubleEndedIterator for RangendRingBufferIterator<'a, T> {
 	fn next_back(&mut self) -> Option<Self::Item> {
 		if self.start == self.end {
 			None
-		}else {
+		} else {
 			self.end -= 1;
 			let idx = (self.end + self.current_pos) % self.buffer.len();
 			Some(&self.buffer[idx])
@@ -255,7 +255,7 @@ impl<'a, T: Default> Iterator for RangendRingBufferIterator<'a, T> {
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.start == self.end {
 			None
-		}else {
+		} else {
 			let idx = (self.start + self.current_pos) % self.buffer.len();
 			let result = &self.buffer[idx];
 			self.start += 1;

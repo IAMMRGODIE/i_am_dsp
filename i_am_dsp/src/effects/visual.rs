@@ -4,7 +4,7 @@ use std::array;
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{tools::ring_buffer::RingBuffer, Effect};
+use crate::{Effect, tools::ring_buffer::RingBuffer};
 
 /// A simple waveform effect that displays the input signal in a ring buffer.
 #[derive(Parameters)]
@@ -16,9 +16,9 @@ pub struct Waveform<const CHANNELS: usize = 2> {
 }
 impl<const CHANNELS: usize> Waveform<CHANNELS> {
 	/// Creates a new `Waveform` effect with the given buffer capacity.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// Panics if `CHANNELS` is less than or equal to 0.
 	pub fn new(capacity: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -48,8 +48,8 @@ impl<const CHANNELS: usize> Effect for Waveform<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; 2], 
+		&mut self,
+		samples: &mut [f32; 2],
 		_: &[&[f32; 2]],
 		_: &mut Box<dyn crate::ProcessContext>,
 	) {
@@ -64,8 +64,8 @@ impl<const CHANNELS: usize> Effect for Waveform<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::*;
 		use crate::tools::ui_tools::draw_envelope;
+		use egui::*;
 
 		Resize::default()
 			.min_width(ui.available_width())
@@ -73,8 +73,7 @@ impl<const CHANNELS: usize> Effect for Waveform<CHANNELS> {
 			.id_salt(format!("{}_waveform_resize", id_prefix))
 			.show(ui, |ui| {
 				let env = self.buffer.iter().collect::<Vec<_>>();
-				if draw_envelope(ui, &env, true).clicked() &&
-					ui.input(|input| input.modifiers.ctrl) 
+				if draw_envelope(ui, &env, true).clicked() && ui.input(|input| input.modifiers.ctrl)
 				{
 					self.frozen = !self.frozen;
 				}

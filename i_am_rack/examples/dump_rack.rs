@@ -19,21 +19,16 @@ fn main() {
 
 	fs::create_dir_all(&out).expect("the preview folder");
 
-	fs::write(out.join("index.html"), include_str!("../src/page/rack.html"))
-		.expect("the page");
-	fs::write(out.join("kit.css"), include_str!("../src/page/rack.css"))
-		.expect("the styles");
-	fs::write(out.join("kit.js"), include_str!("../src/page/rack.js"))
-		.expect("the script");
-	fs::write(out.join("card.css"), i_am_web_gui::CARD_STYLE)
-		.expect("the shared card styles");
-	fs::write(out.join("card.js"), i_am_web_gui::CARD_SCRIPT)
-		.expect("the shared card script");
 	fs::write(
-		out.join("rack"),
-		i_am_rack::Rack::default().rack_json(),
+		out.join("index.html"),
+		include_str!("../src/page/rack.html"),
 	)
-	.expect("the rack JSON");
+	.expect("the page");
+	fs::write(out.join("kit.css"), include_str!("../src/page/rack.css")).expect("the styles");
+	fs::write(out.join("kit.js"), include_str!("../src/page/rack.js")).expect("the script");
+	fs::write(out.join("card.css"), i_am_web_gui::CARD_STYLE).expect("the shared card styles");
+	fs::write(out.join("card.js"), i_am_web_gui::CARD_SCRIPT).expect("the shared card script");
+	fs::write(out.join("rack"), i_am_rack::Rack::default().rack_json()).expect("the rack JSON");
 
 	println!("{}", out.display());
 }

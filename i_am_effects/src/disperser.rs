@@ -89,7 +89,8 @@ impl Effect<2> for Dispersion {
 		// Designing the prototype is not free; do it when a knob moved, not on
 		// every sample.
 		if self.cached != Some(filter) {
-			self.disperser.set_filter_parameters(self.cutoff, self.bandwidth);
+			self.disperser
+				.set_filter_parameters(self.cutoff, self.bandwidth);
 			self.cached = Some(filter);
 		}
 

@@ -16,8 +16,8 @@
 use i_am_dsp_derive::Parameters;
 
 use crate::{
-	effects::phase_vocoder::{NoteAnchoredShift, PhaseVocoder, overlap_add_gain},
 	Effect, NoteEvent, ProcessContext,
+	effects::phase_vocoder::{NoteAnchoredShift, PhaseVocoder, overlap_add_gain},
 };
 
 /// The window size the plug-in starts with, in samples.
@@ -149,9 +149,11 @@ impl<const CHANNELS: usize> Unstablizer<CHANNELS> {
 		for event in process_context.events() {
 			match event {
 				NoteEvent::NoteOn { note, .. } => self.held_notes.insert(*note),
-				NoteEvent::NoteOff { note, .. } | NoteEvent::Stop { note, .. } => self.held_notes.remove(*note),
+				NoteEvent::NoteOff { note, .. } | NoteEvent::Stop { note, .. } => {
+					self.held_notes.remove(*note)
+				}
 				NoteEvent::ImmediateStop => self.held_notes.clear(),
-				_ => {},
+				_ => {}
 			}
 		}
 
@@ -181,7 +183,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Unstablizer<CHANNELS> {
 			self.track_events(process_context);
 
 			if let Some(note) = self.held_notes.last().or(self.last_note) {
-				self.vocoder.mapper.anchor = note_frequency(self.reference_pitch, note as f32 + self.transpose);
+				self.vocoder.mapper.anchor =
+					note_frequency(self.reference_pitch, note as f32 + self.transpose);
 			}
 		}
 
@@ -208,14 +211,17 @@ mod tests {
 		events: Vec<NoteEvent>,
 	}
 
-
 	impl ProcessContext for TestContext {
 		fn infos(&self) -> &ProcessInfos {
 			&crate::DEFAULT_PROCESS_INFO
 		}
 
 		fn next_event(&mut self) -> Option<NoteEvent> {
-			if self.events.is_empty() { None } else { Some(self.events.remove(0)) }
+			if self.events.is_empty() {
+				None
+			} else {
+				Some(self.events.remove(0))
+			}
 		}
 
 		fn send_event(&mut self, event: NoteEvent) {
@@ -232,11 +238,19 @@ mod tests {
 	}
 
 	fn note_on(note: usize) -> NoteEvent {
-		NoteEvent::NoteOn { channel: 0, note, velocity: 1.0 }
+		NoteEvent::NoteOn {
+			channel: 0,
+			note,
+			velocity: 1.0,
+		}
 	}
 
 	fn note_off(note: usize) -> NoteEvent {
-		NoteEvent::NoteOff { channel: 0, note, velocity: 1.0 }
+		NoteEvent::NoteOff {
+			channel: 0,
+			note,
+			velocity: 1.0,
+		}
 	}
 
 	/// Runs one frame through the effect with the given events.

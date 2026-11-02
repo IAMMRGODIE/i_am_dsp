@@ -80,10 +80,7 @@ impl Tag {
 
 impl Descriptor {
 	/// Create a new descriptor with the given values.
-	pub const fn new(
-		id: &'static str,
-		name: &'static str,
-	) -> Self {
+	pub const fn new(id: &'static str, name: &'static str) -> Self {
 		Self {
 			id,
 			name,
@@ -98,10 +95,7 @@ impl Descriptor {
 	}
 
 	/// Set the vendor of the plugin.
-	pub const fn with_vendor(
-		self,
-		vendor: &'static str,
-	) -> Self {
+	pub const fn with_vendor(self, vendor: &'static str) -> Self {
 		Self {
 			vendor: Some(vendor),
 			..self
@@ -109,10 +103,7 @@ impl Descriptor {
 	}
 
 	/// Set the URL of the plugin's website.
-	pub const fn with_url(
-		self,
-		url: &'static str,
-	) -> Self {
+	pub const fn with_url(self, url: &'static str) -> Self {
 		Self {
 			url: Some(url),
 			..self
@@ -120,10 +111,7 @@ impl Descriptor {
 	}
 
 	/// Set the URL of the plugin's manual.
-	pub const fn with_manual_url(
-		self,
-		manual_url: &'static str,
-	) -> Self {
+	pub const fn with_manual_url(self, manual_url: &'static str) -> Self {
 		Self {
 			manual_url: Some(manual_url),
 			..self
@@ -131,10 +119,7 @@ impl Descriptor {
 	}
 
 	/// Set the URL of the plugin's support.
-	pub const fn with_support_url(
-		self,
-		support_url: &'static str,
-	) -> Self {
+	pub const fn with_support_url(self, support_url: &'static str) -> Self {
 		Self {
 			support_url: Some(support_url),
 			..self
@@ -142,10 +127,7 @@ impl Descriptor {
 	}
 
 	/// Set the version of the plugin.
-	pub const fn with_version(
-		self,
-		version: &'static str,
-	) -> Self {
+	pub const fn with_version(self, version: &'static str) -> Self {
 		Self {
 			version: Some(version),
 			..self
@@ -153,10 +135,7 @@ impl Descriptor {
 	}
 
 	/// Set the description of the plugin.
-	pub const fn with_description(
-		self,
-		description: &'static str,
-	) -> Self {
+	pub const fn with_description(self, description: &'static str) -> Self {
 		Self {
 			description: Some(description),
 			..self
@@ -164,13 +143,7 @@ impl Descriptor {
 	}
 
 	/// Set the tags of the plugin.
-	pub const fn with_tags(
-		self,
-		tags: &'static [Tag],
-	) -> Self {
-		Self {
-			tags,
-			..self
-		}
+	pub const fn with_tags(self, tags: &'static [Tag]) -> Self {
+		Self { tags, ..self }
 	}
 }

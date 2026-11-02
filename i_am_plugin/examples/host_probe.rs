@@ -33,8 +33,8 @@
 use clack_host::host::HostInfo;
 use clack_host::plugin::PluginInstance;
 use clack_host::prelude::{
-	AudioPortBuffer, AudioPortBufferType, AudioPorts, EventBuffer, HostHandlers, InputChannel, InputEvents,
-	OutputEvents, PluginAudioConfiguration, PluginEntry,
+	AudioPortBuffer, AudioPortBufferType, AudioPorts, EventBuffer, HostHandlers, InputChannel,
+	InputEvents, OutputEvents, PluginAudioConfiguration, PluginEntry,
 };
 
 /// The sample rate the probe asks a plug-in to run at.
@@ -116,7 +116,11 @@ fn measure(entry: &PluginEntry, index: u32) -> Result<(), Box<dyn std::error::Er
 	let factory = entry.get_plugin_factory().expect("a CLAP factory");
 	let descriptor = factory.plugin_descriptor(index).expect("a descriptor");
 	let id = descriptor.id().expect("an id");
-	let name = descriptor.name().unwrap_or_default().to_string_lossy().into_owned();
+	let name = descriptor
+		.name()
+		.unwrap_or_default()
+		.to_string_lossy()
+		.into_owned();
 
 	let host_info = HostInfo::new(
 		"i_am_dsp probe",
@@ -131,7 +135,9 @@ fn measure(entry: &PluginEntry, index: u32) -> Result<(), Box<dyn std::error::Er
 		min_frames_count: 32,
 		max_frames_count: FRAMES as u32,
 	};
-	let mut started = instance.activate(|_, _| (), configuration)?.start_processing()?;
+	let mut started = instance
+		.activate(|_, _| (), configuration)?
+		.start_processing()?;
 
 	let mut input = [[0.0f32; FRAMES]; 2];
 	let mut output = [[0.0f32; FRAMES]; 2];
@@ -158,13 +164,13 @@ fn measure(entry: &PluginEntry, index: u32) -> Result<(), Box<dyn std::error::Er
 
 	let input_audio = input_ports.with_input_buffers([AudioPortBuffer {
 		latency: 0,
-		channels: AudioPortBufferType::f32_input_only(
-			input.iter_mut().map(InputChannel::constant),
-		),
+		channels: AudioPortBufferType::f32_input_only(input.iter_mut().map(InputChannel::constant)),
 	}]);
 	let mut output_audio = output_ports.with_output_buffers([AudioPortBuffer {
 		latency: 0,
-		channels: AudioPortBufferType::f32_output_only(output.iter_mut().map(|channel| channel.as_mut_slice())),
+		channels: AudioPortBufferType::f32_output_only(
+			output.iter_mut().map(|channel| channel.as_mut_slice()),
+		),
 	}]);
 
 	let status = started.process(
@@ -194,7 +200,11 @@ fn run_one(entry: &PluginEntry) -> Result<(), Box<dyn std::error::Error>> {
 	let factory = entry.get_plugin_factory().expect("a CLAP factory");
 	let descriptor = factory.plugin_descriptor(0).expect("a descriptor");
 	let id = descriptor.id().expect("an id");
-	let name = descriptor.name().unwrap_or_default().to_string_lossy().into_owned();
+	let name = descriptor
+		.name()
+		.unwrap_or_default()
+		.to_string_lossy()
+		.into_owned();
 
 	let host_info = HostInfo::new(
 		"i_am_dsp probe",
@@ -203,13 +213,7 @@ fn run_one(entry: &PluginEntry) -> Result<(), Box<dyn std::error::Error>> {
 		env!("CARGO_PKG_VERSION"),
 	)?;
 
-	let mut instance = PluginInstance::<ProbeHost>::new(
-		|_| (),
-		|_| (),
-		entry,
-		id,
-		&host_info,
-	)?;
+	let mut instance = PluginInstance::<ProbeHost>::new(|_| (), |_| (), entry, id, &host_info)?;
 
 	// Activating is where the host says what it runs at, and the plugin is handed
 	// that configuration -- whatever it does with it happens here.

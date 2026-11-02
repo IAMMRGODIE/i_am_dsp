@@ -100,10 +100,8 @@ impl<const CHANNELS: usize> FormantFilter<CHANNELS> {
 		let q = self.resonance.clamp(0.5, 12.0);
 
 		for (filter, index) in self.filters.iter_mut().zip(0..3) {
-			let frequency = (FORMANTS[vowel][index] * factor)
-				.clamp(30.0, self.sample_rate * 0.45);
-			let bandwidth = (BANDWIDTHS[vowel][index] * (4.0 / q))
-				.clamp(20.0, 2_000.0);
+			let frequency = (FORMANTS[vowel][index] * factor).clamp(30.0, self.sample_rate * 0.45);
+			let bandwidth = (BANDWIDTHS[vowel][index] * (4.0 / q)).clamp(20.0, 2_000.0);
 			filter.set_to_bandpass(frequency, bandwidth);
 		}
 	}
@@ -135,8 +133,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for FormantFilter<CHANNELS> {
 		let mix = self.mix.clamp(0.0, 1.0);
 
 		for channel in 0..CHANNELS {
-			samples[channel] = input[channel] * (1.0 - mix)
-				+ wet[channel] * (mix * 0.7);
+			samples[channel] = input[channel] * (1.0 - mix) + wet[channel] * (mix * 0.7);
 		}
 	}
 
@@ -159,11 +156,15 @@ mod tests {
 			&crate::DEFAULT_PROCESS_INFO
 		}
 
-		fn next_event(&mut self) -> Option<NoteEvent> { None }
+		fn next_event(&mut self) -> Option<NoteEvent> {
+			None
+		}
 
 		fn send_event(&mut self, _: NoteEvent) {}
 
-		fn events(&self) -> &[NoteEvent] { &[] }
+		fn events(&self) -> &[NoteEvent] {
+			&[]
+		}
 
 		fn clear_events(&mut self) {}
 	}
@@ -201,7 +202,9 @@ mod tests {
 		let open = render(0, 0.0);
 		let shifted = render(0, 12.0);
 		assert!(
-			open.iter().zip(shifted.iter()).any(|(a, b)| (a - b).abs() > 1e-3),
+			open.iter()
+				.zip(shifted.iter())
+				.any(|(a, b)| (a - b).abs() > 1e-3),
 			"the formant shift had no effect"
 		);
 	}

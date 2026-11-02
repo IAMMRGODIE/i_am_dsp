@@ -1,5 +1,5 @@
 //! A plug-in wrapper, with the GUI kept at arm's length.
-//! 
+//!
 //! This crate turns a processor from `i_am_dsp` into a CLAP plug-in (and, with the
 //! `vst3` feature, a VST3 one) using `clack`. It knows what a host asks a plug-in:
 //! descriptors, ports, parameters, state, latency, and how to run the audio thread.
@@ -12,19 +12,19 @@
 //! [wry] module; another toolkit would be another module behind the same seam.
 //!
 //! # Minimal Example
-//! 
+//!
 //! ```ignore
 //! use i_am_plugin::{Descriptor, Plugin, WindowOptions, export_clap};
-//! 
+//!
 //! // first, build a processor from `i_am_dsp`
 //! struct MyProcessor;
-//! 
+//!
 //! impl i_am_dsp::Processor for MyProcessor {
 //!     type Message = ();
 //!     // see more in `i_am_dsp::Processor`
 //!     //...
 //! }
-//! 
+//!
 //! impl Plugin for MyProcessor {
 //!     const DESCRIPTOR: Descriptor = Descriptor::new("i.am.example.processor", "My Processor");
 //!     const HAS_GUI: bool = true;
@@ -36,7 +36,7 @@
 //!     fn window_options() -> WindowOptions {
 //!         WindowOptions::default()
 //!     }
-//! 
+//!
 //!     fn param_map(&self) -> ParamMap {
 //!         ParamMap::default()
 //!     }
@@ -49,10 +49,10 @@
 //!         )))
 //!     }
 //! }
-//! 
+//!
 //! // Finally, export the plugin as a CLAP plugin
 //! export_clap!(MyProcessor);
-//! 
+//!
 //! // Additionaly, you can impl `PluginAuExt` to prepare the plugin for AU support
 //! //
 //! // You should check AU's manual for meaning and usage of `AU_TYPE` and `AU_SUBTYPE` fields.
@@ -61,7 +61,7 @@
 //!     const AU_SUBTYPE: [u8; 4] = *b"mypr";
 //! }
 //! ```
-//! 
+//!
 //! A plug-in with no GUI simply leaves [Plugin::editor] and `HAS_GUI` alone:
 //!
 //! ```ignore
@@ -72,7 +72,7 @@
 //!     fn param_map(&self) -> ParamMap { self.param_map.clone() }
 //! }
 //! ```
-//! 
+//!
 //! # Writing another backend
 //!
 //! An editor is a type that implements [Editor] for one plug-in type:
@@ -96,43 +96,42 @@
 //! The backend moves the view to its own thread if it has one, sends
 //! [Message](i_am_dsp::Message) values over the channel, and is otherwise free: the
 //! wrapper never calls into it except through the trait.
-//! 
+//!
 //! # Exporting a VST3 plug-in
-//! 
+//!
 //! [export_clap] always exports the CLAP entry point (`clap_entry`). It also exports the
 //! VST3 entry points (`GetPluginFactory`, `InitDll`, `ExitDll`) when the `vst3` feature of
 //! this crate is enabled, which links `clap-wrapper` and the VST3 SDK into your library.
 //! Turn it on from your plug-in crate:
-//! 
+//!
 //! ```toml
 //! [features]
 //! vst3 = ["i_am_plugin/vst3"]
-//! 
+//!
 //! [package.metadata.i_am_dsp]
 //! name = "My Processor"               # bundle name, defaults to the package name
 //! vendor = "My Company"               # optional
 //! id = "com.mycompany.myprocessor"    # optional, used by the macOS Info.plist
 //! ```
-//! 
+//!
 //! ```sh
 //! cargo build --release --features vst3
 //! cargo bundle -p my_plugin --features vst3
 //! ```
-//! 
+//!
 //! `cargo bundle` is the `i_am_bundler` tool of this workspace: it writes
 //! `My Processor.vst3` and `My Processor.clap` next to the built library, and it refuses
 //! to write a VST3 bundle for a library that has no VST3 entry points.
-//! 
+//!
 //! Do **NOT** forget to add following settings to your `Cargo.toml` file:
-//! 
+//!
 //! ```toml
 //! [lib]
 //! crate-type = ["cdylib"]
 //! ```
-//! 
+//!
 //! Without the `vst3` feature you can still build with `cargo build --release`, rename the
 //! suffix to `.clap` and load the plugin in a CLAP host.
-
 
 /// Re-exported so that [`export_clap`] can add the VST3 entry points to the exported
 /// library without the plug-in crate having to depend on `clap-wrapper` itself.
@@ -171,11 +170,11 @@ pub mod wry;
 mod tests;
 
 pub use audio::AudioProcessor;
-pub use factory::{PluginSetSource, SetEntry, SetEntryPoint};
 pub use clap_plugin::ClapPlugin;
 pub use context::ClapContext;
 pub use descriptor::{AudioPort, Descriptor, MidiPort, Tag};
 pub use editor::{Editor, EditorContext, EditorError, ParentWindow};
+pub use factory::{PluginSetSource, SetEntry, SetEntryPoint};
 pub use main_thread::PluginMain;
 pub use plugin::{Plugin, PluginAuExt, WindowOptions, WindowSize};
 

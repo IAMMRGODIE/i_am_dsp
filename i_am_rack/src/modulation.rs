@@ -7,7 +7,9 @@
 use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 
-use i_am_dsp::prelude::{EditableLfo, NoteEvent, PitchTracker, ProcessInfos, SyncedTime, WaveTable};
+use i_am_dsp::prelude::{
+	EditableLfo, NoteEvent, PitchTracker, ProcessInfos, SyncedTime, WaveTable,
+};
 
 use crate::state::{SourceKind, SourceSettings, SourceSlot};
 
@@ -83,13 +85,7 @@ impl SourceRuntime {
 		}
 	}
 
-	fn advance(
-		&mut self,
-		input: f32,
-		infos: &ProcessInfos,
-		rate: usize,
-		events: &[NoteEvent],
-	) {
+	fn advance(&mut self, input: f32, infos: &ProcessInfos, rate: usize, events: &[NoteEvent]) {
 		match self.kind {
 			SourceKind::Lfo => {
 				let frequency = source_rate(
@@ -99,7 +95,7 @@ impl SourceRuntime {
 					infos,
 				);
 				self.lfo_phase = (self.lfo_phase + frequency / rate as f32).fract();
-			},
+			}
 			SourceKind::Envelope => {
 				let target = input.abs();
 				let coefficient = if target > self.envelope {
@@ -108,7 +104,7 @@ impl SourceRuntime {
 					self.release_coeff
 				};
 				self.envelope += (target - self.envelope) * coefficient;
-			},
+			}
 			SourceKind::Random => {
 				let frequency = source_rate(
 					self.settings.random_rate,
@@ -124,13 +120,11 @@ impl SourceRuntime {
 						.seed
 						.wrapping_mul(1_664_525)
 						.wrapping_add(1_013_904_223);
-					self.random_target =
-						(self.seed >> 8) as f32 / 16_777_216.0 * 2.0 - 1.0;
+					self.random_target = (self.seed >> 8) as f32 / 16_777_216.0 * 2.0 - 1.0;
 				}
 
-				self.random_value +=
-					(self.random_target - self.random_value) * self.random_coeff;
-			},
+				self.random_value += (self.random_target - self.random_value) * self.random_coeff;
+			}
 			SourceKind::Table => {
 				let frequency = source_rate(
 					self.settings.table_rate,
@@ -139,7 +133,7 @@ impl SourceRuntime {
 					infos,
 				);
 				self.table_phase = (self.table_phase + frequency / rate as f32).fract();
-			},
+			}
 			SourceKind::Pitch => {
 				let clarity = self.settings.pitch_clarity.clamp(0.0, 1.0);
 				let coefficient = time_coefficient(self.settings.pitch_glide, rate);
@@ -154,25 +148,23 @@ impl SourceRuntime {
 						self.pitch_value += (target - self.pitch_value) * coefficient;
 					}
 				}
-			},
+			}
 			SourceKind::Midi => {
 				for event in events {
 					match event {
-						NoteEvent::NoteOn {
-							note, velocity, ..
-						} => {
+						NoteEvent::NoteOn { note, velocity, .. } => {
 							self.midi_note = *note as f32;
 							self.midi_velocity = velocity.clamp(0.0, 1.0);
-						},
+						}
 						NoteEvent::NoteOff { .. }
 						| NoteEvent::Stop { .. }
 						| NoteEvent::ImmediateStop => {
 							self.midi_velocity = 0.0;
-						},
-						_ => {},
+						}
+						_ => {}
 					}
 				}
-			},
+			}
 		}
 	}
 
@@ -207,7 +199,7 @@ impl SourceRuntime {
 						(note / 127.0).clamp(0.0, 1.0),
 					)
 				}
-			},
+			}
 		}
 	}
 
@@ -249,10 +241,7 @@ impl Modulation {
 		let mut next = Vec::with_capacity(slots.len());
 
 		for slot in slots {
-			let position = self
-				.sources
-				.iter()
-				.position(|source| source.id == slot.id);
+			let position = self.sources.iter().position(|source| source.id == slot.id);
 
 			if let Some(position) = position
 				&& self.sources[position].kind == slot.kind
@@ -373,7 +362,7 @@ fn lfo(shape: i32, phase: f32) -> f32 {
 			} else {
 				-1.0
 			}
-		},
+		}
 		_ => (phase * TAU).sin(),
 	}
 }

@@ -2,7 +2,11 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{prelude::{negative_mean_square_error, wsola, WaveTable}, tools::ring_buffer::RingBuffer, Effect};
+use crate::{
+	Effect,
+	prelude::{WaveTable, negative_mean_square_error, wsola},
+	tools::ring_buffer::RingBuffer,
+};
 
 /// A pitch shifter effect using WSOLA algorithm.
 #[derive(Parameters)]
@@ -29,9 +33,9 @@ impl<const CHANNELS: usize> Default for PitchShifter<CHANNELS> {
 
 impl<const CHANNELS: usize> PitchShifter<CHANNELS> {
 	/// Creates a new pitch shifter with the given buffer size.
-	/// 
-	/// # Panics 
-	/// 
+	///
+	/// # Panics
+	///
 	/// 1. `buffer_size` is less than or equal to 0.
 	/// 2. `CHANNELS` is less than or equal to 0.
 	pub fn new(buffer_size: usize) -> Self {
@@ -65,33 +69,34 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PitchShifter<CHANNELS> {
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		_: &[&[f32; CHANNELS]],
 		_: &mut Box<dyn crate::ProcessContext>,
 	) {
 		let current_pos = self.buffer[0].current_pos();
 		let half_len = self.buffer[0].capacity() / 2;
 		if current_pos.is_multiple_of(half_len) {
-			for (buffer, stretched_buffer) in self.buffer.iter().zip(self.stretched_buffer.iter_mut()) {
+			for (buffer, stretched_buffer) in
+				self.buffer.iter().zip(self.stretched_buffer.iter_mut())
+			{
 				let hop = (buffer.capacity() / 4).max(1);
 				let ref_range = (buffer.capacity() / 8).clamp(1, hop);
 				let prev: &[f32] = if stretched_buffer.len() >= 2 * hop {
 					let end = (stretched_buffer.len() / 2 + hop).min(stretched_buffer.len());
 					&stretched_buffer[..end]
-				}else {
+				} else {
 					&[]
 				};
 				*stretched_buffer = wsola(
-					buffer, 
+					buffer,
 					prev,
-					self.pitch_shift_factor, 
-					10, 
-					hop, 
-					ref_range, 
+					self.pitch_shift_factor,
+					10,
+					hop,
+					ref_range,
 					negative_mean_square_error,
 				);
-
 
 				// println!("stretched_buffer len: {}", stretched_buffer.len());
 			}
@@ -104,9 +109,9 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PitchShifter<CHANNELS> {
 			}
 
 			let current_pos = self.buffer[i].current_pos() % half_len;
-			
+
 			let current_t = (current_pos as f32 / self.buffer[i].capacity() as f32) % 0.5;
-			
+
 			self.buffer[i].push(*sample);
 			*sample = self.stretched_buffer[i].sample(current_t, 0);
 		}
@@ -114,9 +119,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for PitchShifter<CHANNELS> {
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
-		ui.add(egui::Slider::new(&mut self.pitch_shift_factor, 0.25..=4.0)
-			.text("Pitch Shift Factor")
-			.logarithmic(true)
+		ui.add(
+			egui::Slider::new(&mut self.pitch_shift_factor, 0.25..=4.0)
+				.text("Pitch Shift Factor")
+				.logarithmic(true),
 		);
 	}
 }
@@ -157,7 +163,10 @@ mod tests {
 		for i in 2048..output.len() {
 			max_step = max_step.max((output[i] - output[i - 1]).abs());
 		}
-		assert!(max_step < 0.3, "click found at block boundary, max step = {max_step}");
+		assert!(
+			max_step < 0.3,
+			"click found at block boundary, max step = {max_step}"
+		);
 	}
 
 	/// Same check for other stretch factors: the discontinuity was independent
@@ -170,7 +179,10 @@ mod tests {
 			for i in 2048..output.len() {
 				max_step = max_step.max((output[i] - output[i - 1]).abs());
 			}
-			assert!(max_step < 0.5, "alpha={alpha}: click found, max step = {max_step}");
+			assert!(
+				max_step < 0.5,
+				"alpha={alpha}: click found, max step = {max_step}"
+			);
 		}
 	}
 }

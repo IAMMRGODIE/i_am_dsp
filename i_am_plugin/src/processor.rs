@@ -2,7 +2,7 @@
 
 use std::time::Instant;
 
-use i_am_dsp::prelude::{Effect, ParamMap, Parameter, Paramed, Parameters, SetValue};
+use i_am_dsp::prelude::{Effect, ParamMap, Paramed, Parameter, Parameters, SetValue};
 use i_am_dsp::{NoteEvent, ProcessContext};
 
 /// The rate an effect is built for before the host has said what it runs at.

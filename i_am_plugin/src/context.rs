@@ -1,13 +1,15 @@
 //! context
 
+use crate::audio::AudioProcessor;
+use crate::events::{
+	handle_param_mod_event, handle_param_value_event, note_event_to_clap, sync_params,
+};
+use crate::main_thread::PluginMain;
+use crate::plugin::Plugin;
 use crate::shared::*;
-use crate::plugin::{Plugin};
-use crate::main_thread::{PluginMain};
-use crate::audio::{AudioProcessor};
-use crate::events::{handle_param_mod_event, handle_param_value_event, note_event_to_clap, sync_params};
 
 /// The context for the CLAP plugin.
-/// 
+///
 /// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
 pub struct ClapContext {
 	pub(crate) current_event: usize,
@@ -38,7 +40,7 @@ impl ProcessContext for ClapContext {
 	fn infos(&self) -> &ProcessInfos {
 		if let Some(inner) = &self.info {
 			inner
-		}else {
+		} else {
 			().infos()
 		}
 	}
@@ -46,7 +48,7 @@ impl ProcessContext for ClapContext {
 	fn events(&self) -> &[i_am_dsp::NoteEvent] {
 		if self.current_sample == self.events_sample {
 			&self.events
-		}else {
+		} else {
 			&[]
 		}
 	}
@@ -62,7 +64,9 @@ impl ProcessContext for ClapContext {
 	}
 
 	fn send_event(&mut self, event: i_am_dsp::NoteEvent) {
-		self.event_sender.send((self.current_sample, event)).unwrap();
+		self.event_sender
+			.send((self.current_sample, event))
+			.unwrap();
 	}
 
 	fn should_stop(&self) -> bool {
@@ -80,7 +84,9 @@ impl ProcessContext for ClapContext {
 		// The clock measures absolute samples, so the block offset is added to where this
 		// block started. The borrow of `self.clock` ends with the statement, which is what
 		// lets the position be written into `self.info` right after.
-		let position = self.clock.advance_to(self.block_start + sample_offset as u64);
+		let position = self
+			.clock
+			.advance_to(self.block_start + sample_offset as u64);
 
 		if let Some(info) = &mut self.info {
 			info.set_position_beats(position);
@@ -92,15 +98,19 @@ fn convert_transport(inner: &TransportEvent, sample_rate: usize) -> i_am_dsp::Pr
 	let mut info = ProcessInfos::default();
 	info.sample_rate = sample_rate;
 	info.playing = inner.flags.contains(TransportFlags::IS_PLAYING);
-	info.tempo = if inner.flags.contains(TransportFlags::HAS_TEMPO) { Some(inner.tempo as f32) } else { None };
+	info.tempo = if inner.flags.contains(TransportFlags::HAS_TEMPO) {
+		Some(inner.tempo as f32)
+	} else {
+		None
+	};
 	// `position_beats` and `current_beat_number` are left to the clock, which is the single
 	// writer of the musical position: it fills them per sample in `set_sample_offset`.
 	info.time_signature = if inner.flags.contains(TransportFlags::HAS_TIME_SIGNATURE) {
 		Some((
-			inner.time_signature_numerator as usize, 
-			inner.time_signature_denominator as usize
+			inner.time_signature_numerator as usize,
+			inner.time_signature_denominator as usize,
 		))
-	}else {
+	} else {
 		None
 	};
 	info.current_time = inner.song_pos_seconds.to_float() as f32;
@@ -116,14 +126,24 @@ impl ClapContext {
 	/// sample-accurate — as an event inside the block. Both go through here, so a seek, a loop
 	/// wrap or a tempo change moves the position instead of letting it run on.
 	pub(crate) fn apply_transport(&mut self, event: &TransportEvent, sample: u64) {
-		self.clock.set_running(event.flags.contains(TransportFlags::IS_PLAYING));
+		self.clock
+			.set_running(event.flags.contains(TransportFlags::IS_PLAYING));
 
 		if event.flags.contains(TransportFlags::HAS_BEATS_TIMELINE) {
 			// A host that reports a beat timeline without a tempo flag is taken to sit at the
 			// 120 bpm the CLAP wrapper itself assumes: without a rate the position could not
 			// advance at all, and 120 is the tempo every host falls back to.
-			let tempo = if event.flags.contains(TransportFlags::HAS_TEMPO) { event.tempo } else { 120.0 };
-			self.clock.anchor(sample, event.song_pos_beats.to_float(), tempo, event.tempo_inc);
+			let tempo = if event.flags.contains(TransportFlags::HAS_TEMPO) {
+				event.tempo
+			} else {
+				120.0
+			};
+			self.clock.anchor(
+				sample,
+				event.song_pos_beats.to_float(),
+				tempo,
+				event.tempo_inc,
+			);
 		} else {
 			// A tempo without a beat timeline still says how fast time passes, but there is no
 			// position for an effect to be in phase with.
@@ -178,12 +198,13 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		// SAFETY: the processor is pinned in the still-alive `PluginMain`, and this is
 		// the same place that takes its address below. Pinning it stops it moving, not
 		// being borrowed mutably, and the borrow ends before the address is taken.
-		unsafe { main_thread.processor.as_mut().get_unchecked_mut() }.on_activate(config.sample_rate as usize);
+		unsafe { main_thread.processor.as_mut().get_unchecked_mut() }
+			.on_activate(config.sample_rate as usize);
 
 		let ptr = main_thread.processor.as_ref().get_ref() as *const P as usize;
 		let (event_sender, event_receiver) = crossbeam_channel::unbounded();
 
-		Ok(AudioProcessor { 
+		Ok(AudioProcessor {
 			processor: ptr,
 			temp_buffer_1: vec![],
 			temp_buffer_2: vec![],
@@ -262,7 +283,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		let clock = self.clock;
 		let event_sender = self.event_sender.clone();
 		let mut context = Some(ClapContext::from_clap(
-			&mut self.last_available_info, 
+			&mut self.last_available_info,
 			process,
 			event_sender,
 			block_start,
@@ -288,7 +309,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						self.temp_buffer_1.push(from_raw_parts(ptr, channel_count));
 					}
 					self.temp_buffer_2.push(false);
-				},
+				}
 				SampleType::F64(inner) => {
 					// SAFETY: see the F32 arm above.
 					let channel_count = inner.raw_data().len();
@@ -305,62 +326,74 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			self.temp_buffer_3.push([0.0, 0.0]);
 		}
 
-		let mut next_event_sample = events.input.batch().next().map(|batch| batch.first_sample()).unwrap_or(0);
+		let mut next_event_sample = events
+			.input
+			.batch()
+			.next()
+			.map(|batch| batch.first_sample())
+			.unwrap_or(0);
 		let mut bacthced = events.input.batch();
 
 		for i in 0..buffer_size {
-			if i >= next_event_sample && let (Some(batch), Some(ctx)) = (bacthced.next(), &mut context) {
+			if i >= next_event_sample
+				&& let (Some(batch), Some(ctx)) = (bacthced.next(), &mut context)
+			{
 				ctx.events.clear();
 				for event in batch.events() {
 					match event.as_core_event() {
 						Some(CoreEventSpace::NoteOn(note)) => {
-							ctx.events.push(i_am_dsp::NoteEvent::NoteOn { 
-								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
-								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
-								velocity: note.velocity() as f32, 
+							ctx.events.push(i_am_dsp::NoteEvent::NoteOn {
+								channel: note.pckn().channel.into_specific().unwrap_or_default()
+									as u8,
+								note: note.pckn().key.into_specific().unwrap_or_default() as usize,
+								velocity: note.velocity() as f32,
 							});
-						},
+						}
 						Some(CoreEventSpace::NoteOff(note)) => {
-							ctx.events.push(i_am_dsp::NoteEvent::NoteOff { 
-								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
-								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
-								velocity: note.velocity() as f32, 
+							ctx.events.push(i_am_dsp::NoteEvent::NoteOff {
+								channel: note.pckn().channel.into_specific().unwrap_or_default()
+									as u8,
+								note: note.pckn().key.into_specific().unwrap_or_default() as usize,
+								velocity: note.velocity() as f32,
 							});
-						},
+						}
 						Some(CoreEventSpace::NoteChoke(note)) => {
 							if note.pckn().key.is_all() {
-								ctx.events.push(i_am_dsp::NoteEvent::ImmediateStop); 
-							}else {
-								ctx.events.push(i_am_dsp::NoteEvent::Stop { 
-									channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
-									note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
+								ctx.events.push(i_am_dsp::NoteEvent::ImmediateStop);
+							} else {
+								ctx.events.push(i_am_dsp::NoteEvent::Stop {
+									channel: note.pckn().channel.into_specific().unwrap_or_default()
+										as u8,
+									note: note.pckn().key.into_specific().unwrap_or_default()
+										as usize,
 								});
 							}
-						},
+						}
 						Some(CoreEventSpace::NoteEnd(note)) => {
-							ctx.events.push(i_am_dsp::NoteEvent::NoteOff { 
-								channel: note.pckn().channel.into_specific().unwrap_or_default() as u8, 
-								note: note.pckn().key.into_specific().unwrap_or_default() as usize, 
-								velocity: 1.0, 
+							ctx.events.push(i_am_dsp::NoteEvent::NoteOff {
+								channel: note.pckn().channel.into_specific().unwrap_or_default()
+									as u8,
+								note: note.pckn().key.into_specific().unwrap_or_default() as usize,
+								velocity: 1.0,
 							});
-						},
+						}
 
 						Some(CoreEventSpace::ParamValue(param)) => {
 							handle_param_value_event(param, &self.param_map);
-						},
+						}
 						Some(CoreEventSpace::ParamMod(param)) => {
 							handle_param_mod_event(param, &self.param_map);
-						},
-						Some(CoreEventSpace::ParamGestureBegin(_)) => {},
-						Some(CoreEventSpace::ParamGestureEnd(_)) => {},
+						}
+						Some(CoreEventSpace::ParamGestureBegin(_)) => {}
+						Some(CoreEventSpace::ParamGestureEnd(_)) => {}
 						Some(CoreEventSpace::Transport(param)) => {
 							// A transport event inside the block is the sample-accurate version of
 							// the same report, so the clock re-anchors at this sample rather than
 							// at the start of the block.
 							ctx.apply_transport(param, ctx.block_start + i as u64);
 							self.last_available_info = ctx.info.clone();
-						},
-						
+						}
+
 						Some(CoreEventSpace::Midi(midi)) => {
 							// A host may talk to a note port in the MIDI dialect, and FL
 							// Studio's MIDI Out route does exactly that: the bytes a
@@ -370,10 +403,10 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 								ctx.events.push(event);
 							}
 						}
-						Some(CoreEventSpace::Midi2(_)) |
-						Some(CoreEventSpace::MidiSysEx(_)) |
-						Some(CoreEventSpace::NoteExpression(_)) |
-						None => {}
+						Some(CoreEventSpace::Midi2(_))
+						| Some(CoreEventSpace::MidiSysEx(_))
+						| Some(CoreEventSpace::NoteExpression(_))
+						| None => {}
 					}
 				}
 				ctx.current_event = 0;
@@ -397,7 +430,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 							if j == 0 {
 								output_temp[channel] = array[i] as f32;
 							}
-						}else {
+						} else {
 							let ptr = buffer[channel] as *const f32;
 							let array = from_raw_parts(ptr, buffer_size);
 							self.temp_buffer_3[j][channel] = array[i];
@@ -417,7 +450,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			processor.process(&mut output_temp, &self.temp_buffer_3, &mut context_in);
 
 			let context_back = context_in as Box<dyn Any>;
-			let context_back = Box::<dyn std::any::Any>::downcast::<ClapContext>(context_back).unwrap();
+			let context_back =
+				Box::<dyn std::any::Any>::downcast::<ClapContext>(context_back).unwrap();
 			context = Some(*context_back);
 
 			for mut output_ports in audio.output_ports() {
@@ -434,7 +468,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 								*to_write = output_temp[channel];
 							}
 						}
-					},
+					}
 					SampleType::F64(inner) => {
 						for (channel, ptr) in inner.raw_data().iter().enumerate() {
 							if channel >= 2 {
@@ -520,11 +554,15 @@ mod tests {
 	#[test]
 	fn a_note_on_keeps_its_channel_and_velocity() {
 		match note_event_from_midi([0x92, 60, 100]) {
-			Some(NoteEvent::NoteOn { channel, note, velocity }) => {
+			Some(NoteEvent::NoteOn {
+				channel,
+				note,
+				velocity,
+			}) => {
 				assert_eq!(channel, 2);
 				assert_eq!(note, 60);
 				assert!((velocity - 100.0 / 127.0).abs() < 1e-6);
-			},
+			}
 			other => panic!("expected a note on, got {other:?}"),
 		}
 	}
@@ -533,26 +571,40 @@ mod tests {
 	fn a_note_on_with_no_velocity_is_a_note_off() {
 		assert_eq!(
 			note_event_from_midi([0x90, 60, 0]),
-			Some(NoteEvent::NoteOff { channel: 0, note: 60, velocity: 0.0 })
+			Some(NoteEvent::NoteOff {
+				channel: 0,
+				note: 60,
+				velocity: 0.0
+			})
 		);
 	}
 
 	#[test]
 	fn a_note_off_carries_the_release_velocity() {
 		match note_event_from_midi([0x83, 52, 64]) {
-			Some(NoteEvent::NoteOff { channel, note, velocity }) => {
+			Some(NoteEvent::NoteOff {
+				channel,
+				note,
+				velocity,
+			}) => {
 				assert_eq!(channel, 3);
 				assert_eq!(note, 52);
 				assert!((velocity - 64.0 / 127.0).abs() < 1e-6);
-			},
+			}
 			other => panic!("expected a note off, got {other:?}"),
 		}
 	}
 
 	#[test]
 	fn all_notes_off_stops_everything() {
-		assert_eq!(note_event_from_midi([0xB5, 123, 0]), Some(NoteEvent::ImmediateStop));
-		assert_eq!(note_event_from_midi([0xB5, 120, 0]), Some(NoteEvent::ImmediateStop));
+		assert_eq!(
+			note_event_from_midi([0xB5, 123, 0]),
+			Some(NoteEvent::ImmediateStop)
+		);
+		assert_eq!(
+			note_event_from_midi([0xB5, 120, 0]),
+			Some(NoteEvent::ImmediateStop)
+		);
 	}
 
 	#[test]
@@ -562,7 +614,7 @@ mod tests {
 				assert_eq!(channel, 1);
 				assert_eq!(cc, 1);
 				assert!((value - 1.0).abs() < 1e-6);
-			},
+			}
 			other => panic!("expected a controller, got {other:?}"),
 		}
 	}

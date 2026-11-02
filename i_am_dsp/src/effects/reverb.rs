@@ -6,9 +6,9 @@ use bitvec::{bitvec, order::Lsb0};
 use i_am_dsp_derive::Parameters;
 
 use crate::{
+	Effect, ProcessContext,
 	prelude::PureDelay,
 	tools::matrix::{Mat, mat_mul_vec, random_householder_vector},
-	Effect, ProcessContext,
 };
 
 /// How many allpass stages smear the input before it reaches the delay lines.
@@ -32,7 +32,7 @@ const INPUT_DIFFUSION_FEEDBACK: f32 = 0.7;
 const DENORMAL_THRESHOLD: f32 = 1e-25;
 
 fn format_feedback_matrix<const DELAY_LINES: usize, const CHANNELS: usize>(
-	mat: &[FeedbackMatrix<DELAY_LINES>; CHANNELS]
+	mat: &[FeedbackMatrix<DELAY_LINES>; CHANNELS],
 ) -> Vec<u8> {
 	let mut result = vec![];
 	for channel in mat {
@@ -46,7 +46,7 @@ fn format_feedback_matrix<const DELAY_LINES: usize, const CHANNELS: usize>(
 }
 
 fn parse_feedback_matrix<const DELAY_LINES: usize, const CHANNELS: usize>(
-	data: Vec<u8>
+	data: Vec<u8>,
 ) -> [FeedbackMatrix<DELAY_LINES>; CHANNELS] {
 	let stride = DELAY_LINES * DELAY_LINES * size_of::<f32>();
 	core::array::from_fn(|channel| {
@@ -253,7 +253,11 @@ impl Allpass {
 		// Flushing the state keeps everything the line hands out normal or
 		// zero, which is what keeps subnormal inputs from slowing the whole
 		// network down.
-		let state = if state.abs() > DENORMAL_THRESHOLD { state } else { 0.0 };
+		let state = if state.abs() > DENORMAL_THRESHOLD {
+			state
+		} else {
+			0.0
+		};
 		self.line.write(state);
 		delayed - self.feedback * state
 	}
@@ -322,7 +326,10 @@ pub struct Reverb<
 	#[skip]
 	diffusor: [[Allpass; INPUT_DIFFUSION_STAGES]; CHANNELS],
 	/// The feedback matrix of every channel.
-	#[persist(serialize = "format_feedback_matrix", deserialize = "parse_feedback_matrix")]
+	#[persist(
+		serialize = "format_feedback_matrix",
+		deserialize = "parse_feedback_matrix"
+	)]
 	feedback_matrix: [FeedbackMatrix<DELAY_LINES>; CHANNELS],
 	/// The gain every delay line is excited with.
 	///
@@ -337,7 +344,10 @@ pub struct Reverb<
 	#[sub_param]
 	pure_delay: PureDelay<CHANNELS>,
 	/// The weights the delay lines are summed up with.
-	#[persist(serialize = "format_output_factors", deserialize = "parse_output_factors")]
+	#[persist(
+		serialize = "format_output_factors",
+		deserialize = "parse_output_factors"
+	)]
 	pub output_factors: [f32; DELAY_LINES],
 	/// The input gain of the reverb, saves in linear scale.
 	#[range(min = 0.01, max = 1.0)]
@@ -408,11 +418,9 @@ impl<const DELAY_LINES: usize> FeedbackMatrixGen<DELAY_LINES> {
 	}
 }
 
-impl<
-	TailEffect: Effect<CHANNELS>,
-	const DELAY_LINES: usize,
-	const CHANNELS: usize,
-> Reverb<TailEffect, DELAY_LINES, CHANNELS> {
+impl<TailEffect: Effect<CHANNELS>, const DELAY_LINES: usize, const CHANNELS: usize>
+	Reverb<TailEffect, DELAY_LINES, CHANNELS>
+{
 	/// Create a new reverb effect.
 	///
 	/// # Panics
@@ -430,7 +438,8 @@ impl<
 		assert!(DELAY_LINES > 0, "Delay lines must be greater than 0");
 		assert!(CHANNELS > 0, "Channels must be greater than 0");
 		let delay_time: [usize; DELAY_LINES] = prime(delay_time_start);
-		let feedback_matrix = core::array::from_fn(|_| FeedbackMatrix::from_dense(mat_gen.generate()));
+		let feedback_matrix =
+			core::array::from_fn(|_| FeedbackMatrix::from_dense(mat_gen.generate()));
 		// Unit energy per channel, without the common component that would make
 		// every line echo at the same time.
 		let scale = 1.0 / (DELAY_LINES as f32).sqrt();
@@ -539,11 +548,13 @@ impl<
 			// decay time. Every mode then decays at the same rate, instead of
 			// the short lines dying first.
 			let delay = (self.delay_time[line] + center_delay_samples).max(1) as f32;
-			self.coefficients.line_gain[line] = 10.0_f32.powf(-3.0 * delay / sample_rate / decay_seconds);
+			self.coefficients.line_gain[line] =
+				10.0_f32.powf(-3.0 * delay / sample_rate / decay_seconds);
 		}
 		// y += g (x - y) has its -3 dB point at about g * sample_rate / 2 pi.
 		let cutoff = self.damping_cutoff.clamp(1.0, sample_rate / 2.0);
-		self.coefficients.damping = 1.0 - (-2.0 * core::f32::consts::PI * cutoff / sample_rate).exp();
+		self.coefficients.damping =
+			1.0 - (-2.0 * core::f32::consts::PI * cutoff / sample_rate).exp();
 		let angle = self.spread.clamp(0.0, 1.0) * core::f32::consts::FRAC_PI_4;
 		self.coefficients.spread_cos = angle.cos();
 		self.coefficients.spread_sin = angle.sin();
@@ -579,7 +590,9 @@ impl<
 
 /// The delay of one input diffusion stage, in samples.
 fn input_diffusion_delay(stage: usize, sample_rate: usize) -> usize {
-	(INPUT_DIFFUSION_DELAYS[stage] * sample_rate as f32).round().max(1.0) as usize
+	(INPUT_DIFFUSION_DELAYS[stage] * sample_rate as f32)
+		.round()
+		.max(1.0) as usize
 }
 
 fn prime<const N: usize>(start: usize) -> [usize; N] {
@@ -628,11 +641,9 @@ fn prime<const N: usize>(start: usize) -> [usize; N] {
 	result
 }
 
-impl<
-	TailEffect: Effect<CHANNELS>,
-	const DELAY_LINES: usize,
-	const CHANNELS: usize,
-> Effect<CHANNELS> for Reverb<TailEffect, DELAY_LINES, CHANNELS> {
+impl<TailEffect: Effect<CHANNELS>, const DELAY_LINES: usize, const CHANNELS: usize> Effect<CHANNELS>
+	for Reverb<TailEffect, DELAY_LINES, CHANNELS>
+{
 	fn delay(&self) -> usize {
 		// The network has no latency of its own, the pre delay does.
 		self.pure_delay.delay()
@@ -716,8 +727,11 @@ impl<
 
 			for (line, mixed) in mixed.iter().enumerate() {
 				let value = *mixed + *diffused * self.input_factors[line];
-				self.delay_lines[channel][line]
-					.write(if value.abs() > DENORMAL_THRESHOLD { value } else { 0.0 });
+				self.delay_lines[channel][line].write(if value.abs() > DENORMAL_THRESHOLD {
+					value
+				} else {
+					0.0
+				});
 			}
 		}
 
@@ -740,11 +754,12 @@ impl<
 		ui.add(
 			egui::Slider::new(&mut self.damping_cutoff, 200.0..=20000.0)
 				.logarithmic(true)
-				.text("Damping (Hz)")
+				.text("Damping (Hz)"),
 		);
 		let mut center_delay = self.center_delay;
 		ui.add(egui::Slider::new(&mut center_delay, 1.0..=50.0).text("Center delay (ms)"));
-		self.pure_delay.demo_ui(ui, format!("{}pre_delay", id_prefix));
+		self.pure_delay
+			.demo_ui(ui, format!("{}pre_delay", id_prefix));
 		if center_delay != self.center_delay {
 			self.set_center_delay(center_delay);
 		}
@@ -760,7 +775,12 @@ impl<
 		}
 		self.prime_start_pos = prime_start;
 
-		gain_ui(ui, &mut self.reverbed_gain, Some("Reverbed gain".to_string()), true);
+		gain_ui(
+			ui,
+			&mut self.reverbed_gain,
+			Some("Reverbed gain".to_string()),
+			true,
+		);
 
 		ui.horizontal(|ui| {
 			if ui.button("random matrix").clicked() {
@@ -793,11 +813,20 @@ mod tests {
 	}
 
 	fn energy(response: &[f32], from: usize, to: usize) -> f64 {
-		response[from..to.min(response.len())].iter().map(|x| (*x as f64) * (*x as f64)).sum()
+		response[from..to.min(response.len())]
+			.iter()
+			.map(|x| (*x as f64) * (*x as f64))
+			.sum()
 	}
 
 	fn default_reverb() -> Reverb<Biquad<2>, 8, 2> {
-		Reverb::new(Biquad::new(48_000), 48_000, FeedbackMatrixGen::default(), 10, 10.0)
+		Reverb::new(
+			Biquad::new(48_000),
+			48_000,
+			FeedbackMatrixGen::default(),
+			10,
+			10.0,
+		)
 	}
 
 	/// The impulse response has to be finite, start loud and die away.
@@ -809,11 +838,17 @@ mod tests {
 			let seconds = (decay_time / 1000.0) * 3.0;
 			let response = impulse_response(&mut reverb, (48_000.0 * seconds) as usize);
 
-			assert!(response.iter().all(|x| x.is_finite()), "response is not finite");
+			assert!(
+				response.iter().all(|x| x.is_finite()),
+				"response is not finite"
+			);
 			let early = energy(&response, 0, 4_800);
 			let late = energy(&response, response.len() - 4_800, response.len());
 			assert!(early > 0.0, "the reverb is silent");
-			assert!(late < early * 1e-6, "the tail did not decay: {early:e} -> {late:e}");
+			assert!(
+				late < early * 1e-6,
+				"the tail did not decay: {early:e} -> {late:e}"
+			);
 		}
 	}
 
@@ -830,7 +865,10 @@ mod tests {
 
 		let short_tail = energy(&short_response, 24_000, 48_000);
 		let long_tail = energy(&long_response, 24_000, 48_000);
-		assert!(long_tail > short_tail * 100.0, "decay time has little effect: {short_tail:e} vs {long_tail:e}");
+		assert!(
+			long_tail > short_tail * 100.0,
+			"decay time has little effect: {short_tail:e} vs {long_tail:e}"
+		);
 	}
 
 	/// Every delay line has to be able to reach the output on its own: the
@@ -848,7 +886,10 @@ mod tests {
 		let first = impulse_response(&mut only_first, 4_800);
 		let second = impulse_response(&mut only_second, 4_800);
 		assert!(energy(&first, 0, 4_800) > 1e-12, "the first line is silent");
-		assert!(energy(&second, 0, 4_800) > 1e-12, "the second line is silent");
+		assert!(
+			energy(&second, 0, 4_800) > 1e-12,
+			"the second line is silent"
+		);
 	}
 
 	/// The diffusion amount has to change what comes out.
@@ -884,7 +925,10 @@ mod tests {
 	fn latency_is_the_pre_delay() {
 		let mut reverb = default_reverb();
 		assert_eq!(reverb.delay(), reverb.pure_delay.delay());
-		assert!(reverb.delay() > 0, "the default pre delay should be reported");
+		assert!(
+			reverb.delay() > 0,
+			"the default pre delay should be reported"
+		);
 		reverb.pure_delay.delay_time = 25.0;
 		assert_eq!(reverb.delay(), 1_200);
 	}
@@ -894,7 +938,11 @@ mod tests {
 	fn the_direct_signal_is_not_passed_through() {
 		let mut reverb = default_reverb();
 		let response = impulse_response(&mut reverb, 48_000);
-		assert!(response[0].abs() < 0.5, "the direct signal leaks: {}", response[0]);
+		assert!(
+			response[0].abs() < 0.5,
+			"the direct signal leaks: {}",
+			response[0]
+		);
 	}
 
 	/// Renders a stereo impulse response with the impulse only on the left.
@@ -928,10 +976,16 @@ mod tests {
 		shared.spread = 1.0;
 
 		let (_, right) = stereo_impulse_response(&mut independent, 9_600);
-		assert!(right.iter().all(|x| *x == 0.0), "an independent channel leaked");
+		assert!(
+			right.iter().all(|x| *x == 0.0),
+			"an independent channel leaked"
+		);
 
 		let (_, right) = stereo_impulse_response(&mut shared, 9_600);
-		assert!(energy(&right, 0, 9_600) > 1e-12, "the shared channel stayed silent");
+		assert!(
+			energy(&right, 0, 9_600) > 1e-12,
+			"the shared channel stayed silent"
+		);
 	}
 
 	/// The rotation that shares the channels is orthogonal, so it must not change
@@ -943,7 +997,10 @@ mod tests {
 			reverb.spread = spread;
 			reverb.decay_time = 5000.0;
 			let response = impulse_response(&mut reverb, 48_000 * 5);
-			assert!(response.iter().all(|x| x.is_finite()), "spread {spread} blew up");
+			assert!(
+				response.iter().all(|x| x.is_finite()),
+				"spread {spread} blew up"
+			);
 			let early = energy(&response, 0, 4_800);
 			let late = energy(&response, response.len() - 4_800, response.len());
 			assert!(late < early, "spread {spread} did not decay");

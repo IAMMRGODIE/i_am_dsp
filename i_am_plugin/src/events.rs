@@ -1,9 +1,9 @@
 //! events
 
+use crate::audio::AudioProcessor;
+use crate::main_thread::PluginMain;
+use crate::plugin::Plugin;
 use crate::shared::*;
-use crate::plugin::{Plugin};
-use crate::main_thread::{PluginMain};
-use crate::audio::{AudioProcessor};
 
 /// Whether parameter events are written to the editor log.
 ///
@@ -23,7 +23,10 @@ fn tracing() -> bool {
 /// in the normalized domain, and the plugin maps that back to the logarithmic
 /// frequency/value here. Parameters without the flag keep their plain range.
 fn log_range(param: &AtomicValue) -> Option<(f64, f64)> {
-	let AtomicValue::Float { range, logarithmic, .. } = param else {
+	let AtomicValue::Float {
+		range, logarithmic, ..
+	} = param
+	else {
 		return None;
 	};
 
@@ -73,36 +76,48 @@ fn from_host_value(param: &AtomicValue, normalized: f64) -> f64 {
 	}
 }
 
-pub(crate) fn note_event_to_clap<'a>(to_send: &mut OutputEvents<'a>, offset: usize, note_event: i_am_dsp::NoteEvent) -> Result<(), PluginError> {
+pub(crate) fn note_event_to_clap<'a>(
+	to_send: &mut OutputEvents<'a>,
+	offset: usize,
+	note_event: i_am_dsp::NoteEvent,
+) -> Result<(), PluginError> {
 	match note_event {
-		i_am_dsp::NoteEvent::NoteOn { channel, note, velocity } => {
+		i_am_dsp::NoteEvent::NoteOn {
+			channel,
+			note,
+			velocity,
+		} => {
 			to_send.try_push(NoteOnEvent::new(
 				offset as u32,
 				Pckn::new(Match::All, channel as u16, note as u16, Match::All),
 				velocity as f64,
 			))?;
-		},
+		}
 		i_am_dsp::NoteEvent::ImmediateStop => {
 			to_send.try_push(NoteChokeEvent::new(
 				offset as u32,
 				Pckn::new(Match::All, Match::All, Match::All, Match::All),
 			))?;
 		}
-		i_am_dsp::NoteEvent::MidiCC { .. } => {},
-		i_am_dsp::NoteEvent::NoteOff { channel, note, velocity } => {
+		i_am_dsp::NoteEvent::MidiCC { .. } => {}
+		i_am_dsp::NoteEvent::NoteOff {
+			channel,
+			note,
+			velocity,
+		} => {
 			to_send.try_push(NoteOffEvent::new(
 				offset as u32,
 				Pckn::new(Match::All, channel as u16, note as u16, Match::All),
 				velocity as f64,
 			))?;
-		},
+		}
 		i_am_dsp::NoteEvent::Stop { channel, note } => {
 			to_send.try_push(NoteOffEvent::new(
 				offset as u32,
 				Pckn::new(Match::All, channel as u16, note as u16, Match::All),
 				0.0,
 			))?;
-		},
+		}
 		i_am_dsp::NoteEvent::NoteEnd { channel, note } => {
 			to_send.try_push(NoteOffEvent::new(
 				offset as u32,
@@ -122,27 +137,27 @@ impl<P: Plugin> PluginStateImpl for PluginMain<P> {
 		let params: Vec<i_am_dsp::prelude::Parameter> = from_binary(buf)?;
 		// SAFETY: the processor is pinned inside the `PluginMain` box for as long as the
 		// plugin lives, and we never move `P` out of it, so unwrapping the pin is sound.
-		let processor = unsafe {
-			self.processor.as_mut().get_unchecked_mut()
-		};
+		let processor = unsafe { self.processor.as_mut().get_unchecked_mut() };
 
 		for param in params {
 			if param.value.is_serialized() {
 				processor.set_parameter(&param.identifier, param.value.to_set_value());
-			}else {
-				self.param_map.set(&param.identifier, param.value.to_set_value(), std::sync::atomic::Ordering::SeqCst);
+			} else {
+				self.param_map.set(
+					&param.identifier,
+					param.value.to_set_value(),
+					std::sync::atomic::Ordering::SeqCst,
+				);
 			}
 		}
 		Ok(())
 	}
-	
+
 	fn save(&mut self, output: &mut clack_plugin::stream::OutputStream) -> Result<(), PluginError> {
 		// SAFETY: the processor is pinned inside the PluginMain box for as long as
 		// the plugin lives, and we never move P out of it, so unwrapping the pin is
 		// sound.
-		let processor = unsafe {
-			self.processor.as_mut().get_unchecked_mut()
-		};
+		let processor = unsafe { self.processor.as_mut().get_unchecked_mut() };
 
 		// A host can save between a knob move and the next process block; the map
 		// has the new value but the effect has not read it yet.
@@ -173,7 +188,7 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 
 		let flags = if param.is_float() {
 			ParamInfoFlags::IS_AUTOMATABLE
-		}else {
+		} else {
 			ParamInfoFlags::IS_AUTOMATABLE | ParamInfoFlags::IS_ENUM
 		};
 
@@ -205,7 +220,11 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 			id: stable_id.into(),
 			flags,
 			cookie: Default::default(),
-			name: meta.display_name.as_deref().unwrap_or_else(|| self.param_map.query_param_id(index).unwrap()).as_bytes(),
+			name: meta
+				.display_name
+				.as_deref()
+				.unwrap_or_else(|| self.param_map.query_param_id(index).unwrap())
+				.as_bytes(),
 			module: Default::default(),
 			min_value,
 			max_value,
@@ -217,7 +236,13 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 		let param = self.param_map.get_by_stable_id(param_id.get())?;
 		let current = param.load(std::sync::atomic::Ordering::SeqCst);
 		let value = match current {
-			SetValue::Bool(val) => if val { Some(1.0) } else { Some(0.0) },
+			SetValue::Bool(val) => {
+				if val {
+					Some(1.0)
+				} else {
+					Some(0.0)
+				}
+			}
 			SetValue::Int(val) => Some(val as f64),
 			SetValue::Float(val) => Some(val as f64),
 			SetValue::Nothing => None,
@@ -234,7 +259,10 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 	) -> core::fmt::Result {
 		use std::fmt::Write;
 
-		let Some(index) = self.param_map.query_param_index_by_stable_id(param_id.get()) else {
+		let Some(index) = self
+			.param_map
+			.query_param_index_by_stable_id(param_id.get())
+		else {
 			return Err(std::fmt::Error);
 		};
 
@@ -249,8 +277,14 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 		write!(writer, "{}", unit.format(value))
 	}
 
-	fn text_to_value(&mut self, param_id: clack_plugin::prelude::ClapId, text: &std::ffi::CStr) -> Option<f64> {
-		let index = self.param_map.query_param_index_by_stable_id(param_id.get())?;
+	fn text_to_value(
+		&mut self,
+		param_id: clack_plugin::prelude::ClapId,
+		text: &std::ffi::CStr,
+	) -> Option<f64> {
+		let index = self
+			.param_map
+			.query_param_index_by_stable_id(param_id.get())?;
 
 		let text = text.to_str().ok()?;
 		// What the unit wrote, it can read back: `1/8 dotted`, `250 ms`, or a plain number.
@@ -269,14 +303,15 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 		input_parameter_changes: &clack_plugin::prelude::InputEvents,
 		output_parameter_changes: &mut OutputEvents,
 	) {
-		flush(input_parameter_changes, output_parameter_changes, &self.param_map);
+		flush(
+			input_parameter_changes,
+			output_parameter_changes,
+			&self.param_map,
+		);
 	}
 }
 
-pub(crate) fn handle_param_value_event(
-	param: &ParamValueEvent,
-	param_map: &ParamMap,
-) {
+pub(crate) fn handle_param_value_event(param: &ParamValueEvent, param_map: &ParamMap) {
 	if let Some(param_id) = param.param_id() {
 		let value = param.value() as f32;
 		if let Some(inner) = param_map.get_by_stable_id(param_id.get()) {
@@ -291,11 +326,11 @@ pub(crate) fn handle_param_value_event(
 			if inner.is_int() {
 				inner.store(value as i32, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
-			}else if inner.is_float() {
+			} else if inner.is_float() {
 				let value = from_host_value(&inner, value as f64) as f32;
 				inner.store(value, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
-			}else if inner.is_bool() {
+			} else if inner.is_bool() {
 				inner.store(value > 0.5, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 			}
@@ -303,19 +338,22 @@ pub(crate) fn handle_param_value_event(
 	}
 }
 
-pub(crate) fn handle_param_mod_event(
-	param: &ParamModEvent,
-	param_map: &ParamMap,
-) {
+pub(crate) fn handle_param_mod_event(param: &ParamModEvent, param_map: &ParamMap) {
 	if let Some(param_id) = param.param_id() {
 		let value = param.amount() as f32;
 		if let Some(inner) = param_map.get_by_stable_id(param_id.get()) {
 			if inner.is_int() {
-				let amount = inner.load(std::sync::atomic::Ordering::SeqCst).int().unwrap() + value as i32;
+				let amount = inner
+					.load(std::sync::atomic::Ordering::SeqCst)
+					.int()
+					.unwrap() + value as i32;
 				inner.store(amount, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
-			}else if inner.is_float() {
-				let current = inner.load(std::sync::atomic::Ordering::SeqCst).float().unwrap();
+			} else if inner.is_float() {
+				let current = inner
+					.load(std::sync::atomic::Ordering::SeqCst)
+					.float()
+					.unwrap();
 				let amount = if log_range(&inner).is_some() {
 					from_host_value(&inner, to_host_value(&inner, current as f64) + value as f64)
 				} else {
@@ -328,10 +366,7 @@ pub(crate) fn handle_param_mod_event(
 	}
 }
 
-pub(crate) fn sync_params(
-	output_parameter_changes: &mut OutputEvents, 
-	param_map: &ParamMap
-) {
+pub(crate) fn sync_params(output_parameter_changes: &mut OutputEvents, param_map: &ParamMap) {
 	for (index, val) in param_map.iter().enumerate() {
 		if val.is_chanegd() {
 			let Some(stable_id) = param_map.query_stable_id(index) else {
@@ -339,10 +374,16 @@ pub(crate) fn sync_params(
 			};
 
 			let value = match val.load(std::sync::atomic::Ordering::SeqCst) {
-				SetValue::Bool(v) => if v { 1.0 } else { 0.0 },
+				SetValue::Bool(v) => {
+					if v {
+						1.0
+					} else {
+						0.0
+					}
+				}
 				SetValue::Int(v) => v as f64,
 				SetValue::Float(v) => to_host_value(val, v as f64),
-				_ => continue
+				_ => continue,
 			};
 
 			// A VST3 host only records a parameter the plug-in changed when a
@@ -356,8 +397,7 @@ pub(crate) fn sync_params(
 				crate::log::note(&format!("param out: {stable_id} = {value}"));
 			}
 
-			let _ = output_parameter_changes
-				.try_push(ParamGestureBeginEvent::new(0, id));
+			let _ = output_parameter_changes.try_push(ParamGestureBeginEvent::new(0, id));
 			let _ = output_parameter_changes.try_push(ParamValueEvent::new(
 				0,
 				id,
@@ -365,8 +405,7 @@ pub(crate) fn sync_params(
 				value,
 				Default::default(),
 			));
-			let _ = output_parameter_changes
-				.try_push(ParamGestureEndEvent::new(0, id));
+			let _ = output_parameter_changes.try_push(ParamGestureEndEvent::new(0, id));
 
 			val.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 		}
@@ -375,17 +414,17 @@ pub(crate) fn sync_params(
 
 fn flush(
 	input_parameter_changes: &clack_plugin::prelude::InputEvents,
-	output_parameter_changes: &mut OutputEvents, 
-	param_map: &ParamMap
+	output_parameter_changes: &mut OutputEvents,
+	param_map: &ParamMap,
 ) {
 	for event in input_parameter_changes {
 		match event.as_core_event() {
 			Some(CoreEventSpace::ParamValue(param)) => {
 				handle_param_value_event(param, param_map);
-			},
+			}
 			Some(CoreEventSpace::ParamMod(param)) => {
 				handle_param_mod_event(param, param_map);
-			},
+			}
 			_ => {}
 		}
 	}
@@ -397,15 +436,20 @@ impl<P: Plugin> PluginAudioPortsImpl for PluginMain<P> {
 	fn count(&mut self, is_input: bool) -> u32 {
 		if is_input {
 			P::INPUT_PORTS.len() as u32
-		}else {
+		} else {
 			P::OUTPUT_PORTS.len() as u32
 		}
 	}
 
-	fn get(&mut self, index: u32, is_input: bool, writer: &mut clack_extensions::audio_ports::AudioPortInfoWriter) {
+	fn get(
+		&mut self,
+		index: u32,
+		is_input: bool,
+		writer: &mut clack_extensions::audio_ports::AudioPortInfoWriter,
+	) {
 		let ports = if is_input {
 			P::INPUT_PORTS
-		}else {
+		} else {
 			P::OUTPUT_PORTS
 		};
 
@@ -419,7 +463,7 @@ impl<P: Plugin> PluginAudioPortsImpl for PluginMain<P> {
 			channel_count: 2,
 			flags: if index == 0 {
 				AudioPortFlags::IS_MAIN
-			}else {
+			} else {
 				AudioPortFlags::empty()
 			},
 			port_type: Some(AudioPortType::STEREO),
@@ -434,7 +478,11 @@ impl<'a, P: Plugin> PluginAudioProcessorParams for AudioProcessor<'a, P> {
 		input_parameter_changes: &clack_plugin::prelude::InputEvents,
 		output_parameter_changes: &mut OutputEvents,
 	) {
-		flush(input_parameter_changes, output_parameter_changes, &self.param_map);
+		flush(
+			input_parameter_changes,
+			output_parameter_changes,
+			&self.param_map,
+		);
 	}
 }
 

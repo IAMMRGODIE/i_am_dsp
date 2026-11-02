@@ -69,19 +69,19 @@ mod dispersion;
 pub mod contact;
 pub mod core;
 pub mod engine;
-pub mod modal;
-pub mod sympathetic;
 pub mod instrument;
+pub mod modal;
 pub mod string;
+pub mod sympathetic;
 
 pub mod prelude {
-    //! Everything that is needed to build and play an engine.
-    pub use crate::contact::*;
-    pub use crate::core::{Core, StringCore};
-    pub use crate::engine::*;
-    pub use crate::instrument::*;
-    pub use crate::string::*;
-    pub use crate::sympathetic::SympatheticBank;
+	//! Everything that is needed to build and play an engine.
+	pub use crate::contact::*;
+	pub use crate::core::{Core, StringCore};
+	pub use crate::engine::*;
+	pub use crate::instrument::*;
+	pub use crate::string::*;
+	pub use crate::sympathetic::SympatheticBank;
 }
 
 /// A tiny deterministic noise source.
@@ -92,23 +92,23 @@ pub mod prelude {
 pub(crate) struct Rng(u32);
 
 impl Rng {
-    pub(crate) const fn new(seed: u32) -> Self {
-        Self(if seed == 0 { 0x9E37_79B9 } else { seed })
-    }
+	pub(crate) const fn new(seed: u32) -> Self {
+		Self(if seed == 0 { 0x9E37_79B9 } else { seed })
+	}
 
-    #[inline]
-    pub(crate) fn next_u32(&mut self) -> u32 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        self.0 = x;
-        x
-    }
+	#[inline]
+	pub(crate) fn next_u32(&mut self) -> u32 {
+		let mut x = self.0;
+		x ^= x << 13;
+		x ^= x >> 17;
+		x ^= x << 5;
+		self.0 = x;
+		x
+	}
 
-    /// A uniform sample in [-1.0, 1.0].
-    #[inline]
-    pub(crate) fn bipolar(&mut self) -> f32 {
-        (self.next_u32() as f32 / u32::MAX as f32) * 2.0 - 1.0
-    }
+	/// A uniform sample in [-1.0, 1.0].
+	#[inline]
+	pub(crate) fn bipolar(&mut self) -> f32 {
+		(self.next_u32() as f32 / u32::MAX as f32) * 2.0 - 1.0
+	}
 }

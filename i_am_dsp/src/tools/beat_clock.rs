@@ -76,7 +76,12 @@ impl BeatClock {
 	/// backwards, because that is exactly what a seek or a loop wrap looks like.
 	pub fn anchor(&mut self, sample: u64, beats: f64, tempo: f64, tempo_inc: f64) {
 		self.position = beats;
-		self.anchor = Some(Anchor { sample, beats, tempo, tempo_inc });
+		self.anchor = Some(Anchor {
+			sample,
+			beats,
+			tempo,
+			tempo_inc,
+		});
 	}
 
 	/// Sets whether the transport is rolling.
@@ -89,7 +94,10 @@ impl BeatClock {
 	/// left: without that, a two minute pause would be counted as two minutes of beats and the
 	/// position would leap forward the moment the host hits play.
 	pub fn set_running(&mut self, running: bool) {
-		if running && !self.running && let Some(anchor) = self.anchor {
+		if running
+			&& !self.running
+			&& let Some(anchor) = self.anchor
+		{
 			self.anchor = Some(Anchor {
 				sample: self.last_sample,
 				beats: self.position,
@@ -159,14 +167,14 @@ impl BeatClock {
 	/// [`Self::anchor`] and [`Self::advance_to`] instead.
 	pub fn advance_local(&mut self, sample: u64, tempo: f64) -> f64 {
 		match self.anchor {
-			Some(anchor) if anchor.tempo == tempo && anchor.tempo_inc == 0.0 => {},
+			Some(anchor) if anchor.tempo == tempo && anchor.tempo_inc == 0.0 => {}
 			_ => {
 				// Catch up to `sample` at the rate that has held so far, then change the rate
 				// there. Re-anchoring at the last sample anyone asked about would move the
 				// change backwards in time.
 				let position = self.advance_to(sample).unwrap_or(0.0);
 				self.anchor(sample, position, tempo, 0.0);
-			},
+			}
 		}
 
 		self.running = true;
@@ -224,7 +232,10 @@ mod tests {
 			.map(|k| (120.0 + k as f64) / (60.0 * 48_000.0))
 			.sum::<f64>();
 		let position = clock.advance_to(1_000).unwrap();
-		assert!((position - expected).abs() < 1e-12, "{position} != {expected}");
+		assert!(
+			(position - expected).abs() < 1e-12,
+			"{position} != {expected}"
+		);
 	}
 
 	#[test]

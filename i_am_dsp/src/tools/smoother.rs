@@ -22,8 +22,8 @@ pub struct DoubleTimeConstant<const CHANNELS: usize = 2> {
 impl<const CHANNELS: usize> DoubleTimeConstant<CHANNELS> {
 	/// Create a new smoother with the given attack and release times in milliseconds,
 	pub fn new(
-		attack_time: f32, 
-		release_time: f32, 
+		attack_time: f32,
+		release_time: f32,
 		default_value: f32,
 		sample_rate: usize,
 	) -> Self {
@@ -36,7 +36,7 @@ impl<const CHANNELS: usize> DoubleTimeConstant<CHANNELS> {
 	}
 
 	/// Input a new value to the smoother
-	/// 
+	///
 	/// to get smoothed result, call [`Self::get_smoothed_result()`]
 	pub fn input_value(&mut self, input_value: &[f32; CHANNELS]) {
 		let sample_rate = self.sample_rate as f32;
@@ -45,7 +45,7 @@ impl<const CHANNELS: usize> DoubleTimeConstant<CHANNELS> {
 		for (input_value, value) in input_value.iter().zip(self.value.iter_mut()) {
 			if input_value < value {
 				*value = attack_factor * input_value + (1.0 - attack_factor) * *value;
-			}else {
+			} else {
 				*value = (1.0 - release_factor) * *value + release_factor * input_value;
 			}
 		}

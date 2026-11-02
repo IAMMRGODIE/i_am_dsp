@@ -6,9 +6,7 @@
 
 use std::sync::Arc;
 
-use i_am_effects::{
-	DistortionTable, MapperTable, ScriptWorker, distortion_worker, mapper_worker,
-};
+use i_am_effects::{DistortionTable, MapperTable, ScriptWorker, distortion_worker, mapper_worker};
 
 /// The worker of one scripted module.
 pub(crate) enum ScriptSlot {
@@ -34,10 +32,10 @@ impl ScriptSlot {
 		match self {
 			Self::Distortion(worker) => {
 				worker.set_source(source);
-			},
+			}
 			Self::Mapper(worker) => {
 				worker.set_source(source);
-			},
+			}
 		}
 	}
 
@@ -47,10 +45,10 @@ impl ScriptSlot {
 		match self {
 			Self::Distortion(worker) => {
 				worker.request(params, extra);
-			},
+			}
 			Self::Mapper(worker) => {
 				worker.request(params, extra);
-			},
+			}
 		}
 	}
 

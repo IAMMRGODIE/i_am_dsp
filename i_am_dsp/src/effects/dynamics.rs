@@ -683,8 +683,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for TransientShaper<CHANNELS> {
 		let floor = self.slow.max(1e-6);
 		let transient = ((self.fast - self.slow) / floor).clamp(0.0, 4.0);
 		let tail = ((self.slow - self.fast) / floor).clamp(0.0, 1.0);
-		let gain_db = (self.attack * 12.0 * transient + self.sustain * 12.0 * tail)
-			.clamp(-60.0, 24.0);
+		let gain_db =
+			(self.attack * 12.0 * transient + self.sustain * 12.0 * tail).clamp(-60.0, 24.0);
 		let target = db_to_linear(gain_db);
 		self.gain = self.smoothing * self.gain + (1.0 - self.smoothing) * target;
 		let output = db_to_linear(self.output);
@@ -821,8 +821,8 @@ mod tests {
 			let mut output = Vec::new();
 
 			for index in 0..4_800 {
-				let phase = std::f32::consts::FRAC_PI_2 * index as f32
-					+ std::f32::consts::FRAC_PI_4;
+				let phase =
+					std::f32::consts::FRAC_PI_2 * index as f32 + std::f32::consts::FRAC_PI_4;
 				let mut frame = [0.9 * phase.sin()];
 				limiter.process(&mut frame, &[], &mut context);
 				output.push(frame[0]);

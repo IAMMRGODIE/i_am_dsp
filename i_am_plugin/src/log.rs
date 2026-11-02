@@ -72,7 +72,9 @@ fn open_log_limit() -> u64 {
 }
 
 fn append_rotated(path: &Path, line: &str, max_bytes: u64) -> std::io::Result<()> {
-	let _guard = WRITE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+	let _guard = WRITE_LOCK
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
 
 	if let Some(parent) = path.parent() {
 		fs::create_dir_all(parent)?;
@@ -98,7 +100,9 @@ fn rotate(path: &Path) -> std::io::Result<()> {
 }
 
 fn write_bounded(path: &Path, line: &str, max_bytes: u64) -> std::io::Result<()> {
-	let _guard = WRITE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+	let _guard = WRITE_LOCK
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
 
 	if let Some(parent) = path.parent() {
 		fs::create_dir_all(parent)?;
@@ -196,9 +200,14 @@ mod tests {
 		}
 
 		assert!(path.exists(), "the current log is recreated after rotation");
-		assert!(path.with_file_name("open.log.1").exists(), "the old log is kept");
 		assert!(
-			fs::metadata(path.with_file_name("open.log.1")).unwrap().len() <= 32,
+			path.with_file_name("open.log.1").exists(),
+			"the old log is kept"
+		);
+		assert!(
+			fs::metadata(path.with_file_name("open.log.1"))
+				.unwrap()
+				.len() <= 32,
 			"the backup is not larger than the cap"
 		);
 

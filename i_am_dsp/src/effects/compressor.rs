@@ -4,13 +4,9 @@ use i_am_dsp_derive::Parameters;
 
 use crate::tools::ring_buffer::RingBuffer;
 use crate::{
-	prelude::Enveloper, 
-	tools::{
-		audio_io_chooser::AudioIoChooser, 
-		smoother::DoubleTimeConstant
-	}, 
-	Effect, 
-	ProcessContext
+	Effect, ProcessContext,
+	prelude::Enveloper,
+	tools::{audio_io_chooser::AudioIoChooser, smoother::DoubleTimeConstant},
 };
 
 #[cfg(feature = "real_time_demo")]
@@ -47,7 +43,7 @@ pub struct Compressor<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize = 2> 
 	/// The gain factor for the output signal, saves in linear scale
 	pub gain_factor: f32,
 	/// The lookahead of the compressor, saves in samples.
-	/// 
+	///
 	/// The audio path is delayed by this amount while the gain is computed
 	/// from the undelayed input, letting the compressor react to a transient
 	/// before it reaches the output.
@@ -65,15 +61,15 @@ pub struct Compressor<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize = 2> 
 
 impl<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize> Compressor<Envelope, CHANNELS> {
 	/// Creates a new compressor effect with the given parameters.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// if `CHANNELS` is 0.
 	pub fn new(
-		enveloper: Envelope, 
-		sample_rate: usize, 
-		attack_time: f32, 
-		release_time: f32, 
+		enveloper: Envelope,
+		sample_rate: usize,
+		attack_time: f32,
+		release_time: f32,
 		threshold: f32,
 		ratio: f32,
 	) -> Self {
@@ -97,7 +93,9 @@ impl<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize> Compressor<Envelope, 
 	}
 }
 
-impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for Compressor<Envelope, CHANNELS> {
+impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<CHANNELS>
+	for Compressor<Envelope, CHANNELS>
+{
 	fn delay(&self) -> usize {
 		self.enveloper.delay() + self.lookahead
 	}
@@ -107,20 +105,29 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 		"Compressor"
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], other: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		other: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		self.ratio = self.ratio.abs();
 		let mut io_to_envelop = *self.audio_io_chooser.choose(samples, other);
 		self.enveloper.input_value(&mut io_to_envelop);
 		let envelope = self.enveloper.get_current_envelope();
-		let envelop_db = 20.0 * (envelope.iter().map(|x| x * x).sum::<f32>()).sqrt().max(1e-6).log10();
+		let envelop_db = 20.0
+			* (envelope.iter().map(|x| x * x).sum::<f32>())
+				.sqrt()
+				.max(1e-6)
+				.log10();
 		let envelop_db_compressed = if envelop_db < self.threshold {
 			envelop_db
-		}else if self.ratio.is_infinite() {
+		} else if self.ratio.is_infinite() {
 			self.threshold
-		}else {
+		} else {
 			(envelop_db - self.threshold) / self.ratio + self.threshold
 		};
-		
+
 		let target_db = envelop_db_compressed - envelop_db;
 
 		self.smoother.input_value(&[target_db]);
@@ -149,51 +156,51 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 				self.delay_buffer[i].push(*sample);
 				*sample = delayed * self.gain_factor * self.gain_linear;
 			}
-		}else {
+		} else {
 			for sample in samples.iter_mut() {
 				*sample *= self.gain_factor * self.gain_linear;
 			}
 		}
-			
 	}
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::*;
-		use egui::emath::RectTransform;
 		use crate::tools::ui_tools::{draw_envelope, gain_ui};
+		use egui::emath::RectTransform;
+		use egui::*;
 
 		ui.horizontal(|ui| {
 			let avaliable_width = ui.available_width();
 
 			Resize::default()
-			.id_salt(format!("{}_compresser_resize", id_prefix))
-			.max_width(avaliable_width * 0.35)
-			.max_height(avaliable_width * 0.35)
-			.show(ui, |ui| {Frame::canvas(ui.style()).show(ui, |ui| {
-				let (_, rect) = ui.allocate_space(Vec2::splat(ui.available_width()));
-				let to_screen = RectTransform::from_to(
-					Rect::from_x_y_ranges(0.0..=1.0, -1.0..=0.0), 
-					rect
-				);
-				let threshold_linear = 10.0_f32.powf(self.threshold / 20.0);
-				let compressed = if self.ratio.is_infinite() {
-					threshold_linear
-				}else if self.ratio <= 0.0 {
-					1.0
-				}else {
-					(1.0 - threshold_linear) / self.ratio + threshold_linear
-				};
-				let points = vec![
-					to_screen * pos2(0.0, 0.0),
-					to_screen * pos2(threshold_linear, -threshold_linear),
-					to_screen * pos2(1.0, -compressed),
-				];
+				.id_salt(format!("{}_compresser_resize", id_prefix))
+				.max_width(avaliable_width * 0.35)
+				.max_height(avaliable_width * 0.35)
+				.show(ui, |ui| {
+					Frame::canvas(ui.style()).show(ui, |ui| {
+						let (_, rect) = ui.allocate_space(Vec2::splat(ui.available_width()));
+						let to_screen = RectTransform::from_to(
+							Rect::from_x_y_ranges(0.0..=1.0, -1.0..=0.0),
+							rect,
+						);
+						let threshold_linear = 10.0_f32.powf(self.threshold / 20.0);
+						let compressed = if self.ratio.is_infinite() {
+							threshold_linear
+						} else if self.ratio <= 0.0 {
+							1.0
+						} else {
+							(1.0 - threshold_linear) / self.ratio + threshold_linear
+						};
+						let points = vec![
+							to_screen * pos2(0.0, 0.0),
+							to_screen * pos2(threshold_linear, -threshold_linear),
+							to_screen * pos2(1.0, -compressed),
+						];
 
-				ui.painter().extend([
-					Shape::line(points, (2.0, Color32::WHITE))
-				]);
-			})});
+						ui.painter()
+							.extend([Shape::line(points, (2.0, Color32::WHITE))]);
+					})
+				});
 
 			ui.vertical(|ui| {
 				let width = ui.available_width();
@@ -202,28 +209,30 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 					.min_width(width)
 					.id_salt(format!("{}_compresser_env_in", id_prefix))
 					.max_height(avaliable_width * 0.35 / 2.0)
-					.show(ui, |ui| 
-				{
-					self.enveloper.demo_ui(ui, format!("{}_compresser_env_in", id_prefix))
-				});
+					.show(ui, |ui| {
+						self.enveloper
+							.demo_ui(ui, format!("{}_compresser_env_in", id_prefix))
+					});
 
 				Resize::default()
-				.id_salt(format!("{}_compresser_env_out", id_prefix))
-				.max_height(avaliable_width * 0.35 / 2.0)
-				.max_width(width)
-				.min_width(width)
-				.show(ui, |ui| {
-					let history = std::mem::take(&mut self.history);
-					draw_envelope(ui, &[&history], false);
-					self.history = history;
-				});
+					.id_salt(format!("{}_compresser_env_out", id_prefix))
+					.max_height(avaliable_width * 0.35 / 2.0)
+					.max_width(width)
+					.min_width(width)
+					.show(ui, |ui| {
+						let history = std::mem::take(&mut self.history);
+						draw_envelope(ui, &[&history], false);
+						self.history = history;
+					});
 			})
 		});
 
 		gain_ui(ui, &mut self.gain_linear, None, false);
 
 		ui.add(Slider::new(&mut self.smoother.attack_time, 0.0..=1000.0).text("Attack time (ms)"));
-		ui.add(Slider::new(&mut self.smoother.release_time, 0.0..=1000.0).text("Release time (ms)"));
+		ui.add(
+			Slider::new(&mut self.smoother.release_time, 0.0..=1000.0).text("Release time (ms)"),
+		);
 		ui.add(Slider::new(&mut self.threshold, -60.0..=0.0).text("Threshold (dB)"));
 		ui.add(Slider::new(&mut self.ratio, 1.0..=10.0).text("Ratio"));
 		ui.add(Slider::new(&mut self.lookahead, 0..=4096).text("Lookahead (samples)"));
@@ -242,7 +251,14 @@ mod tests {
 	#[test]
 	fn lookahead_delays_signal() {
 		let lookahead = 64usize;
-		let mut compressor = Compressor::new(RectifyEnvelope::<1>::new(48_000, 48_000.0), 48_000, 1.0, 1.0, 0.0, 1.0);
+		let mut compressor = Compressor::new(
+			RectifyEnvelope::<1>::new(48_000, 48_000.0),
+			48_000,
+			1.0,
+			1.0,
+			0.0,
+			1.0,
+		);
 		compressor.lookahead = lookahead;
 
 		assert_eq!(compressor.delay(), lookahead);
@@ -261,7 +277,12 @@ mod tests {
 		assert!(output[..lookahead].iter().all(|&s| s == 0.0));
 		for n in lookahead..input.len() {
 			let diff = (output[n] - input[n - lookahead]).abs();
-			assert!(diff < 1e-5, "mismatch at {n}: output={} input={}", output[n], input[n - lookahead]);
+			assert!(
+				diff < 1e-5,
+				"mismatch at {n}: output={} input={}",
+				output[n],
+				input[n - lookahead]
+			);
 		}
 	}
 
@@ -269,7 +290,14 @@ mod tests {
 	/// pass-through behaviour: out[n] == in[n] when nothing compresses.
 	#[test]
 	fn zero_lookahead_is_passthrough() {
-		let mut compressor = Compressor::new(RectifyEnvelope::<1>::new(48_000, 48_000.0), 48_000, 1.0, 1.0, 0.0, 1.0);
+		let mut compressor = Compressor::new(
+			RectifyEnvelope::<1>::new(48_000, 48_000.0),
+			48_000,
+			1.0,
+			1.0,
+			0.0,
+			1.0,
+		);
 		compressor.lookahead = 0;
 
 		let input: Vec<f32> = (0..256).map(|i| (i as f32 * 0.1).cos()).collect();
@@ -285,7 +313,14 @@ mod tests {
 	/// panicking and keep the delay correct afterwards.
 	#[test]
 	fn runtime_lookahead_change_resizes_delay_line() {
-		let mut compressor = Compressor::new(RectifyEnvelope::<1>::new(48_000, 48_000.0), 48_000, 1.0, 1.0, 0.0, 1.0);
+		let mut compressor = Compressor::new(
+			RectifyEnvelope::<1>::new(48_000, 48_000.0),
+			48_000,
+			1.0,
+			1.0,
+			0.0,
+			1.0,
+		);
 		let mut context: Box<dyn ProcessContext> = Box::new(());
 
 		// warm up with lookahead = 8
@@ -298,7 +333,10 @@ mod tests {
 			output.push(block[0]);
 		}
 		for n in 8..input.len() {
-			assert!((output[n] - input[n - 8]).abs() < 1e-5, "delay=8 mismatch at {n}");
+			assert!(
+				(output[n] - input[n - 8]).abs() < 1e-5,
+				"delay=8 mismatch at {n}"
+			);
 		}
 
 		// switch to lookahead = 32
@@ -310,7 +348,10 @@ mod tests {
 			output.push(block[0]);
 		}
 		for n in 32..input.len() {
-			assert!((output[n] - input[n - 32]).abs() < 1e-5, "delay=32 mismatch at {n}");
+			assert!(
+				(output[n] - input[n - 32]).abs() < 1e-5,
+				"delay=32 mismatch at {n}"
+			);
 		}
 	}
 }

@@ -1,17 +1,13 @@
 //! The scripted distortion: a user-written transfer function, rendered into a
 //! table so the audio thread never runs Rhai.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use i_am_dsp::prelude::{
-	Effect, ParamMap, Parameter, ProcessContext, SetValue,
-};
+use i_am_dsp::prelude::{Effect, ParamMap, Parameter, ProcessContext, SetValue};
 use i_am_dsp_derive::Parameters;
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
-use i_am_plugin::{
-	AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions,
-};
+use i_am_plugin::{AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions};
 use i_am_web_gui::{ProtocolRequest, ProtocolResponse, Scope};
 
 use crate::script::{CompiledScript, ScriptWorker, json_escape};
@@ -40,11 +36,7 @@ impl DistortionTable {
 	}
 
 	/// Renders the script over the whole input range.
-	fn render(
-		script: &CompiledScript,
-		params: [f32; 4],
-		in_gain: f32,
-	) -> Result<Self, String> {
+	fn render(script: &CompiledScript, params: [f32; 4], in_gain: f32) -> Result<Self, String> {
 		let mut scope = CompiledScript::scope(params);
 		let mut values = Vec::with_capacity(TABLE_SIZE);
 
@@ -265,32 +257,34 @@ impl Effect<2> for ScriptDistortionEffect {
 		let mix = self.mix.clamp(0.0, 1.0);
 		let in_gain = 10.0_f32.powf(self.in_gain / 20.0);
 
-		if self.realtime && let Some(script) = self.realtime_script.clone() {
-				let _ = self.realtime_scope.set_value("p1", self.p1);
-				let _ = self.realtime_scope.set_value("p2", self.p2);
-				let _ = self.realtime_scope.set_value("p3", self.p3);
-				let _ = self.realtime_scope.set_value("p4", self.p4);
+		if self.realtime
+			&& let Some(script) = self.realtime_script.clone()
+		{
+			let _ = self.realtime_scope.set_value("p1", self.p1);
+			let _ = self.realtime_scope.set_value("p2", self.p2);
+			let _ = self.realtime_scope.set_value("p3", self.p3);
+			let _ = self.realtime_scope.set_value("p4", self.p4);
 
-				for (channel, sample) in samples.iter_mut().enumerate() {
-					let input = dry[channel];
-					let _ = self.realtime_scope.set_value("x", input * in_gain);
+			for (channel, sample) in samples.iter_mut().enumerate() {
+				let input = dry[channel];
+				let _ = self.realtime_scope.set_value("x", input * in_gain);
 
-					let shaped = script
-						.number(&mut self.realtime_scope)
-						.ok()
-						.filter(|value| value.is_finite())
-						.map(|value| value * out_gain)
-						.or_else(|| {
-							self.table
-								.as_ref()
-								.map(|table| table.sample(input) * out_gain)
-						})
-						.unwrap_or(input);
+				let shaped = script
+					.number(&mut self.realtime_scope)
+					.ok()
+					.filter(|value| value.is_finite())
+					.map(|value| value * out_gain)
+					.or_else(|| {
+						self.table
+							.as_ref()
+							.map(|table| table.sample(input) * out_gain)
+					})
+					.unwrap_or(input);
 
-					*sample = input * (1.0 - mix) + shaped * mix;
-				}
+				*sample = input * (1.0 - mix) + shaped * mix;
+			}
 
-				return;
+			return;
 		}
 
 		let Some(table) = self.table.as_ref() else {
@@ -370,10 +364,7 @@ fn route(
 
 /// The worker a new script distortion starts with.
 pub fn distortion_worker() -> Arc<ScriptWorker<DistortionTable>> {
-	let worker = ScriptWorker::spawn(
-		DistortionTable::render,
-		DistortionTable::curve_points,
-	);
+	let worker = ScriptWorker::spawn(DistortionTable::render, DistortionTable::curve_points);
 	worker.set_source(DEFAULT_SCRIPT.to_string());
 	worker
 }
@@ -456,10 +447,12 @@ impl i_am_dsp::Processor for ScriptDistortionWeb {
 }
 
 impl Plugin for ScriptDistortionWeb {
-	const DESCRIPTOR: Descriptor =
-		Descriptor::new("iamdsp.effects.script_distortion.web", "I Am Script Distortion")
-			.with_vendor("iamplugins")
-			.with_version(env!("CARGO_PKG_VERSION"));
+	const DESCRIPTOR: Descriptor = Descriptor::new(
+		"iamdsp.effects.script_distortion.web",
+		"I Am Script Distortion",
+	)
+	.with_vendor("iamplugins")
+	.with_version(env!("CARGO_PKG_VERSION"));
 
 	const HAS_GUI: bool = true;
 
@@ -493,13 +486,10 @@ impl Plugin for ScriptDistortionWeb {
 	}
 
 	fn editor(&self) -> Option<Box<dyn Editor<Self>>> {
-		let face = i_am_web_gui::Faceplate::new(
-			"I Am Script Distortion",
-			"#ff7a6b",
-			(700.0, 560.0),
-		)
-		.with_script()
-		.with_header(&["realtime"]);
+		let face =
+			i_am_web_gui::Faceplate::new("I Am Script Distortion", "#ff7a6b", (700.0, 560.0))
+				.with_script()
+				.with_header(&["realtime"]);
 		let worker = self.worker.clone();
 		let map = self.processor.param_map();
 
@@ -637,7 +627,10 @@ mod tests {
 		let started = Instant::now();
 
 		while worker.compiled_generation() == 0 {
-			assert!(started.elapsed() < Duration::from_secs(2), "no compiled script");
+			assert!(
+				started.elapsed() < Duration::from_secs(2),
+				"no compiled script"
+			);
 			std::thread::sleep(Duration::from_millis(5));
 		}
 
@@ -665,10 +658,8 @@ mod tests {
 			body: &[],
 		};
 
-		let body = String::from_utf8(
-			route(&get, &worker, &map).expect("the script route").body,
-		)
-		.expect("utf-8");
+		let body = String::from_utf8(route(&get, &worker, &map).expect("the script route").body)
+			.expect("utf-8");
 		assert!(body.contains("\"source\""), "{body}");
 		assert!(body.contains("tanh"), "{body}");
 
@@ -693,17 +684,13 @@ mod tests {
 			query: None,
 			body: &[],
 		};
-		let body = String::from_utf8(
-			route(&curve, &worker, &map).expect("the curve route").body,
-		)
-		.expect("utf-8");
+		let body = String::from_utf8(route(&curve, &worker, &map).expect("the curve route").body)
+			.expect("utf-8");
 		assert!(body.contains("\"points\""), "{body}");
 		assert!(body.contains("["), "{body}");
 
-		let body = String::from_utf8(
-			route(&get, &worker, &map).expect("the script route").body,
-		)
-		.expect("utf-8");
+		let body = String::from_utf8(route(&get, &worker, &map).expect("the script route").body)
+			.expect("utf-8");
 		assert!(body.contains("x * 3.0"), "{body}");
 	}
 

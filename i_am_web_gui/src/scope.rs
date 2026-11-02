@@ -375,5 +375,4 @@ mod tests {
 		assert!((input - -6.02).abs() < 0.05, "input {input}");
 		assert!((sidechain - -12.04).abs() < 0.05, "sidechain {sidechain}");
 	}
-
 }

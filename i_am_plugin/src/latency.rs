@@ -3,11 +3,11 @@
 use crate::shared::*;
 
 /// A struct to hold a [`Processor`] for the plugin audio thread.
-/// 
+///
 /// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
-/// 
+///
 /// # Threading
-/// 
+///
 /// Watches the plugin's latency, which the audio thread knows and only the main thread may
 /// report.
 ///
@@ -53,7 +53,7 @@ impl LatencyWatch {
 
 		if current == self.reported {
 			None
-		}else {
+		} else {
 			self.reported = current;
 			Some(current)
 		}

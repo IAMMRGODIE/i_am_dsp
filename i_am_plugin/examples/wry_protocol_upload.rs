@@ -27,8 +27,8 @@ mod imp {
 
 	use i_am_dsp::prelude::{ParamMap, Parameter, Parameters, SetValue};
 	use i_am_dsp::{NoteEvent, ProcessContext};
-	use i_am_plugin::{Descriptor, Editor, EditorContext, ParentWindow, Plugin, WindowSize};
 	use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse, WryEditor};
+	use i_am_plugin::{Descriptor, Editor, EditorContext, ParentWindow, Plugin, WindowSize};
 	use windows_sys::Win32::Foundation::HWND;
 	use windows_sys::Win32::Graphics::Gdi::{COLOR_WINDOW, UpdateWindow};
 	use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;

@@ -4,11 +4,12 @@
 //! `#[skip]`, struct-level `#[id(prefix = "...")]`, `#[serde]` / `#[persist]`
 //! fields and index-based setting.
 
-use i_am_dsp::prelude::{
-	Parameter, ParameterMeta, Parameters, Paramed, SetValue, SyncedTime, Unit, Value, from_binary, to_binary,
-};
 #[cfg(feature = "layout")]
 use i_am_dsp::prelude::ParamWidget;
+use i_am_dsp::prelude::{
+	Paramed, Parameter, ParameterMeta, Parameters, SetValue, SyncedTime, Unit, Value, from_binary,
+	to_binary,
+};
 use i_am_dsp_derive::Parameters; // derive macro (distinct from the trait of the same name)
 
 fn ids(params: &[Parameter]) -> Vec<&str> {
@@ -33,12 +34,22 @@ struct Named {
 
 #[test]
 fn named_struct() {
-	let mut p = Named { volume: 0.5, voices: 4, freq: 1.0, on: true, _cache: vec![] };
+	let mut p = Named {
+		volume: 0.5,
+		voices: 4,
+		freq: 1.0,
+		on: true,
+		_cache: vec![],
+	};
 	let params = p.get_parameters();
 	assert_eq!(ids(&params), vec!["volume", "voices", "freq", "on"]);
 	assert_eq!(
 		params[2].value,
-		Value::Float { value: 1.0, range: 0.01..=100.0, logarithmic: true }
+		Value::Float {
+			value: 1.0,
+			range: 0.01..=100.0,
+			logarithmic: true
+		}
 	);
 
 	assert!(p.set_parameter("volume", SetValue::Float(0.8)));
@@ -109,9 +120,12 @@ struct Sub {
 
 #[derive(Parameters)]
 struct WithNamedSub {
-	#[range(min = 0.0, max = 1.0)] volume: f32,
-	#[sub_param] sub: Sub,
-	#[range(min = 0.0, max = 1.0)] pan: f32,
+	#[range(min = 0.0, max = 1.0)]
+	volume: f32,
+	#[sub_param]
+	sub: Sub,
+	#[range(min = 0.0, max = 1.0)]
+	pan: f32,
 }
 
 #[derive(Parameters)]
@@ -123,7 +137,11 @@ struct WithTupleSub(
 
 #[test]
 fn sub_parameters() {
-	let mut a = WithNamedSub { volume: 0.1, sub: Sub { a: 0.2, b: 0.3 }, pan: 0.4 };
+	let mut a = WithNamedSub {
+		volume: 0.1,
+		sub: Sub { a: 0.2, b: 0.3 },
+		pan: 0.4,
+	};
 	let params = a.get_parameters();
 	assert_eq!(ids(&params), vec!["volume", "sub.a", "sub.b", "pan"]);
 	assert!(a.set_parameter("sub.b", SetValue::Float(0.9)));
@@ -167,13 +185,18 @@ fn empty_structs() {
 #[derive(Parameters)]
 #[id(prefix = "synth_")]
 struct Prefixed {
-	#[range(min = 0.0, max = 1.0)] cutoff: f32,
-	#[id(name = "reset")] on: bool,
+	#[range(min = 0.0, max = 1.0)]
+	cutoff: f32,
+	#[id(name = "reset")]
+	on: bool,
 }
 
 #[test]
 fn struct_level_id_prefix() {
-	let mut p = Prefixed { cutoff: 0.3, on: false };
+	let mut p = Prefixed {
+		cutoff: 0.3,
+		on: false,
+	};
 	let params = p.get_parameters();
 	assert_eq!(ids(&params), vec!["synth_cutoff", "reset"]);
 	assert!(p.set_parameter("synth_cutoff", SetValue::Float(0.9)));
@@ -224,7 +247,9 @@ struct PersistField {
 
 #[test]
 fn persist_field() {
-	let mut p = PersistField { name: "hello".to_string() };
+	let mut p = PersistField {
+		name: "hello".to_string(),
+	};
 	let params = p.get_parameters();
 	assert_eq!(params[0].identifier, "name");
 	if let Value::Serialized(data) = &params[0].value {
@@ -242,16 +267,26 @@ fn persist_field() {
 
 #[derive(Parameters)]
 struct SmallInts {
-	#[range(min = -128, max = 127)] a: i8,
-	#[range(min = 0, max = 255)] b: u8,
-	#[range(min = -32768, max = 32767)] c: i16,
-	#[range(min = 0, max = 65535)] d: u16,
+	#[range(min = -128, max = 127)]
+	a: i8,
+	#[range(min = 0, max = 255)]
+	b: u8,
+	#[range(min = -32768, max = 32767)]
+	c: i16,
+	#[range(min = 0, max = 65535)]
+	d: u16,
 	x: u64,
 }
 
 #[test]
 fn small_int_types() {
-	let mut p = SmallInts { a: 1, b: 2, c: 3, d: 4, x: 5 };
+	let mut p = SmallInts {
+		a: 1,
+		b: 2,
+		c: 3,
+		d: 4,
+		x: 5,
+	};
 	let params = p.get_parameters();
 	assert_eq!(ids(&params), vec!["a", "b", "c", "d", "x"]);
 
@@ -271,7 +306,8 @@ fn small_int_types() {
 
 #[derive(Parameters)]
 struct PathTyped {
-	#[range(min = 0.0, max = 1.0)] a: std::primitive::f32,
+	#[range(min = 0.0, max = 1.0)]
+	a: std::primitive::f32,
 }
 
 #[test]
@@ -290,7 +326,8 @@ mod teacher {
 
 	#[derive(Parameters)]
 	pub struct Same {
-		#[range(min = 0.0, max = 1.0)] pub a: f32,
+		#[range(min = 0.0, max = 1.0)]
+		pub a: f32,
 	}
 }
 
@@ -299,7 +336,8 @@ mod student {
 
 	#[derive(Parameters)]
 	pub struct Same {
-		#[range(min = 0.0, max = 1.0)] pub b: f32,
+		#[range(min = 0.0, max = 1.0)]
+		pub b: f32,
 	}
 }
 
@@ -342,29 +380,51 @@ fn wide_int_range() {
 
 #[derive(Parameters)]
 struct IdsBefore {
-	#[range(min = 0.0, max = 1.0)] alpha: f32,
-	#[range(min = 0.0, max = 1.0)] beta: f32,
-	#[range(min = 0.0, max = 1.0)] gamma: f32,
+	#[range(min = 0.0, max = 1.0)]
+	alpha: f32,
+	#[range(min = 0.0, max = 1.0)]
+	beta: f32,
+	#[range(min = 0.0, max = 1.0)]
+	gamma: f32,
 }
 
 #[derive(Parameters)]
 struct IdsAfter {
-	#[range(min = 0.0, max = 1.0)] alpha: f32,
-	#[range(min = 0.0, max = 1.0)] inserted: f32,
-	#[range(min = 0.0, max = 1.0)] beta: f32,
-	#[range(min = 0.0, max = 1.0)] gamma: f32,
+	#[range(min = 0.0, max = 1.0)]
+	alpha: f32,
+	#[range(min = 0.0, max = 1.0)]
+	inserted: f32,
+	#[range(min = 0.0, max = 1.0)]
+	beta: f32,
+	#[range(min = 0.0, max = 1.0)]
+	gamma: f32,
 }
 
 /// A host keys automation and modulation on the id it is given, and CLAP forbids changing
 /// the id of an existing parameter, so inserting a parameter must not move the others.
 #[test]
 fn stable_ids_survive_inserting_a_parameter() {
-	let before = Paramed::new(IdsBefore { alpha: 0.0, beta: 0.0, gamma: 0.0 }).param_map();
-	let after = Paramed::new(IdsAfter { alpha: 0.0, inserted: 0.0, beta: 0.0, gamma: 0.0 }).param_map();
+	let before = Paramed::new(IdsBefore {
+		alpha: 0.0,
+		beta: 0.0,
+		gamma: 0.0,
+	})
+	.param_map();
+	let after = Paramed::new(IdsAfter {
+		alpha: 0.0,
+		inserted: 0.0,
+		beta: 0.0,
+		gamma: 0.0,
+	})
+	.param_map();
 
 	let id_of = |param_map: &i_am_dsp::prelude::ParamMap, identifier: &str| {
-		let index = param_map.query_param_index(identifier).expect("parameter should exist");
-		param_map.query_stable_id(index).expect("parameter should have a stable id")
+		let index = param_map
+			.query_param_index(identifier)
+			.expect("parameter should exist");
+		param_map
+			.query_stable_id(index)
+			.expect("parameter should have a stable id")
 	};
 
 	// The insertion does move the position...
@@ -394,7 +454,8 @@ struct Pinned {
 	#[range(min = 0.0, max = 1.0)]
 	#[id(stable = 4021)]
 	value: f32,
-	#[range(min = 0.0, max = 1.0)] other: f32,
+	#[range(min = 0.0, max = 1.0)]
+	other: f32,
 }
 
 /// The same parameter after its field was renamed: the identifier moved, the pin did not.
@@ -403,18 +464,25 @@ struct PinnedRenamed {
 	#[range(min = 0.0, max = 1.0)]
 	#[id(stable = 4021)]
 	renamed: f32,
-	#[range(min = 0.0, max = 1.0)] other: f32,
+	#[range(min = 0.0, max = 1.0)]
+	other: f32,
 }
 
 #[derive(Parameters)]
 struct PinnedOuter {
-	#[sub_param] inner: Pinned,
-	#[range(min = 0.0, max = 1.0)] top: f32,
+	#[sub_param]
+	inner: Pinned,
+	#[range(min = 0.0, max = 1.0)]
+	top: f32,
 }
 
 #[test]
 fn pinned_ids_are_handed_to_the_host() {
-	let param_map = Paramed::new(Pinned { value: 0.0, other: 0.0 }).param_map();
+	let param_map = Paramed::new(Pinned {
+		value: 0.0,
+		other: 0.0,
+	})
+	.param_map();
 
 	assert_eq!(param_map.query_stable_id(0), Some(4021));
 	assert_eq!(param_map.query_param_index_by_stable_id(4021), Some(0));
@@ -428,8 +496,16 @@ fn pinned_ids_are_handed_to_the_host() {
 /// The point of pinning: the id is what the host stores, so the name is free to change.
 #[test]
 fn a_pinned_id_survives_a_rename() {
-	let before = Paramed::new(Pinned { value: 0.0, other: 0.0 }).param_map();
-	let after = Paramed::new(PinnedRenamed { renamed: 0.0, other: 0.0 }).param_map();
+	let before = Paramed::new(Pinned {
+		value: 0.0,
+		other: 0.0,
+	})
+	.param_map();
+	let after = Paramed::new(PinnedRenamed {
+		renamed: 0.0,
+		other: 0.0,
+	})
+	.param_map();
 
 	assert_ne!(
 		i_am_dsp::prelude::stable_parameter_id("value"),
@@ -443,11 +519,17 @@ fn a_pinned_id_survives_a_rename() {
 #[test]
 fn pinned_ids_nest_with_their_prefix() {
 	let param_map = Paramed::new(PinnedOuter {
-		inner: Pinned { value: 0.0, other: 0.0 },
+		inner: Pinned {
+			value: 0.0,
+			other: 0.0,
+		},
 		top: 0.0,
-	}).param_map();
+	})
+	.param_map();
 
-	let index = param_map.query_param_index("inner.value").expect("the nested parameter exists");
+	let index = param_map
+		.query_param_index("inner.value")
+		.expect("the nested parameter exists");
 	assert_eq!(param_map.query_stable_id(index), Some(4021));
 }
 // ---------- parameter metadata ----------
@@ -471,7 +553,13 @@ struct WithMeta {
 
 #[test]
 fn a_parameter_carries_its_default_and_its_unit() {
-	let parameters = WithMeta { beats: 0.0, on: false, voices: 0, time: 0.0 }.get_parameters();
+	let parameters = WithMeta {
+		beats: 0.0,
+		on: false,
+		voices: 0,
+		time: 0.0,
+	}
+	.get_parameters();
 	assert_eq!(ids(&parameters), vec!["beats", "on", "voices", "time"]);
 
 	assert_eq!(parameters[0].meta.default, Some(1.0));
@@ -490,8 +578,15 @@ fn a_parameter_carries_its_default_and_its_unit() {
 /// The metadata describes the code, not the project, so it is not what a saved state carries.
 #[test]
 fn metadata_is_not_part_of_the_saved_state() {
-	let parameters = WithMeta { beats: 2.0, on: true, voices: 3, time: 250.0 }.get_parameters();
-	let loaded: Vec<Parameter> = from_binary(to_binary(&parameters).expect("serialize")).expect("deserialize");
+	let parameters = WithMeta {
+		beats: 2.0,
+		on: true,
+		voices: 3,
+		time: 250.0,
+	}
+	.get_parameters();
+	let loaded: Vec<Parameter> =
+		from_binary(to_binary(&parameters).expect("serialize")).expect("deserialize");
 
 	assert_eq!(loaded.len(), parameters.len());
 	assert_eq!(loaded[0].meta, ParameterMeta::default());
@@ -527,14 +622,24 @@ struct NamedWithDisplay {
 /// are independent.
 #[test]
 fn a_display_name_reaches_the_host_without_touching_the_identifier() {
-	let parameters = NamedWithDisplay { tempo: SyncedTime::default(), own: 0.5 }.get_parameters();
+	let parameters = NamedWithDisplay {
+		tempo: SyncedTime::default(),
+		own: 0.5,
+	}
+	.get_parameters();
 
 	// The identifiers are exactly what they would be without any display name.
 	assert_eq!(ids(&parameters), vec!["tempo.sync", "tempo.beats", "own"]);
 
 	// A nested parameter is named by the level that contains it.
-	assert_eq!(parameters[0].meta.display_name.as_deref(), Some("Tempo Sync"));
-	assert_eq!(parameters[1].meta.display_name.as_deref(), Some("Tempo Time"));
+	assert_eq!(
+		parameters[0].meta.display_name.as_deref(),
+		Some("Tempo Sync")
+	);
+	assert_eq!(
+		parameters[1].meta.display_name.as_deref(),
+		Some("Tempo Time")
+	);
 	assert_eq!(parameters[2].meta.display_name.as_deref(), Some("BPM Sync"));
 
 	// A display name on its own leaves everything else alone, including the default
@@ -548,7 +653,10 @@ fn a_display_name_reaches_the_host_without_touching_the_identifier() {
 /// rather than nothing.
 #[test]
 fn a_nested_parameter_without_names_is_labelled_by_its_fields() {
-	let parameters = PlainOuter { inner: PlainInner { x: 0.0 } }.get_parameters();
+	let parameters = PlainOuter {
+		inner: PlainInner { x: 0.0 },
+	}
+	.get_parameters();
 	assert_eq!(ids(&parameters), vec!["inner.x"]);
 	assert_eq!(parameters[0].meta.display_name.as_deref(), Some("inner x"));
 }
@@ -568,14 +676,21 @@ struct WithChoices {
 /// says so rather than leaving it to be guessed.
 #[test]
 fn the_names_of_a_choice_reach_the_metadata() {
-	let parameters = WithChoices { mode: 1, amount: 1.0 }.get_parameters();
+	let parameters = WithChoices {
+		mode: 1,
+		amount: 1.0,
+	}
+	.get_parameters();
 
 	assert_eq!(
 		parameters[0].meta.choices,
 		Some(&["Low", "Band", "High"][..]),
 		"the names a parameter is a choice between are part of what it means"
 	);
-	assert_eq!(parameters[1].meta.choices, None, "a number is not always a mode");
+	assert_eq!(
+		parameters[1].meta.choices, None,
+		"a number is not always a mode"
+	);
 	assert_eq!(parameters[0].meta.display_name, None);
 }
 
@@ -609,7 +724,10 @@ struct LaidOutParent {
 #[test]
 fn a_sub_parameter_inherits_the_place_its_parent_asked_for() {
 	let parent = LaidOutParent {
-		tempo: LaidOutChild { beats: 1.0, own: 0.5 },
+		tempo: LaidOutChild {
+			beats: 1.0,
+			own: 0.5,
+		},
 		amount: 0.5,
 	};
 	let parameters = parent.get_parameters();
@@ -624,12 +742,28 @@ fn a_sub_parameter_inherits_the_place_its_parent_asked_for() {
 	};
 
 	let beats = layout("tempo.beats");
-	assert_eq!(beats.group.as_deref(), Some("Time"), "a child with no place of its own inherits its parent's");
+	assert_eq!(
+		beats.group.as_deref(),
+		Some("Time"),
+		"a child with no place of its own inherits its parent's"
+	);
 	assert_eq!(beats.order, Some(3));
 
 	let own = layout("tempo.own");
-	assert_eq!(own.group.as_deref(), Some("Elsewhere"), "a child that asked for its own place keeps it");
-	assert_eq!(own.widget, ParamWidget::Slider, "and keeps everything else it asked for");
+	assert_eq!(
+		own.group.as_deref(),
+		Some("Elsewhere"),
+		"a child that asked for its own place keeps it"
+	);
+	assert_eq!(
+		own.widget,
+		ParamWidget::Slider,
+		"and keeps everything else it asked for"
+	);
 
-	assert_eq!(layout("amount").order, Some(4), "a sibling still sorts after the whole nested level");
+	assert_eq!(
+		layout("amount").order,
+		Some(4),
+		"a sibling still sorts after the whole nested level"
+	);
 }

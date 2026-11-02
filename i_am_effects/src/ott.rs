@@ -1,16 +1,14 @@
 //! The OTT product: the shared OTT DSP with its controls and meter route.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use i_am_dsp::prelude::{
 	Effect, OttCore, OttMeters, OttSettings, ParamMap, Parameter, ProcessContext, SetValue,
 };
 use i_am_dsp_derive::Parameters;
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
-use i_am_plugin::{
-	AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions,
-};
+use i_am_plugin::{AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions};
 use i_am_web_gui::{ProtocolRequest, ProtocolResponse, Scope};
 
 #[derive(Parameters)]
@@ -276,10 +274,9 @@ impl i_am_dsp::Processor for OttWeb {
 }
 
 impl Plugin for OttWeb {
-	const DESCRIPTOR: Descriptor =
-		Descriptor::new("iamdsp.effects.ott.web", "I Am OTT")
-			.with_vendor("iamplugins")
-			.with_version(env!("CARGO_PKG_VERSION"));
+	const DESCRIPTOR: Descriptor = Descriptor::new("iamdsp.effects.ott.web", "I Am OTT")
+		.with_vendor("iamplugins")
+		.with_version(env!("CARGO_PKG_VERSION"));
 
 	const HAS_GUI: bool = true;
 
@@ -333,9 +330,7 @@ mod tests {
 	use super::*;
 
 	fn rms(samples: &[f32]) -> f32 {
-		(samples.iter().map(|sample| sample * sample).sum::<f32>()
-			/ samples.len() as f32)
-			.sqrt()
+		(samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32).sqrt()
 	}
 
 	#[test]

@@ -51,7 +51,10 @@ impl CrateInfo {
 		let toml = TomlLite::parse(text);
 		Self {
 			manifest_path: path.to_path_buf(),
-			dir: path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf(),
+			dir: path
+				.parent()
+				.unwrap_or_else(|| Path::new("."))
+				.to_path_buf(),
 			package_name: toml.get_string("package.name"),
 			package_version: toml.get_string("package.version"),
 			lib_name: toml.get_string("lib.name"),
@@ -76,7 +79,11 @@ impl CrateInfo {
 	/// The name of the built library file, without a directory.
 	pub fn library_file_name(&self) -> Option<String> {
 		let package = self.package_name.as_deref()?;
-		let stem = self.lib_name.as_deref().unwrap_or(package).replace('-', "_");
+		let stem = self
+			.lib_name
+			.as_deref()
+			.unwrap_or(package)
+			.replace('-', "_");
 		Some(library_file_name(&stem))
 	}
 }
@@ -261,7 +268,7 @@ fn strip_comment(line: &str) -> String {
 				} else if c == q {
 					quote = None;
 				}
-			},
+			}
 			None => {
 				if c == '#' {
 					break;
@@ -270,7 +277,7 @@ fn strip_comment(line: &str) -> String {
 					quote = Some(c);
 				}
 				out.push(c);
-			},
+			}
 		}
 	}
 	out
@@ -303,7 +310,7 @@ fn parse_string(value: &str) -> Option<String> {
 		'\'' => {
 			let end = value[1..].find('\'')?;
 			Some(value[1..1 + end].to_string())
-		},
+		}
 		_ => None,
 	}
 }

@@ -6,24 +6,30 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Field, Fields, Ident, Lit, LitInt, Member, Result, Type};
+use syn::{
+	Attribute, Data, DataStruct, DeriveInput, Error, Field, Fields, Ident, Lit, LitInt, Member,
+	Result, Type, parse_macro_input,
+};
 
-#[proc_macro_derive(Parameters, attributes(
-	range,
-	id,
-	persist,
-	serde,
-	skip,
-	sub_param,
-	logarithmic,
-	default,
-	unit,
-	choices,
-	layout,
-	default_float_range,
-	default_int_range,
-	default_uint_range
-))]
+#[proc_macro_derive(
+	Parameters,
+	attributes(
+		range,
+		id,
+		persist,
+		serde,
+		skip,
+		sub_param,
+		logarithmic,
+		default,
+		unit,
+		choices,
+		layout,
+		default_float_range,
+		default_int_range,
+		default_uint_range
+	)
+)]
 /// A helper macro to derive the `Parameters` trait for a struct (named fields, tuple/positional fields, or empty).
 ///
 /// # Syntax
@@ -156,7 +162,9 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 	let mut struct_id_prefix = String::new();
 
 	for attr in &input.attrs {
-		let Some(path) = attr.path().get_ident() else { continue; };
+		let Some(path) = attr.path().get_ident() else {
+			continue;
+		};
 		let path = path.to_string();
 		let path = path.trim().to_string();
 		match path.as_str() {
@@ -165,37 +173,52 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				if let ParamRange::Float(min, max) = range {
 					default_float_range = (min, max);
 				} else {
-					return Err(Error::new_spanned(attr, "default_float_range expects float bounds"));
+					return Err(Error::new_spanned(
+						attr,
+						"default_float_range expects float bounds",
+					));
 				}
-			},
+			}
 			"default_int_range" => {
 				let range = parse_range_attribute(attr)?;
 				if let ParamRange::Int(min, max) = range {
 					default_int_range = (min, max);
 				} else {
-					return Err(Error::new_spanned(attr, "default_int_range expects integer bounds"));
+					return Err(Error::new_spanned(
+						attr,
+						"default_int_range expects integer bounds",
+					));
 				}
-			},
+			}
 			"default_uint_range" => {
 				let range = parse_range_attribute(attr)?;
 				if let ParamRange::Int(min, max) = range {
 					if min < 0 || max < 0 {
-						return Err(Error::new_spanned(attr, "default_uint_range must be non-negative"));
+						return Err(Error::new_spanned(
+							attr,
+							"default_uint_range must be non-negative",
+						));
 					}
 					default_uint_range = (min, max);
 				} else {
-					return Err(Error::new_spanned(attr, "default_uint_range expects integer bounds"));
+					return Err(Error::new_spanned(
+						attr,
+						"default_uint_range expects integer bounds",
+					));
 				}
-			},
+			}
 			"id" => {
 				let (prefix, name, stable, display) = parse_id_attribute(attr)?;
 				if name.is_some() || stable.is_some() || display.is_some() {
-					return Err(Error::new_spanned(attr, "Struct-level `id` attribute only supports `prefix`"));
+					return Err(Error::new_spanned(
+						attr,
+						"Struct-level `id` attribute only supports `prefix`",
+					));
 				}
 				if let Some(prefix) = prefix {
 					struct_id_prefix = prefix;
 				}
-			},
+			}
 			_ => continue,
 		}
 	}
@@ -243,7 +266,8 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 					false
 				}
 			}
-		}.into());
+		}
+		.into());
 	}
 
 	let mut field_configs = Vec::new();
@@ -265,18 +289,29 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 			let kind = classify_type(field_type);
 			match (range, kind) {
 				(ParamRange::Float(..), Some(FieldKind::Float)) => {}
-				(ParamRange::Int(min, max), Some(kind)) if matches!(kind, FieldKind::Signed | FieldKind::Unsigned) => {
+				(ParamRange::Int(min, max), Some(kind))
+					if matches!(kind, FieldKind::Signed | FieldKind::Unsigned) =>
+				{
 					let min = *min;
 					let max = *max;
 					if matches!(kind, FieldKind::Unsigned) && (min < 0 || max < 0) {
-						return Err(Error::new_spanned(member, "Unsigned integer range attribute must be non-negative"));
+						return Err(Error::new_spanned(
+							member,
+							"Unsigned integer range attribute must be non-negative",
+						));
 					}
 				}
 				(ParamRange::Float(..), _) => {
-					return Err(Error::new_spanned(member, "Cannot use float range attribute with non-float type"));
+					return Err(Error::new_spanned(
+						member,
+						"Cannot use float range attribute with non-float type",
+					));
 				}
 				(ParamRange::Int(..), _) => {
-					return Err(Error::new_spanned(member, "Cannot use int range attribute with non-integer type"));
+					return Err(Error::new_spanned(
+						member,
+						"Cannot use int range attribute with non-integer type",
+					));
 				}
 			}
 		}
@@ -454,10 +489,20 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				}
 				ParamRange::Int(min, max) => {
 					let min_i32 = i32::try_from(min).map_err(|_| {
-						Error::new_spanned(&member, format!("Range bound {min} does not fit in i32 (the host-facing integer parameter type)"))
+						Error::new_spanned(
+							&member,
+							format!(
+								"Range bound {min} does not fit in i32 (the host-facing integer parameter type)"
+							),
+						)
 					})?;
 					let max_i32 = i32::try_from(max).map_err(|_| {
-						Error::new_spanned(&member, format!("Range bound {max} does not fit in i32 (the host-facing integer parameter type)"))
+						Error::new_spanned(
+							&member,
+							format!(
+								"Range bound {max} does not fit in i32 (the host-facing integer parameter type)"
+							),
+						)
 					})?;
 					parameter_imply.push(quote! {
 						parameters.push(i_am_dsp::prelude::Parameter {
@@ -507,7 +552,9 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 					}
 				},
 			});
-		} else if let (Some(serialize), Some(deserialize)) = (config.persist_serialize, config.persist_deserialize) {
+		} else if let (Some(serialize), Some(deserialize)) =
+			(config.persist_serialize, config.persist_deserialize)
+		{
 			let serialize = Ident::new(&serialize, proc_macro2::Span::call_site());
 			let deserialize = Ident::new(&deserialize, proc_macro2::Span::call_site());
 			parameter_imply.push(quote! {
@@ -532,7 +579,10 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 				},
 			});
 		} else if is_sub_param {
-			let display_prefix = config.id_display.clone().unwrap_or_else(|| field_name.clone());
+			let display_prefix = config
+				.id_display
+				.clone()
+				.unwrap_or_else(|| field_name.clone());
 			let sub_head = format!("{}.", field_name);
 			let sub_head_len = sub_head.len();
 			// Where the level itself asked to sit, for the children that did not say.
@@ -734,13 +784,15 @@ fn handle_attribute(
 
 	let mut config = FieldConfig::default();
 	for attr in attrs {
-		let Some(path) = attr.path().get_ident() else { continue; };
+		let Some(path) = attr.path().get_ident() else {
+			continue;
+		};
 		let path = path.to_string();
 		let path = path.trim().to_string();
 		match path.as_str() {
 			"range" => {
 				config.range = Some(parse_range_attribute(attr)?);
-			},
+			}
 			"id" => {
 				let (prefix, name, stable, display) = parse_id_attribute(attr)?;
 				config.id_stable = stable;
@@ -753,7 +805,15 @@ fn handle_attribute(
 					field_name.clone()
 				};
 
-				config.id_name = if config.id_display.is_some() && name == field_name && prefix.is_empty() && config.id_stable.is_none() { String::new() } else { format!("{}{}", prefix, name) };
+				config.id_name = if config.id_display.is_some()
+					&& name == field_name
+					&& prefix.is_empty()
+					&& config.id_stable.is_none()
+				{
+					String::new()
+				} else {
+					format!("{}{}", prefix, name)
+				};
 
 				if config.id_name.contains('.') {
 					return Err(Error::new_spanned(attr, "id attribute cannot contain `.`"));
@@ -766,12 +826,12 @@ fn handle_attribute(
 				if !config.id_name.is_empty() && syn::parse_str::<Ident>(&config.id_name).is_err() {
 					return Err(Error::new_spanned(attr, "Name must be a valid rust ident"));
 				}
-			},
+			}
 			"persist" => {
 				let (serialize, deserialize) = parse_persist_attribute(attr)?;
 				config.persist_serialize = Some(serialize);
 				config.persist_deserialize = Some(deserialize);
-			},
+			}
 			"default" => config.param_default = Some(parse_default_attribute(attr)?),
 			"unit" => config.unit = Some(parse_unit_attribute(attr)?),
 			"choices" => config.choices = Some(parse_choices_attribute(attr)?),
@@ -786,74 +846,95 @@ fn handle_attribute(
 	}
 
 	if config.skip {
-		let should_be_none = config.range.is_none() &&
-			config.persist_deserialize.is_none() &&
-			config.id_name.is_empty() &&
-			config.id_stable.is_none() &&
-			config.param_default.is_none() &&
-			config.unit.is_none() &&
-			!config.is_sub_param &&
-			!config.is_serde;
+		let should_be_none = config.range.is_none()
+			&& config.persist_deserialize.is_none()
+			&& config.id_name.is_empty()
+			&& config.id_stable.is_none()
+			&& config.param_default.is_none()
+			&& config.unit.is_none()
+			&& !config.is_sub_param
+			&& !config.is_serde;
 
 		if !should_be_none {
-			return Err(Error::new_spanned(member, "`skip` attribute cannot be used with other attributes"));
+			return Err(Error::new_spanned(
+				member,
+				"`skip` attribute cannot be used with other attributes",
+			));
 		}
 	}
 
 	if config.persist_serialize.is_some() {
-		let should_be_none = config.range.is_none() &&
-			!config.skip &&
-			!config.is_sub_param &&
-			!config.is_serde;
+		let should_be_none =
+			config.range.is_none() && !config.skip && !config.is_sub_param && !config.is_serde;
 
 		if !should_be_none {
-			return Err(Error::new_spanned(member, "`persist` serialize attribute cannot be used with other attributes"));
+			return Err(Error::new_spanned(
+				member,
+				"`persist` serialize attribute cannot be used with other attributes",
+			));
 		}
 	}
 
 	if config.range.is_some() {
-		let should_be_none = config.persist_serialize.is_none() &&
-			!config.skip &&
-			!config.is_sub_param &&
-			!config.is_serde;
+		let should_be_none = config.persist_serialize.is_none()
+			&& !config.skip
+			&& !config.is_sub_param
+			&& !config.is_serde;
 
 		if !should_be_none {
-			return Err(Error::new_spanned(member, "`range` attribute cannot be used with other parameter attributes"));
+			return Err(Error::new_spanned(
+				member,
+				"`range` attribute cannot be used with other parameter attributes",
+			));
 		}
 	}
 
 	if config.is_sub_param {
-		let should_be_none = config.range.is_none() &&
-			config.persist_serialize.is_none() &&
-			config.persist_deserialize.is_none() &&
-			config.id_name.is_empty() &&
-			config.id_stable.is_none() &&
-			config.param_default.is_none() &&
-			config.unit.is_none() &&
-			!config.skip &&
-			!config.is_serde;
+		let should_be_none = config.range.is_none()
+			&& config.persist_serialize.is_none()
+			&& config.persist_deserialize.is_none()
+			&& config.id_name.is_empty()
+			&& config.id_stable.is_none()
+			&& config.param_default.is_none()
+			&& config.unit.is_none()
+			&& !config.skip
+			&& !config.is_serde;
 
 		if !should_be_none {
-			return Err(Error::new_spanned(member, "`sub_param` attribute cannot be used with other attributes (including `id`)"));
+			return Err(Error::new_spanned(
+				member,
+				"`sub_param` attribute cannot be used with other attributes (including `id`)",
+			));
 		}
 	}
 
 	// Infer the parameter kind from the field type when no explicit attribute is given.
-	if config.range.is_none() &&
-		config.persist_serialize.is_none() &&
-		!config.skip &&
-		!config.is_sub_param &&
-		!config.is_serde
+	if config.range.is_none()
+		&& config.persist_serialize.is_none()
+		&& !config.skip
+		&& !config.is_sub_param
+		&& !config.is_serde
 	{
 		match classify_type(field_ty) {
-			Some(FieldKind::Float) => config.range = Some(ParamRange::Float(default_float_range.0, default_float_range.1)),
-			Some(FieldKind::Signed) => config.range = Some(ParamRange::Int(default_int_range.0, default_int_range.1)),
-			Some(FieldKind::Unsigned) => config.range = Some(ParamRange::Int(default_uint_range.0, default_uint_range.1)),
+			Some(FieldKind::Float) => {
+				config.range = Some(ParamRange::Float(
+					default_float_range.0,
+					default_float_range.1,
+				))
+			}
+			Some(FieldKind::Signed) => {
+				config.range = Some(ParamRange::Int(default_int_range.0, default_int_range.1))
+			}
+			Some(FieldKind::Unsigned) => {
+				config.range = Some(ParamRange::Int(default_uint_range.0, default_uint_range.1))
+			}
 			Some(FieldKind::Bool) => config.is_bool = true,
 			None => {
 				return Err(Error::new_spanned(
 					member,
-					format!("Unsupported type for parameter field `{field_name}`, consider adding `range`, `skip`, `sub_param`, `persist` or `serde` to it"),
+					format!(
+						"Unsupported type for parameter field `{field_name}`, consider adding `range`, `skip`, `sub_param`, `persist` or `serde` to it"
+					),
 				));
 			}
 		}
@@ -871,36 +952,38 @@ fn parse_range_attribute(attr: &Attribute) -> Result<ParamRange> {
 		if meta.path.is_ident("min") {
 			let val: Lit = meta.value()?.parse()?;
 			match val {
-				Lit::Float(inner) => {
-					match inner.base10_parse::<f32>() {
-						Ok(t) => min_float = Some(t),
-						Err(e) => return Err(Error::new_spanned(attr, format!("Invalid float, {e}"))),
-					}
+				Lit::Float(inner) => match inner.base10_parse::<f32>() {
+					Ok(t) => min_float = Some(t),
+					Err(e) => return Err(Error::new_spanned(attr, format!("Invalid float, {e}"))),
 				},
-				Lit::Int(inner) => {
-					match inner.base10_parse::<i64>() {
-						Ok(t) => min_int = Some(t),
-						Err(e) => return Err(Error::new_spanned(attr, format!("Invalid int, {e}"))),
-					}
+				Lit::Int(inner) => match inner.base10_parse::<i64>() {
+					Ok(t) => min_int = Some(t),
+					Err(e) => return Err(Error::new_spanned(attr, format!("Invalid int, {e}"))),
 				},
-				_ => return Err(Error::new_spanned(attr, "Invalid literal for min, expected float or int")),
+				_ => {
+					return Err(Error::new_spanned(
+						attr,
+						"Invalid literal for min, expected float or int",
+					));
+				}
 			}
 		} else if meta.path.is_ident("max") {
 			let val: Lit = meta.value()?.parse()?;
 			match val {
-				Lit::Float(inner) => {
-					match inner.base10_parse::<f32>() {
-						Ok(t) => max_float = Some(t),
-						Err(e) => return Err(Error::new_spanned(attr, format!("Invalid float, {e}"))),
-					}
+				Lit::Float(inner) => match inner.base10_parse::<f32>() {
+					Ok(t) => max_float = Some(t),
+					Err(e) => return Err(Error::new_spanned(attr, format!("Invalid float, {e}"))),
 				},
-				Lit::Int(inner) => {
-					match inner.base10_parse::<i64>() {
-						Ok(t) => max_int = Some(t),
-						Err(e) => return Err(Error::new_spanned(attr, format!("Invalid int, {e}"))),
-					}
+				Lit::Int(inner) => match inner.base10_parse::<i64>() {
+					Ok(t) => max_int = Some(t),
+					Err(e) => return Err(Error::new_spanned(attr, format!("Invalid int, {e}"))),
 				},
-				_ => return Err(Error::new_spanned(attr, "Invalid literal for max, expected float or int")),
+				_ => {
+					return Err(Error::new_spanned(
+						attr,
+						"Invalid literal for max, expected float or int",
+					));
+				}
 			}
 		}
 		Ok(())
@@ -909,18 +992,37 @@ fn parse_range_attribute(attr: &Attribute) -> Result<ParamRange> {
 	let is_float = min_float.is_some() || max_float.is_some();
 	let is_int = min_int.is_some() || max_int.is_some();
 	if is_float && is_int {
-		return Err(Error::new_spanned(attr, "min and max must be of the same type"));
+		return Err(Error::new_spanned(
+			attr,
+			"min and max must be of the same type",
+		));
 	}
 
 	let range = if is_float {
-		ParamRange::Float(min_float.or(max_float).unwrap_or(0.0), max_float.or(min_float).unwrap_or(0.0))
+		ParamRange::Float(
+			min_float.or(max_float).unwrap_or(0.0),
+			max_float.or(min_float).unwrap_or(0.0),
+		)
 	} else {
-		ParamRange::Int(min_int.or(max_int).unwrap_or(0), max_int.or(min_int).unwrap_or(0))
+		ParamRange::Int(
+			min_int.or(max_int).unwrap_or(0),
+			max_int.or(min_int).unwrap_or(0),
+		)
 	};
 
 	match &range {
-		ParamRange::Float(min, max) if min > max => return Err(Error::new_spanned(attr, "min must be less than or equal to max")),
-		ParamRange::Int(min, max) if min > max => return Err(Error::new_spanned(attr, "min must be less than or equal to max")),
+		ParamRange::Float(min, max) if min > max => {
+			return Err(Error::new_spanned(
+				attr,
+				"min must be less than or equal to max",
+			));
+		}
+		ParamRange::Int(min, max) if min > max => {
+			return Err(Error::new_spanned(
+				attr,
+				"min must be less than or equal to max",
+			));
+		}
 		_ => {}
 	}
 
@@ -936,7 +1038,10 @@ fn parse_default_attribute(attr: &Attribute) -> Result<f64> {
 		Lit::Float(inner) => inner.base10_parse::<f64>(),
 		Lit::Int(inner) => inner.base10_parse::<f64>(),
 		Lit::Bool(inner) => Ok(if inner.value { 1.0 } else { 0.0 }),
-		other => Err(Error::new_spanned(other, "default expects a number, or a bool")),
+		other => Err(Error::new_spanned(
+			other,
+			"default expects a number, or a bool",
+		)),
 	}
 }
 
@@ -944,11 +1049,15 @@ fn parse_default_attribute(attr: &Attribute) -> Result<f64> {
 fn parse_choices_attribute(attr: &Attribute) -> Result<Vec<String>> {
 	use syn::punctuated::Punctuated;
 
-	let names = attr.parse_args_with(Punctuated::<syn::LitStr, syn::Token![,]>::parse_terminated)?;
+	let names =
+		attr.parse_args_with(Punctuated::<syn::LitStr, syn::Token![,]>::parse_terminated)?;
 	let choices: Vec<String> = names.iter().map(|name| name.value()).collect();
 
 	if choices.is_empty() {
-		return Err(Error::new_spanned(attr, "A parameter needs at least one choice"));
+		return Err(Error::new_spanned(
+			attr,
+			"A parameter needs at least one choice",
+		));
 	}
 
 	for choice in &choices {
@@ -1032,13 +1141,21 @@ fn parse_layout_attribute(attr: &Attribute) -> Result<ParamLayoutConfig> {
 						return Err(Error::new_spanned(attr, "A group name must not be empty"));
 					}
 					layout.group = Some(value);
-				},
-				_ => return Err(Error::new_spanned(attr, "Invalid literal for group, expected a string")),
+				}
+				_ => {
+					return Err(Error::new_spanned(
+						attr,
+						"Invalid literal for group, expected a string",
+					));
+				}
 			}
 		} else if meta.path.is_ident("order") {
 			let val: LitInt = meta.value()?.parse()?;
 			let order: u32 = val.base10_parse()?;
-			layout.order = Some(u16::try_from(order).map_err(|_| Error::new_spanned(attr, "An order must fit in 16 bits"))?);
+			layout.order = Some(
+				u16::try_from(order)
+					.map_err(|_| Error::new_spanned(attr, "An order must fit in 16 bits"))?,
+			);
 		} else if meta.path.is_ident("widget") {
 			let ident: Ident = meta.value()?.parse()?;
 			layout.widget = Some(match ident.to_string().as_str() {
@@ -1048,7 +1165,14 @@ fn parse_layout_attribute(attr: &Attribute) -> Result<ParamLayoutConfig> {
 				"toggle" => LayoutWidget::Toggle,
 				"choice" => LayoutWidget::Choice,
 				"notes" => LayoutWidget::Notes,
-				other => return Err(Error::new_spanned(&ident, format!("unknown widget {other}: expected auto, knob, slider, toggle, choice or notes"))),
+				other => {
+					return Err(Error::new_spanned(
+						&ident,
+						format!(
+							"unknown widget {other}: expected auto, knob, slider, toggle, choice or notes"
+						),
+					));
+				}
 			});
 		} else if meta.path.is_ident("size") {
 			let ident: Ident = meta.value()?.parse()?;
@@ -1056,7 +1180,12 @@ fn parse_layout_attribute(attr: &Attribute) -> Result<ParamLayoutConfig> {
 				"small" => LayoutSize::Small,
 				"medium" => LayoutSize::Medium,
 				"large" => LayoutSize::Large,
-				other => return Err(Error::new_spanned(&ident, format!("unknown size {other}: expected small, medium or large"))),
+				other => {
+					return Err(Error::new_spanned(
+						&ident,
+						format!("unknown size {other}: expected small, medium or large"),
+					));
+				}
 			});
 		} else if meta.path.is_ident("hero") {
 			let val: Lit = meta.value()?.parse()?;
@@ -1067,8 +1196,13 @@ fn parse_layout_attribute(attr: &Attribute) -> Result<ParamLayoutConfig> {
 						return Err(Error::new_spanned(attr, "A hero name must not be empty"));
 					}
 					layout.hero = Some(value);
-				},
-				_ => return Err(Error::new_spanned(attr, "Invalid literal for hero, expected a string")),
+				}
+				_ => {
+					return Err(Error::new_spanned(
+						attr,
+						"Invalid literal for hero, expected a string",
+					));
+				}
 			}
 		} else if meta.path.is_ident("bipolar") {
 			layout.bipolar = true;
@@ -1086,7 +1220,10 @@ fn parse_layout_attribute(attr: &Attribute) -> Result<ParamLayoutConfig> {
 
 			layout.step = Some(step);
 		} else {
-			return Err(Error::new_spanned(attr, "unknown layout option: expected group, order, widget, size, bipolar or step"));
+			return Err(Error::new_spanned(
+				attr,
+				"unknown layout option: expected group, order, widget, size, bipolar or step",
+			));
 		}
 
 		Ok(())
@@ -1111,14 +1248,22 @@ fn parse_id_attribute(attr: &Attribute) -> Result<IdAttribute> {
 			// A VST3 wrapper strips the top bit of the id before handing it to the host, so an id
 			// above 31 bits would address a different parameter there.
 			if value > 0x7FFF_FFFF {
-				return Err(Error::new_spanned(attr, "Stable id must fit in 31 bits (a VST3 host reserves the top bit)"));
+				return Err(Error::new_spanned(
+					attr,
+					"Stable id must fit in 31 bits (a VST3 host reserves the top bit)",
+				));
 			}
 			stable = Some(value);
 		} else if meta.path.is_ident("prefix") {
 			let val: Lit = meta.value()?.parse()?;
 			match val {
 				Lit::Str(inner) => prefix = Some(inner.value()),
-				_ => return Err(Error::new_spanned(attr, "Invalid literal for prefix, expected string")),
+				_ => {
+					return Err(Error::new_spanned(
+						attr,
+						"Invalid literal for prefix, expected string",
+					));
+				}
 			}
 		} else if meta.path.is_ident("name") {
 			let val: Lit = meta.value()?.parse()?;
@@ -1130,8 +1275,13 @@ fn parse_id_attribute(attr: &Attribute) -> Result<IdAttribute> {
 						return Err(Error::new_spanned(attr, "Name must be a valid rust ident"));
 					}
 					name = Some(inner.value());
-				},
-				_ => return Err(Error::new_spanned(attr, "Invalid literal for name, expected string")),
+				}
+				_ => {
+					return Err(Error::new_spanned(
+						attr,
+						"Invalid literal for name, expected string",
+					));
+				}
 			}
 		} else if meta.path.is_ident("display") {
 			// What a host calls the parameter. Unlike `name` this never touches the identifier,
@@ -1144,8 +1294,13 @@ fn parse_id_attribute(attr: &Attribute) -> Result<IdAttribute> {
 						return Err(Error::new_spanned(attr, "Display name must not be empty"));
 					}
 					display = Some(value);
-				},
-				_ => return Err(Error::new_spanned(attr, "Invalid literal for display, expected string")),
+				}
+				_ => {
+					return Err(Error::new_spanned(
+						attr,
+						"Invalid literal for display, expected string",
+					));
+				}
 			}
 		}
 		Ok(())
@@ -1162,13 +1317,23 @@ fn parse_persist_attribute(attr: &Attribute) -> Result<(String, String)> {
 			let val: Lit = meta.value()?.parse()?;
 			match val {
 				Lit::Str(inner) => serialize = Some(inner.value()),
-				_ => return Err(Error::new_spanned(attr, "Invalid literal for serialize, expected string")),
+				_ => {
+					return Err(Error::new_spanned(
+						attr,
+						"Invalid literal for serialize, expected string",
+					));
+				}
 			}
 		} else if meta.path.is_ident("deserialize") {
 			let val: Lit = meta.value()?.parse()?;
 			match val {
 				Lit::Str(inner) => deserialize = Some(inner.value()),
-				_ => return Err(Error::new_spanned(attr, "Invalid literal for deserialize, expected string")),
+				_ => {
+					return Err(Error::new_spanned(
+						attr,
+						"Invalid literal for deserialize, expected string",
+					));
+				}
 			}
 		}
 		Ok(())
@@ -1177,6 +1342,9 @@ fn parse_persist_attribute(attr: &Attribute) -> Result<(String, String)> {
 	if let (Some(serialize), Some(deserialize)) = (serialize, deserialize) {
 		Ok((serialize, deserialize))
 	} else {
-		Err(Error::new_spanned(attr, "Missing serialize or deserialize attribute"))
+		Err(Error::new_spanned(
+			attr,
+			"Missing serialize or deserialize attribute",
+		))
 	}
 }

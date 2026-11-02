@@ -6,10 +6,7 @@
 //! output timeline, so duration is preserved. The short edge fade keeps the grain
 //! boundaries from clicking without smearing the pitch across grain copies.
 
-use crate::{
-	Effect, ProcessContext,
-	tools::pitch::PitchTracker,
-};
+use crate::{Effect, ProcessContext, tools::pitch::PitchTracker};
 
 /// Long enough for a six-period grain at the lowest tracked note and a 4x shift.
 const HISTORY: usize = 32_768;
@@ -207,7 +204,9 @@ mod tests {
 		let mut tracker = PitchTracker::new(48_000, 2_048);
 		let mut last = None;
 		for sample in &output[12_000..] {
-			if let Some(next) = tracker.process_sample(*sample) && next.clarity > 0.5 {
+			if let Some(next) = tracker.process_sample(*sample)
+				&& next.clarity > 0.5
+			{
 				last = Some(next.frequency);
 			}
 		}

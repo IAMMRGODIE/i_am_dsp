@@ -5,12 +5,12 @@ use std::f32::consts::PI;
 use i_am_dsp_derive::Parameters;
 
 use crate::{
-	Effect, ProcessContext, 
+	Effect, ProcessContext,
 	effects::{
-		filter::{Biquad, MIN_FREQUENCY}, 
-		prelude::{Convolver, hilbert_transform}
-	}, 
-	tools::ring_buffer::RingBuffer
+		filter::{Biquad, MIN_FREQUENCY},
+		prelude::{Convolver, hilbert_transform},
+	},
+	tools::ring_buffer::RingBuffer,
 };
 
 use super::hilbert_transform::HilbertTransform as IIRHilbert;
@@ -42,7 +42,7 @@ pub struct FIRFreqShifter<const CHANNELS: usize = 2> {
 
 impl<const CHANNELS: usize> FIRFreqShifter<CHANNELS> {
 	/// Creates a new frequency shifter with the given sample rate and shift frequency.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0.
 	pub fn new(sample_rate: usize, shift_freq: f32) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -51,7 +51,7 @@ impl<const CHANNELS: usize> FIRFreqShifter<CHANNELS> {
 			sample_rate,
 			hilbert_transform: Convolver::new(
 				hilbert_transform::<CHANNELS>(127),
-				&super::prelude::DelyaCaculateMode::Fir
+				&super::prelude::DelyaCaculateMode::Fir,
 			),
 			phase_state: 0.0,
 			shift_freq,
@@ -79,23 +79,28 @@ impl<const CHANNELS: usize> FIRFreqShifter<CHANNELS> {
 		}
 
 		self.order = order;
-		self.hilbert_transform
-			.replace_ir(hilbert_transform::<CHANNELS>(order), &super::prelude::DelyaCaculateMode::Fir);
-		self.history =
-			core::array::from_fn(|_| RingBuffer::new(self.hilbert_transform.delay()));
+		self.hilbert_transform.replace_ir(
+			hilbert_transform::<CHANNELS>(order),
+			&super::prelude::DelyaCaculateMode::Fir,
+		);
+		self.history = core::array::from_fn(|_| RingBuffer::new(self.hilbert_transform.delay()));
 	}
 
 	/// Sets the shift frequency of the frequency shifter.
 	pub fn set_shift_freq(&mut self, shift_freq: f32) {
 		let sample_rate = self.sample_rate as f32;
-		let shift_freq = shift_freq.clamp(- sample_rate / 2.0 + MIN_FREQUENCY, sample_rate / 2.0 - MIN_FREQUENCY);
+		let shift_freq = shift_freq.clamp(
+			-sample_rate / 2.0 + MIN_FREQUENCY,
+			sample_rate / 2.0 - MIN_FREQUENCY,
+		);
 
 		self.shift_freq = shift_freq;
 		if shift_freq > MIN_FREQUENCY {
-			self.filter.set_to_butterworth_lowpass(sample_rate / 2.0 - shift_freq);
-		}else if shift_freq <= MIN_FREQUENCY && shift_freq > -MIN_FREQUENCY {
+			self.filter
+				.set_to_butterworth_lowpass(sample_rate / 2.0 - shift_freq);
+		} else if shift_freq <= MIN_FREQUENCY && shift_freq > -MIN_FREQUENCY {
 			self.filter.set_to_default_state()
-		}else {
+		} else {
 			self.filter.set_to_butterworth_highpass(shift_freq.abs());
 		}
 	}
@@ -111,7 +116,12 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for FIRFreqShifter<CHANNELS> {
 		"FIR Freq Shifter"
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], other: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		other: &[&[f32; CHANNELS]],
+		ctx: &mut Box<dyn ProcessContext>,
+	) {
 		if self.shift_freq == 0.0 {
 			return;
 		}
@@ -135,9 +145,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for FIRFreqShifter<CHANNELS> {
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		let mut shift_freq = self.shift_freq;
-		ui.add(egui::Slider::new(&mut shift_freq, -20000.0..=20000.0)
-			.text("Shift Frequency (Hz)")
-		);
+		ui.add(egui::Slider::new(&mut shift_freq, -20000.0..=20000.0).text("Shift Frequency (Hz)"));
 
 		if self.shift_freq != shift_freq {
 			self.set_shift_freq(shift_freq);
@@ -182,16 +190,16 @@ pub struct IIRFreqShifter<const ORDER: usize, const CHANNELS: usize = 2> {
 	#[layout(group = "Shift", order = 0, widget = knob, size = large, hero = "spectra", bipolar)]
 	shift_freq: f32,
 	#[sub_param]
-	filter: Biquad<CHANNELS>
+	filter: Biquad<CHANNELS>,
 }
 
 impl<const ORDER: usize, const CHANNELS: usize> IIRFreqShifter<ORDER, CHANNELS> {
 	/// Creates a new frequency shifter with the given sample rate and shift frequency.
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0.
 	pub fn new(sample_rate: usize, shift_freq: f32) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
-		
+
 		let phase_inc = 2.0 * PI * shift_freq / sample_rate as f32;
 		Self {
 			sample_rate,
@@ -202,14 +210,17 @@ impl<const ORDER: usize, const CHANNELS: usize> IIRFreqShifter<ORDER, CHANNELS> 
 			step_s: phase_inc.sin(),
 			last_shift: shift_freq,
 			shift_freq,
-			filter: Biquad::new(sample_rate)
+			filter: Biquad::new(sample_rate),
 		}
 	}
 
 	/// Sets the shift frequency of the frequency shifter.
 	pub fn set_shift_freq(&mut self, shift_freq: f32) {
 		let sample_rate = self.sample_rate as f32;
-		let shift_freq = shift_freq.clamp(- sample_rate / 2.0 + MIN_FREQUENCY, sample_rate / 2.0 - MIN_FREQUENCY);
+		let shift_freq = shift_freq.clamp(
+			-sample_rate / 2.0 + MIN_FREQUENCY,
+			sample_rate / 2.0 - MIN_FREQUENCY,
+		);
 
 		self.shift_freq = shift_freq;
 		self.last_shift = shift_freq;
@@ -219,16 +230,19 @@ impl<const ORDER: usize, const CHANNELS: usize> IIRFreqShifter<ORDER, CHANNELS> 
 		self.step_s = phase_increment.sin();
 
 		if shift_freq > MIN_FREQUENCY {
-			self.filter.set_to_butterworth_lowpass(sample_rate / 2.0 - shift_freq);
-		}else if shift_freq <= MIN_FREQUENCY && shift_freq > -MIN_FREQUENCY {
+			self.filter
+				.set_to_butterworth_lowpass(sample_rate / 2.0 - shift_freq);
+		} else if shift_freq <= MIN_FREQUENCY && shift_freq > -MIN_FREQUENCY {
 			self.filter.set_to_default_state()
-		}else {
+		} else {
 			self.filter.set_to_butterworth_highpass(shift_freq.abs());
 		}
 	}
 }
 
-impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for IIRFreqShifter<ORDER, CHANNELS> {
+impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS>
+	for IIRFreqShifter<ORDER, CHANNELS>
+{
 	fn delay(&self) -> usize {
 		0
 	}
@@ -238,7 +252,12 @@ impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for IIRFreqShif
 		"IIR Freq Shifter"
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], other: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		other: &[&[f32; CHANNELS]],
+		ctx: &mut Box<dyn ProcessContext>,
+	) {
 		// A parameter write changes the field, not the cached step; the setter is
 		// what rebuilds the carrier and the image-rejection filter.
 		if self.shift_freq != self.last_shift {
@@ -264,16 +283,15 @@ impl<const ORDER: usize, const CHANNELS: usize> Effect<CHANNELS> for IIRFreqShif
 		}
 
 		for (i, complex_sample) in complex_samples.iter().enumerate() {
-			samples[i] = complex_sample.real * self.phase_real - complex_sample.imag * self.phase_imag;
+			samples[i] =
+				complex_sample.real * self.phase_real - complex_sample.imag * self.phase_imag;
 		}
 	}
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, _: String) {
 		let mut shift_freq = self.shift_freq;
-		ui.add(egui::Slider::new(&mut shift_freq, -20000.0..=20000.0)
-			.text("Shift Frequency (Hz)")
-		);
+		ui.add(egui::Slider::new(&mut shift_freq, -20000.0..=20000.0).text("Shift Frequency (Hz)"));
 
 		if self.shift_freq != shift_freq {
 			self.set_shift_freq(shift_freq);

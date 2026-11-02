@@ -178,7 +178,10 @@ mod tests {
 			let mut samples = [input, input];
 			effect.process(&mut samples, &[], &mut context);
 
-			assert!(samples.iter().all(|sample| sample.is_finite()), "{samples:?}");
+			assert!(
+				samples.iter().all(|sample| sample.is_finite()),
+				"{samples:?}"
+			);
 
 			let energy = samples[0] * samples[0];
 			if index < 4_800 {
@@ -189,7 +192,10 @@ mod tests {
 		}
 
 		assert!(early > 0.0, "the network should produce a tail");
-		assert!(late < early * 1e-3, "the tail did not decay: {early:e} -> {late:e}");
+		assert!(
+			late < early * 1e-3,
+			"the tail did not decay: {early:e} -> {late:e}"
+		);
 	}
 
 	/// The clear-tail action empties the network before the next sample.
@@ -212,7 +218,10 @@ mod tests {
 		for _ in 0..2_000 {
 			let mut samples = [0.0; 2];
 			effect.process(&mut samples, &[], &mut context);
-			assert!(samples.iter().all(|sample| sample.abs() < 1e-6), "{samples:?}");
+			assert!(
+				samples.iter().all(|sample| sample.abs() < 1e-6),
+				"{samples:?}"
+			);
 		}
 	}
 }

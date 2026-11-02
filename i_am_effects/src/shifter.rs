@@ -139,7 +139,7 @@ mod tests {
 			Value::Int { value, range, .. } => {
 				assert_eq!(value, 127, "127 is the default kernel");
 				assert_eq!(range, 63..=511, "any length between 63 and 511");
-			},
+			}
 			other => panic!("unexpected order value {other:?}"),
 		}
 

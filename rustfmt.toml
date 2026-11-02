@@ -1,0 +1,2 @@
+# The code is indented with tabs; rustfmt's default is spaces.
+hard_tabs = true

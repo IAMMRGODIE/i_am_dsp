@@ -2,16 +2,16 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{prelude::{AllpassFilter, CombsFilter, FftConvolver, Lowpass, RayTracing, Reverb}, Effect};
+use crate::{
+	Effect,
+	prelude::{AllpassFilter, CombsFilter, FftConvolver, Lowpass, RayTracing, Reverb},
+};
 
 const IR_SIZE: usize = 6144;
 
 /// A reverb effect that combines multiple reverbs to create a more natural sounding effect.
 #[derive(Parameters)]
-pub struct HybridReverb<
-	const CHANNELS: usize, 
-	const DELAY_LINES: usize
-> {
+pub struct HybridReverb<const CHANNELS: usize, const DELAY_LINES: usize> {
 	#[sub_param]
 	/// The combs filters used to create early reflections.
 	pub comb_filters: [CombsFilter<CHANNELS>; 4],
@@ -47,12 +47,7 @@ impl<const CHANNELS: usize, const DELAY_LINES: usize> HybridReverb<CHANNELS, DEL
 	}
 
 	/// Creates a new `HybridReverb` effect.
-	pub fn new(
-		ir_gen: RayTracing,
-		sample_rate: usize,
-		dry_gain: f32,
-		wet_gain: f32,
-	) -> Self {
+	pub fn new(ir_gen: RayTracing, sample_rate: usize, dry_gain: f32, wet_gain: f32) -> Self {
 		let comb_filters = [
 			CombsFilter::new(0.8, 31),
 			CombsFilter::new(0.8, 37),
@@ -78,11 +73,11 @@ impl<const CHANNELS: usize, const DELAY_LINES: usize> HybridReverb<CHANNELS, DEL
 		post_convolver.wet_gain = 0.5;
 
 		let fdn_reverb = Reverb::new(
-			Lowpass::new(sample_rate, 16000.0, 0.01),  
-			sample_rate, 
-			Default::default(), 
-			20, 
-			10.0
+			Lowpass::new(sample_rate, 16000.0, 0.01),
+			sample_rate,
+			Default::default(),
+			20,
+			10.0,
 		);
 
 		Self {
@@ -98,7 +93,7 @@ impl<const CHANNELS: usize, const DELAY_LINES: usize> HybridReverb<CHANNELS, DEL
 	}
 
 	/// Updates the impulse response of the reverb.
-	/// 
+	///
 	/// Should be called whenever the `ir_gen` parameter is changed.
 	pub fn update_ir(&mut self) {
 		self.pre_convolver.replace_ir(Self::gen_ir(&self.ir_gen));
@@ -106,7 +101,9 @@ impl<const CHANNELS: usize, const DELAY_LINES: usize> HybridReverb<CHANNELS, DEL
 	}
 }
 
-impl<const CHANNELS: usize, const DELAY_LINES: usize> Effect<CHANNELS> for HybridReverb<CHANNELS, DELAY_LINES> {
+impl<const CHANNELS: usize, const DELAY_LINES: usize> Effect<CHANNELS>
+	for HybridReverb<CHANNELS, DELAY_LINES>
+{
 	fn delay(&self) -> usize {
 		self.pre_convolver.delay() + self.post_convolver.delay() + self.fdn_reverb.delay()
 	}
@@ -117,8 +114,8 @@ impl<const CHANNELS: usize, const DELAY_LINES: usize> Effect<CHANNELS> for Hybri
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn crate::ProcessContext>,
 	) {
@@ -136,9 +133,11 @@ impl<const CHANNELS: usize, const DELAY_LINES: usize> Effect<CHANNELS> for Hybri
 			allpass.process(&mut output, other, process_context);
 		}
 
-		self.pre_convolver.process(&mut output, other, process_context);
+		self.pre_convolver
+			.process(&mut output, other, process_context);
 		self.fdn_reverb.process(&mut output, other, process_context);
-		self.post_convolver.process(&mut output, other, process_context);
+		self.post_convolver
+			.process(&mut output, other, process_context);
 
 		for (i, output) in output.into_iter().enumerate() {
 			samples[i] = output * self.wet_gain + samples[i] * self.dry_gain;
@@ -147,8 +146,8 @@ impl<const CHANNELS: usize, const DELAY_LINES: usize> Effect<CHANNELS> for Hybri
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::CollapsingHeader;
 		use crate::{prelude::GenIr, tools::ui_tools::gain_ui};
+		use egui::CollapsingHeader;
 
 		CollapsingHeader::new("Combs Filters")
 			.id_salt(format!("{}_hybrid_reverb_comb", id_prefix))
@@ -165,12 +164,16 @@ impl<const CHANNELS: usize, const DELAY_LINES: usize> Effect<CHANNELS> for Hybri
 					allpass.demo_ui(ui, format!("{}_hybrid_reverb_allpass", id_prefix));
 				}
 			});
-		
-		if self.ir_gen.demo_ui(ui, format!("{}_hybrid_reverb_ir_gen", id_prefix)) {
+
+		if self
+			.ir_gen
+			.demo_ui(ui, format!("{}_hybrid_reverb_ir_gen", id_prefix))
+		{
 			self.update_ir();
 		}
 
-		self.fdn_reverb.demo_ui(ui, format!("{}_hybrid_reverb_fdn_reverb", id_prefix));
+		self.fdn_reverb
+			.demo_ui(ui, format!("{}_hybrid_reverb_fdn_reverb", id_prefix));
 
 		gain_ui(ui, &mut self.dry_gain, Some("Dry gain".to_string()), false);
 		gain_ui(ui, &mut self.wet_gain, Some("Wet gain".to_string()), false);

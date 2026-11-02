@@ -14,13 +14,11 @@ use std::f32::consts::PI;
 use i_am_dsp_derive::Parameters;
 
 use crate::{
+	Effect, ProcessContext,
 	effects::{
-		disperser::Disperser,
-		distortion::saturate,
-		filter::MAX_FREQUENCY_RATIO,
+		disperser::Disperser, distortion::saturate, filter::MAX_FREQUENCY_RATIO,
 		stereo_control::Gain,
 	},
-	Effect, ProcessContext,
 };
 
 /// The lowest cutoff the LFO sweeps the disperser to, in Hz.
@@ -145,7 +143,8 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Crusher<CHANNELS> {
 		self.phase = (self.phase + 2.0 * PI * self.frequency / sample_rate).rem_euclid(2.0 * PI);
 
 		let am_lfo = self.am_phase.sin();
-		self.am_phase = (self.am_phase + 2.0 * PI * self.am_frequency / sample_rate).rem_euclid(2.0 * PI);
+		self.am_phase =
+			(self.am_phase + 2.0 * PI * self.am_frequency / sample_rate).rem_euclid(2.0 * PI);
 
 		// Only the cutoff is modulated: the amount alone decides how many sections
 		// are applied, so the stack is only resized when that changes.
@@ -186,11 +185,29 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Crusher<CHANNELS> {
 		use egui::Slider;
 
 		ui.add(Slider::new(&mut self.amount, 0.0..=1.0).text("Amount"));
-		ui.add(Slider::new(&mut self.frequency, 1.0..=2000.0).text("LFO Frequency (Hz)").logarithmic(true));
+		ui.add(
+			Slider::new(&mut self.frequency, 1.0..=2000.0)
+				.text("LFO Frequency (Hz)")
+				.logarithmic(true),
+		);
 		ui.add(Slider::new(&mut self.am_amount, 0.0..=1.0).text("AM Amount"));
-		ui.add(Slider::new(&mut self.am_frequency, 1.0..=2000.0).text("AM Frequency (Hz)").logarithmic(true));
-		gain_ui(ui, &mut self.input_gain.gain, Some("Input Gain".to_string()), false);
-		gain_ui(ui, &mut self.output_gain.gain, Some("Output Gain".to_string()), false);
+		ui.add(
+			Slider::new(&mut self.am_frequency, 1.0..=2000.0)
+				.text("AM Frequency (Hz)")
+				.logarithmic(true),
+		);
+		gain_ui(
+			ui,
+			&mut self.input_gain.gain,
+			Some("Input Gain".to_string()),
+			false,
+		);
+		gain_ui(
+			ui,
+			&mut self.output_gain.gain,
+			Some("Output Gain".to_string()),
+			false,
+		);
 	}
 }
 
@@ -223,7 +240,10 @@ mod tests {
 	fn silence_stays_silent() {
 		for amount in [0.0, 0.5, 1.0] {
 			let output = run(amount, 1.0, &[0.0; 1024]);
-			assert!(output.iter().all(|sample| *sample == 0.0), "amount {amount} made silence ring");
+			assert!(
+				output.iter().all(|sample| *sample == 0.0),
+				"amount {amount} made silence ring"
+			);
 		}
 	}
 
@@ -238,8 +258,14 @@ mod tests {
 			let output = run(amount, 0.0, &input);
 			let bound = peak_bound((1.0 - amount) * 4.5 + 0.5) * 1.001;
 			for sample in &output {
-				assert!(sample.is_finite(), "amount {amount} produced a non finite sample");
-				assert!(sample.abs() <= bound, "amount {amount} produced {sample}, above {bound}");
+				assert!(
+					sample.is_finite(),
+					"amount {amount} produced a non finite sample"
+				);
+				assert!(
+					sample.abs() <= bound,
+					"amount {amount} produced {sample}, above {bound}"
+				);
 			}
 		}
 	}
@@ -254,14 +280,17 @@ mod tests {
 			.into_iter()
 			.map(|parameter| parameter.identifier)
 			.collect();
-		assert_eq!(identifiers, vec![
-			"amount",
-			"frequency",
-			"am_amount",
-			"am_frequency",
-			"input_gain.gain",
-			"output_gain.gain",
-		]);
+		assert_eq!(
+			identifiers,
+			vec![
+				"amount",
+				"frequency",
+				"am_amount",
+				"am_frequency",
+				"input_gain.gain",
+				"output_gain.gain",
+			]
+		);
 
 		assert!(crusher.set_parameter("amount", SetValue::Float(0.5)));
 		assert_eq!(crusher.amount, 0.5);
@@ -329,6 +358,9 @@ mod tests {
 			.zip(wet.iter())
 			.map(|(dry, wet)| (dry - wet).abs())
 			.sum();
-		assert!(difference > 1.0, "the wet signal is identical to the dry one");
+		assert!(
+			difference > 1.0,
+			"the wet signal is identical to the dry one"
+		);
 	}
 }

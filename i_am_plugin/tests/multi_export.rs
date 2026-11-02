@@ -9,9 +9,9 @@
 //! extra. That this file compiles without any GUI toolkit is the point of the seam
 //! `i_am_plugin` now keeps.
 
+use i_am_dsp::ProcessContext;
 use i_am_dsp::Processor;
 use i_am_dsp::prelude::{Parameter, Parameters, SetValue};
-use i_am_dsp::ProcessContext;
 use i_am_plugin::{Descriptor, Plugin, export_clap};
 
 macro_rules! test_plugin {
@@ -35,7 +35,13 @@ macro_rules! test_plugin {
 				0
 			}
 
-			fn process(&mut self, _: &mut [f32; 2], _: &[[f32; 2]], _: &mut Box<dyn ProcessContext>) {}
+			fn process(
+				&mut self,
+				_: &mut [f32; 2],
+				_: &[[f32; 2]],
+				_: &mut Box<dyn ProcessContext>,
+			) {
+			}
 
 			fn on_message(&self, _: ()) {}
 		}
@@ -64,7 +70,10 @@ export_clap!(First, Second);
 /// no GUI is a perfectly good plug-in, not a missing half.
 #[test]
 fn a_plugin_without_a_gui_has_no_editor() {
-	assert!(First::new().editor().is_none(), "the default editor is none");
+	assert!(
+		First::new().editor().is_none(),
+		"the default editor is none"
+	);
 }
 
 #[test]
@@ -77,10 +86,21 @@ fn the_library_exports_every_plugin_it_was_given() {
 
 	let names: Vec<_> = entries
 		.iter()
-		.map(|entry| entry.descriptor().name().unwrap_or_default().to_string_lossy().into_owned())
+		.map(|entry| {
+			entry
+				.descriptor()
+				.name()
+				.unwrap_or_default()
+				.to_string_lossy()
+				.into_owned()
+		})
 		.collect();
 
-	assert_eq!(names, vec!["First Test", "Second Test"], "in the order they were listed");
+	assert_eq!(
+		names,
+		vec!["First Test", "Second Test"],
+		"in the order they were listed"
+	);
 	assert_ne!(
 		entries[0].descriptor().id(),
 		entries[1].descriptor().id(),

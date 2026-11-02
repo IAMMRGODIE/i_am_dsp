@@ -42,12 +42,21 @@ pub fn wsola(
 	const OVERLAP_FACTOR: usize = 2;
 	let window_size = OVERLAP_FACTOR * hop;
 
-	assert!(stretch_factor > 0.0, "stretch_factor must be greater than 0");
+	assert!(
+		stretch_factor > 0.0,
+		"stretch_factor must be greater than 0"
+	);
 	assert!(max_offset > 0, "max_offset must be positive");
 	assert!(hop > 0, "hop must be positive");
 	assert!(ref_range > 0, "ref_range must be positive");
-	assert!(hop >= ref_range, "hop must be greater or equal than ref_range");
-	assert!(window_size <= input.capacity(), "input capacity must be greater or equal than 2 * hop");
+	assert!(
+		hop >= ref_range,
+		"hop must be greater or equal than ref_range"
+	);
+	assert!(
+		window_size <= input.capacity(),
+		"input capacity must be greater or equal than 2 * hop"
+	);
 
 	if input.capacity() == 0 {
 		return vec![];
@@ -77,15 +86,34 @@ pub fn wsola(
 
 		let best_offset = if frame_idx == 0 && !no_previous {
 			let reference = &prev_tail[prev_tail.len() - ref_range..];
-			find_best_offset(input, center, max_offset, max_fit_offset, reference, similarity_measure).0
-		}else if frame_idx > 0 && output_pos + ref_range <= output_len {
+			find_best_offset(
+				input,
+				center,
+				max_offset,
+				max_fit_offset,
+				reference,
+				similarity_measure,
+			)
+			.0
+		} else if frame_idx > 0 && output_pos + ref_range <= output_len {
 			let reference = &output[output_pos..output_pos + ref_range];
-			find_best_offset(input, center, max_offset, max_fit_offset, reference, similarity_measure).0
-		}else {
+			find_best_offset(
+				input,
+				center,
+				max_offset,
+				max_fit_offset,
+				reference,
+				similarity_measure,
+			)
+			.0
+		} else {
 			center
 		};
 
-		let frame: Vec<f32> = input.range(best_offset..best_offset + window_size).cloned().collect();
+		let frame: Vec<f32> = input
+			.range(best_offset..best_offset + window_size)
+			.cloned()
+			.collect();
 
 		for (i, &sample) in frame.iter().enumerate() {
 			let pos = output_pos + i;
@@ -99,7 +127,7 @@ pub fn wsola(
 				// the new one. The two windows are complementary
 				// (`w[i] + w[i + hop] = 1`), so the transition is gain-constant.
 				output[pos] += sample * weight + prev_tail[i] * hann_window(i + hop, window_size);
-			}else {
+			} else {
 				output[pos] += sample * weight;
 			}
 		}
@@ -186,7 +214,7 @@ pub fn negative_mean_square_error(x: &[f32], y: &[f32]) -> f32 {
 	for i in 0..x.len() {
 		error += (x[i] - y[i]).powi(2);
 	}
-	- error / x.len() as f32
+	-error / x.len() as f32
 }
 
 /// Cosine similarity measure implementation in Rust.
@@ -265,7 +293,10 @@ mod tests {
 			negative_mean_square_error,
 		);
 		assert_eq!(doubled.len(), (capacity as f32 * 2.0).ceil() as usize);
-		assert!(sum_abs(&doubled) > 0.0, "stretched output should not be silent");
+		assert!(
+			sum_abs(&doubled) > 0.0,
+			"stretched output should not be silent"
+		);
 
 		let halved = wsola(
 			&input,
@@ -277,7 +308,10 @@ mod tests {
 			negative_mean_square_error,
 		);
 		assert_eq!(halved.len(), (capacity as f32 * 0.5).ceil() as usize);
-		assert!(sum_abs(&halved) > 0.0, "compressed output should not be silent");
+		assert!(
+			sum_abs(&halved) > 0.0,
+			"compressed output should not be silent"
+		);
 	}
 
 	/// Cross-fading a previous output block must not panic and must blend the

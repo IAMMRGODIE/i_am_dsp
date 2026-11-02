@@ -2,7 +2,7 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{tools::smoother::DoubleTimeConstant, Effect, ProcessContext};
+use crate::{Effect, ProcessContext, tools::smoother::DoubleTimeConstant};
 
 /// Smooth the effect like a compressor did.
 #[derive(Parameters)]
@@ -16,9 +16,9 @@ pub struct SmoothedEffect<Effector: Effect<CHANNELS>, const CHANNELS: usize> {
 
 impl<Effector: Effect<CHANNELS>, const CHANNELS: usize> SmoothedEffect<Effector, CHANNELS> {
 	/// Create a new `SmoothedEffect`.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// Panics if `CHANNELS` is less than or equal to 0.
 	pub fn new(effect: Effector, attack_time: f32, release_time: f32, sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -30,7 +30,9 @@ impl<Effector: Effect<CHANNELS>, const CHANNELS: usize> SmoothedEffect<Effector,
 	}
 }
 
-impl<Effector: Effect<CHANNELS>, const CHANNELS: usize> Effect<CHANNELS> for SmoothedEffect<Effector, CHANNELS> {
+impl<Effector: Effect<CHANNELS>, const CHANNELS: usize> Effect<CHANNELS>
+	for SmoothedEffect<Effector, CHANNELS>
+{
 	fn delay(&self) -> usize {
 		self.effect.delay()
 	}
@@ -40,7 +42,12 @@ impl<Effector: Effect<CHANNELS>, const CHANNELS: usize> Effect<CHANNELS> for Smo
 		"Smoothed Effect"
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], other: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		other: &[&[f32; CHANNELS]],
+		ctx: &mut Box<dyn ProcessContext>,
+	) {
 		let mut input_backup = *samples;
 		self.effect.process(&mut input_backup, other, ctx);
 		let mut ratio = [1.0; CHANNELS];
@@ -56,8 +63,15 @@ impl<Effector: Effect<CHANNELS>, const CHANNELS: usize> Effect<CHANNELS> for Smo
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		self.effect.demo_ui(ui, format!("{}_smoothed_effect", id_prefix));
-		ui.add(egui::Slider::new(&mut self.smoother.attack_time, 0.0..=1000.0).text("Attack Time (ms)"));
-		ui.add(egui::Slider::new(&mut self.smoother.release_time, 0.0..=1000.0).text("Release Time (ms)"));
+		self.effect
+			.demo_ui(ui, format!("{}_smoothed_effect", id_prefix));
+		ui.add(
+			egui::Slider::new(&mut self.smoother.attack_time, 0.0..=1000.0)
+				.text("Attack Time (ms)"),
+		);
+		ui.add(
+			egui::Slider::new(&mut self.smoother.release_time, 0.0..=1000.0)
+				.text("Release Time (ms)"),
+		);
 	}
 }

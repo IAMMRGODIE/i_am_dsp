@@ -28,11 +28,11 @@ mod ir_reverb;
 mod ott;
 mod particle_wider;
 pub mod pitch;
+pub mod reverb;
 mod schroeder;
 mod script;
 mod script_distortion;
 mod script_mapper;
-pub mod reverb;
 mod shifter;
 mod stft_vocoder;
 mod unstablizer;
@@ -42,22 +42,24 @@ use allpass::AllpassEffect;
 use comb::CombEffect;
 pub use compressor::CompressorEffect;
 pub use convolver::{ConvolverWeb, IrData, IrSlot, decode_ir};
-pub use script::ScriptWorker;
-pub use script_distortion::{DistortionTable, ScriptDistortionEffect, ScriptDistortionWeb, distortion_worker};
-pub use script_mapper::{MapperTable, ScriptMapperEffect, ScriptMapperWeb, mapper_worker};
-pub use ott::OttWeb;
-pub use vocoder::VocoderWeb;
-pub use stft_vocoder::StftVocoderWeb;
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
+pub use ott::OttWeb;
 use particle_wider::ParticleWiderEffect;
+pub use pitch::PITCH_VISIBLE;
 use pitch::PitchEffect;
 use reverb::ReverbEffect;
 use schroeder::SchroederEffect;
-use shifter::ShifterEffect;
-use unstablizer::UnstablizerEffect;
+pub use script::ScriptWorker;
+pub use script_distortion::{
+	DistortionTable, ScriptDistortionEffect, ScriptDistortionWeb, distortion_worker,
+};
+pub use script_mapper::{MapperTable, ScriptMapperEffect, ScriptMapperWeb, mapper_worker};
 pub use shifter::SHIFTER_VISIBLE;
-pub use pitch::PITCH_VISIBLE;
+use shifter::ShifterEffect;
+pub use stft_vocoder::StftVocoderWeb;
+use unstablizer::UnstablizerEffect;
+pub use vocoder::VocoderWeb;
 
 /// The controls each autotune engine reads; the note mask lives in its own
 /// section and is always visible.
@@ -83,8 +85,8 @@ pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
 use i_am_dsp::prelude::{
 	AutoTune, Chorus, Crusher, Delay, Distortion, Expander, Flanger, FormantFilter,
 	Gain as GainDsp, Gate, Limiter, LrControl, Multimode, ParametricEq, Phaser, Resonator,
-	SpectralRetuneEffect, SineWave, StereoController,
-	StereoRouter, TapeStopEffect, TransientShaper,
+	SineWave, SpectralRetuneEffect, StereoController, StereoRouter, TapeStopEffect,
+	TransientShaper,
 };
 use i_am_web_gui::Switch;
 use i_am_web_gui::web_plugin;
@@ -268,11 +270,8 @@ pub const FLANGER_SWITCHES: &[Switch] = &[Switch::new(
 )];
 /// The phaser names its free rate lfo_freq.
 pub const PHASER_HEADER: &[&str] = &["tempo.sync"];
-pub const PHASER_SWITCHES: &[Switch] = &[Switch::new(
-	"tempo.sync",
-	&["tempo.beats"],
-	&["lfo_freq"],
-)];
+pub const PHASER_SWITCHES: &[Switch] =
+	&[Switch::new("tempo.sync", &["tempo.beats"], &["lfo_freq"])];
 
 /// Main input plus a sidechain input. The compressor reads the sidechain as
 /// other[1]; port 0 is always the main input.
@@ -294,29 +293,64 @@ pub const COMPRESSOR_VISIBLE: &[(i32, &[&str])] = &[
 	(
 		0,
 		&[
-			"threshold", "ratio", "attack", "release", "lookahead", "makeup_db", "dry_gain",
-			"wet_gain", "sidechain", "env_attack", "env_release", "env_gain",
+			"threshold",
+			"ratio",
+			"attack",
+			"release",
+			"lookahead",
+			"makeup_db",
+			"dry_gain",
+			"wet_gain",
+			"sidechain",
+			"env_attack",
+			"env_release",
+			"env_gain",
 		],
 	),
 	(
 		1,
 		&[
-			"threshold", "ratio", "attack", "release", "lookahead", "makeup_db", "dry_gain",
-			"wet_gain", "sidechain", "env_cutoff", "env_gain",
+			"threshold",
+			"ratio",
+			"attack",
+			"release",
+			"lookahead",
+			"makeup_db",
+			"dry_gain",
+			"wet_gain",
+			"sidechain",
+			"env_cutoff",
+			"env_gain",
 		],
 	),
 	(
 		2,
 		&[
-			"threshold", "ratio", "attack", "release", "lookahead", "makeup_db", "dry_gain",
-			"wet_gain", "sidechain", "env_gain",
+			"threshold",
+			"ratio",
+			"attack",
+			"release",
+			"lookahead",
+			"makeup_db",
+			"dry_gain",
+			"wet_gain",
+			"sidechain",
+			"env_gain",
 		],
 	),
 	(
 		3,
 		&[
-			"threshold", "ratio", "attack", "release", "lookahead", "makeup_db", "dry_gain",
-			"wet_gain", "sidechain", "env_gain",
+			"threshold",
+			"ratio",
+			"attack",
+			"release",
+			"lookahead",
+			"makeup_db",
+			"dry_gain",
+			"wet_gain",
+			"sidechain",
+			"env_gain",
 		],
 	),
 ];
@@ -439,17 +473,45 @@ web_plugin!(
 	clear = true
 );
 
-
-
 /// The EQ's six bands: the page shows the selected band's controls and the
 /// output, and the hero draws all six.
 pub const EQ_VISIBLE: &[(i32, &[&str])] = &[
-	(0, &["b1_on", "b1_type", "b1_freq", "b1_gain", "b1_q", "b1_slope", "output"]),
-	(1, &["b2_on", "b2_type", "b2_freq", "b2_gain", "b2_q", "b2_slope", "output"]),
-	(2, &["b3_on", "b3_type", "b3_freq", "b3_gain", "b3_q", "b3_slope", "output"]),
-	(3, &["b4_on", "b4_type", "b4_freq", "b4_gain", "b4_q", "b4_slope", "output"]),
-	(4, &["b5_on", "b5_type", "b5_freq", "b5_gain", "b5_q", "b5_slope", "output"]),
-	(5, &["b6_on", "b6_type", "b6_freq", "b6_gain", "b6_q", "b6_slope", "output"]),
+	(
+		0,
+		&[
+			"b1_on", "b1_type", "b1_freq", "b1_gain", "b1_q", "b1_slope", "output",
+		],
+	),
+	(
+		1,
+		&[
+			"b2_on", "b2_type", "b2_freq", "b2_gain", "b2_q", "b2_slope", "output",
+		],
+	),
+	(
+		2,
+		&[
+			"b3_on", "b3_type", "b3_freq", "b3_gain", "b3_q", "b3_slope", "output",
+		],
+	),
+	(
+		3,
+		&[
+			"b4_on", "b4_type", "b4_freq", "b4_gain", "b4_q", "b4_slope", "output",
+		],
+	),
+	(
+		4,
+		&[
+			"b5_on", "b5_type", "b5_freq", "b5_gain", "b5_q", "b5_slope", "output",
+		],
+	),
+	(
+		5,
+		&[
+			"b6_on", "b6_type", "b6_freq", "b6_gain", "b6_q", "b6_slope", "output",
+		],
+	),
 ];
 
 web_plugin!(
@@ -577,7 +639,11 @@ mod tests {
 		}
 
 		fn next_event(&mut self) -> Option<i_am_dsp::NoteEvent> {
-			if self.events.is_empty() { None } else { Some(self.events.remove(0)) }
+			if self.events.is_empty() {
+				None
+			} else {
+				Some(self.events.remove(0))
+			}
 		}
 
 		fn send_event(&mut self, event: i_am_dsp::NoteEvent) {
@@ -656,11 +722,18 @@ mod tests {
 
 		assert!(!i_am_web_gui::apply_command(&plugin, "nonsense"));
 		assert!(!i_am_web_gui::apply_command(&plugin, "gain=not-a-number"));
-		assert!(!i_am_web_gui::apply_command(&plugin, "missing.parameter=1.0"));
+		assert!(!i_am_web_gui::apply_command(
+			&plugin,
+			"missing.parameter=1.0"
+		));
 
 		// And the good value is still the one it started with.
 		assert_eq!(
-			plugin.param_map().get("gain").unwrap().load(Ordering::Relaxed),
+			plugin
+				.param_map()
+				.get("gain")
+				.unwrap()
+				.load(Ordering::Relaxed),
 			SetValue::Float(1.0)
 		);
 	}
@@ -775,7 +848,10 @@ mod tests {
 			"{face}"
 		);
 		assert!(face.contains("[0,[\"cutoff\",\"q\",\"stages\"]]"), "{face}");
-		assert!(face.contains("[5,[\"cutoff\",\"gain_db\",\"slope\"]]"), "{face}");
+		assert!(
+			face.contains("[5,[\"cutoff\",\"gain_db\",\"slope\"]]"),
+			"{face}"
+		);
 	}
 
 	/// The mode is a normal parameter: it is in the map the host saves and in the
@@ -786,7 +862,11 @@ mod tests {
 		assert!(i_am_web_gui::apply_command(&plugin, "mode=5"));
 
 		assert_eq!(
-			plugin.param_map().get("mode").unwrap().load(Ordering::Relaxed),
+			plugin
+				.param_map()
+				.get("mode")
+				.unwrap()
+				.load(Ordering::Relaxed),
 			SetValue::Int(5)
 		);
 		assert!(i_am_web_gui::state_json(&plugin).contains("\"mode\":5"));
@@ -809,7 +889,9 @@ mod tests {
 		assert!(face.contains("\"id\":\"tempo.beats\""), "{face}");
 		assert!(face.contains("\"header\":[\"tempo.sync\"]"), "{face}");
 		assert!(
-			face.contains("{\"control\":\"tempo.sync\",\"on\":[\"tempo.beats\"],\"off\":[\"delay_time\"]}"),
+			face.contains(
+				"{\"control\":\"tempo.sync\",\"on\":[\"tempo.beats\"],\"off\":[\"delay_time\"]}"
+			),
 			"{face}"
 		);
 		assert!(
@@ -862,8 +944,7 @@ mod tests {
 	fn the_particle_wider_has_a_particle_hero() {
 		let face = i_am_web_gui::face_json(
 			&ParticleWiderWeb::new(),
-			&Faceplate::new("I Am Particle Wider", "#67d7a8", (700.0, 340.0))
-				.with_mode("fft_size"),
+			&Faceplate::new("I Am Particle Wider", "#67d7a8", (700.0, 340.0)).with_mode("fft_size"),
 		);
 
 		assert!(face.contains("\"hero\":\"particles\""), "{face}");
@@ -876,7 +957,10 @@ mod tests {
 		assert!(face.contains("\"id\":\"window_factor\""), "{face}");
 		assert!(face.contains("\"id\":\"fft_size\""), "{face}");
 		assert!(face.contains("\"mode\":\"fft_size\""), "{face}");
-		assert!(face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"), "{face}");
+		assert!(
+			face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"),
+			"{face}"
+		);
 	}
 
 	/// Pitch and Shifter both offer the time-domain engine and the phase vocoder.
@@ -906,7 +990,11 @@ mod tests {
 			assert!(face.contains("\"mode\":\"algorithm\""), "{face}");
 			assert!(face.contains("\"header\":[\"window_size\"]"), "{face}");
 			assert!(face.contains("\"id\":\"window_size\""), "{face}");
-			assert!(face.contains("[1,[\"pitch_shift_factor\",\"window_size\"]]") || face.contains("[1,[\"shift_freq\",\"window_size\"]]"), "{face}");
+			assert!(
+				face.contains("[1,[\"pitch_shift_factor\",\"window_size\"]]")
+					|| face.contains("[1,[\"shift_freq\",\"window_size\"]]"),
+				"{face}"
+			);
 		}
 	}
 
@@ -949,8 +1037,16 @@ mod tests {
 		let mut plugin = AutoTuneWeb::new();
 		let mut context: Box<dyn i_am_dsp::ProcessContext> = Box::new(NoteContext {
 			events: vec![
-				i_am_dsp::NoteEvent::NoteOn { channel: 0, note: 60, velocity: 1.0 },
-				i_am_dsp::NoteEvent::NoteOn { channel: 0, note: 64, velocity: 1.0 },
+				i_am_dsp::NoteEvent::NoteOn {
+					channel: 0,
+					note: 60,
+					velocity: 1.0,
+				},
+				i_am_dsp::NoteEvent::NoteOn {
+					channel: 0,
+					note: 64,
+					velocity: 1.0,
+				},
 			],
 			infos: i_am_dsp::ProcessInfos::default(),
 		});
@@ -971,7 +1067,15 @@ mod tests {
 		);
 
 		assert!(face.contains("\"hero\":\"autotune\""), "{face}");
-		for id in ["strength", "speed", "low_frequency", "high_frequency", "mix", "notes", "window_size"] {
+		for id in [
+			"strength",
+			"speed",
+			"low_frequency",
+			"high_frequency",
+			"mix",
+			"notes",
+			"window_size",
+		] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
 		}
 		assert!(face.contains("\"widget\":\"notes\""), "{face}");
@@ -990,8 +1094,16 @@ mod tests {
 		let mut plugin = SpectralRetuneWeb::new();
 		let mut context: Box<dyn i_am_dsp::ProcessContext> = Box::new(NoteContext {
 			events: vec![
-				i_am_dsp::NoteEvent::NoteOn { channel: 0, note: 60, velocity: 1.0 },
-				i_am_dsp::NoteEvent::NoteOn { channel: 0, note: 64, velocity: 1.0 },
+				i_am_dsp::NoteEvent::NoteOn {
+					channel: 0,
+					note: 60,
+					velocity: 1.0,
+				},
+				i_am_dsp::NoteEvent::NoteOn {
+					channel: 0,
+					note: 64,
+					velocity: 1.0,
+				},
 			],
 			infos: i_am_dsp::ProcessInfos::default(),
 		});
@@ -1007,8 +1119,7 @@ mod tests {
 	fn the_unstablizer_has_before_and_after_spectra() {
 		let face = i_am_web_gui::face_json(
 			&UnstablizerWeb::new(),
-			&Faceplate::new("I Am Unstablizer", "#ff8f6b", (700.0, 340.0))
-				.with_mode("window_size"),
+			&Faceplate::new("I Am Unstablizer", "#ff8f6b", (700.0, 340.0)).with_mode("window_size"),
 		);
 
 		assert!(face.contains("\"hero\":\"spectra\""), "{face}");
@@ -1019,7 +1130,10 @@ mod tests {
 		assert!(face.contains("\"id\":\"window_size\""), "{face}");
 		assert!(face.contains("\"id\":\"follow_notes\""), "{face}");
 		assert!(face.contains("\"mode\":\"window_size\""), "{face}");
-		assert!(face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"), "{face}");
+		assert!(
+			face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"),
+			"{face}"
+		);
 		assert_eq!(
 			<UnstablizerWeb as i_am_plugin::Plugin>::INPUT_MIDI_PORTS.len(),
 			1,
@@ -1038,7 +1152,10 @@ mod tests {
 		assert!(face.contains("\"hero\":\"impulse\""), "{face}");
 		assert!(face.contains("\"id\":\"dry_gain\""), "{face}");
 		assert!(face.contains("\"id\":\"wet_gain\""), "{face}");
-		assert!(!face.contains("\"id\":\"ir\""), "the response is state, not a control: {face}");
+		assert!(
+			!face.contains("\"id\":\"ir\""),
+			"the response is state, not a control: {face}"
+		);
 	}
 
 	/// The scripted distortion is a curve with a script panel and four controls.
@@ -1144,8 +1261,6 @@ mod tests {
 		);
 	}
 
-
-
 	/// The EQ edits one band at a time and draws all six in its hero.
 	#[test]
 	fn the_eq_has_six_bands_and_a_graphical_hero() {
@@ -1159,7 +1274,9 @@ mod tests {
 		assert!(face.contains("\"hero\":\"eq\""), "{face}");
 		assert!(face.contains("\"mode\":\"band\""), "{face}");
 		assert!(
-			face.contains("\"choices\":[\"Bell\",\"Low Shelf\",\"High Shelf\",\"Low Cut\",\"High Cut\",\"Notch\"]"),
+			face.contains(
+				"\"choices\":[\"Bell\",\"Low Shelf\",\"High Shelf\",\"Low Cut\",\"High Cut\",\"Notch\"]"
+			),
 			"{face}"
 		);
 
@@ -1208,7 +1325,15 @@ mod tests {
 		assert!(tape_stop.contains("\"id\":\"time\""), "{tape_stop}");
 
 		assert!(gate.contains("\"hero\":\"gate\""), "{gate}");
-		for id in ["threshold", "range", "attack", "hold", "release", "hysteresis", "sidechain"] {
+		for id in [
+			"threshold",
+			"range",
+			"attack",
+			"hold",
+			"release",
+			"hysteresis",
+			"sidechain",
+		] {
 			assert!(gate.contains(&format!("\"id\":\"{id}\"")), "{gate}");
 		}
 		assert_eq!(<GateWeb as i_am_plugin::Plugin>::INPUT_PORTS.len(), 2);
@@ -1251,7 +1376,10 @@ mod tests {
 
 		assert!(resonator.contains("\"hero\":\"resonator\""), "{resonator}");
 		for id in ["note", "decay", "damping", "saw", "mix"] {
-			assert!(resonator.contains(&format!("\"id\":\"{id}\"")), "{resonator}");
+			assert!(
+				resonator.contains(&format!("\"id\":\"{id}\"")),
+				"{resonator}"
+			);
 		}
 		assert_eq!(
 			<ResonatorWeb as i_am_plugin::Plugin>::INPUT_MIDI_PORTS.len(),
@@ -1263,7 +1391,10 @@ mod tests {
 		for id in ["vowel", "shift", "resonance", "mix"] {
 			assert!(formant.contains(&format!("\"id\":\"{id}\"")), "{formant}");
 		}
-		assert!(formant.contains("\"choices\":[\"A\",\"E\",\"I\",\"O\",\"U\"]"), "{formant}");
+		assert!(
+			formant.contains("\"choices\":[\"A\",\"E\",\"I\",\"O\",\"U\"]"),
+			"{formant}"
+		);
 	}
 
 	/// The OTT is a three-band meter and a second section for the bands.
@@ -1410,12 +1541,17 @@ mod tests {
 
 		assert!(face.contains("\"mode\":\"mode\""), "{face}");
 		assert!(
-			face.contains("\"choices\":[\"Hard\",\"Soft\",\"Overdrive\",\"Saturator\",\"Bitcrush\",\"Downsample\"]"),
+			face.contains(
+				"\"choices\":[\"Hard\",\"Soft\",\"Overdrive\",\"Saturator\",\"Bitcrush\",\"Downsample\"]"
+			),
 			"{face}"
 		);
 		assert!(face.contains("\"id\":\"threshold\""), "{face}");
 		assert!(face.contains("\"id\":\"bits\""), "{face}");
-		assert!(face.contains("\"visible\":[[0,[\"threshold\",\"gain\"]]"), "{face}");
+		assert!(
+			face.contains("\"visible\":[[0,[\"threshold\",\"gain\"]]"),
+			"{face}"
+		);
 		assert!(face.contains("[4,[\"bits\",\"gain\"]]"), "{face}");
 	}
 
@@ -1438,7 +1574,7 @@ mod tests {
 		assert!(shifter.contains("\"hero\":\"spectra\""), "{shifter}");
 		assert!(shifter.contains("\"id\":\"shift_freq\""), "{shifter}");
 		assert!(shifter.contains("\"log\":true"), "{shifter}");
-			assert!(disperser.contains("\"hero\":\"phase\""), "{disperser}");
+		assert!(disperser.contains("\"hero\":\"phase\""), "{disperser}");
 		assert!(disperser.contains("\"id\":\"amount\""), "{disperser}");
 		assert!(disperser.contains("\"id\":\"cutoff\""), "{disperser}");
 		assert!(balance.contains("\"hero\":\"balance\""), "{balance}");

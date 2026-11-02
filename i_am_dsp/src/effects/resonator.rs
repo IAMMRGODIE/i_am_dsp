@@ -13,10 +13,7 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{
-	Effect, ProcessContext,
-	tools::interpolate::cubic_interpolate,
-};
+use crate::{Effect, ProcessContext, tools::interpolate::cubic_interpolate};
 
 /// The lowest note the delay line has to hold (20 Hz).
 const MIN_FREQUENCY: f32 = 20.0;
@@ -270,9 +267,9 @@ impl<const CHANNELS: usize> Resonator<CHANNELS> {
 				crate::NoteEvent::NoteOn { note, velocity, .. } => self.note_on(note, velocity),
 				crate::NoteEvent::NoteOff { note, .. } | crate::NoteEvent::Stop { note, .. } => {
 					self.note_off(note);
-				},
+				}
 				crate::NoteEvent::ImmediateStop => self.stop_all(),
-				_ => {},
+				_ => {}
 			}
 		}
 	}
@@ -283,7 +280,8 @@ impl<const CHANNELS: usize> Resonator<CHANNELS> {
 		let delay = delay.clamp(2.0, (capacity - 3) as f32);
 		let whole = delay.floor() as isize;
 		let fraction = delay.fract();
-		let index = |offset: isize| ((write as isize + capacity - whole + offset) % capacity) as usize;
+		let index =
+			|offset: isize| ((write as isize + capacity - whole + offset) % capacity) as usize;
 
 		cubic_interpolate(
 			fraction,
@@ -298,8 +296,7 @@ impl<const CHANNELS: usize> Resonator<CHANNELS> {
 
 	fn damping_coefficient(&self) -> f32 {
 		let cutoff = self.damping.clamp(20.0, self.sample_rate * 0.45);
-		(1.0 - (-2.0 * core::f32::consts::PI * cutoff / self.sample_rate).exp())
-			.clamp(0.0, 1.0)
+		(1.0 - (-2.0 * core::f32::consts::PI * cutoff / self.sample_rate).exp()).clamp(0.0, 1.0)
 	}
 }
 
@@ -436,7 +433,11 @@ mod tests {
 		}
 
 		fn next_event(&mut self) -> Option<NoteEvent> {
-			if self.events.is_empty() { None } else { Some(self.events.remove(0)) }
+			if self.events.is_empty() {
+				None
+			} else {
+				Some(self.events.remove(0))
+			}
 		}
 
 		fn send_event(&mut self, event: NoteEvent) {
@@ -502,7 +503,11 @@ mod tests {
 			resonator.process(&mut frame, &[], &mut context);
 		}
 
-		assert_eq!(resonator.sounding(), 3, "the chord did not get three strings");
+		assert_eq!(
+			resonator.sounding(),
+			3,
+			"the chord did not get three strings"
+		);
 	}
 
 	#[test]
@@ -562,7 +567,7 @@ mod tests {
 			}],
 		});
 
-			for _ in 0..14_400 {
+		for _ in 0..14_400 {
 			let mut frame = [0.0];
 			resonator.process(&mut frame, &[], &mut stop);
 		}
@@ -579,7 +584,9 @@ mod tests {
 		assert!(energy(&high) > 0.0);
 		assert!(energy(&low) > 0.0);
 		assert!(
-			low.iter().zip(high.iter()).any(|(a, b)| (a - b).abs() > 1e-4),
+			low.iter()
+				.zip(high.iter())
+				.any(|(a, b)| (a - b).abs() > 1e-4),
 			"the note had no effect"
 		);
 	}

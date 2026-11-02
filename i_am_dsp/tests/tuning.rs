@@ -4,8 +4,8 @@
 //! middle C (C4) is MIDI 48.
 
 use i_am_dsp::prelude::{
-	Tuning, EqualTemperament, NEdoTuning, JustIntonation, PythagoreanTuning, ScaleTuning,
-	A4_FREQ, PENTATONIC,
+	A4_FREQ, EqualTemperament, JustIntonation, NEdoTuning, PENTATONIC, PythagoreanTuning,
+	ScaleTuning, Tuning,
 };
 
 const C4_MIDI: f32 = 48.0;
@@ -20,10 +20,13 @@ fn equal_temperament_matches_12_edo() {
 	// 12-EDO is exactly equal temperament.
 	for n in 0..=127 {
 		let n = n as f32;
-		assert!(approx(
-			NEdoTuning::<12>.get_frequency(n),
-			EqualTemperament.get_frequency(n)
-		), "note {n}");
+		assert!(
+			approx(
+				NEdoTuning::<12>.get_frequency(n),
+				EqualTemperament.get_frequency(n)
+			),
+			"note {n}"
+		);
 	}
 }
 
@@ -31,18 +34,24 @@ fn equal_temperament_matches_12_edo() {
 fn n_edo_scales_properly() {
 	// 12-EDO doubles the frequency every 12 notes (an octave).
 	let base = NEdoTuning::<12>.get_frequency(C4_MIDI);
-	assert!(approx(NEdoTuning::<12>.get_frequency(C4_MIDI + 12.0), base * 2.0));
+	assert!(approx(
+		NEdoTuning::<12>.get_frequency(C4_MIDI + 12.0),
+		base * 2.0
+	));
 
 	// 24-EDO: an octave is 24 steps.
 	let base24 = NEdoTuning::<24>.get_frequency(C4_MIDI);
-	assert!(approx(NEdoTuning::<24>.get_frequency(C4_MIDI + 24.0), base24 * 2.0));
+	assert!(approx(
+		NEdoTuning::<24>.get_frequency(C4_MIDI + 24.0),
+		base24 * 2.0
+	));
 	let eleven_tone_up = NEdoTuning::<24>.get_frequency(C4_MIDI + 11.0);
 	assert!(approx(eleven_tone_up, base24 * 2.0f32.powf(11.0 / 24.0)));
 }
 
 #[test]
 fn just_intonation_ratios() {
-// In just tuning the fifth (G above C) is a clean 3:2, the major third a clean 5:4.
+	// In just tuning the fifth (G above C) is a clean 3:2, the major third a clean 5:4.
 	let c4 = JustIntonation.get_frequency(C4_MIDI);
 	let g4 = JustIntonation.get_frequency(C4_MIDI + 7.0);
 	assert!(approx(g4 / c4, 1.5), "fifth ratio = {}", g4 / c4);

@@ -26,7 +26,7 @@ mod imp {
 
 	use raw_window_handle::{
 		DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
-		RawWindowHandle, WindowHandle, Win32WindowHandle, WindowsDisplayHandle,
+		RawWindowHandle, Win32WindowHandle, WindowHandle, WindowsDisplayHandle,
 	};
 	use windows_sys::Win32::Foundation::HWND;
 	use windows_sys::Win32::Graphics::Gdi::COLOR_WINDOW;
@@ -34,7 +34,8 @@ mod imp {
 	use windows_sys::Win32::UI::WindowsAndMessaging::{
 		CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DispatchMessageW, FindWindowW,
 		GetWindowThreadProcessId, MSG, PM_REMOVE, PeekMessageW, PostMessageW, RegisterClassW,
-		SW_SHOW, ShowWindow, TranslateMessage, WM_CLOSE, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+		SW_SHOW, ShowWindow, TranslateMessage, WM_CLOSE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+		WS_VISIBLE,
 	};
 
 	struct Owner(isize);

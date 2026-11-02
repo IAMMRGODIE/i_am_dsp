@@ -4,7 +4,10 @@ use std::f32::consts::PI;
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{prelude::{SyncedPhase, SyncedTime, WaveTable, MIN_FREQUENCY}, Effect, ProcessContext};
+use crate::{
+	Effect, ProcessContext,
+	prelude::{MIN_FREQUENCY, SyncedPhase, SyncedTime, WaveTable},
+};
 
 /// A phaser effect with variable feedback gain and LFO frequency.
 #[derive(Parameters)]
@@ -86,7 +89,7 @@ pub struct Phaser<Lfo: WaveTable, const CHANNELS: usize = 2> {
 
 impl<Lfo: WaveTable, const CHANNELS: usize> Phaser<Lfo, CHANNELS> {
 	/// Create a new phaser effect with the given LFO waveform and allpass count.
-	/// 
+	///
 	/// Panics if `CHANNELS` is less than or equal to 0.
 	pub fn new(lfo: Lfo, allpass_count: usize, sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -121,7 +124,9 @@ impl<Lfo: WaveTable, const CHANNELS: usize> Phaser<Lfo, CHANNELS> {
 	}
 }
 
-impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for Phaser<Lfo, CHANNELS> {
+impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS>
+	for Phaser<Lfo, CHANNELS>
+{
 	fn delay(&self) -> usize {
 		0
 	}
@@ -131,14 +136,22 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 		"Phaser"
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], ctx: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		ctx: &mut Box<dyn ProcessContext>,
+	) {
 		let dry = *samples;
-		let base_phase = self
-			.phase
-			.advance_rate(&self.tempo, ctx.infos(), self.lfo_freq, self.sample_rate) as f32;
-		samples.iter_mut().zip(self.feedback_history.iter_mut()).for_each(|(sample, feedback)| {
-			*sample += *feedback * self.feedback_gain;
-		});
+		let base_phase =
+			self.phase
+				.advance_rate(&self.tempo, ctx.infos(), self.lfo_freq, self.sample_rate) as f32;
+		samples
+			.iter_mut()
+			.zip(self.feedback_history.iter_mut())
+			.for_each(|(sample, feedback)| {
+				*sample += *feedback * self.feedback_gain;
+			});
 
 		let nyquist = self.sample_rate as f32 / 2.0 - MIN_FREQUENCY;
 		let low = self.min_freq.clamp(MIN_FREQUENCY, nyquist);
@@ -148,10 +161,11 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 
 		let mut output = *samples;
 
-		for (i, (history_in, history_out)) in self.history_in
+		for (i, (history_in, history_out)) in self
+			.history_in
 			.iter_mut()
 			.zip(self.history_out.iter_mut())
-			.enumerate() 
+			.enumerate()
 		{
 			for (channel, output) in output.iter_mut().enumerate() {
 				let phase = (base_phase + (i + channel) as f32 * self.phase_delta) % 1.0;
@@ -174,7 +188,6 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 			// summing it with the dry signal, which this used to skip entirely.
 			*sample = (dry[i] * self.dry_gain + output[i] * self.wet_gain).clamp(-1.0, 1.0);
 		});
-
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -189,11 +202,31 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS> for P
 
 		let max_freq = self.sample_rate as f32 / 2.0 - MIN_FREQUENCY;
 
-		crate::tools::ui_tools::synced_time_ui(ui, "phaser", &mut self.tempo, &mut self.lfo_freq, 0.01..=20.0, "LFO Frequency (Hz)");
-		ui.add(egui::Slider::new(&mut self.min_freq, MIN_FREQUENCY..=max_freq).text("Min Frequency").logarithmic(true));
-		ui.add(egui::Slider::new(&mut self.max_freq, MIN_FREQUENCY..=max_freq).text("Max Frequency").logarithmic(true));
+		crate::tools::ui_tools::synced_time_ui(
+			ui,
+			"phaser",
+			&mut self.tempo,
+			&mut self.lfo_freq,
+			0.01..=20.0,
+			"LFO Frequency (Hz)",
+		);
+		ui.add(
+			egui::Slider::new(&mut self.min_freq, MIN_FREQUENCY..=max_freq)
+				.text("Min Frequency")
+				.logarithmic(true),
+		);
+		ui.add(
+			egui::Slider::new(&mut self.max_freq, MIN_FREQUENCY..=max_freq)
+				.text("Max Frequency")
+				.logarithmic(true),
+		);
 		ui.add(egui::Slider::new(&mut self.phase_delta, 0.0..=1.0).text("Phase Delta"));
-		gain_ui(ui, &mut self.feedback_gain, Some("Feedback Gain".to_string()), true);
+		gain_ui(
+			ui,
+			&mut self.feedback_gain,
+			Some("Feedback Gain".to_string()),
+			true,
+		);
 		// ui.add(egui::Slider::new(&mut self.wet_gain, 0.0..=1.0).text("Wet Gain"));
 	}
 }
@@ -216,7 +249,11 @@ mod tests {
 			let input = (core::f32::consts::TAU * 440.0 * i as f32 / 48_000.0).sin() * 0.5;
 			let mut frame = [input, input];
 			phaser.process(&mut frame, &[], &mut ctx);
-			assert!((frame[0] - input).abs() < 1e-6, "dry sample {i}: {}", frame[0]);
+			assert!(
+				(frame[0] - input).abs() < 1e-6,
+				"dry sample {i}: {}",
+				frame[0]
+			);
 		}
 	}
 

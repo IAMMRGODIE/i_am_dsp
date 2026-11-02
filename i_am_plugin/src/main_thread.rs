@@ -6,13 +6,13 @@
 //! choice.
 
 use crate::editor::{Editor, EditorContext, ParentWindow};
-use clack_extensions::timer::{HostTimer, PluginTimerImpl, TimerId};
 use crate::latency::LatencyWatch;
 use crate::plugin::{Plugin, WindowSize};
 use crate::shared::*;
+use clack_extensions::timer::{HostTimer, PluginTimerImpl, TimerId};
 
 /// The main-thread half of a plug-in.
-/// 
+///
 /// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
 pub struct PluginMain<P: Plugin> {
 	/// The logical size the GUI is laid out for.
@@ -23,7 +23,7 @@ pub struct PluginMain<P: Plugin> {
 	/// The title of the plugin GUI.
 	pub(crate) title: String,
 	/// The resize hints of the plugin GUI.
-	/// 
+	///
 	/// None for can't resize.
 	pub(crate) resize_hints: Option<GuiResizeHints>,
 
@@ -213,7 +213,9 @@ impl<P: Plugin> PluginMain<P> {
 		}
 		if let Some(editor) = &mut self.editor {
 			crate::log::note("gui.hide");
-			editor.hide().map_err(|error| PluginError::Error(Box::new(error)))?;
+			editor
+				.hide()
+				.map_err(|error| PluginError::Error(Box::new(error)))?;
 		}
 
 		Ok(())
@@ -232,7 +234,10 @@ impl<P: Plugin> PluginMain<P> {
 		let raw = parent.as_win32_hwnd().map(|hwnd| hwnd as usize);
 
 		self.parent = Some(parent);
-		crate::log::note(&format!("gui.set_parent: hwnd={raw:?} opening={}", self.opening));
+		crate::log::note(&format!(
+			"gui.set_parent: hwnd={raw:?} opening={}",
+			self.opening
+		));
 
 		if self.opening {
 			self.parent_dirty = true;
@@ -240,7 +245,9 @@ impl<P: Plugin> PluginMain<P> {
 		}
 
 		if let Some(editor) = &mut self.editor {
-			editor.set_parent(parent).map_err(|error| PluginError::Error(Box::new(error)))?;
+			editor
+				.set_parent(parent)
+				.map_err(|error| PluginError::Error(Box::new(error)))?;
 		}
 
 		Ok(())
@@ -256,13 +263,13 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 
 	fn get_preferred_api(&mut self) -> Option<GuiConfiguration<'_>> {
 		Some(GuiConfiguration {
-            api_type: GuiApiType::default_for_current_platform().expect("Unsupported platform"),
-            is_floating: false,
-        })
+			api_type: GuiApiType::default_for_current_platform().expect("Unsupported platform"),
+			is_floating: false,
+		})
 	}
 
 	fn create(&mut self, _: GuiConfiguration) -> Result<(), clack_plugin::prelude::PluginError> {
-		Ok(())	
+		Ok(())
 	}
 
 	fn destroy(&mut self) {
@@ -290,7 +297,9 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 			return Ok(());
 		}
 		if let Some(editor) = &mut self.editor {
-			editor.set_scale_factor(scale).map_err(|error| PluginError::Error(Box::new(error)))?;
+			editor
+				.set_scale_factor(scale)
+				.map_err(|error| PluginError::Error(Box::new(error)))?;
 		}
 
 		Ok(())
@@ -316,7 +325,10 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 		})
 	}
 
-	fn set_size(&mut self, size: clack_extensions::gui::GuiSize) -> Result<(), clack_plugin::prelude::PluginError> {
+	fn set_size(
+		&mut self,
+		size: clack_extensions::gui::GuiSize,
+	) -> Result<(), clack_plugin::prelude::PluginError> {
 		crate::log::note(&format!("gui.set_size: {}x{}", size.width, size.height));
 		let scale = self.scale_value();
 		let logical = WindowSize::new(
@@ -330,18 +342,26 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 			return Ok(());
 		}
 		if let Some(editor) = &mut self.editor {
-			editor.set_size(logical).map_err(|error| PluginError::Error(Box::new(error)))?;
+			editor
+				.set_size(logical)
+				.map_err(|error| PluginError::Error(Box::new(error)))?;
 		}
 
 		Ok(())
 	}
 
-	fn set_parent(&mut self, window: clack_extensions::gui::Window) -> Result<(), clack_plugin::prelude::PluginError> {
+	fn set_parent(
+		&mut self,
+		window: clack_extensions::gui::Window,
+	) -> Result<(), clack_plugin::prelude::PluginError> {
 		PluginMain::set_parent(self, window)?;
 		Ok(())
 	}
 
-	fn set_transient(&mut self, _window: clack_extensions::gui::Window) -> Result<(), clack_plugin::prelude::PluginError> {
+	fn set_transient(
+		&mut self,
+		_window: clack_extensions::gui::Window,
+	) -> Result<(), clack_plugin::prelude::PluginError> {
 		// CLAP only defines a transient window for floating GUIs, and this backend
 		// is embedded-only. Treating it as set_parent used to move the editor onto
 		// FL Studio's main window when a wrapper passed it through anyway.
@@ -356,7 +376,9 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 		}
 		if let Some(editor) = &mut self.editor {
 			crate::log::note("gui.show");
-			return editor.show().map_err(|error| PluginError::Error(Box::new(error)));
+			return editor
+				.show()
+				.map_err(|error| PluginError::Error(Box::new(error)));
 		}
 
 		self.open()
@@ -366,7 +388,10 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 		PluginMain::hide(self)
 	}
 
-	fn adjust_size(&mut self, size: clack_extensions::gui::GuiSize) -> Option<clack_extensions::gui::GuiSize> {
+	fn adjust_size(
+		&mut self,
+		size: clack_extensions::gui::GuiSize,
+	) -> Option<clack_extensions::gui::GuiSize> {
 		let scale = self.scale_value();
 		self.window_size = WindowSize::new(
 			(size.width as f64 / scale) as f32,
@@ -402,7 +427,7 @@ impl<P: Plugin> PluginMain<P> {
 			Ok(id) => {
 				crate::log::note(&format!("editor timer: {id}"));
 				self.editor_timer = Some(id);
-			},
+			}
 			Err(error) => crate::log::note(&format!("editor timer: refused: {error}")),
 		}
 	}

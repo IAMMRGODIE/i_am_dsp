@@ -61,7 +61,8 @@ impl Effect<2> for CombEffect {
 		context: &mut Box<dyn ProcessContext>,
 	) {
 		if (self.delay_ms - self.last_delay).abs() > 1e-4 {
-			self.filter.resize_history(delay_samples(self.sample_rate, self.delay_ms));
+			self.filter
+				.resize_history(delay_samples(self.sample_rate, self.delay_ms));
 			self.last_delay = self.delay_ms;
 		}
 

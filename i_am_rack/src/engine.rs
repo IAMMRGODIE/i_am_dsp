@@ -12,17 +12,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use i_am_dsp::prelude::{
-	Effect, ParamMap, Parameter, Parameters, Paramed, SetValue,
-};
+use i_am_dsp::prelude::{Effect, ParamMap, Paramed, Parameter, Parameters, SetValue};
 use i_am_dsp::{NoteEvent, ProcessContext};
 use i_am_web_gui::{Control, Kind, Scope};
 
 use crate::crossover::Crossover;
 use crate::modulation::Modulation;
 use crate::module::{self, ModuleKind};
-use crate::shared::{ModuleMeters, RackShared, MAX_METER_BANDS};
-use crate::state::{Assignment, AssignmentMode, MACRO_BASE, ModuleState, RackState, SourceKind, Target};
+use crate::shared::{MAX_METER_BANDS, ModuleMeters, RackShared};
+use crate::state::{
+	Assignment, AssignmentMode, MACRO_BASE, ModuleState, RackState, SourceKind, Target,
+};
 
 /// A boxed effect, adapted so Paramed can wrap it.
 pub(crate) struct ModuleEffect(Box<dyn Effect<2>>);
@@ -327,12 +327,7 @@ impl Scopes {
 }
 
 /// Copies one band's stage and slots into a running lane.
-fn apply_lane(
-	lane: &mut Lane,
-	band: &crate::state::BandState,
-	rate: usize,
-	scopes: &Scopes,
-) {
+fn apply_lane(lane: &mut Lane, band: &crate::state::BandState, rate: usize, scopes: &Scopes) {
 	lane.base_gain = band.gain;
 	lane.base_pan = band.pan;
 	lane.mute = band.mute;
@@ -359,7 +354,7 @@ fn apply_lane(
 				} else if let Some(module) = &mut lane.slots[slot] {
 					module.update(edited);
 				}
-			},
+			}
 			None => lane.slots[slot] = None,
 		}
 	}
@@ -411,7 +406,13 @@ impl Engine {
 
 	/// Builds the bands a plug-in runs, sharing the module scopes with its page.
 	pub fn with_shared(sample_rate: usize, state: &RackState, shared: Arc<RackShared>) -> Self {
-		Self::with_scopes(sample_rate, state, Scopes { shared: Some(shared) })
+		Self::with_scopes(
+			sample_rate,
+			state,
+			Scopes {
+				shared: Some(shared),
+			},
+		)
 	}
 
 	fn with_scopes(sample_rate: usize, state: &RackState, scopes: Scopes) -> Self {
@@ -474,9 +475,7 @@ impl Engine {
 		}
 
 		self.parallel.delay = delays[3];
-		self.parallel
-			.compensation
-			.set_length(longest - delays[3]);
+		self.parallel.compensation.set_length(longest - delays[3]);
 
 		self.modulation.set_slots(&state.source_slots);
 		self.source_kinds.clear();
@@ -514,17 +513,17 @@ impl Engine {
 					};
 					let mapped = denormalize(value, &control);
 					module.set_base_target(parameter, mapped);
-				},
+				}
 				Target::BandGain(index) => {
 					if let Some(lane) = self.lane_mut(*index) {
 						lane.base_gain = value * 2.0;
 					}
-				},
+				}
 				Target::BandPan(index) => {
 					if let Some(lane) = self.lane_mut(*index) {
 						lane.base_pan = value * 2.0 - 1.0;
 					}
-				},
+				}
 			}
 		}
 	}
@@ -555,7 +554,7 @@ impl Engine {
 				NoteEvent::NoteOn { note: pitch, .. } if pitch < 128 => {
 					note = pitch as i32;
 					held |= 1u128 << pitch;
-				},
+				}
 				NoteEvent::NoteOn { note: pitch, .. } => note = pitch as i32,
 				NoteEvent::NoteOff { note: pitch, .. } if pitch < 128 => {
 					held &= !(1u128 << pitch);
@@ -563,13 +562,13 @@ impl Engine {
 					if note == pitch as i32 {
 						note = -1;
 					}
-				},
+				}
 				NoteEvent::NoteOff { note: pitch, .. } if note == pitch as i32 => note = -1,
 				NoteEvent::ImmediateStop => {
 					note = -1;
 					held = 0;
-				},
-				_ => {},
+				}
+				_ => {}
 			}
 		}
 		let note_changed = note != self.note || held != self.held;
@@ -699,10 +698,7 @@ impl Engine {
 					continue;
 				}
 
-				let bands = module
-					.paramed
-					.value
-					.band_meters(&mut input, &mut output);
+				let bands = module.paramed.value.band_meters(&mut input, &mut output);
 
 				if bands > 0 {
 					meters.publish_bands(bands, &input[..bands], &output[..bands]);
@@ -734,7 +730,9 @@ impl Engine {
 	/// Moves every base parameter and band control toward its target.
 	fn smooth(&mut self, coefficient: f32) {
 		let coefficient = coefficient as f64;
-		let Self { lanes, parallel, .. } = self;
+		let Self {
+			lanes, parallel, ..
+		} = self;
 
 		for lane in lanes.iter_mut().chain(std::iter::once(parallel)) {
 			let gain_difference = lane.base_gain - lane.smooth_gain;
@@ -786,9 +784,13 @@ impl Engine {
 							self.source_kinds.get(&(assignment.source as u32)),
 							Some(SourceKind::Envelope | SourceKind::Pitch | SourceKind::Midi)
 						);
-					let unit = if unipolar { *value } else { (*value + 1.0) * 0.5 };
+					let unit = if unipolar {
+						*value
+					} else {
+						(*value + 1.0) * 0.5
+					};
 					unit * assignment.depth
-				},
+				}
 			};
 
 			*sums.entry(target.clone()).or_insert(0.0) += offset;
@@ -814,21 +816,21 @@ impl Engine {
 						&parameter,
 						denormalize(normalized.clamp(0.0, 1.0), &control),
 					);
-				},
+				}
 				Target::BandGain(index) => {
 					let Some(lane) = self.lane_mut(index) else {
 						continue;
 					};
 					let normalized = lane.smooth_gain / 2.0 + offset as f64;
 					lane.gain = normalized.clamp(0.0, 1.0) * 2.0;
-				},
+				}
 				Target::BandPan(index) => {
 					let Some(lane) = self.lane_mut(index) else {
 						continue;
 					};
 					let normalized = (lane.smooth_pan + 1.0) / 2.0 + offset as f64;
 					lane.pan = normalized.clamp(0.0, 1.0) * 2.0 - 1.0;
-				},
+				}
 			}
 		}
 	}
@@ -891,7 +893,11 @@ impl Engine {
 	/// The latency of each band, for a test.
 	#[cfg(test)]
 	pub fn lane_delays(&self) -> [usize; 3] {
-		[self.lanes[0].delay, self.lanes[1].delay, self.lanes[2].delay]
+		[
+			self.lanes[0].delay,
+			self.lanes[1].delay,
+			self.lanes[2].delay,
+		]
 	}
 
 	/// The compensation delay of each band, for a test.

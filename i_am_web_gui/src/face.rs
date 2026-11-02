@@ -189,8 +189,18 @@ pub fn sections(parameters: &[Parameter]) -> Vec<Section> {
 			continue;
 		};
 
-		let name = parameter.meta.layout.group.as_ref().map(|group| group.to_string());
-		let hero = parameter.meta.layout.hero.as_ref().map(|hero| hero.to_string());
+		let name = parameter
+			.meta
+			.layout
+			.group
+			.as_ref()
+			.map(|group| group.to_string());
+		let hero = parameter
+			.meta
+			.layout
+			.hero
+			.as_ref()
+			.map(|hero| hero.to_string());
 
 		let index = match sections
 			.iter()
@@ -204,7 +214,7 @@ pub fn sections(parameters: &[Parameter]) -> Vec<Section> {
 					controls: Vec::new(),
 				});
 				sections.len() - 1
-			},
+			}
 		};
 
 		// The first member that names a hero decides for the section: a hero
@@ -219,7 +229,9 @@ pub fn sections(parameters: &[Parameter]) -> Vec<Section> {
 	for section in &mut sections {
 		// A stable sort, so everything without a declared order keeps the order it
 		// was declared in.
-		section.controls.sort_by_key(|control| control.order.unwrap_or(u16::MAX));
+		section
+			.controls
+			.sort_by_key(|control| control.order.unwrap_or(u16::MAX));
 	}
 
 	sections
@@ -358,7 +370,7 @@ pub fn face_json_with_rate(
 	match rate {
 		Some(rate) => {
 			let _ = write!(out, "{rate}");
-		},
+		}
 		None => out.push_str("null"),
 	}
 	let _ = write!(
@@ -385,7 +397,7 @@ pub fn face_json_with_rate(
 				out.push_str("]]");
 			}
 			out.push(']');
-		},
+		}
 		None => out.push_str("null"),
 	}
 	out.push_str(",\"header\":");
@@ -399,7 +411,7 @@ pub fn face_json_with_rate(
 				string(&mut out, id);
 			}
 			out.push(']');
-		},
+		}
 		None => out.push_str("null"),
 	}
 	out.push_str(",\"switches\":");
@@ -429,7 +441,7 @@ pub fn face_json_with_rate(
 				out.push_str("]}");
 			}
 			out.push(']');
-		},
+		}
 		None => out.push_str("null"),
 	}
 	out.push_str(",\"sections\":[");
@@ -506,7 +518,7 @@ fn control_json(out: &mut String, control: &Control) {
 	match control.order {
 		Some(order) => {
 			let _ = write!(out, ",\"order\":{order}");
-		},
+		}
 		None => out.push_str(",\"order\":null"),
 	}
 
@@ -521,7 +533,7 @@ fn control_json(out: &mut String, control: &Control) {
 				string(out, choice);
 			}
 			out.push(']');
-		},
+		}
 		None => out.push_str("null"),
 	};
 	out.push('}');
@@ -589,11 +601,11 @@ pub fn apply_bypass(bypass: &std::sync::atomic::AtomicBool, body: &str) -> bool 
 		"1" | "true" | "on" => {
 			bypass.store(true, Ordering::Relaxed);
 			true
-		},
+		}
 		"0" | "false" | "off" => {
 			bypass.store(false, Ordering::Relaxed);
 			true
-		},
+		}
 		_ => false,
 	}
 }
@@ -664,7 +676,7 @@ fn string(out: &mut String, value: &str) {
 			'\t' => out.push_str("\\t"),
 			character if (character as u32) < 0x20 => {
 				let _ = write!(out, "\\u{:04x}", character as u32);
-			},
+			}
 			character => out.push(character),
 		}
 	}
@@ -704,9 +716,24 @@ mod tests {
 	#[test]
 	fn sections_follow_the_metadata() {
 		let parameters = vec![
-			parameter("b", 0.5, 0.0..=1.0, ParamLayout::new().group("Second").order(1)),
-			parameter("a", 0.5, 0.0..=1.0, ParamLayout::new().group("First").order(0)),
-			parameter("c", 0.5, 0.0..=1.0, ParamLayout::new().group("First").order(1)),
+			parameter(
+				"b",
+				0.5,
+				0.0..=1.0,
+				ParamLayout::new().group("Second").order(1),
+			),
+			parameter(
+				"a",
+				0.5,
+				0.0..=1.0,
+				ParamLayout::new().group("First").order(0),
+			),
+			parameter(
+				"c",
+				0.5,
+				0.0..=1.0,
+				ParamLayout::new().group("First").order(1),
+			),
 		];
 
 		let sections = sections(&parameters);

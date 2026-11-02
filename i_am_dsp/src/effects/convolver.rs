@@ -11,13 +11,13 @@ use crate::{Effect, ProcessContext, tools::ring_buffer::RingBuffer};
 
 fn format_ir<const CHANNELS: usize>(ir: &[Vec<f32>; CHANNELS]) -> Vec<u8> {
 	assert_eq!(std::mem::size_of::<f32>(), 4);
-	
+
 	let mut ir_data = vec![];
 
 	for channel in ir {
 		ir_data.extend_from_slice(channel);
 	}
-	
+
 	for channel in ir.iter().rev() {
 		ir_data.push(f32::from_bits(channel.len() as u32))
 	}
@@ -28,9 +28,7 @@ fn format_ir<const CHANNELS: usize>(ir: &[Vec<f32>; CHANNELS]) -> Vec<u8> {
 
 	std::mem::forget(ir_data);
 
-	unsafe {
-		Vec::from_raw_parts(ptr as *mut u8, len, cap)
-	}
+	unsafe { Vec::from_raw_parts(ptr as *mut u8, len, cap) }
 }
 
 fn parse_ir<const CHANNELS: usize>(mut data: Vec<u8>) -> [Vec<f32>; CHANNELS] {
@@ -50,15 +48,18 @@ fn parse_ir<const CHANNELS: usize>(mut data: Vec<u8>) -> [Vec<f32>; CHANNELS] {
 
 	std::mem::forget(data);
 
-	let mut ir_data = unsafe {
-		Vec::from_raw_parts(ptr, len, cap)
-	};
+	let mut ir_data = unsafe { Vec::from_raw_parts(ptr, len, cap) };
 
 	// let channels = ir_data.pop().expect("Invalid PCM data: missing channel count").to_bits() as usize;
 	let mut data_len = Vec::with_capacity(CHANNELS);
 
 	for _ in 0..CHANNELS {
-		data_len.push(ir_data.pop().expect("Invalid PCM data: missing channel length").to_bits() as usize);
+		data_len.push(
+			ir_data
+				.pop()
+				.expect("Invalid PCM data: missing channel length")
+				.to_bits() as usize,
+		);
 	}
 
 	let outputs: [Vec<f32>; CHANNELS] = std::array::from_fn(|i| {
@@ -78,13 +79,9 @@ pub enum DelyaCaculateMode {
 	/// Threshold and min_consecutive
 	Epsilon(f32, usize),
 	/// Noise area, k value and min_consecutive
-	Snr(
-		Range<usize>, 
-		f32,
-		usize
-	),
+	Snr(Range<usize>, f32, usize),
 	/// FIR filter, use (N - 1) / 2 as delay, N must be odd
-	Fir
+	Fir,
 }
 
 impl Default for DelyaCaculateMode {
@@ -95,15 +92,15 @@ impl Default for DelyaCaculateMode {
 
 impl DelyaCaculateMode {
 	/// Calculate the delay based on the given mode and pcm data.
-	/// 
-	/// Panics 
+	///
+	/// Panics
 	/// 1. if the mode is `Fir` and the length of the IR is not odd.
 	/// 2. pcm_data is empty.
 	pub fn calculate_delay<const CHANNELS: usize>(&self, pcm_data: &[Vec<f32>; CHANNELS]) -> usize {
 		match self {
 			DelyaCaculateMode::Custom(delay) => *delay,
 			DelyaCaculateMode::Epsilon(epsilon, min_consecutive) => {
-				let mut consecutive_count  = 0;
+				let mut consecutive_count = 0;
 				let total_len = pcm_data[0].len();
 				for i in 0..total_len {
 					let sample = pcm_data
@@ -117,40 +114,47 @@ impl DelyaCaculateMode {
 						if consecutive_count >= *min_consecutive {
 							return i - consecutive_count + 1;
 						}
-					}else {
+					} else {
 						consecutive_count = 0;
 					}
 				}
 				pcm_data.len()
-			},
+			}
 			DelyaCaculateMode::Snr(noise_area, k, min_consecutive) => {
 				let total_len = pcm_data[0].len();
 				let end = if noise_area.start >= pcm_data.len() {
 					return 0;
-				}else if noise_area.end > pcm_data.len() {
+				} else if noise_area.end > pcm_data.len() {
 					pcm_data.len()
-				}else {
+				} else {
 					noise_area.end
 				};
 				let start = noise_area.start;
 
-				if end - start <= 1{
+				if end - start <= 1 {
 					return 0;
 				}
 
-				let avg = pcm_data.iter()
+				let avg = pcm_data
+					.iter()
 					.map(|inner| inner[start..end].iter().sum::<f32>() / (end - start) as f32)
 					.min_by_key(|x| (x.abs() * 1000.0) as usize)
 					.unwrap_or(0.0);
 
-				let std = (pcm_data.iter()
-					.map(|inner| inner[start..end].iter().map(|&x| (x - avg).powi(2)).sum::<f32>() / (end - start - 1) as f32)
+				let std = (pcm_data
+					.iter()
+					.map(|inner| {
+						inner[start..end]
+							.iter()
+							.map(|&x| (x - avg).powi(2))
+							.sum::<f32>() / (end - start - 1) as f32
+					})
 					.min_by_key(|x| (x.abs() * 1000.0) as usize)
-					.unwrap_or(0.0)
-				).sqrt();
+					.unwrap_or(0.0))
+				.sqrt();
 
 				let threshold_std = k * std;
-				let mut consecutive_count  = 0;
+				let mut consecutive_count = 0;
 				for i in 0..total_len {
 					let sample = pcm_data
 						.iter()
@@ -163,12 +167,12 @@ impl DelyaCaculateMode {
 						if consecutive_count >= *min_consecutive {
 							return i - consecutive_count + 1;
 						}
-					}else {
+					} else {
 						consecutive_count = 0;
 					}
 				}
 				pcm_data.len()
-			},
+			}
 			DelyaCaculateMode::Fir => {
 				let n = pcm_data[0].len();
 				assert!(n % 2 == 1, "The length of the IR must be odd");
@@ -179,7 +183,7 @@ impl DelyaCaculateMode {
 }
 
 /// The classical convolver, which is a FIR filter.
-/// 
+///
 /// Note: The time complexity of this convolver is O(n*m), for o(l log l) implementation, see [`FftConvolver`].
 #[derive(Parameters)]
 pub struct Convolver<const CHANNELS: usize = 2> {
@@ -208,17 +212,17 @@ pub struct Convolver<const CHANNELS: usize = 2> {
 
 impl<const CHANNELS: usize> Convolver<CHANNELS> {
 	/// Create a new convolver with the given IR and delta_caulate_mode.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0.
 	pub fn new(ir: [Vec<f32>; CHANNELS], delta_caulate_mode: &DelyaCaculateMode) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
 		let delay = delta_caulate_mode.calculate_delay(&ir);
 		let history = core::array::from_fn(|_| RingBuffer::new(delay));
-		Self { 
-			ir, 
-			history, 
+		Self {
+			ir,
+			history,
 			delay,
 
 			#[cfg(feature = "real_time_demo")]
@@ -272,7 +276,12 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 		"Convolver"
 	}
 
-	fn process(&mut self, samples: &mut [f32; CHANNELS], _: &[&[f32; CHANNELS]], _: &mut Box<dyn ProcessContext>) {
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
 		let n = self.ir[0].len();
 		if n == 0 {
 			return;
@@ -294,13 +303,13 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 			}
 		}
 	}
-	
+
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::*;
-		use crate::tools::pcm_data::load_from_file;
 		use crate::tools::pcm_data::PcmOutput;
+		use crate::tools::pcm_data::load_from_file;
 		use crate::tools::ui_tools::draw_waveform;
+		use egui::*;
 
 		let mut clear_error = false;
 		if let Some(error) = self.gui_state.1.as_ref() {
@@ -315,68 +324,89 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 			self.gui_state.1 = None;
 		}
 
-		
-		egui::Resize::default().resizable([false, true])
-		// .auto_sized()
+		egui::Resize::default()
+			.resizable([false, true])
+			// .auto_sized()
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_convolver"))
-			.show(ui, |ui| 
-		{
-			let ir_ref = self.ir.iter().map(|inner| inner.as_slice()).collect::<Vec<_>>();
-			draw_waveform(ui, None, &ir_ref, &None, false, false);
-		});
+			.show(ui, |ui| {
+				let ir_ref = self
+					.ir
+					.iter()
+					.map(|inner| inner.as_slice())
+					.collect::<Vec<_>>();
+				draw_waveform(ui, None, &ir_ref, &None, false, false);
+			});
 
 		ScrollArea::horizontal().show(ui, |ui| {
 			ui.label(format!("Delay: {}", self.delay));
 			ui.horizontal(|ui| {
-				if ui.selectable_label(matches!(self.gui_state.0, DelyaCaculateMode::Custom(_)), "Fixed delay").clicked() {
+				if ui
+					.selectable_label(
+						matches!(self.gui_state.0, DelyaCaculateMode::Custom(_)),
+						"Fixed delay",
+					)
+					.clicked()
+				{
 					self.gui_state.0 = DelyaCaculateMode::Custom(self.delay);
 					self.recaculate_delay(&DelyaCaculateMode::Custom(self.delay));
 				}
 
-				if ui.selectable_label(
-					matches!(self.gui_state.0, DelyaCaculateMode::Epsilon(_, _)), 
-					"Threshold Method"
-				).clicked() {
+				if ui
+					.selectable_label(
+						matches!(self.gui_state.0, DelyaCaculateMode::Epsilon(_, _)),
+						"Threshold Method",
+					)
+					.clicked()
+				{
 					self.gui_state.0 = DelyaCaculateMode::Epsilon(0.01, 1);
 					self.recaculate_delay(&DelyaCaculateMode::Epsilon(0.01, 1));
 				}
 
-				if ui.selectable_label(
-					matches!(self.gui_state.0, DelyaCaculateMode::Snr {.. }), 
-					"SNR Method"
-				).clicked() {
+				if ui
+					.selectable_label(
+						matches!(self.gui_state.0, DelyaCaculateMode::Snr { .. }),
+						"SNR Method",
+					)
+					.clicked()
+				{
 					self.gui_state.0 = DelyaCaculateMode::Snr(0..10, 1.0, 1);
 					self.recaculate_delay(&DelyaCaculateMode::Snr(0..10, 1.0, 1));
 				}
 
-				if ui.selectable_label(
-					matches!(self.gui_state.0, DelyaCaculateMode::Fir), 
-					"FIR filter"
-				).clicked() {
+				if ui
+					.selectable_label(
+						matches!(self.gui_state.0, DelyaCaculateMode::Fir),
+						"FIR filter",
+					)
+					.clicked()
+				{
 					self.gui_state.0 = DelyaCaculateMode::Fir;
 					self.recaculate_delay(&DelyaCaculateMode::Fir);
 				}
 			});
-			ui.horizontal(|ui| {
-				match &mut self.gui_state.0 {
-					DelyaCaculateMode::Custom(delay) => {
-						ui.add(Slider::new(delay, 0..=self.ir[0].len()).text("Delay"));
-					},
-					DelyaCaculateMode::Epsilon(epsilon, min_consecutive) => {
-						ui.add(Slider::new(epsilon, 0.0..=1.0).text("Epsilon"));
-						ui.add(Slider::new(min_consecutive, 1..=10).text("Min consecutive"));
-					},
-					DelyaCaculateMode::Snr(noise_area, k, min_consecutive) => {
-						ui.add(Slider::new(&mut noise_area.start, 0..=self.ir[0].len()).text("Noise start"));
-						ui.add(Slider::new(&mut noise_area.end, 0..=self.ir[0].len()).text("Noise end"));
-						ui.add(Slider::new(k, 0.0..=10.0).text("K"));
-						ui.add(Slider::new(min_consecutive, 1..=10).text("Min consecutive"));
-					},
-					DelyaCaculateMode::Fir => {
-						ui.label("FIR filter, Delay = (N - 1) / 2");
-					}
+			ui.horizontal(|ui| match &mut self.gui_state.0 {
+				DelyaCaculateMode::Custom(delay) => {
+					ui.add(Slider::new(delay, 0..=self.ir[0].len()).text("Delay"));
+				}
+				DelyaCaculateMode::Epsilon(epsilon, min_consecutive) => {
+					ui.add(Slider::new(epsilon, 0.0..=1.0).text("Epsilon"));
+					ui.add(Slider::new(min_consecutive, 1..=10).text("Min consecutive"));
+				}
+				DelyaCaculateMode::Snr(noise_area, k, min_consecutive) => {
+					ui.add(
+						Slider::new(&mut noise_area.start, 0..=self.ir[0].len())
+							.text("Noise start"),
+					);
+					ui.add(
+						Slider::new(&mut noise_area.end, 0..=self.ir[0].len()).text("Noise end"),
+					);
+					ui.add(Slider::new(k, 0.0..=10.0).text("K"));
+					ui.add(Slider::new(min_consecutive, 1..=10).text("Min consecutive"));
+				}
+				DelyaCaculateMode::Fir => {
+					ui.label("FIR filter, Delay = (N - 1) / 2");
 				}
 			});
 			ui.horizontal(|ui| {
@@ -384,35 +414,36 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 
 				if self.allow_change_ir {
 					ui.input(|input| {
-						path = input.raw.dropped_files.first().map(|inner| {
-							inner.path().to_path_buf()
-						});
+						path = input
+							.raw
+							.dropped_files
+							.first()
+							.map(|inner| inner.path().to_path_buf());
 					});
 				}
 
 				if ui.button("replace ir").clicked() {
-					use std::ffi::OsStr;
 					use egui_file::FileDialog;
+					use std::ffi::OsStr;
 
 					let filter = Box::new({
 						let ext = Some(OsStr::new("wav"));
-						move |path: &std::path::Path| -> bool {
-							path.extension() == ext
-						}
+						move |path: &std::path::Path| -> bool { path.extension() == ext }
 					});
 					let mut dialog = FileDialog::open_file().show_files_filter(filter);
 					if let Some(opened_file) = &self.opened_file {
-						dialog = dialog.initial_path(opened_file
-							.parent()
-							.map(|inner| inner.to_path_buf())
-							.unwrap_or(std::path::PathBuf::from("."))
+						dialog = dialog.initial_path(
+							opened_file
+								.parent()
+								.map(|inner| inner.to_path_buf())
+								.unwrap_or(std::path::PathBuf::from(".")),
 						)
 					}
 					dialog.open();
 
 					self.dialog = Some(dialog);
 				}
-				
+
 				if let Some(dialog) = self.dialog.as_mut() {
 					let dialog = dialog.show(ui.ctx());
 					if dialog.selected() {
@@ -421,17 +452,18 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 				}
 
 				if let Some(path) = path {
-					if path.extension().map(|ext| ext.to_string_lossy().to_lowercase() != "wav").unwrap_or(true) {
+					if path
+						.extension()
+						.map(|ext| ext.to_string_lossy().to_lowercase() != "wav")
+						.unwrap_or(true)
+					{
 						return;
 					}
 
 					self.opened_file = Some(path.clone());
 
 					match load_from_file::<CHANNELS>(path) {
-						Ok(PcmOutput {
-							pcm_data,
-							..
-						}) => {
+						Ok(PcmOutput { pcm_data, .. }) => {
 							let delta_caculate_mode = self.gui_state.0.clone();
 							self.replace_ir(pcm_data, &delta_caculate_mode);
 						}
@@ -444,7 +476,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 					self.gui_state.0 = DelyaCaculateMode::Fir;
 					self.replace_ir(hilbert_transform(511), &DelyaCaculateMode::Fir);
 				}
-				if ui.selectable_label(self.allow_change_ir, "Allow Replace IR").clicked() {
+				if ui
+					.selectable_label(self.allow_change_ir, "Allow Replace IR")
+					.clicked()
+				{
 					self.allow_change_ir = !self.allow_change_ir;
 				}
 			});
@@ -453,7 +488,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Convolver<CHANNELS> {
 }
 
 /// Generate a Hilbert transform filter.
-/// 
+///
 /// Panics if the length of the filter is not odd.
 pub fn hilbert_transform<const CHANNELS: usize>(filter_len: usize) -> [Vec<f32>; CHANNELS] {
 	assert!(filter_len % 2 == 1, "The length of the filter must be odd");
@@ -494,7 +529,6 @@ const MAX_PARTITION_HOP: usize = 16384;
 /// The transforms run an order of magnitude slower on subnormals, and a
 /// signal that has decayed to -500 dB is inaudible anyway.
 const DENORMAL_THRESHOLD: f32 = 1e-25;
-
 
 /// Convolve one sample against the direct head coefficients.
 ///
@@ -591,7 +625,9 @@ impl FftPartition {
 		let mut ir_spectrum = forward_fft.make_output_vec();
 		let mut scratch = vec![
 			Complex::ZERO;
-			forward_fft.get_scratch_len().max(inverse_fft.get_scratch_len())
+			forward_fft
+				.get_scratch_len()
+				.max(inverse_fft.get_scratch_len())
 		];
 		work[..segment_len].copy_from_slice(ir_segment);
 		forward_fft
@@ -693,10 +729,7 @@ impl FftPartition {
 /// head. Evaluating every partition on every block instead costs the whole
 /// impulse response per block, that is O(ir_len) per sample, which is what a
 /// partitioned convolver is supposed to avoid.
-struct FftBuffer<
-	const CHANNELS: usize = 2,
-	const FFT_SIZE: usize = FFT_CONVOLVER_HISTORY_LEN,
-> {
+struct FftBuffer<const CHANNELS: usize = 2, const FFT_SIZE: usize = FFT_CONVOLVER_HISTORY_LEN> {
 	/// The raw impulse response, kept for serialization.
 	ir: [Vec<f32>; CHANNELS],
 	/// The first FFT_SIZE taps of every channel in reverse, or the whole impulse
@@ -756,7 +789,12 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE>
 	/// impulse response, and clear all running state.
 	fn rebuild_partitions(&mut self) {
 		let block_size = FFT_SIZE;
-		let ir_len = self.ir.iter().map(|channel| channel.len()).max().unwrap_or(0);
+		let ir_len = self
+			.ir
+			.iter()
+			.map(|channel| channel.len())
+			.max()
+			.unwrap_or(0);
 		let max_hop = MAX_PARTITION_HOP.max(block_size);
 
 		// The direct head covers the first block of every channel, in reverse.
@@ -764,7 +802,11 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE>
 		// by the head alone and gets no partitions at all.
 		self.head = core::array::from_fn(|channel| {
 			let ir = &self.ir[channel];
-			ir[..ir.len().min(block_size)].iter().rev().copied().collect()
+			ir[..ir.len().min(block_size)]
+				.iter()
+				.rev()
+				.copied()
+				.collect()
 		});
 		self.head_window = core::array::from_fn(|_| vec![0.0; 2 * block_size]);
 
@@ -787,28 +829,36 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE>
 			}
 
 			let count = layout.len().max(1);
-			layout.iter().enumerate().map(|(i, (offset, hop, segment_len))| {
-				// Stagger the partitions across the longest cycle so that their
-				// FFTs are spread over the blocks instead of all landing in the
-				// same one. i * hop_blocks / count stays below hop_blocks, which
-				// is what the alignment of a staggered partition needs.
-				let hop_blocks = hop / block_size;
-				let phase = i * hop_blocks / count;
-				let segment = &ir[*offset..*offset + *segment_len];
-				FftPartition::new(segment, *offset, *hop, phase, block_size, &mut planner)
-			}).collect()
+			layout
+				.iter()
+				.enumerate()
+				.map(|(i, (offset, hop, segment_len))| {
+					// Stagger the partitions across the longest cycle so that their
+					// FFTs are spread over the blocks instead of all landing in the
+					// same one. i * hop_blocks / count stays below hop_blocks, which
+					// is what the alignment of a staggered partition needs.
+					let hop_blocks = hop / block_size;
+					let phase = i * hop_blocks / count;
+					let segment = &ir[*offset..*offset + *segment_len];
+					FftPartition::new(segment, *offset, *hop, phase, block_size, &mut planner)
+				})
+				.collect()
 		});
 
 		// The block ring only has to hold the longest window any partition
 		// consumes. The accumulator has to hold the result span of one evaluation
 		// plus the block that is played out next to it, so that a partition can
 		// never wrap around onto samples that are still live.
-		let max_hop_blocks = self.partitions.iter()
+		let max_hop_blocks = self
+			.partitions
+			.iter()
 			.flatten()
 			.map(|partition| partition.hop_blocks)
 			.max()
 			.unwrap_or(1);
-		let max_span = self.partitions.iter()
+		let max_span = self
+			.partitions
+			.iter()
 			.flatten()
 			.map(|partition| partition.hop + partition.segment_len)
 			.max()
@@ -861,7 +911,11 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE>
 		// thread (see 'enable_flush_to_zero') do not have to pay for this.
 		let input: [f32; CHANNELS] = core::array::from_fn(|channel| {
 			let value = input[channel];
-			if value.abs() > DENORMAL_THRESHOLD { value } else { 0.0 }
+			if value.abs() > DENORMAL_THRESHOLD {
+				value
+			} else {
+				0.0
+			}
 		});
 
 		let mut output = [0.0; CHANNELS];
@@ -981,7 +1035,9 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE>
 // Manual Parameters implementation so the FftBuffer can be serialized together
 // with FftConvolver. The raw impulse response is what gets persisted; the
 // FFT partitions are state derived from it and rebuild automatically.
-impl<const CHANNELS: usize, const FFT_SIZE: usize> crate::prelude::Parameters for FftBuffer<CHANNELS, FFT_SIZE> {
+impl<const CHANNELS: usize, const FFT_SIZE: usize> crate::prelude::Parameters
+	for FftBuffer<CHANNELS, FFT_SIZE>
+{
 	fn get_parameters(&self) -> Vec<crate::prelude::Parameter> {
 		vec![crate::prelude::Parameter::new(
 			"ir",
@@ -997,7 +1053,7 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> crate::prelude::Parameters fo
 			self.ir = parse_ir(data);
 			self.rebuild_partitions();
 			true
-		}else {
+		} else {
 			false
 		}
 	}
@@ -1026,7 +1082,6 @@ pub struct FftConvolver<
 
 	// #[skip]
 	// other_way_convolver: [fft_convolver::FFTConvolver<f32>; CHANNELS],
-
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
 	/// The wet gain of the convolver, saves in linear scale.
@@ -1062,7 +1117,6 @@ pub struct FftConvolver<
 	/// The wet scale chosen by [normalize_energy](Self::normalize_energy).
 	#[skip]
 	normalization: f32,
-
 	// #[cfg(feature = "real_time_demo")]
 	// #[skip]
 	// other_way: bool,
@@ -1070,9 +1124,9 @@ pub struct FftConvolver<
 
 impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SIZE> {
 	/// Create a new FftConvolver with the given IR.
-	/// 
+	///
 	/// # Panics
-	/// 
+	///
 	/// Panics if `CHANNELS` is 0.
 	pub fn new(ir: [Vec<f32>; CHANNELS], sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
@@ -1088,7 +1142,6 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 			buffer: FftBuffer::new(ir, sample_rate),
 
 			// other_way_convolver,
-			
 			dry_gain: 1.0,
 			wet_gain: 0.0125,
 
@@ -1104,7 +1157,6 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 			sample_rate,
 			ir_energy,
 			normalization: 1.0,
-
 			// #[cfg(feature = "real_time_demo")]
 			// other_way: false,
 		}
@@ -1144,7 +1196,9 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 	}
 }
 
-impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvolver<CHANNELS, FFT_SIZE> {
+impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS>
+	for FftConvolver<CHANNELS, FFT_SIZE>
+{
 	fn delay(&self) -> usize {
 		// The first block is convolved directly in the time domain, so the wet
 		// signal comes out of the same sample it goes in at.
@@ -1157,8 +1211,8 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 	}
 
 	fn process(
-		&mut self, 
-		samples: &mut [f32; CHANNELS], 
+		&mut self,
+		samples: &mut [f32; CHANNELS],
 		_: &[&[f32; CHANNELS]],
 		_: &mut Box<dyn ProcessContext>,
 	) {
@@ -1173,11 +1227,11 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
-		use egui::*;
-		use crate::tools::pcm_data::load_from_file;
 		use crate::tools::pcm_data::PcmOutput;
+		use crate::tools::pcm_data::load_from_file;
 		use crate::tools::ui_tools::draw_waveform;
 		use crate::tools::ui_tools::gain_ui;
+		use egui::*;
 
 		let mut clear_error = false;
 		if let Some(error) = self.error.as_ref() {
@@ -1192,52 +1246,52 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 			self.error = None;
 		}
 
-		
-		egui::Resize::default().resizable([false, true])
-		// .auto_sized()
+		egui::Resize::default()
+			.resizable([false, true])
+			// .auto_sized()
 			.min_width(ui.available_width())
 			.max_width(ui.available_width())
 			.id_salt(format!("{id_prefix}_convolver"))
-			.show(ui, |ui| 
-		{
-			let ir = self.ir.iter().map(|v| v.as_slice()).collect::<Vec<_>>();
-			draw_waveform(ui, None, &ir, &None, false, false);
-		});
+			.show(ui, |ui| {
+				let ir = self.ir.iter().map(|v| v.as_slice()).collect::<Vec<_>>();
+				draw_waveform(ui, None, &ir, &None, false, false);
+			});
 
 		ui.horizontal(|ui| {
 			let mut path = None;
 
 			if self.allow_change_ir {
 				ui.input(|input| {
-					path = input.raw.dropped_files.first().map(|inner| {
-						inner.path().to_path_buf()
-					});
+					path = input
+						.raw
+						.dropped_files
+						.first()
+						.map(|inner| inner.path().to_path_buf());
 				});
 			}
 
 			if ui.button("replace ir").clicked() {
-				use std::ffi::OsStr;
 				use egui_file::FileDialog;
+				use std::ffi::OsStr;
 
 				let filter = Box::new({
 					let ext = Some(OsStr::new("wav"));
-					move |path: &std::path::Path| -> bool {
-						path.extension() == ext
-					}
+					move |path: &std::path::Path| -> bool { path.extension() == ext }
 				});
 				let mut dialog = FileDialog::open_file().show_files_filter(filter);
 				if let Some(opened_file) = &self.opened_file {
-					dialog = dialog.initial_path(opened_file
-						.parent()
-						.map(|inner| inner.to_path_buf())
-						.unwrap_or(std::path::PathBuf::from("."))
+					dialog = dialog.initial_path(
+						opened_file
+							.parent()
+							.map(|inner| inner.to_path_buf())
+							.unwrap_or(std::path::PathBuf::from(".")),
 					)
 				}
 				dialog.open();
 
 				self.dialog = Some(dialog);
 			}
-			
+
 			if let Some(dialog) = self.dialog.as_mut() {
 				let dialog = dialog.show(ui.ctx());
 				if dialog.selected() {
@@ -1246,17 +1300,18 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 			}
 
 			if let Some(path) = path {
-				if path.extension().map(|ext| ext.to_string_lossy().to_lowercase() != "wav").unwrap_or(true) {
+				if path
+					.extension()
+					.map(|ext| ext.to_string_lossy().to_lowercase() != "wav")
+					.unwrap_or(true)
+				{
 					return;
 				}
 
 				self.opened_file = Some(path.clone());
 
 				match load_from_file::<CHANNELS>(path) {
-					Ok(PcmOutput {
-						pcm_data,
-						..
-					}) => {
+					Ok(PcmOutput { pcm_data, .. }) => {
 						self.replace_ir(pcm_data);
 					}
 					Err(e) => {
@@ -1267,7 +1322,10 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS> for FftConvo
 			if ui.button("hilbert transform").clicked() {
 				self.replace_ir(hilbert_transform(511));
 			}
-			if ui.selectable_label(self.allow_change_ir, "Allow Replace IR").clicked() {
+			if ui
+				.selectable_label(self.allow_change_ir, "Allow Replace IR")
+				.clicked()
+			{
 				self.allow_change_ir = !self.allow_change_ir;
 			}
 
@@ -1294,8 +1352,7 @@ mod fft_convolver_tests {
 	/// IR: this four-sample IR has L2 2, so the first wet sample is halved.
 	#[test]
 	fn the_energy_normalization_scales_the_wet() {
-		let mut convolver =
-			FftConvolver::<2>::new([vec![1.0, -1.0], vec![1.0, -1.0]], 48_000);
+		let mut convolver = FftConvolver::<2>::new([vec![1.0, -1.0], vec![1.0, -1.0]], 48_000);
 		convolver.normalize_energy();
 		convolver.dry_gain = 0.0;
 		convolver.wet_gain = 1.0;
@@ -1328,7 +1385,6 @@ mod fft_convolver_tests {
 		conv.dry_gain = 0.0;
 		conv.wet_gain = 1.0;
 
-
 		let x: Vec<f32> = (0..1024).map(|i| (i as f32 * 0.1).sin()).collect();
 		let mut out = vec![];
 		let mut ctx: Box<dyn ProcessContext> = Box::new(());
@@ -1350,15 +1406,18 @@ mod fft_convolver_tests {
 	fn matches_direct_convolution() {
 		// IR longer than a few blocks, spanning multiple partitions
 		let ir_len = 257usize;
-		let ir: Vec<f32> = (0..ir_len).map(|i| (i as f32 * 0.3).sin() * (-(i as f32) / 40.0).exp()).collect();
+		let ir: Vec<f32> = (0..ir_len)
+			.map(|i| (i as f32 * 0.3).sin() * (-(i as f32) / 40.0).exp())
+			.collect();
 		let ir_channels = [ir.clone()];
 
 		let mut fft_conv = FftConvolver::<1, 8>::new(ir_channels.clone(), 48_000);
 		fft_conv.dry_gain = 0.0;
 		fft_conv.wet_gain = 1.0;
 
-
-		let x: Vec<f32> = (0..2048).map(|i| (i as f32 * 0.05).sin() + 0.3 * (i as f32 * 0.9).cos()).collect();
+		let x: Vec<f32> = (0..2048)
+			.map(|i| (i as f32 * 0.05).sin() + 0.3 * (i as f32 * 0.9).cos())
+			.collect();
 
 		let mut out = vec![];
 		let mut ctx: Box<dyn ProcessContext> = Box::new(());
@@ -1375,7 +1434,10 @@ mod fft_convolver_tests {
 			let err = (out[n] - reference[n]).abs();
 			max_err = max_err.max(err);
 		}
-		assert!(max_err < 1e-3, "FFT convolver disagrees with direct: max err = {max_err}");
+		assert!(
+			max_err < 1e-3,
+			"FFT convolver disagrees with direct: max err = {max_err}"
+		);
 	}
 
 	/// No IR (empty) must not panic and should behave as a passthrough.
@@ -1446,7 +1508,10 @@ mod fft_convolver_tests {
 		for n in 0..x.len() {
 			max_err = max_err.max((out[n] - reference[n]).abs());
 		}
-		assert!(max_err < 1e-3, "the partitions disagree with direct: max err = {max_err}");
+		assert!(
+			max_err < 1e-3,
+			"the partitions disagree with direct: max err = {max_err}"
+		);
 	}
 
 	/// The production configuration (FFT_SIZE = 256 with the one second impulse
@@ -1494,7 +1559,10 @@ mod fft_convolver_tests {
 		for n in 0..x.len() {
 			max_err = max_err.max((out[n] - reference[n]).abs());
 		}
-		assert!(max_err < 1e-3, "FFT_SIZE = {FS} disagrees with direct: max err = {max_err}");
+		assert!(
+			max_err < 1e-3,
+			"FFT_SIZE = {FS} disagrees with direct: max err = {max_err}"
+		);
 	}
 
 	/// Block sizes that are not powers of two have to work as well: the block
@@ -1557,18 +1625,28 @@ mod fft_convolver_tests {
 			"the split should stay logarithmic, got {} partitions",
 			partitions.len()
 		);
-		assert_eq!(partitions[0].offset, 256, "the tail starts where the head stops");
+		assert_eq!(
+			partitions[0].offset, 256,
+			"the tail starts where the head stops"
+		);
 
 		let mut covered = buffer.head[0].len();
 		for partition in partitions {
-			assert_eq!(partition.offset, covered, "the split has a gap or an overlap");
+			assert_eq!(
+				partition.offset, covered,
+				"the split has a gap or an overlap"
+			);
 			assert!(
 				partition.offset >= partition.hop,
 				"offset {} below hop {}",
 				partition.offset,
 				partition.hop
 			);
-			assert!(partition.hop <= MAX_PARTITION_HOP, "hop {} above the cap", partition.hop);
+			assert!(
+				partition.hop <= MAX_PARTITION_HOP,
+				"hop {} above the cap",
+				partition.hop
+			);
 			assert!(
 				partition.fft_size <= 2 * MAX_PARTITION_HOP,
 				"fft {} above the bound",

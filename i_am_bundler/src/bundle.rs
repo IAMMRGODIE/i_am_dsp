@@ -99,7 +99,8 @@ pub fn write_vst3(
 	arch: Arch,
 	single_file: bool,
 ) -> Result<PathBuf, String> {
-	fs::create_dir_all(out_dir).map_err(|e| format!("cannot create `{}`: {e}", out_dir.display()))?;
+	fs::create_dir_all(out_dir)
+		.map_err(|e| format!("cannot create `{}`: {e}", out_dir.display()))?;
 
 	if single_file {
 		if format != Format::Windows {
@@ -140,7 +141,8 @@ pub fn write_clap(
 	meta: &PluginMeta<'_>,
 	format: Format,
 ) -> Result<PathBuf, String> {
-	fs::create_dir_all(out_dir).map_err(|e| format!("cannot create `{}`: {e}", out_dir.display()))?;
+	fs::create_dir_all(out_dir)
+		.map_err(|e| format!("cannot create `{}`: {e}", out_dir.display()))?;
 
 	if format != Format::MacOs {
 		let destination = out_dir.join(format!("{}.clap", meta.name));
@@ -150,7 +152,10 @@ pub fn write_clap(
 
 	let root = out_dir.join(format!("{}.clap", meta.name));
 	remove_bundle(&root)?;
-	copy_file(library, &root.join("Contents").join("MacOS").join(meta.name))?;
+	copy_file(
+		library,
+		&root.join("Contents").join("MacOS").join(meta.name),
+	)?;
 	write_plist(&root.join("Contents").join("Info.plist"), meta)?;
 	Ok(root)
 }
@@ -178,7 +183,7 @@ pub fn plugin_dir(format: Format, kind: Kind, system: bool) -> Option<PathBuf> {
 						.join(kind.folder())
 				})
 			}
-		},
+		}
 		Format::MacOs => {
 			if system {
 				Some(PathBuf::from("/Library/Audio/Plug-Ins").join(kind.folder()))
@@ -190,14 +195,14 @@ pub fn plugin_dir(format: Format, kind: Kind, system: bool) -> Option<PathBuf> {
 						.join(kind.folder())
 				})
 			}
-		},
+		}
 		Format::Linux => {
 			if system {
 				Some(PathBuf::from("/usr/lib").join(kind.folder().to_ascii_lowercase()))
 			} else {
 				home().map(|home| home.join(format!(".{}", kind.folder().to_ascii_lowercase())))
 			}
-		},
+		}
 	}
 }
 
@@ -265,9 +270,7 @@ fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
 		);
 
 		if e.kind() == std::io::ErrorKind::PermissionDenied {
-			message.push_str(
-				"\n  the destination needs an elevated shell, or a host has it open",
-			);
+			message.push_str("\n  the destination needs an elevated shell, or a host has it open");
 		}
 
 		message
@@ -279,7 +282,8 @@ fn copy_dir(source: &Path, destination: &Path) -> Result<(), String> {
 	fs::create_dir_all(destination)
 		.map_err(|e| format!("cannot create `{}`: {e}", destination.display()))?;
 
-	let entries = fs::read_dir(source).map_err(|e| format!("cannot read `{}`: {e}", source.display()))?;
+	let entries =
+		fs::read_dir(source).map_err(|e| format!("cannot read `{}`: {e}", source.display()))?;
 	for entry in entries {
 		let entry = entry.map_err(|e| format!("cannot read `{}`: {e}", source.display()))?;
 		let target = destination.join(entry.file_name());
