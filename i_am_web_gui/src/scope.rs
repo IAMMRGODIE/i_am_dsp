@@ -5,7 +5,7 @@
 //! Release and read with Acquire, so a snapshot that sees a newer index also sees
 //! the samples that came before it.
 
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 /// How many frames the page reads. Full rate, so a spectrum can use them too.
 pub const POINTS: usize = 4096;
@@ -44,6 +44,9 @@ pub struct Scope {
 	output_right: Option<Box<[AtomicU32]>>,
 	/// The last held MIDI note, or -1.
 	note: std::sync::atomic::AtomicI32,
+	/// Every note the module is playing, one bit per MIDI note. A resonator can
+	/// hold a chord, so a single "last note" is not enough to draw.
+	notes: [AtomicU64; 2],
 	/// The mask of notes an autotune is currently using, or -1 when it has no
 	/// such state.
 	allowed_notes: std::sync::atomic::AtomicI32,
@@ -85,6 +88,7 @@ impl Scope {
 			output_left: if stereo { ring() } else { None },
 			output_right: if stereo { ring() } else { None },
 			note: std::sync::atomic::AtomicI32::new(-1),
+			notes: [AtomicU64::new(0), AtomicU64::new(0)],
 			allowed_notes: std::sync::atomic::AtomicI32::new(-1),
 			write: AtomicUsize::new(0),
 		}
@@ -112,6 +116,18 @@ impl Scope {
 	/// The note mask an autotune is currently using, or -1 when not an autotune.
 	pub fn allowed_notes(&self) -> i32 {
 		self.allowed_notes.load(Ordering::Relaxed)
+	}
+
+	/// Records every note the module is playing.
+	pub fn set_notes(&self, notes: u128) {
+		self.notes[0].store(notes as u64, Ordering::Relaxed);
+		self.notes[1].store((notes >> 64) as u64, Ordering::Relaxed);
+	}
+
+	/// The notes the module is playing, one bit per MIDI note.
+	pub fn notes(&self) -> u128 {
+		(self.notes[0].load(Ordering::Relaxed) as u128)
+			| ((self.notes[1].load(Ordering::Relaxed) as u128) << 64)
 	}
 
 	/// Records the note mask an autotune is currently using.

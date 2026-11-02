@@ -86,13 +86,20 @@ fn module_note(
 ) -> Option<i_am_web_gui::ProtocolResponse> {
 	let id = module_id(request)?;
 
-	let (note, allowed) = match shared.existing_scope(id) {
-		Some(scope) => (scope.note(), scope.allowed_notes()),
-		None => (-1, -1),
+	let (note, held, allowed) = match shared.existing_scope(id) {
+		Some(scope) => (scope.note(), scope.notes(), scope.allowed_notes()),
+		None => (-1, 0, -1),
 	};
 
+	// A resonator can hold a chord, so the page draws every note, not the last.
+	let notes = (0..128)
+		.filter(|pitch| held & (1u128 << pitch) != 0)
+		.map(|pitch| pitch.to_string())
+		.collect::<Vec<_>>()
+		.join(",");
+
 	Some(i_am_web_gui::ProtocolResponse::json(format!(
-		"{{\"note\":{note},\"allowed\":{}}}",
+		"{{\"note\":{note},\"notes\":[{notes}],\"allowed\":{}}}",
 		if allowed < 0 { "null".to_string() } else { allowed.to_string() }
 	)))
 }

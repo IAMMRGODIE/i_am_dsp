@@ -338,6 +338,8 @@ pub(crate) struct Engine {
 	scopes: Scopes,
 	/// The note the host last played, or -1.
 	note: i32,
+	/// Every note the host is holding, one bit per MIDI note.
+	held: u128,
 	/// Counts blocks, so the note masks are republished at control rate.
 	note_tick: usize,
 }
@@ -367,6 +369,7 @@ impl Engine {
 			rate: sample_rate,
 			scopes,
 			note: -1,
+			held: 0,
 			note_tick: 0,
 		};
 
@@ -481,16 +484,33 @@ impl Engine {
 		let events = process_context.events().to_vec();
 		// The note the host is holding, so a card can show what its module hears.
 		let mut note = self.note;
+		let mut held = self.held;
+
 		for event in &events {
 			match *event {
+				NoteEvent::NoteOn { note: pitch, .. } if pitch < 128 => {
+					note = pitch as i32;
+					held |= 1u128 << pitch;
+				},
 				NoteEvent::NoteOn { note: pitch, .. } => note = pitch as i32,
+				NoteEvent::NoteOff { note: pitch, .. } if pitch < 128 => {
+					held &= !(1u128 << pitch);
+
+					if note == pitch as i32 {
+						note = -1;
+					}
+				},
 				NoteEvent::NoteOff { note: pitch, .. } if note == pitch as i32 => note = -1,
-				NoteEvent::ImmediateStop { .. } => note = -1,
+				NoteEvent::ImmediateStop { .. } => {
+					note = -1;
+					held = 0;
+				},
 				_ => {},
 			}
 		}
-		let note_changed = note != self.note;
+		let note_changed = note != self.note || held != self.held;
 		self.note = note;
+		self.held = held;
 
 		if let Some(values) = self
 			.modulation
@@ -607,6 +627,7 @@ impl Engine {
 				}
 
 				module.scope.set_note(self.note);
+				module.scope.set_notes(self.held);
 
 				if let Some(mask) = module.paramed.value.allowed_notes() {
 					module.scope.set_allowed_notes(mask as i32);

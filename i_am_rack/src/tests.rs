@@ -2266,3 +2266,40 @@ fn a_note_module_reads_notes_without_audio() {
 		"a card without audio never gets its notes"
 	);
 }
+
+/// A chord lands on the module's scope note by note, which is what the card's
+/// badge draws.
+#[test]
+fn a_chord_reaches_the_module_card() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(31, ModuleKind::Resonator));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+
+	process_with(
+		&mut rack,
+		[0.0, 0.0],
+		[48usize, 55, 64]
+			.iter()
+			.map(|note| NoteEvent::NoteOn {
+				channel: 0,
+				note: *note,
+				velocity: 0.9,
+			})
+			.collect(),
+	);
+
+	let scope = rack.shared.existing_scope(31).expect("the module scope");
+	let held = scope.notes();
+
+	for pitch in [48usize, 55, 64] {
+		assert!(
+			held & (1u128 << pitch) != 0,
+			"note {pitch} is missing from the card"
+		);
+	}
+}

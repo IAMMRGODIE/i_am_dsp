@@ -2263,7 +2263,7 @@
 
     if (options.note) {
       noteBadge = document.createElement("span");
-      noteBadge.className = "mcard-note";
+      noteBadge.className = "mcard-note-badge";
       noteBadge.style.display = "none";
       head.appendChild(noteBadge);
     }
@@ -2445,16 +2445,26 @@
     // does: the page keeps the card and calls this on every scope frame.
     card.repaintHero = paintHero;
 
-    card.setNote = function (note) {
+    card.setNote = function (notes) {
       if (!noteBadge) return;
 
-      if (note === null || note === undefined || note < 0) {
+      var list = (notes || []).filter(function (note) {
+        return typeof note === "number" && note >= 0;
+      });
+
+      if (!list.length) {
         noteBadge.style.display = "none";
         return;
       }
 
       var names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-      noteBadge.textContent = names[((note % 12) + 12) % 12] + (Math.floor(note / 12) - 1);
+      noteBadge.textContent = list
+        .slice()
+        .sort(function (a, b) { return a - b; })
+        .map(function (note) {
+          return names[note % 12] + (Math.floor(note / 12) - 1);
+        })
+        .join(" ");
       noteBadge.style.display = "";
     };
 

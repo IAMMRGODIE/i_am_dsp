@@ -235,18 +235,24 @@ body{
   display:flex; flex-direction:column;
 }
 .slot .mcard.collapsed .mcard-head{
-  flex:1; flex-direction:column; align-items:center; justify-content:space-between;
+  position:relative;
+  flex:1; flex-direction:column; align-items:center; justify-content:flex-start;
   gap:4px; height:100%; min-height:100%; padding:10px 3px;
 }
 .slot .mcard.collapsed .mcard-setting,
 .slot .mcard.collapsed .mcard-kind,
 .slot .mcard.collapsed .mcard-badge,
+.slot .mcard.collapsed .mcard-note-badge,
 .slot .mcard.collapsed .mcard-spacer{display:none}
 .slot .mcard.collapsed .mcard-name{
-  display:block; writing-mode:vertical-rl; transform:rotate(180deg);
+  /* The name sits in the middle of the card, not wherever the buttons above it
+     happen to leave room. */
+  position:absolute; top:50%; left:50%;
+  transform:translate(-50%, -50%) rotate(180deg);
+  writing-mode:vertical-rl;
   font-size:11px; white-space:nowrap;
 }
-.slot .mcard.collapsed .mcard-remove{position:static; margin-top:auto}
+.slot .mcard.collapsed .mcard-remove{position:static; margin-top:0}
 .slot .mcard.collapsed .mcard-power{margin-left:0}
 .slot.drop .slot-empty,
 .slot.drop .mcard{outline:1px dashed var(--mod); outline-offset:2px}

@@ -2303,7 +2303,14 @@
       .then(function (value) {
         if (!value) return;
 
-        if (entry.card.setNote) entry.card.setNote(value.note);
+        if (entry.card.setNote) {
+          // A chord shows every note it is playing, not just the last one.
+          var held = value.notes && value.notes.length
+            ? value.notes
+            : (value.note >= 0 ? [value.note] : []);
+
+          entry.card.setNote(held);
+        }
 
         if (typeof value.allowed === "number") {
           var changed =
