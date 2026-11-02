@@ -3,8 +3,12 @@
 //! The input is mixed with a band-limited saw at the current note and fed into a
 //! tuned comb with a damping low-pass in its feedback path. That is the small,
 //! playable version of a string/pipe resonance: the note sets the delay length,
-//! the decay sets the feedback and the damping darkens each round trip. MIDI
-//! notes played on the effect's note port retune it; the Note knob is the
+//! the decay sets the feedback and the damping darkens each round trip.
+//!
+//! One comb is one string, so a chord needs one string per note: the effect
+//! keeps up to [MAX_VOICES] of them, hands a note to the one that is free (or
+//! steals the oldest), and lets a released string ring out. MIDI notes played on
+//! the effect's note port decide which strings are excited; the Note knob is the
 //! fallback for hosts or clips that do not send notes.
 
 use i_am_dsp_derive::Parameters;
@@ -19,6 +23,12 @@ const MIN_FREQUENCY: f32 = 20.0;
 
 /// Feedback below this is flushed, where denormal arithmetic gets expensive.
 const DENORMAL: f32 = 1e-25;
+
+/// The most strings the effect can hold at once.
+pub const MAX_VOICES: usize = 16;
+
+/// How long a released string takes to fade out, so a note off cannot click.
+const RELEASE_SECONDS: f32 = 0.02;
 
 /// The frequency of a MIDI note, with A4 = 69 = 440 Hz.
 fn note_frequency(note: f32) -> f32 {
@@ -40,6 +50,26 @@ fn poly_blep(phase: f32, step: f32) -> f32 {
 	} else {
 		0.0
 	}
+}
+
+/// One string: its own comb, damping state and excitation phase.
+struct Voice<const CHANNELS: usize> {
+	/// The MIDI note this string is tuned to.
+	note: f32,
+	/// The smoothed frequency, so a retune glides instead of clicking.
+	frequency: f32,
+	phase: f32,
+	/// The comb delay line, one per channel.
+	line: [Vec<f32>; CHANNELS],
+	write: usize,
+	damp_state: [f32; CHANNELS],
+	/// The excitation level: the velocity while held, fading to zero after a
+	/// note off.
+	level: f32,
+	/// Whether the level is falling.
+	released: bool,
+	/// When the string was handed its note, so the oldest one is stolen first.
+	started: u64,
 }
 
 /// A tuned comb resonator driven by the input and a band-limited saw.
@@ -87,23 +117,27 @@ pub struct Resonator<const CHANNELS: usize = 2> {
 	#[layout(group = "Resonator", order = 4, widget = knob)]
 	pub mix: f32,
 
+	/// How many notes can ring at once. A chord needs one string per note; a
+	/// note that arrives when all of them are busy steals the oldest.
+	#[range(min = 1, max = 16)]
+	#[unit(none)]
+	#[default(8)]
+	#[id(display = "Voices")]
+	#[layout(group = "Resonator", order = 5, widget = knob, step = 1.0)]
+	pub voices: i32,
+
 	#[skip]
 	sample_rate: f32,
-	/// The smoothed frequency, so a note change glides instead of clicking.
+	/// The strings, at most [MAX_VOICES] of them.
 	#[skip]
-	frequency: f32,
+	strings: Vec<Voice<CHANNELS>>,
+	/// Counts note hand-offs, so the oldest string is the one to steal.
 	#[skip]
-	phase: f32,
-	/// Notes currently held on the note port, newest last.
+	started: u64,
+	/// Whether a host has ever played a note. Before that, the Note knob is the
+	/// excitation, so the effect still sounds for a host that never sends notes.
 	#[skip]
-	held_notes: Vec<usize>,
-	/// The comb delay line, one per channel.
-	#[skip]
-	line: [Vec<f32>; CHANNELS],
-	#[skip]
-	write: usize,
-	#[skip]
-	damp_state: [f32; CHANNELS],
+	played: bool,
 }
 
 impl<const CHANNELS: usize> Resonator<CHANNELS> {
@@ -111,45 +145,134 @@ impl<const CHANNELS: usize> Resonator<CHANNELS> {
 	pub fn new(sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
 
-		let capacity = (sample_rate as f32 / MIN_FREQUENCY).ceil() as usize + 8;
-		let frequency = note_frequency(60.0);
-
-		Self {
+		let mut resonator = Self {
 			note: 60.0,
 			decay: 1.5,
 			damping: 8_000.0,
 			saw: 0.0,
 			mix: 0.5,
+			voices: 8,
 			sample_rate: sample_rate as f32,
-			frequency,
-			phase: 0.0,
-			held_notes: Vec::new(),
-			line: core::array::from_fn(|_| vec![0.0; capacity]),
-			write: 0,
-			damp_state: [0.0; CHANNELS],
+			strings: Vec::new(),
+			started: 0,
+			played: false,
+		};
+
+		resonator.ensure_voices();
+		resonator
+	}
+
+	/// How many strings are sounding right now.
+	#[cfg(test)]
+	fn sounding(&self) -> usize {
+		self.strings
+			.iter()
+			.filter(|voice| voice.level > 0.0)
+			.count()
+	}
+
+	/// The number of strings the parameters ask for, clamped to what exists.
+	fn wanted(&self) -> usize {
+		(self.voices.clamp(1, MAX_VOICES as i32)) as usize
+	}
+
+	/// Allocates the strings the parameter asks for. Growing allocates, which is
+	/// why the voices control is a knob a person turns and not something the
+	/// effect does per block.
+	fn ensure_voices(&mut self) {
+		let wanted = self.wanted();
+		let capacity = (self.sample_rate as f32 / MIN_FREQUENCY).ceil() as usize + 8;
+
+		while self.strings.len() < wanted {
+			self.strings.push(Voice {
+				note: self.note,
+				frequency: note_frequency(self.note),
+				phase: 0.0,
+				line: core::array::from_fn(|_| vec![0.0; capacity]),
+				write: 0,
+				damp_state: [0.0; CHANNELS],
+				level: 0.0,
+				released: true,
+				started: 0,
+			});
 		}
 	}
 
-	fn target_note(&self) -> f32 {
-		self.held_notes
-			.last()
-			.map(|note| *note as f32)
-			.unwrap_or(self.note)
+	fn note_on(&mut self, note: usize, velocity: f32) {
+		self.starting();
+		self.played = true;
+
+		let note = note as f32;
+		let level = velocity.clamp(0.05, 1.0);
+		self.started += 1;
+
+		// Only the strings the Voices control asks for are in play; the rest of
+		// the allocation is left alone until the control is raised.
+		let wanted = self.wanted();
+		let strings = &mut self.strings[..wanted];
+
+		// A repeat of a note already ringing retriggers that string.
+		if let Some(voice) = strings
+			.iter_mut()
+			.find(|voice| voice.note == note && !voice.released)
+		{
+			voice.level = level;
+			voice.started = self.started;
+			return;
+		}
+
+		let index = match strings.iter().position(|voice| voice.level <= 0.0) {
+			Some(index) => index,
+			// No free string: steal the oldest one. Its frequency glides to the
+			// new note, so the hand-off is a very fast portamento, not a click.
+			None => strings
+				.iter()
+				.enumerate()
+				.min_by_key(|(_, voice)| voice.started)
+				.map(|(index, _)| index)
+				.unwrap_or(0),
+		};
+
+		let voice = &mut strings[index];
+		voice.note = note;
+		voice.level = level;
+		voice.released = false;
+		voice.started = self.started;
+	}
+
+	fn note_off(&mut self, note: usize) {
+		let note = note as f32;
+
+		for voice in &mut self.strings {
+			if voice.note == note && !voice.released {
+				voice.released = true;
+			}
+		}
+	}
+
+	fn stop_all(&mut self) {
+		for voice in &mut self.strings {
+			voice.released = true;
+		}
+	}
+
+	/// Counts the hand-offs, and keeps the string list long enough for the
+	/// current voice parameter.
+	fn starting(&mut self) {
+		if self.wanted() > self.strings.len() {
+			self.ensure_voices();
+		}
 	}
 
 	fn track_events(&mut self, process_context: &mut Box<dyn ProcessContext>) {
 		for event in process_context.events() {
-			match event {
-				crate::NoteEvent::NoteOn { note, .. } => {
-					if !self.held_notes.contains(note) {
-						self.held_notes.push(*note);
-					}
-				}
+			match *event {
+				crate::NoteEvent::NoteOn { note, velocity, .. } => self.note_on(note, velocity),
 				crate::NoteEvent::NoteOff { note, .. } | crate::NoteEvent::Stop { note, .. } => {
-					self.held_notes.retain(|held| held != note);
-				}
-				crate::NoteEvent::ImmediateStop => self.held_notes.clear(),
-				_ => {}
+					self.note_off(note);
+				},
+				crate::NoteEvent::ImmediateStop => self.stop_all(),
+				_ => {},
 			}
 		}
 	}
@@ -192,53 +315,111 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Resonator<CHANNELS> {
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
 		self.track_events(process_context);
+		self.ensure_voices();
 
-		let target = note_frequency(self.target_note()).clamp(MIN_FREQUENCY, self.sample_rate * 0.45);
 		let glide = 1.0 - (-1.0 / (0.005 * self.sample_rate)).exp();
+		// A released string fades over RELEASE_SECONDS; the exponential keeps the
+		// fade smooth whatever the block size.
+		let release = (-1.0 / (RELEASE_SECONDS * self.sample_rate)).exp();
 		let damping = self.damping_coefficient();
-		let capacity = self.line[0].len();
-		let write = self.write;
-
-		self.frequency += (target - self.frequency) * glide;
-		let step = (self.frequency / self.sample_rate).clamp(0.0, 0.45);
-		self.phase += step;
-		if self.phase >= 1.0 {
-			self.phase -= 1.0;
-		}
-
-		let saw = 2.0 * self.phase - 1.0 - poly_blep(self.phase, step);
-		let delay = (self.sample_rate / self.frequency).clamp(2.0, (capacity - 3) as f32);
-		let loop_seconds = delay / self.sample_rate;
-		let feedback = 10.0_f32
-			.powf(-3.0 * loop_seconds / self.decay.max(0.05))
-			.clamp(0.0, 0.9995);
+		let sample_rate = self.sample_rate;
+		let decay = self.decay.max(0.05);
+		let saw_gain = self.saw;
 		let input = *samples;
 
-		for (channel, sample) in samples.iter_mut().enumerate() {
-			let delayed = Self::read_delayed(&self.line[channel], write, delay);
-			self.damp_state[channel] += damping * (delayed - self.damp_state[channel]);
-			let resonant = input[channel] + saw * self.saw + feedback * self.damp_state[channel];
-
-			if resonant.abs() <= DENORMAL {
-				self.line[channel][write] = 0.0;
-			} else {
-				self.line[channel][write] = resonant;
+		// With no note held, the Note knob is the excitation: that is the "always
+		// sounds" behaviour hosts that never send notes rely on.
+		if !self.played && self.strings.iter().all(|voice| voice.level <= 0.0) {
+			if let Some(voice) = self.strings.first_mut() {
+				voice.note = self.note;
+				voice.frequency = note_frequency(self.note);
+				voice.level = 1.0;
+				voice.released = false;
 			}
-
-			*sample = input[channel] * (1.0 - self.mix) + resonant * self.mix;
 		}
 
-		self.write = (write + 1) % capacity;
+		let active = self.wanted();
+		let mut wet = [0.0f32; CHANNELS];
+		let mut sounding = 0.0f32;
+
+		for voice in self.strings.iter_mut().take(active) {
+			if voice.released && voice.level > 0.0 {
+				voice.level *= release;
+
+				if voice.level < 1e-4 {
+					voice.level = 0.0;
+				}
+			}
+
+			if voice.level <= 0.0 {
+				continue;
+			}
+
+			sounding += 1.0;
+
+			let target = note_frequency(voice.note).clamp(MIN_FREQUENCY, sample_rate * 0.45);
+			voice.frequency += (target - voice.frequency) * glide;
+
+			let step = (voice.frequency / sample_rate).clamp(0.0, 0.45);
+			voice.phase += step;
+
+			if voice.phase >= 1.0 {
+				voice.phase -= 1.0;
+			}
+
+			let saw = 2.0 * voice.phase - 1.0 - poly_blep(voice.phase, step);
+			let capacity = voice.line[0].len();
+			let delay = (sample_rate / voice.frequency).clamp(2.0, (capacity - 3) as f32);
+			let loop_seconds = delay / sample_rate;
+			let feedback = 10.0_f32
+				.powf(-3.0 * loop_seconds / decay)
+				.clamp(0.0, 0.9995);
+			let write = voice.write;
+
+			for (channel, sample) in input.iter().enumerate() {
+				let delayed = Self::read_delayed(&voice.line[channel], write, delay);
+				voice.damp_state[channel] += damping * (delayed - voice.damp_state[channel]);
+				let resonant = sample * voice.level
+					+ saw * saw_gain * voice.level
+					+ feedback * voice.damp_state[channel];
+
+				if resonant.abs() <= DENORMAL {
+					voice.line[channel][write] = 0.0;
+				} else {
+					voice.line[channel][write] = resonant;
+				}
+
+				wet[channel] += resonant;
+			}
+
+			voice.write = (write + 1) % capacity;
+		}
+
+		// A single note plays at the level it always did; a chord is scaled by
+		// the square root of its size so it does not clip.
+		let gain = if sounding > 0.0 {
+			1.0 / sounding.sqrt()
+		} else {
+			0.0
+		};
+
+		for (channel, sample) in samples.iter_mut().enumerate() {
+			*sample = input[channel] * (1.0 - self.mix) + wet[channel] * self.mix * gain;
+		}
 	}
 
 	fn clear_tail(&mut self) {
-		for line in &mut self.line {
-			line.fill(0.0);
+		for voice in &mut self.strings {
+			for line in &mut voice.line {
+				line.fill(0.0);
+			}
+
+			voice.damp_state.fill(0.0);
+			voice.level = 0.0;
+			voice.released = true;
 		}
-		self.damp_state.fill(0.0);
 	}
 }
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -296,6 +477,96 @@ mod tests {
 		}
 
 		output
+	}
+
+	#[test]
+	fn a_chord_rings_on_several_strings() {
+		let mut resonator = Resonator::<1>::new(48_000);
+		resonator.voices = 8;
+		resonator.decay = 2.0;
+		resonator.mix = 1.0;
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: [48usize, 55, 64]
+				.iter()
+				.map(|note| NoteEvent::NoteOn {
+					channel: 0,
+					note: *note,
+					velocity: 1.0,
+				})
+				.collect(),
+		});
+
+		for _ in 0..512 {
+			let mut frame = [0.5];
+			resonator.process(&mut frame, &[], &mut context);
+		}
+
+		assert_eq!(resonator.sounding(), 3, "the chord did not get three strings");
+	}
+
+	#[test]
+	fn a_note_beyond_the_voice_count_steals_the_oldest() {
+		let mut resonator = Resonator::<1>::new(48_000);
+		resonator.voices = 2;
+		let events = [48usize, 52, 55, 60]
+			.iter()
+			.map(|note| NoteEvent::NoteOn {
+				channel: 0,
+				note: *note,
+				velocity: 1.0,
+			})
+			.collect();
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext { events });
+
+		for _ in 0..64 {
+			let mut frame = [0.5];
+			resonator.process(&mut frame, &[], &mut context);
+		}
+
+		assert_eq!(resonator.sounding(), 2, "more strings rang than allowed");
+		assert!(
+			resonator
+				.strings
+				.iter()
+				.any(|voice| voice.note == 60.0 && voice.level > 0.0),
+			"the newest note did not replace the oldest"
+		);
+	}
+
+	#[test]
+	fn a_released_note_fades_its_string() {
+		let mut resonator = Resonator::<1>::new(48_000);
+		resonator.voices = 8;
+		resonator.decay = 0.2;
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![NoteEvent::NoteOn {
+				channel: 0,
+				note: 60,
+				velocity: 1.0,
+			}],
+		});
+
+		for _ in 0..64 {
+			let mut frame = [0.0];
+			resonator.process(&mut frame, &[], &mut context);
+		}
+
+		assert_eq!(resonator.sounding(), 1);
+
+		let mut stop: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![NoteEvent::NoteOff {
+				channel: 0,
+				note: 60,
+				velocity: 0.0,
+			}],
+		});
+
+			for _ in 0..14_400 {
+			let mut frame = [0.0];
+			resonator.process(&mut frame, &[], &mut stop);
+		}
+
+		assert_eq!(resonator.sounding(), 0, "the string never released");
 	}
 
 	#[test]

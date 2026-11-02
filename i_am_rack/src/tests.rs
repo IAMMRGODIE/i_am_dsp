@@ -165,7 +165,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(bands[0]["name"], "Low");
 	assert_eq!(bands[0]["slots"][0], 0);
 	assert_eq!(bands[0]["slots"][1], serde_json::Value::Null);
-	assert_eq!(bands[3]["name"], "Full");
+	assert_eq!(bands[3]["name"], "Parallel");
 	assert_eq!(bands[3]["slots"][0], serde_json::Value::Null);
 
 	assert_eq!(modules.len(), 3);

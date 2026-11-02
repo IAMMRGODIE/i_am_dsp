@@ -30,7 +30,10 @@ use crate::state::{
 };
 
 /// The names the three bands and the parallel lane answer to.
-pub const BAND_NAMES: [&str; 4] = ["Low", "Mid", "High", "Full"];
+/// The lane names a card and the page read. The fourth lane is not a band: it
+/// runs beside the crossover on the dry input, which is why it is called what it
+/// is rather than "full range".
+pub const BAND_NAMES: [&str; 4] = ["Low", "Mid", "High", "Parallel"];
 
 /// The lane at an index, with the parallel full-range lane after the bands.
 fn lane(state: &RackState, index: usize) -> Option<&BandState> {
