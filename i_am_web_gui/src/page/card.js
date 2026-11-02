@@ -362,6 +362,14 @@
       : 0;
   }
 
+  /// A label that lives in HTML instead of inside the picture. The pictures are
+  /// stretched to the card (preserveAspectRatio="none"), and text drawn inside
+  /// one stretches with it; this keeps its own proportions.
+  function heroLabel(x, y, text, style) {
+    return '<div class="hero-label" style="left:' + (x / 5.2).toFixed(2) +
+      '%;top:' + (y / 1.6).toFixed(2) + '%;' + (style || "") + '">' + text + '</div>';
+  }
+
   function heroSvgMeet(inner) {
     return '<svg class="mcard-graph" viewBox="0 0 520 160" preserveAspectRatio="xMidYMid meet">' +
       inner +
@@ -1090,6 +1098,7 @@
     }
 
     var grid = "";
+    var labelsHtml = "";
     var ticks = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
     var labels = { 100: "100", 1000: "1k", 10000: "10k" };
 
@@ -1099,8 +1108,8 @@
         '" y2="150" stroke="#252525"/>';
 
       if (labels[ticks[t]]) {
-        grid += '<text x="' + tx.toFixed(1) + '" y="157" fill="#6a6a6a" font-size="10" ' +
-          'text-anchor="middle">' + labels[ticks[t]] + '</text>';
+        labelsHtml += heroLabel(tx, 157, labels[ticks[t]],
+          "transform:translate(-50%,-100%)");
       }
     }
 
@@ -1108,8 +1117,7 @@
       var gy = 80 - db / 24 * 70;
       grid += '<line x1="20" y1="' + gy.toFixed(1) + '" x2="500" y2="' + gy.toFixed(1) +
         '" stroke="' + (db === 0 ? "#363636" : "#252525") + '"/>';
-      grid += '<text x="22" y="' + (gy - 3).toFixed(1) + '" fill="#6a6a6a" font-size="10">' +
-        (db > 0 ? "+" : "") + db + '</text>';
+      labelsHtml += heroLabel(22, gy - 3, (db > 0 ? "+" : "") + db);
     }
 
     grid += '<rect x="20" y="10" width="480" height="140" fill="none" stroke="#2a2a2a"/>';
@@ -1166,13 +1174,13 @@
       var opacity = band.on ? 1 : 0.35;
       var radius = active ? 4.5 : 3.2;
 
+      labelsHtml += heroLabel(bx + 7, by - 7, b + 1,
+        "color:" + color + ";opacity:" + opacity + ";font-size:9px");
+
       nodes +=
         '<circle cx="' + bx.toFixed(1) + '" cy="' + by.toFixed(1) + '" r="' + radius +
           '" fill="' + color + '" fill-opacity="' + opacity + '" stroke="#151515" stroke-width="1"' +
           ' data-eq-band="' + b + '" style="cursor:move"/>' +
-        '<text x="' + (bx + 7).toFixed(1) + '" y="' + (by - 6).toFixed(1) +
-          '" fill="' + color + '" fill-opacity="' + opacity + '" font-size="8"' +
-          ' pointer-events="none">' + (b + 1) + '</text>' +
         '<circle cx="' + bx.toFixed(1) + '" cy="' + by.toFixed(1) +
           '" r="18" fill="#000" fill-opacity="0" pointer-events="all"' +
           ' data-eq-band="' + b + '" style="cursor:move"/>';
@@ -1184,7 +1192,7 @@
       '<path d="' + curve + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
         'vector-effect="non-scaling-stroke"/>' +
       nodes
-    );
+    ) + labelsHtml;
   }
 
   /// A gate, expander or limiter law drawn on its own, across the whole picture.
@@ -1714,12 +1722,14 @@
       '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
         'vector-effect="non-scaling-stroke"/>' +
       markers
-    ) + '<div class="hero-label" style="left:2%;top:2%">' + vowels[vowel] + '</div>' +
+    ) + labelsHtml +
+      '<div class="hero-label" style="left:2%;top:2%">' + vowels[vowel] + '</div>' +
       '<div class="hero-badge">' + (shift > 0 ? "+" : "") + shift.toFixed(0) + ' st</div>';
   }
 
   function autotuneHero(values, context) {
     var labels = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    var labelsHtml = "";
     var live = context && context.autotune && context.autotune.notes;
     var mask = Math.round(live >= 0 ? live : valueOf(values, "notes", 4095)) & 4095;
     var strength = clamp(valueOf(values, "strength", 1), 0, 1);
@@ -1732,15 +1742,16 @@
       var fill = on ? "var(--accent)" : (sharp ? "#202020" : "#2a2a2a");
       var opacity = on && sharp ? ' fill-opacity=".5"' : "";
       var text = on ? (sharp ? "var(--text1)" : "#111") : "var(--text3)";
+      labelsHtml += heroLabel(x + 18, 143, label,
+        "color:" + text + ";transform:translateX(-50%)");
 
       cells += '<rect x="' + x + '" y="26" width="36" height="104" rx="4" ' +
         'fill="' + fill + '"' + opacity +
         ' stroke="' + (on ? "var(--accent)" : "#414141") + '"/>' +
-        '<text x="' + (x + 18) + '" y="143" text-anchor="middle" fill="' + text +
-        '" font-size="10">' + label + '</text>';
+        '';
     });
 
-    return heroSvg(cells) +
+    return heroSvg(cells) + labelsHtml +
       '<div class="hero-label" style="left:2%;top:2%">ALLOWED NOTES</div>' +
       '<div class="hero-badge">' + Math.round(strength * 100) + '%</div>';
   }
