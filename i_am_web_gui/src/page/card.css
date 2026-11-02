@@ -279,3 +279,8 @@
   z-index:3;
 }
 .knob-wrap{position:relative}
+
+/* Where the modulation has the parameter right now: a second, lighter needle
+   beside the one a person set. */
+.knob-live{stroke:var(--text1); stroke-width:1.5; stroke-linecap:round; opacity:.9}
+.knob.mod-selected{outline:1px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset:2px; border-radius:50%}

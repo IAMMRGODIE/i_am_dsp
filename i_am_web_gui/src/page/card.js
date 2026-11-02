@@ -1757,10 +1757,35 @@
     var mods = svg("g", { class: "knob-mods" });
     var fill = svg("path", { class: "knob-arc" });
     var hand = svg("line", { class: "knob-hand" });
+    var live = svg("line", { class: "knob-live" });
+    live.style.display = "none";
     drawing.appendChild(mods);
     drawing.appendChild(fill);
     drawing.appendChild(hand);
+    drawing.appendChild(live);
     dial.appendChild(drawing);
+
+    if (modulations.some(function (assignment) { return assignment.selected; })) {
+      dial.classList.add("mod-selected");
+    }
+
+    // A thin needle for where the modulation is right now, so the knob shows
+    // the sound while its main hand keeps the value a person set.
+    wrap.__live = function (position) {
+      if (position === null) {
+        live.style.display = "none";
+        return;
+      }
+
+      var angle = START + SWEEP * clamp(position, 0, 1);
+      var inner = polar(32, 32, 18, angle);
+      var tip = polar(32, 32, 29, angle);
+      live.setAttribute("x1", inner.x.toFixed(2));
+      live.setAttribute("y1", inner.y.toFixed(2));
+      live.setAttribute("x2", tip.x.toFixed(2));
+      live.setAttribute("y2", tip.y.toFixed(2));
+      live.style.display = "";
+    };
 
     // The depth a source is adding while it is dragged with Alt.
     var modHint = document.createElement("span");
@@ -2519,10 +2544,15 @@
     body.className = "mcard-body";
 
     var bodyControls = [];
+    var liveKnobs = Object.create(null);
+
     (options.controls || []).forEach(function (spec) {
       if (modeSpec && spec.id === modeSpec.id) return;
       if ((options.header || []).indexOf(spec.id) >= 0) return;
       var el = makeBodyControl(spec, values[spec.id], edited);
+
+      if (el && el.__live) liveKnobs[spec.id] = el.__live;
+
       body.appendChild(el);
       bodyControls.push({ spec: spec, el: el });
     });
@@ -2568,8 +2598,17 @@
 
       Object.keys(live).forEach(function (id) {
         var value = live[id];
+        var spec = byId[id];
 
-        if (typeof value !== "number" || values[id] === value) return;
+        if (typeof value !== "number") return;
+
+        var position = spec ? norm(spec, value) : null;
+
+        if (liveKnobs[id]) {
+          liveKnobs[id](position === null ? null : clamp(position, 0, 1));
+        }
+
+        if (values[id] === value) return;
 
         values[id] = value;
         changed = true;

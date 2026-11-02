@@ -235,27 +235,14 @@
     sendNow("assign.add", source + "|" + target).then(load);
   }
 
+  // The card owns the normalisation, including the symmetric-log mapping a
+  // bipolar parameter uses; asking it keeps the page and the knobs identical.
   function normalizeValue(spec, value) {
-    var low = spec.min;
-    var high = spec.max;
-
-    if (spec.log && high > low && low > 0) {
-      return Math.min(1, Math.max(0, Math.log(value / low) / Math.log(high / low)));
-    }
-
-    return high > low ? Math.min(1, Math.max(0, (value - low) / (high - low))) : 0;
+    return window.IAmCard.norm(spec, value);
   }
 
   function denormalizeValue(spec, position) {
-    var low = spec.min;
-    var high = spec.max;
-    position = Math.min(1, Math.max(0, position));
-
-    if (spec.log && high > low && low > 0) {
-      return low * Math.pow(high / low, position);
-    }
-
-    return low + (high - low) * position;
+    return window.IAmCard.at(spec, position);
   }
 
   /// Whether a source only ever runs forward, which decides how its value reads
@@ -354,7 +341,8 @@
         label: sourceLabel(assignment.source),
         color: sourceColor(assignment.source),
         depth: assignment.depth,
-        mode: assignment.mode || "centered"
+        mode: assignment.mode || "centered",
+        selected: selectedSource !== null
       });
     });
 
@@ -806,6 +794,22 @@
     var kinds = data.kinds || [];
 
     (module.controls || []).forEach(function (control) {
+      // The server annotates every control with the assignments that drive it;
+      // the page narrows that to the selected source here, and gives each one
+      // the label and colour its arc is drawn in.
+      if (control.modulations && control.modulations.length) {
+        control.modulations = control.modulations
+          .filter(function (assignment) {
+            return selectedSource === null || assignment.source === selectedSource;
+          })
+          .map(function (assignment) {
+            assignment.label = sourceLabel(assignment.source);
+            assignment.color = sourceColor(assignment.source);
+            assignment.selected = selectedSource !== null;
+            return assignment;
+          });
+      }
+
       control.onModulation = setModulationDepth;
 
       if (control.kind === "float") {
@@ -2108,6 +2112,39 @@
     return page;
   }
 
+  /// The heading a matrix row belongs under: the band, the module, or the
+  /// band's own gain and pan.
+  function targetGroup(data, target) {
+    if (!target) {
+      return { key: "", label: "Unassigned", rows: [] };
+    }
+
+    var module = target.match(/^m(\d+)\./);
+
+    if (module) {
+      var id = Number(module[1]);
+      var found = (data.modules || []).find(function (entry) { return entry.id === id; });
+      var band = found ? ((data.bands || [])[found.band] || {}).name : null;
+
+      return {
+        key: "m" + id,
+        label: band ? band + " \u00B7 " + found.kind : "Module " + id,
+        rows: []
+      };
+    }
+
+    var lane = target.match(/^band\.(\d+)\./);
+
+    if (lane) {
+      var index = Number(lane[1]);
+      var name = ((data.bands || [])[index] || {}).name || ("Band " + (index + 1));
+
+      return { key: "band" + index, label: name, rows: [] };
+    }
+
+    return { key: target, label: target, rows: [] };
+  }
+
   function makeMatrix(data) {
     var section = el("section", "matrix-page");
     var head = el("div", "mod-head");
@@ -2161,6 +2198,7 @@
     var assignments = data.assignments || [];
     var total = 0;
     var shown = 0;
+    var groups = [];
 
     assignments.forEach(function (assignment, slot) {
       if (!assignment) return;
@@ -2170,7 +2208,31 @@
       if (selectedSource !== null && assignment.source !== selectedSource) return;
 
       shown += 1;
-      list.appendChild(makeAssignment(data, slot, assignment));
+
+      var key = targetGroup(data, assignment.target).key;
+      var group = null;
+
+      for (var i = 0; i < groups.length; i++) {
+        if (groups[i].key === key) {
+          group = groups[i];
+          break;
+        }
+      }
+
+      if (!group) {
+        group = targetGroup(data, assignment.target);
+        groups.push(group);
+      }
+
+      group.rows.push({ slot: slot, assignment: assignment });
+    });
+
+    groups.forEach(function (group) {
+      list.appendChild(el("div", "assign-group", group.label));
+
+      group.rows.forEach(function (row) {
+        list.appendChild(makeAssignment(data, row.slot, row.assignment));
+      });
     });
 
     count.textContent = selectedSource === null

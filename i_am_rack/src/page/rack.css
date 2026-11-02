@@ -508,3 +508,10 @@ body.bypassed .footer{
 .mod-card.selected{outline:1px solid var(--accent); outline-offset:1px}
 .macro-item.selected .macro-drag{color:var(--accent)}
 .macro-item.selected .knob-label{color:var(--accent)}
+
+/* A heading per target, so the matrix reads as groups rather than a list. */
+.assign-group{
+  margin:12px 0 5px; padding-bottom:3px; border-bottom:1px solid #2e2e2e;
+  font:9px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--text3);
+}
+.assign-group:first-child{margin-top:4px}
