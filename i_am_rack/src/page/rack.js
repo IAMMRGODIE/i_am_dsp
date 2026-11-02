@@ -235,6 +235,90 @@
     sendNow("assign.add", source + "|" + target).then(load);
   }
 
+  function normalizeValue(spec, value) {
+    var low = spec.min;
+    var high = spec.max;
+
+    if (spec.log && high > low && low > 0) {
+      return Math.min(1, Math.max(0, Math.log(value / low) / Math.log(high / low)));
+    }
+
+    return high > low ? Math.min(1, Math.max(0, (value - low) / (high - low))) : 0;
+  }
+
+  function denormalizeValue(spec, position) {
+    var low = spec.min;
+    var high = spec.max;
+    position = Math.min(1, Math.max(0, position));
+
+    if (spec.log && high > low && low > 0) {
+      return low * Math.pow(high / low, position);
+    }
+
+    return low + (high - low) * position;
+  }
+
+  /// Whether a source only ever runs forward, which decides how its value reads
+  /// as a modulation amount.
+  function unipolar(source) {
+    if (source >= 4) return true;
+
+    var kind = current && current.sources
+      ? (current.sources.find(function (entry) { return entry.id === source; }) || {}).kind
+      : "";
+
+    return kind === "envelope" || kind === "pitch" || kind === "midi";
+  }
+
+  /// The values a card should draw after modulation: the engine applies this
+  /// arithmetic on the audio thread, and the card reproduces it so a hero moves
+  /// with the source instead of sitting at the knob's base value.
+  function liveModulation(entry) {
+    var module = entry.module;
+    if (!module) return null;
+
+    var prefix = "m" + entry.id + ".";
+    var sums = Object.create(null);
+    var any = false;
+
+    (current && current.assignments ? current.assignments : []).forEach(function (assignment) {
+      if (!assignment || !assignment.target) return;
+      if (assignment.target.indexOf(prefix) !== 0) return;
+
+      var value = live.values[String(assignment.source)];
+      if (typeof value !== "number") return;
+
+      var offset = assignment.mode === "centered"
+        ? value * assignment.depth
+        : (unipolar(assignment.source) ? value : (value + 1) * 0.5) * assignment.depth;
+
+      var parameter = assignment.target.slice(prefix.length);
+      sums[parameter] = (sums[parameter] || 0) + offset;
+      any = true;
+    });
+
+    if (!any) return null;
+
+    var out = Object.create(null);
+
+    Object.keys(sums).forEach(function (parameter) {
+      var control = (module.controls || []).find(function (entry) {
+        return entry.id === parameter;
+      });
+
+      if (!control || control.kind !== "float") return;
+
+      var base = typeof module.values[parameter] === "number"
+        ? module.values[parameter]
+        : control.default;
+      var normalized = normalizeValue(control, base) + sums[parameter];
+
+      out[parameter] = denormalizeValue(control, normalized);
+    });
+
+    return out;
+  }
+
   /// The colour a source kind uses, in its card and on the knobs it drives.
   function sourceAccent(kind) {
     return kind === "lfo" ? "#4c8dff" :
@@ -734,6 +818,7 @@
     var cardAudio = cardContext();
     var entry = {
       id: module.id,
+      module: module,
       channels: module.scope,
       note: module.note,
       meter: module.meter,
@@ -2027,7 +2112,41 @@
     var section = el("section", "matrix-page");
     var head = el("div", "mod-head");
     head.appendChild(el("span", "mod-title", "MODULATION MATRIX"));
-    head.appendChild(el("span", "mod-hint", "drag a source or macro onto a knob to link it"));
+
+    // The filter is the same selection the source cards drive: picking a source
+    // here is what picking its card does, and the knobs follow both.
+    var filter = document.createElement("select");
+    filter.className = "mcard-select matrix-filter";
+    filter.setAttribute("aria-label", "Filter the matrix by source");
+
+    var all = document.createElement("option");
+    all.value = "";
+    all.textContent = "All sources";
+    filter.appendChild(all);
+
+    (data.sources || []).forEach(function (source) {
+      var option = document.createElement("option");
+      option.value = String(source.id);
+      option.textContent = sourceNames[source.id] || source.name;
+      filter.appendChild(option);
+    });
+
+    (data.macro_names || []).forEach(function (name, index) {
+      var option = document.createElement("option");
+      option.value = String(4 + index);
+      option.textContent = name || ("M" + (index + 1));
+      filter.appendChild(option);
+    });
+
+    if (selectedSource !== null) filter.value = String(selectedSource);
+    filter.addEventListener("change", function () {
+      selectedSource = filter.value === "" ? null : Number(filter.value);
+      load();
+    });
+    head.appendChild(filter);
+
+    var count = el("span", "mod-hint", "");
+    head.appendChild(count);
     head.appendChild(el("span", "mod-spacer"));
 
     var add = el("button", "mcard-toggle", "+ Row");
@@ -2040,10 +2159,23 @@
 
     var list = el("div", "assignments");
     var assignments = data.assignments || [];
+    var total = 0;
+    var shown = 0;
 
     assignments.forEach(function (assignment, slot) {
-      if (assignment) list.appendChild(makeAssignment(data, slot, assignment));
+      if (!assignment) return;
+
+      total += 1;
+
+      if (selectedSource !== null && assignment.source !== selectedSource) return;
+
+      shown += 1;
+      list.appendChild(makeAssignment(data, slot, assignment));
     });
+
+    count.textContent = selectedSource === null
+      ? total + " links"
+      : shown + " of " + total + " links";
 
     if (!list.children.length) {
       list.appendChild(el("div", "matrix-empty", "No links yet. Drag a source or macro onto any modulatable knob."));
@@ -2593,6 +2725,13 @@
             if (!live.history[id]) live.history[id] = [];
             live.history[id].push(source.value);
             if (live.history[id].length > 160) live.history[id].shift();
+          });
+
+          liveCards.forEach(function (entry) {
+            if (!entry.card || !entry.card.isConnected) return;
+
+            var values = liveModulation(entry);
+            if (values && entry.card.setLiveValues) entry.card.setLiveValues(values);
           });
 
           livePainters.forEach(function (paint) { paint(); });

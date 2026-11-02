@@ -2086,6 +2086,14 @@ fn the_page_reads_the_audio_scope() {
 		js.contains("fetch(\"/module-bands?id=\""),
 		"the cards never read their band meter"
 	);
+	assert!(
+		js.contains("matrix-filter"),
+		"the matrix has no source filter"
+	);
+	assert!(
+		js.contains("liveModulation("),
+		"the cards never see the modulated values"
+	);
 	assert!(js.contains("spectra: { input: null, output: null }"), "no per-card spectra");
 	assert!(
 		js.contains("channels: module.scope"),

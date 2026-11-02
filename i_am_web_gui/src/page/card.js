@@ -2563,6 +2563,23 @@
     // does: the page keeps the card and calls this on every scope frame.
     card.repaintHero = paintHero;
 
+    card.setLiveValues = function (live) {
+      var changed = false;
+
+      Object.keys(live).forEach(function (id) {
+        var value = live[id];
+
+        if (typeof value !== "number" || values[id] === value) return;
+
+        values[id] = value;
+        changed = true;
+      });
+
+      // The hero reads the same map the knobs' base does, so it follows the
+      // source without the page having to know what the picture means.
+      if (changed) paintHero();
+    };
+
     card.setScript = function (source, force) {
       if (!scriptArea || source === undefined || source === null) return;
       // A poll must not overwrite what the person is typing.
