@@ -950,6 +950,9 @@
 
   /// The EQ's picture carries six draggable nodes. The product page wires this
   /// in its own module; a card needs the same behaviour, or the dots do nothing.
+  ///
+  /// The listeners sit on the card, not on the picture: a repaint replaces the
+  /// picture's contents while the pointer is down.
   function attachEqBands(card, module) {
     var hero = card.querySelector(".mcard-hero");
     if (!hero) return;
@@ -966,28 +969,22 @@
       return typeof stored === "number" ? stored : fallback;
     }
 
-    hero.addEventListener("pointerdown", function (event) {
-      var band = bandOf(event.target);
-      if (band < 0) return;
-
+    function begin(band, pointerId) {
       var svg = hero.querySelector("svg");
       if (!svg) return;
 
-      drag = { band: band, svg: svg, pointerId: event.pointerId };
+      drag = { band: band, svg: svg, pointerId: pointerId };
       queue(module.id + ".band", band);
-      try { hero.setPointerCapture(event.pointerId); } catch (ignore) {}
-      event.preventDefault();
-      event.stopPropagation();
-    });
+    }
 
-    hero.addEventListener("pointermove", function (event) {
+    function move(x, y) {
       if (!drag) return;
 
       var rect = drag.svg.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
 
-      var u = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-      var v = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+      var u = Math.min(1, Math.max(0, (x - rect.left) / rect.width));
+      var v = Math.min(1, Math.max(0, (y - rect.top) / rect.height));
       var index = drag.band + 1;
       var frequency = 20 * Math.pow(1000, u);
       var type = Math.round(value("b" + index + "_type", 0));
@@ -1003,19 +1000,49 @@
 
       // Show the move while the pointer is down; the next reload settles it.
       if (card.repaintHero) card.repaintHero();
+    }
 
+    function release() {
+      drag = null;
+    }
+
+    card.addEventListener("pointerdown", function (event) {
+      var band = bandOf(event.target);
+      if (band < 0) return;
+
+      begin(band, event.pointerId);
+      try { card.setPointerCapture(event.pointerId); } catch (ignore) {}
       event.preventDefault();
     });
 
-    function stop(event) {
+    card.addEventListener("pointermove", function (event) {
       if (!drag) return;
+      move(event.clientX, event.clientY);
+      event.preventDefault();
+    });
 
-      drag = null;
-      try { hero.releasePointerCapture(event.pointerId); } catch (ignore) {}
-    }
+    card.addEventListener("pointerup", release);
+    card.addEventListener("pointercancel", release);
 
-    hero.addEventListener("pointerup", stop);
-    hero.addEventListener("pointercancel", stop);
+    // A backend that does not deliver pointer capture still sends mouse events.
+    card.addEventListener("mousedown", function (event) {
+      if (event.button !== 0) return;
+
+      var band = bandOf(event.target);
+      if (band < 0) return;
+
+      begin(band, null);
+      event.preventDefault();
+    });
+
+    card.addEventListener("mousemove", function (event) {
+      if (!drag || drag.pointerId !== null) return;
+      move(event.clientX, event.clientY);
+    });
+
+    card.addEventListener("mouseup", function () {
+      if (drag && drag.pointerId === null) release();
+    });
   }
 
   function makeBand(data, bandIndex) {

@@ -12,7 +12,7 @@ use windows_sys::Win32::Graphics::Gdi::COLOR_WINDOW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
 	CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, IsWindow, RegisterClassW,
-	SetParent, SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW,
+	GetParent, SetParent, SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW,
 	WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_VISIBLE,
 };
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
@@ -906,12 +906,13 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 	}
 
 	fn set_size(&mut self, size: WindowSize) -> Result<(), EditorError> {
+		note(&format!("set_size: {}x{}", size.width, size.height));
 		self.size = size;
 
 		if let Some(window) = self.window {
 			let width = (size.width as f64 * self.scale).round() as i32;
 			let height = (size.height as f64 * self.scale).round() as i32;
-			unsafe {
+			let placed = unsafe {
 				SetWindowPos(
 					window,
 					std::ptr::null_mut(),
@@ -920,14 +921,25 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 					width,
 					height,
 					SWP_NOZORDER | SWP_NOACTIVATE,
-				);
-			}
+				)
+			};
+
+			note(&format!(
+				"set_size: window -> {}x{} ok={placed} parent={:?}",
+				width,
+				height,
+				unsafe { GetParent(window) }
+			));
 		}
 
 		if self.webview.is_some() {
-			self.webview()?
-				.set_bounds(Self::bounds(size, self.scale))
-				.map_err(EditorError::new)?;
+			match self.webview()?.set_bounds(Self::bounds(size, self.scale)) {
+				Ok(()) => note("set_size: bounds applied"),
+				Err(error) => {
+					note(&format!("set_size: bounds failed: {error}"));
+					return Err(EditorError::new(error));
+				},
+			}
 		}
 
 		Ok(())
