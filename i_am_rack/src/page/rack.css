@@ -234,6 +234,13 @@ body{
   flex:1; align-self:stretch; min-height:240px;
   display:flex; flex-direction:column;
 }
+/* The remove and duplicate buttons are not floating in a collapsed card, so
+   the padding that reserves room for them has to go too. */
+.slot .mcard.collapsed.has-remove.has-duplicate .mcard-head,
+.slot .mcard.collapsed.has-remove .mcard-head,
+.slot .mcard.collapsed.has-duplicate .mcard-head{
+  padding-right:3px;
+}
 .slot .mcard.collapsed .mcard-head{
   position:relative;
   flex:1; flex-direction:column; align-items:center; justify-content:flex-start;
@@ -245,14 +252,15 @@ body{
 .slot .mcard.collapsed .mcard-note-badge,
 .slot .mcard.collapsed .mcard-spacer{display:none}
 .slot .mcard.collapsed .mcard-name{
-  /* The name sits in the middle of the card, not wherever the buttons above it
-     happen to leave room. */
-  position:absolute; top:50%; left:50%;
-  transform:translate(-50%, -50%) rotate(180deg);
+  /* The name fills the header's height and sits on its centre line, so the
+     buttons above cannot push it off the middle of the card. */
+  position:absolute; top:0; bottom:0; left:50%;
+  transform:translateX(-50%) rotate(180deg);
+  display:flex; align-items:center; justify-content:center;
   writing-mode:vertical-rl;
-  font-size:11px; white-space:nowrap;
+  font-size:11px; white-space:nowrap; pointer-events:none;
 }
-.slot .mcard.collapsed .mcard-remove{position:static; margin-top:0}
+.slot .mcard.collapsed .mcard-remove{position:static; margin-top:auto}
 .slot .mcard.collapsed .mcard-power{margin-left:0}
 .slot.drop .slot-empty,
 .slot.drop .mcard{outline:1px dashed var(--mod); outline-offset:2px}
