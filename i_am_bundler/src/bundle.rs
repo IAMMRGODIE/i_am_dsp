@@ -218,53 +218,15 @@ pub fn install(source: &Path, destination_root: &Path) -> Result<PathBuf, String
 	fs::create_dir_all(destination_root)
 		.map_err(|e| format!("cannot create `{}`: {e}", destination_root.display()))?;
 
-	// Copies moved aside by an earlier install are dead weight; a failure here
-	// just means a host still holds one, which the next run will collect.
-	if let Ok(entries) = fs::read_dir(destination_root) {
-		for entry in entries.flatten() {
-			let path = entry.path();
-			if path.extension().is_some_and(|extension| extension == "old") && path.is_dir() {
-				let _ = fs::remove_dir_all(&path);
-			} else if path.is_file() || path.is_dir() {
-				// A single file moved aside keeps its whole name, e.g. "A.clap.old".
-				if path.to_string_lossy().ends_with(".old") {
-					let _ = if path.is_dir() {
-						fs::remove_dir_all(&path)
-					} else {
-						fs::remove_file(&path)
-					};
-				}
-			}
-		}
-	}
-
 	let destination = destination_root.join(file_name);
 
-	// A host keeps the plug-in file open while it is loaded, and Windows then
-	// refuses to delete it. It does allow a rename, so an existing copy is moved
-	// aside and the fresh one written in its place; the stale copy is cleaned up
-	// by a later install.
-	if destination.exists() {
-		// The copy moved aside last time may itself still be there (removing it
-		// needs rights the install may not have), so the name has to be free:
-		// the first one that is wins.
-		let mut stale = destination.with_file_name(format!("{}.old", file_name.to_string_lossy()));
-		let mut attempt = 1;
-
-		while stale.exists() && attempt < 10 {
-			stale = destination.with_file_name(format!("{}.old{attempt}", file_name.to_string_lossy()));
-			attempt += 1;
-		}
-
-		if fs::rename(&destination, &stale).is_err() {
-			if destination.is_dir() {
-				fs::remove_dir_all(&destination)
-					.map_err(|e| format!("cannot remove `{}`: {e}", destination.display()))?;
-			} else {
-				fs::remove_file(&destination)
-					.map_err(|e| format!("cannot remove `{}`: {e}", destination.display()))?;
-			}
-		}
+	// A host keeps the plug-in file open while it is loaded, and Windows refuses
+	// to remove it. That is reported as it is: an install that leaves a copy
+	// behind is worse than one that says why it could not finish.
+	if destination.is_dir() {
+		fs::remove_dir_all(&destination).map_err(|e| explain_removal(&destination, e))?;
+	} else if destination.exists() {
+		fs::remove_file(&destination).map_err(|e| explain_removal(&destination, e))?;
 	}
 
 	if source.is_dir() {
@@ -276,17 +238,39 @@ pub fn install(source: &Path, destination_root: &Path) -> Result<PathBuf, String
 	Ok(destination)
 }
 
+/// The reason a plug-in could not be replaced, with the two things that
+/// normally cause it.
+fn explain_removal(path: &Path, error: std::io::Error) -> String {
+	let mut message = format!("cannot remove `{}`: {error}", path.display());
+
+	if error.kind() == std::io::ErrorKind::PermissionDenied {
+		message.push_str(
+			"\n  close the host that has this plug-in open, or run the install from an elevated shell",
+		);
+	}
+
+	message
+}
+
 fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
 	if let Some(parent) = destination.parent() {
 		fs::create_dir_all(parent)
 			.map_err(|e| format!("cannot create `{}`: {e}", parent.display()))?;
 	}
 	fs::copy(source, destination).map_err(|e| {
-		format!(
+		let mut message = format!(
 			"cannot copy `{}` to `{}`: {e}",
 			source.display(),
 			destination.display()
-		)
+		);
+
+		if e.kind() == std::io::ErrorKind::PermissionDenied {
+			message.push_str(
+				"\n  the destination needs an elevated shell, or a host has it open",
+			);
+		}
+
+		message
 	})?;
 	Ok(())
 }
