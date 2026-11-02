@@ -332,15 +332,24 @@ pub(crate) fn sync_params(
 				_ => continue
 			};
 
-			crate::log::note(&format!("param out: {stable_id} = {value}"));
+			// A VST3 host only records a parameter the plug-in changed when a
+			// gesture is open on it: the wrapper forwards the value to
+			// IComponentHandler::performEdit only inside one. Opening and closing
+			// the gesture around the value is what makes a knob moved in the
+			// plug-in's own interface show up in the host's automation.
+			let id = stable_id.into();
 
+			let _ = output_parameter_changes
+				.try_push(ParamGestureBeginEvent::new(0, id));
 			let _ = output_parameter_changes.try_push(ParamValueEvent::new(
 				0,
-				stable_id.into(),
+				id,
 				Pckn::match_all(),
 				value,
 				Default::default(),
 			));
+			let _ = output_parameter_changes
+				.try_push(ParamGestureEndEvent::new(0, id));
 
 			val.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 		}

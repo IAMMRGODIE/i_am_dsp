@@ -21,7 +21,7 @@ pub(crate) use clack_extensions::{
 };
 pub(crate) use clack_plugin::{
 	host::HostMainThreadHandle,
-	entry::DefaultPluginFactory, events::{Match, Pckn, event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamModEvent, ParamValueEvent, TransportEvent, TransportFlags}, spaces::CoreEventSpace
+	entry::DefaultPluginFactory, events::{Match, Pckn, event_types::{NoteChokeEvent, NoteOffEvent, NoteOnEvent, ParamGestureBeginEvent, ParamGestureEndEvent, ParamModEvent, ParamValueEvent, TransportEvent, TransportFlags}, spaces::CoreEventSpace
 	}, plugin::{PluginAudioProcessor, PluginError, PluginMainThread}, prelude::{OutputEvents, SampleType}, process::{Audio, Events, Process, ProcessStatus}
 };
 pub(crate) use crossbeam_channel::{Receiver, Sender};
