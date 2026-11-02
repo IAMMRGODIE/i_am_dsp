@@ -688,6 +688,33 @@ mod ui_contract_tests {
 		);
 	}
 
+	/// The string instrument's metadata is what its faceplate will be: five
+	/// sections, and a preset that is a menu rather than a number.
+	#[test]
+	fn the_string_instrument_describes_a_faceplate() {
+		use i_am_dsp::prelude::{ParamWidget, Parameters, StringInstrument};
+
+		let parameters = StringInstrument::new(48_000).get_parameters();
+		let sections = crate::face::sections(&parameters);
+		let names: Vec<&str> = sections
+			.iter()
+			.map(|section| section.name.as_deref().unwrap_or(""))
+			.collect();
+
+		assert_eq!(
+			names,
+			["Instrument", "Contact", "Body", "Performance", "Vibrato"]
+		);
+		assert_eq!(sections[0].hero.as_deref(), Some("spectrum"));
+
+		let preset = parameters
+			.iter()
+			.find(|parameter| parameter.identifier == "preset")
+			.expect("the preset parameter");
+		assert_eq!(preset.meta.choices.expect("preset choices").len(), 4);
+		assert!(matches!(preset.meta.layout.widget, ParamWidget::Choice));
+	}
+
 	/// A mode is a choice: two options and seven options use the same control.
 	#[test]
 	fn a_mode_is_the_shared_select() {

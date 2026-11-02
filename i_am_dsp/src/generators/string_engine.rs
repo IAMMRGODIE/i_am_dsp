@@ -53,6 +53,10 @@ pub struct StringInstrument {
 	sample_rate: usize,
 	/// Which instrument is being played.
 	#[range(min = 0, max = 3)]
+	#[choices("Piano", "Guitar", "Violin", "Cello")]
+	#[default(0)]
+	#[id(display = "Preset")]
+	#[layout(group = "Instrument", order = 0, widget = choice, hero = "spectrum")]
 	pub preset: i32,
 	/// How the string is excited: pluck, hammer or bow.
 	///
@@ -62,55 +66,100 @@ pub struct StringInstrument {
 	/// the controls moved before they sound like anything - a light string
 	/// struck by a hard hammer is a click - but none of them is silent.
 	#[range(min = 0, max = 2)]
+	#[choices("Pluck", "Hammer", "Bow")]
+	#[default(1)]
+	#[id(display = "Excitation")]
+	#[layout(group = "Instrument", order = 1, widget = choice)]
 	pub excitation: i32,
 	/// How the string itself is modelled. Not a quality setting: the waveguide
 	/// is cheap and its low partials are exact, the modal bank is exactly in
 	/// tune at any stiffness. Which one sounds like the instrument differs.
 	#[range(min = 0, max = 1)]
+	#[choices("Waveguide", "Modal")]
+	#[default(0)]
+	#[id(display = "String Model")]
+	#[layout(group = "Instrument", order = 2, widget = choice)]
 	pub core: i32,
-	/// The output gain.
-	#[range(min = 0.0, max = 2.0)]
-	#[default(1.0)]
-	pub gain: f32,
-	/// Scales the frequency independent decay. Larger damps faster.
-	#[range(min = 0.1, max = 4.0)]
-	pub damping: f32,
-	/// Scales the frequency dependent decay. Larger is darker.
-	#[range(min = 0.1, max = 4.0)]
-	pub brightness: f32,
-	/// Scales the string stiffness, and so its inharmonicity.
-	#[range(min = 0.0, max = 4.0)]
-	pub inharmonicity: f32,
-	/// Where the string is excited, as a fraction of its length.
-	#[range(min = 0.01, max = 0.5)]
-	#[logarithmic]
-	pub position: f32,
 	/// How many strings sound per note.
 	#[range(min = 1, max = 3)]
+	#[default(3)]
+	#[id(display = "Strings")]
+	#[layout(group = "Instrument", order = 3, widget = knob, size = small)]
 	pub strings: i32,
 	/// The unison detune, in cents.
 	#[range(min = 0.0, max = 20.0)]
+	#[default(0.6)]
+	#[id(display = "Detune")]
+	#[layout(group = "Instrument", order = 4, widget = knob, size = small)]
 	pub detune_cents: f32,
 	/// Hammer felt hardness, or plectrum hardness.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.5)]
+	#[id(display = "Hardness")]
+	#[layout(group = "Contact", order = 0, widget = knob)]
 	pub hardness: f32,
 	/// Bow force.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.4)]
+	#[id(display = "Bow Force")]
+	#[layout(group = "Contact", order = 1, widget = knob)]
 	pub bow_force: f32,
 	/// Bow speed.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.35)]
+	#[id(display = "Bow Speed")]
+	#[layout(group = "Contact", order = 2, widget = knob)]
 	pub bow_speed: f32,
+	/// Where the string is excited, as a fraction of its length.
+	#[range(min = 0.01, max = 0.5)]
+	#[logarithmic]
+	#[default(0.125)]
+	#[id(display = "Excitation Point")]
+	#[layout(group = "Contact", order = 3, widget = knob)]
+	pub position: f32,
+	/// Scales the frequency independent decay. Larger damps faster.
+	#[range(min = 0.1, max = 4.0)]
+	#[default(0.9)]
+	#[id(display = "Damping")]
+	#[layout(group = "Body", order = 0, widget = knob)]
+	pub damping: f32,
+	/// Scales the frequency dependent decay. Larger is darker.
+	#[range(min = 0.1, max = 4.0)]
+	#[default(0.85)]
+	#[id(display = "Brightness")]
+	#[layout(group = "Body", order = 1, widget = knob)]
+	pub brightness: f32,
+	/// Scales the string stiffness, and so its inharmonicity.
+	#[range(min = 0.0, max = 4.0)]
+	#[default(1.0)]
+	#[id(display = "Inharmonicity")]
+	#[layout(group = "Body", order = 2, widget = knob)]
+	pub inharmonicity: f32,
 	/// How much soundboard colouring is mixed in.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.85)]
+	#[id(display = "Soundboard")]
+	#[layout(group = "Body", order = 3, widget = knob)]
 	pub body: f32,
 	/// How loudly the undamped strings answer the played ones.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.55)]
+	#[id(display = "Sympathetic")]
+	#[layout(group = "Body", order = 4, widget = knob)]
 	pub sympathetic: f32,
+	/// The output gain.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(0.8)]
+	#[layout(group = "Performance", order = 0, widget = knob, size = large)]
+	pub gain: f32,
 	/// The sustain pedal, from 0 (up) to 1 (fully down).
 	///
 	/// Anything in between is a half pedal. On a keyboard this follows MIDI
 	/// CC64; the slider is here for the computer keyboard.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Pedal")]
+	#[layout(group = "Performance", order = 1, widget = knob)]
 	pub pedal: f32,
 	/// How far the instrument is shifted, in semitones.
 	///
@@ -118,16 +167,28 @@ pub struct StringInstrument {
 	/// range, so the presets start an octave down and the middle of the keyboard
 	/// lands where the model is strongest.
 	#[range(min = -24.0, max = 12.0)]
+	#[default(-12.0)]
+	#[id(display = "Transpose")]
+	#[layout(group = "Performance", order = 2, widget = knob, step = 1.0)]
 	pub transpose: f32,
 	/// How fast the left hand shakes the string, in hertz.
 	#[range(min = 0.0, max = 12.0)]
 	#[unit(hertz)]
+	#[default(5.4)]
+	#[id(display = "Vibrato Rate")]
+	#[layout(group = "Vibrato", order = 0, widget = knob)]
 	pub vibrato_rate: f32,
 	/// How far either side of the note the hand bends it, in cents.
 	#[range(min = 0.0, max = 120.0)]
+	#[default(4.0)]
+	#[id(display = "Vibrato Depth")]
+	#[layout(group = "Vibrato", order = 1, widget = knob)]
 	pub vibrato_depth: f32,
 	/// How long the note sounds before the hand starts to shake.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.12)]
+	#[id(display = "Vibrato Delay")]
+	#[layout(group = "Vibrato", order = 2, widget = knob)]
 	pub vibrato_delay: f32,
 }
 
