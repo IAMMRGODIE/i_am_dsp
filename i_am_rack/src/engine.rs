@@ -253,10 +253,12 @@ impl Scopes {
 		}
 	}
 
-	fn get(&self, id: u32) -> Arc<Scope> {
+	fn get(&self, id: u32, kind: ModuleKind) -> Arc<Scope> {
+		let channels = module::audio_scope(kind);
+
 		match &self.shared {
-			Some(shared) => shared.scope(id),
-			None => Arc::new(Scope::new()),
+			Some(shared) => shared.scope(id, channels),
+			None => Arc::new(Scope::with_channels(channels)),
 		}
 	}
 }
@@ -283,7 +285,11 @@ fn apply_lane(
 				};
 
 				if rebuild {
-					lane.slots[slot] = Some(Module::new(edited, rate, scopes.get(edited.id)));
+					lane.slots[slot] = Some(Module::new(
+						edited,
+						rate,
+						scopes.get(edited.id, edited.kind),
+					));
 				} else if let Some(module) = &mut lane.slots[slot] {
 					module.update(edited);
 				}

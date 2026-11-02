@@ -1,6 +1,7 @@
 //! M1 acceptance tests.
 
 use i_am_dsp::Processor;
+use i_am_web_gui::Channels;
 use i_am_dsp::prelude::{
 	NoteEvent, Parameters, ProcessContext, ProcessInfos, SetValue, Value, from_binary,
 	to_binary,
@@ -2066,6 +2067,10 @@ fn the_page_reads_the_audio_scope() {
 	assert!(js.contains("card.repaintHero"), "a live hero is never redrawn");
 	assert!(js.contains("cardContext()"), "the cards share one context");
 	assert!(js.contains("spectra: { input: null, output: null }"), "no per-card spectra");
+	assert!(
+		js.contains("channels: module.scope"),
+		"the page polls cards that have no audio reader"
+	);
 }
 
 /// The scope the page polls is fed by the audio thread, not by the UI thread.
@@ -2118,8 +2123,8 @@ fn a_module_scope_holds_what_that_module_heard() {
 		rack.process(&mut frame, &[], &mut context);
 	}
 
-	let first = rack.shared.scope(10);
-	let second = rack.shared.scope(11);
+	let first = rack.shared.scope(10, Channels::None);
+	let second = rack.shared.scope(11, Channels::None);
 	assert!(
 		!std::sync::Arc::ptr_eq(&first, &second),
 		"two modules share one scope"
@@ -2135,4 +2140,44 @@ fn a_module_scope_holds_what_that_module_heard() {
 		let into = &heard[offset..offset + 4];
 		assert_eq!(out, into, "frame {frame} differs between the modules");
 	}
+}
+
+/// The rings are allocated from what the card draws: a plot of parameters keeps
+/// none, a waveform keeps the mono ones, a goniometer keeps the pair.
+#[test]
+fn a_card_without_an_audio_plot_keeps_no_rings() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(20, ModuleKind::Delay));
+		state.bands[0].slots[1] = Some(ModuleState::new(21, ModuleKind::Filter));
+		state.parallel.slots[0] = Some(ModuleState::new(22, ModuleKind::Width));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+
+	for i in 0..64 {
+		let time = i as f32 / 48_000.0;
+		let sample = (2.0 * std::f32::consts::PI * 220.0 * time).sin() * 0.1;
+		let mut frame = [sample, sample];
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		rack.process(&mut frame, &[], &mut context);
+	}
+
+	assert_eq!(
+		rack.shared.scope(20, Channels::None).channels(),
+		Channels::None,
+		"a delay card reads no audio"
+	);
+	assert_eq!(
+		rack.shared.scope(21, Channels::None).channels(),
+		Channels::Mono,
+		"a filter card draws its spectrum"
+	);
+	assert_eq!(
+		rack.shared.scope(22, Channels::None).channels(),
+		Channels::Stereo,
+		"a width card draws the stereo pair"
+	);
 }

@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use i_am_dsp::prelude::{ParamMap, SetValue};
-use i_am_web_gui::{Control, Scope};
+use i_am_web_gui::{Channels, Control, Scope};
 
 use crate::module::ModuleKind;
 use crate::state::RackState;
@@ -136,17 +136,22 @@ pub(crate) struct RackShared {
 
 impl RackShared {
 	/// The scope of a module, created the first time the engine or a page asks
-	/// for it. Both sides get the same ring.
-	pub fn scope(&self, id: u32) -> Arc<Scope> {
+	/// for it, with the rings that reader needs. Both sides get the same one.
+	pub fn scope(&self, id: u32, channels: Channels) -> Arc<Scope> {
 		let mut scopes = self
 			.scopes
 			.lock()
 			.unwrap_or_else(|poisoned| poisoned.into_inner());
 
-		scopes
-			.entry(id)
-			.or_insert_with(|| Arc::new(Scope::new()))
-			.clone()
+		// A page can ask before the engine has built the module, and it may ask
+		// for more than the engine allocated: replace rather than widen in place.
+		if scopes.get(&id).is_some_and(|scope| scope.channels() >= channels) {
+			return scopes[&id].clone();
+		}
+
+		let scope = Arc::new(Scope::with_channels(channels));
+		scopes.insert(id, scope.clone());
+		scope
 	}
 
 	/// Drops the scopes of modules that are gone: a long session of adding and

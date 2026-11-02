@@ -10,6 +10,7 @@ use std::sync::OnceLock;
 
 use i_am_dsp::prelude::{Effect, Parameter, Value};
 use i_am_effects::catalog;
+use i_am_web_gui::Channels;
 
 /// A module type a rack slot can hold.
 #[derive(
@@ -204,6 +205,19 @@ fn heroes() -> &'static HashMap<ModuleKind, String> {
 			})
 			.collect()
 	})
+}
+
+/// The audio a card reads, decided by the hero it draws: a waveform wants the
+/// three mono rings, a goniometer the L/R pair, and a hero that draws parameters
+/// wants nothing. This is also the list the page polls by, so a module with no
+/// audio on screen never has its rings allocated.
+pub fn audio_scope(kind: ModuleKind) -> Channels {
+	match hero(kind) {
+		"stereo" => Channels::Stereo,
+		"waveform" | "transfer" | "spectrum" | "spectra" | "compressor" | "limiter"
+		| "gate" | "expander" | "eq" => Channels::Mono,
+		_ => Channels::None,
+	}
 }
 
 /// Builds a fresh effect for a kind at a sample rate.

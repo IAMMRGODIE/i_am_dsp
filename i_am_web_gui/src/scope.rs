@@ -17,15 +17,31 @@ const CAPACITY: usize = 8192;
 /// read, quick enough to follow a phrase.
 const METER_POINTS: usize = 1024;
 
+/// Which rings a scope keeps.
+///
+/// A card that draws no audio needs none, a waveform needs the three mono
+/// rings, and a goniometer needs the L/R pair as well. A rack can hold dozens
+/// of modules, so rings are only allocated for the ones something reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Channels {
+	/// Nobody reads this scope: nothing is recorded.
+	#[default]
+	None,
+	/// The input, output and sidechain rings.
+	Mono,
+	/// The three mono rings plus the L/R pair the goniometer draws.
+	Stereo,
+}
+
 /// The recent input and output of one plug-in, for a scope.
 pub struct Scope {
-	input: Box<[AtomicU32]>,
-	output: Box<[AtomicU32]>,
-	sidechain: Box<[AtomicU32]>,
-	input_left: Box<[AtomicU32]>,
-	input_right: Box<[AtomicU32]>,
-	output_left: Box<[AtomicU32]>,
-	output_right: Box<[AtomicU32]>,
+	input: Option<Box<[AtomicU32]>>,
+	output: Option<Box<[AtomicU32]>>,
+	sidechain: Option<Box<[AtomicU32]>>,
+	input_left: Option<Box<[AtomicU32]>>,
+	input_right: Option<Box<[AtomicU32]>>,
+	output_left: Option<Box<[AtomicU32]>>,
+	output_right: Option<Box<[AtomicU32]>>,
 	/// The last held MIDI note, or -1.
 	note: std::sync::atomic::AtomicI32,
 	/// The mask of notes an autotune is currently using, or -1 when it has no
@@ -41,26 +57,45 @@ impl Default for Scope {
 }
 
 impl Scope {
-	/// An empty scope.
+	/// An empty scope that keeps every ring, which is what a single plug-in page
+	/// wants.
 	pub fn new() -> Self {
-		let empty = || {
-			(0..CAPACITY)
-				.map(|_| AtomicU32::new(0))
-				.collect::<Vec<_>>()
-				.into_boxed_slice()
+		Self::with_channels(Channels::Stereo)
+	}
+
+	/// An empty scope that keeps only the rings something will read.
+	pub fn with_channels(channels: Channels) -> Self {
+		let ring = || {
+			Some(
+				(0..CAPACITY)
+					.map(|_| AtomicU32::new(0))
+					.collect::<Vec<_>>()
+					.into_boxed_slice(),
+			)
 		};
+		let mono = channels >= Channels::Mono;
+		let stereo = channels >= Channels::Stereo;
 
 		Self {
-			input: empty(),
-			output: empty(),
-			sidechain: empty(),
-			input_left: empty(),
-			input_right: empty(),
-			output_left: empty(),
-			output_right: empty(),
+			input: if mono { ring() } else { None },
+			output: if mono { ring() } else { None },
+			sidechain: if mono { ring() } else { None },
+			input_left: if stereo { ring() } else { None },
+			input_right: if stereo { ring() } else { None },
+			output_left: if stereo { ring() } else { None },
+			output_right: if stereo { ring() } else { None },
 			note: std::sync::atomic::AtomicI32::new(-1),
 			allowed_notes: std::sync::atomic::AtomicI32::new(-1),
 			write: AtomicUsize::new(0),
+		}
+	}
+
+	/// The rings this scope keeps.
+	pub fn channels(&self) -> Channels {
+		match (self.input.is_some(), self.input_left.is_some()) {
+			(true, true) => Channels::Stereo,
+			(true, false) => Channels::Mono,
+			_ => Channels::None,
 		}
 	}
 
@@ -99,18 +134,34 @@ impl Scope {
 	/// frame. The mono rings are kept for the existing waveform/spectrum heroes;
 	/// the L/R rings feed the goniometer.
 	pub fn push_stereo(&self, input: [f32; 2], output: [f32; 2], sidechain: f32) {
+		let (Some(ring_in), Some(ring_out), Some(ring_side)) =
+			(&self.input, &self.output, &self.sidechain)
+		else {
+			// Nobody reads this scope.
+			return;
+		};
+
 		let index = self.write.load(Ordering::Relaxed);
 		let slot = index % CAPACITY;
 		let input_mono = (input[0] + input[1]) * 0.5;
 		let output_mono = (output[0] + output[1]) * 0.5;
 
-		self.input[slot].store(input_mono.to_bits(), Ordering::Relaxed);
-		self.output[slot].store(output_mono.to_bits(), Ordering::Relaxed);
-		self.sidechain[slot].store(sidechain.to_bits(), Ordering::Relaxed);
-		self.input_left[slot].store(input[0].to_bits(), Ordering::Relaxed);
-		self.input_right[slot].store(input[1].to_bits(), Ordering::Relaxed);
-		self.output_left[slot].store(output[0].to_bits(), Ordering::Relaxed);
-		self.output_right[slot].store(output[1].to_bits(), Ordering::Relaxed);
+		ring_in[slot].store(input_mono.to_bits(), Ordering::Relaxed);
+		ring_out[slot].store(output_mono.to_bits(), Ordering::Relaxed);
+		ring_side[slot].store(sidechain.to_bits(), Ordering::Relaxed);
+
+		if let (Some(left_in), Some(right_in), Some(left_out), Some(right_out)) = (
+			&self.input_left,
+			&self.input_right,
+			&self.output_left,
+			&self.output_right,
+		) {
+			left_in[slot].store(input[0].to_bits(), Ordering::Relaxed);
+			right_in[slot].store(input[1].to_bits(), Ordering::Relaxed);
+			left_out[slot].store(output[0].to_bits(), Ordering::Relaxed);
+			right_out[slot].store(output[1].to_bits(), Ordering::Relaxed);
+		}
+
 		self.write.store(index + 1, Ordering::Release);
 	}
 
@@ -118,6 +169,10 @@ impl Scope {
 	/// the input for a normal detector and the sidechain when the compressor is
 	/// listening to it.
 	pub fn meter(&self) -> (f32, f32) {
+		let (Some(input_ring), Some(sidechain_ring)) = (&self.input, &self.sidechain) else {
+			return (-96.0, -96.0);
+		};
+
 		let end = self.write.load(Ordering::Acquire);
 		let start = end.saturating_sub(METER_POINTS);
 		let count = end - start;
@@ -131,8 +186,8 @@ impl Scope {
 
 		for frame in start..end {
 			let slot = frame % CAPACITY;
-			let input = f32::from_bits(self.input[slot].load(Ordering::Relaxed));
-			let sidechain = f32::from_bits(self.sidechain[slot].load(Ordering::Relaxed));
+			let input = f32::from_bits(input_ring[slot].load(Ordering::Relaxed));
+			let sidechain = f32::from_bits(sidechain_ring[slot].load(Ordering::Relaxed));
 
 			input_energy += input * input;
 			sidechain_energy += sidechain * sidechain;
@@ -147,11 +202,17 @@ impl Scope {
 	/// sidechain the effect saw. The page draws the sidechain as the before
 	/// trace when a vocoder is modulating from it.
 	pub fn snapshot(&self) -> Vec<u8> {
+		let (Some(input), Some(output), Some(sidechain)) =
+			(&self.input, &self.output, &self.sidechain)
+		else {
+			return Vec::new();
+		};
+
 		let end = self.write.load(Ordering::Acquire);
 		let start = end.saturating_sub(POINTS);
 		let mut bytes = Vec::with_capacity(POINTS * 12);
 
-		for channel in [&self.input, &self.output, &self.sidechain] {
+		for channel in [input, output, sidechain] {
 			for offset in 0..POINTS {
 				let frame = start + offset;
 				let value = if frame < end {
@@ -170,16 +231,20 @@ impl Scope {
 	/// The last [POINTS] stereo frames as little-endian f32: input L, input R,
 	/// output L, output R. The goniometer reads the L/R fields from this.
 	pub fn stereo_snapshot(&self) -> Vec<u8> {
-		let end = self.write.load(Ordering::Acquire);
-		let start = end.saturating_sub(POINTS);
-		let mut bytes = Vec::with_capacity(POINTS * 16);
-
-		for channel in [
+		let (Some(input_left), Some(input_right), Some(output_left), Some(output_right)) = (
 			&self.input_left,
 			&self.input_right,
 			&self.output_left,
 			&self.output_right,
-		] {
+		) else {
+			return Vec::new();
+		};
+
+		let end = self.write.load(Ordering::Acquire);
+		let start = end.saturating_sub(POINTS);
+		let mut bytes = Vec::with_capacity(POINTS * 16);
+
+		for channel in [input_left, input_right, output_left, output_right] {
 			for offset in 0..POINTS {
 				let frame = start + offset;
 				let value = if frame < end {
@@ -245,6 +310,31 @@ mod tests {
 		assert_eq!(read(POINTS), -0.25, "input R");
 		assert_eq!(read(POINTS * 2), 0.25, "output L");
 		assert_eq!(read(POINTS * 3), -0.5, "output R");
+	}
+
+	/// A scope keeps only the rings its reader draws, and records nothing when
+	/// there is no reader at all.
+	#[test]
+	fn a_scope_keeps_the_rings_it_needs() {
+		assert_eq!(Scope::new().channels(), Channels::Stereo);
+		assert_eq!(
+			Scope::with_channels(Channels::Mono).channels(),
+			Channels::Mono
+		);
+		assert_eq!(
+			Scope::with_channels(Channels::None).channels(),
+			Channels::None
+		);
+
+		let none = Scope::with_channels(Channels::None);
+		none.push_stereo([1.0, 1.0], [1.0, 1.0], 0.0);
+		assert!(none.snapshot().is_empty());
+		assert!(none.stereo_snapshot().is_empty());
+
+		let mono = Scope::with_channels(Channels::Mono);
+		mono.push_stereo([0.5, 0.5], [0.25, 0.25], 0.0);
+		assert_eq!(mono.snapshot().len(), POINTS * 12);
+		assert!(mono.stereo_snapshot().is_empty());
 	}
 
 	/// Before any audio arrives, a scope is silence rather than garbage.

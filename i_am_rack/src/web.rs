@@ -77,7 +77,12 @@ fn module_document(
 		.split('&')
 		.find_map(|pair| pair.strip_prefix("id="))
 		.and_then(|value| value.parse::<u32>().ok())?;
-	let scope = shared.scope(id);
+	let channels = if stereo {
+		i_am_web_gui::Channels::Stereo
+	} else {
+		i_am_web_gui::Channels::Mono
+	};
+	let scope = shared.scope(id, channels);
 
 	Some(i_am_web_gui::ProtocolResponse {
 		status: 200,
@@ -338,6 +343,11 @@ fn module_json(
 		"band_name": BAND_NAMES[band],
 		"slot": slot,
 		"kind": module.kind.name(),
+		"scope": match crate::module::audio_scope(module.kind) {
+			i_am_web_gui::Channels::None => serde_json::Value::Null,
+			i_am_web_gui::Channels::Mono => "mono".into(),
+			i_am_web_gui::Channels::Stereo => "stereo".into(),
+		},
 		"accent": module.kind.accent(),
 		"hero": crate::module::hero(module.kind),
 		"mode": module.kind.mode(),

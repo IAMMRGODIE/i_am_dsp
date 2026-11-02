@@ -46,12 +46,6 @@
   var pageRate = 48000;
   var cardTimer = null;
   var liveCards = [];
-  // The heroes that draw audio rather than parameters. Everything else keeps
-  // its parameter drawing and is only repainted when a knob moves.
-  var SCOPE_HEROES = {
-    waveform: true, transfer: true, spectrum: true, spectra: true,
-    compressor: true, limiter: true, gate: true, expander: true, eq: true
-  };
 
   /// Every card gets its own rings: a module's card shows what entered and left
   /// that module, not the rack's own input and output.
@@ -722,9 +716,11 @@
 
     wrap.appendChild(card);
 
+    // The engine decides what a card reads from the audio, and says so in the
+    // module: a hero that draws parameters gets nothing allocated at all.
     liveCards.push({
       id: module.id,
-      hero: module.hero,
+      channels: module.scope,
       card: card,
       context: cardAudio,
       fetching: false
@@ -2301,10 +2297,13 @@
     if (!document.hidden) {
       liveCards.forEach(function (entry) {
         if (entry.fetching) return;
+        if (!entry.channels) return;
         if (!entry.card.isConnected || entry.card.offsetParent === null) return;
 
-        if (SCOPE_HEROES[entry.hero]) fetchScope(entry);
-        if (entry.hero === "stereo") fetchStereo(entry);
+        if (!entry.channels) return;
+
+        fetchScope(entry);
+        if (entry.channels === "stereo") fetchStereo(entry);
       });
     }
 

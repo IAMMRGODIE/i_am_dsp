@@ -40,7 +40,7 @@ mod face;
 mod scope;
 
 pub use face::{Control, Faceplate, Kind, Section, Switch};
-pub use scope::Scope;
+pub use scope::{Channels, Scope};
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
