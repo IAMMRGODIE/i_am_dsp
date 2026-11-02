@@ -269,6 +269,12 @@ pub(crate) fn handle_param_value_event(
 	if let Some(param_id) = param.param_id() {
 		let value = param.value() as f32;
 		if let Some(inner) = param_map.get_by_stable_id(param_id.get()) {
+			crate::log::note(&format!(
+				"param in: {} = {} (had {})",
+				param_id.get(),
+				value,
+				inner.is_chanegd()
+			));
 			if inner.is_int() {
 				inner.store(value as i32, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
@@ -325,6 +331,8 @@ pub(crate) fn sync_params(
 				SetValue::Float(v) => to_host_value(val, v as f64),
 				_ => continue
 			};
+
+			crate::log::note(&format!("param out: {stable_id} = {value}"));
 
 			let _ = output_parameter_changes.try_push(ParamValueEvent::new(
 				0,
