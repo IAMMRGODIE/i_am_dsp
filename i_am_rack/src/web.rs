@@ -64,6 +64,7 @@ pub(crate) fn route(
 		("POST", "/rack-command") => Some(command(request.body, shared)),
 		("GET", "/module-scope") => module_document(request, shared, false),
 		("GET", "/module-note") => module_note(request, shared),
+		("GET", "/module-bands") => module_bands(request, shared),
 		("GET", "/module-stereo") => module_document(request, shared, true),
 		_ => None,
 	}
@@ -106,6 +107,32 @@ fn module_note(
 
 /// The audio one module saw and produced, in the same shape as the rack's own
 /// scope documents: three rings for the mono one, four for the stereo pair.
+/// The band meter a module's card draws: the OTT's three gain reductions, or a
+/// vocoder's input and output level per band.
+fn module_bands(
+	request: &i_am_web_gui::ProtocolRequest<'_>,
+	shared: &RackShared,
+) -> Option<i_am_web_gui::ProtocolResponse> {
+	let id = module_id(request)?;
+	let (bands, gains, input, output) = match shared.existing_meters(id) {
+		Some(meters) => meters.snapshot(),
+		None => (0, false, Vec::new(), Vec::new()),
+	};
+	let row = |values: &[f32]| {
+		values
+			.iter()
+			.map(|value| format!("{value:.4}"))
+			.collect::<Vec<_>>()
+			.join(",")
+	};
+
+	Some(i_am_web_gui::ProtocolResponse::json(format!(
+		"{{\"bands\":{bands},\"gains\":{gains},\"input\":[{}],\"output\":[{}]}}",
+		row(&input),
+		row(&output)
+	)))
+}
+
 fn module_document(
 	request: &i_am_web_gui::ProtocolRequest<'_>,
 	shared: &RackShared,
@@ -379,6 +406,7 @@ fn module_json(
 		"slot": slot,
 		"kind": module.kind.name(),
 		"note": crate::module::shows_notes(module.kind),
+		"meter": crate::module::meter(module.kind),
 		"scope": match crate::module::audio_scope(module.kind) {
 			i_am_web_gui::Channels::None => serde_json::Value::Null,
 			i_am_web_gui::Channels::Mono => "mono".into(),

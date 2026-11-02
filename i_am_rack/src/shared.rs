@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use i_am_dsp::prelude::{ParamMap, SetValue};
 use i_am_web_gui::{Channels, Control, Scope};
@@ -16,6 +16,73 @@ use i_am_web_gui::{Channels, Control, Scope};
 use crate::module::ModuleKind;
 use crate::state::RackState;
 
+/// The most bands a module meter can hold. The vocoder's bank tops out at 128.
+pub(crate) const MAX_METER_BANDS: usize = 128;
+
+/// The live band meter of one module, for its card: the OTT's three gain
+/// reductions, or a vocoder's input and output level per band.
+pub(crate) struct ModuleMeters {
+	bands: AtomicUsize,
+	/// Whether the values are the OTT's gain reduction rather than levels.
+	gains: AtomicBool,
+	input: [AtomicU32; MAX_METER_BANDS],
+	output: [AtomicU32; MAX_METER_BANDS],
+}
+
+impl Default for ModuleMeters {
+	fn default() -> Self {
+		Self {
+			bands: AtomicUsize::new(0),
+			gains: AtomicBool::new(false),
+			input: core::array::from_fn(|_| AtomicU32::new(0)),
+			output: core::array::from_fn(|_| AtomicU32::new(0)),
+		}
+	}
+}
+
+impl ModuleMeters {
+	/// Publishes the OTT's three gain-reduction values.
+	pub fn publish_gains(&self, gains: [f32; 3]) {
+		self.bands.store(3, Ordering::Relaxed);
+		self.gains.store(true, Ordering::Relaxed);
+
+		for (meter, value) in self.input.iter().zip(gains) {
+			meter.store(value.to_bits(), Ordering::Relaxed);
+		}
+	}
+
+	/// Publishes a vocoder's band levels.
+	pub fn publish_bands(&self, bands: usize, input: &[f32], output: &[f32]) {
+		let bands = bands.min(MAX_METER_BANDS);
+		self.bands.store(bands, Ordering::Relaxed);
+		self.gains.store(false, Ordering::Relaxed);
+
+		for band in 0..bands {
+			self.input[band]
+				.store(input.get(band).copied().unwrap_or(0.0).to_bits(), Ordering::Relaxed);
+			self.output[band]
+				.store(output.get(band).copied().unwrap_or(0.0).to_bits(), Ordering::Relaxed);
+		}
+	}
+
+	/// The current meter: how many bands, whether it is gain reduction, and the
+	/// two rows of values.
+	pub fn snapshot(&self) -> (usize, bool, Vec<f32>, Vec<f32>) {
+		let bands = self.bands.load(Ordering::Relaxed).min(MAX_METER_BANDS);
+		let row = |values: &[AtomicU32]| {
+			(0..bands)
+				.map(|band| f32::from_bits(values[band].load(Ordering::Relaxed)))
+				.collect::<Vec<_>>()
+		};
+
+		(
+			bands,
+			self.gains.load(Ordering::Relaxed),
+			row(&self.input),
+			row(&self.output),
+		)
+	}
+}
 /// How many edits the rack remembers, one entry per page command batch.
 pub const HISTORY_LIMIT: usize = 64;
 
@@ -132,6 +199,8 @@ pub(crate) struct RackShared {
 	/// One scope per module id: a card shows the audio that entered and left
 	/// that module, not the rack's own input and output.
 	pub scopes: Mutex<HashMap<u32, Arc<Scope>>>,
+	/// One meter per module id, for the cards that draw band levels.
+	pub meters: Mutex<HashMap<u32, Arc<ModuleMeters>>>,
 }
 
 impl RackShared {
@@ -154,6 +223,27 @@ impl RackShared {
 		scope
 	}
 
+	/// The meter of a module, created the first time the engine or a page asks.
+	pub fn meters(&self, id: u32) -> Arc<ModuleMeters> {
+		let mut meters = self
+			.meters
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner());
+
+		meters
+			.entry(id)
+			.or_insert_with(|| Arc::new(ModuleMeters::default()))
+			.clone()
+	}
+
+	/// The meter of a module, when the engine has already built one.
+	pub fn existing_meters(&self, id: u32) -> Option<Arc<ModuleMeters>> {
+		self.meters
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.get(&id)
+			.cloned()
+	}
 	/// The scope of a module, when the engine has already built one. A page that
 	/// asks about a module it has not created yet gets nothing, rather than
 	/// allocating rings for it.
@@ -174,6 +264,12 @@ impl RackShared {
 			.unwrap_or_else(|poisoned| poisoned.into_inner());
 
 		scopes.retain(|id, _| live.contains(id));
+
+		let mut meters = self
+			.meters
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner());
+		meters.retain(|id, _| live.contains(id));
 	}
 
 	/// Locks the state, ignoring a poisoned lock: a panic in the page path must

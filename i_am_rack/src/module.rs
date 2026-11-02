@@ -84,11 +84,15 @@ pub enum ModuleKind {
 	IrReverb,
 	/// The STFT vocoder product.
 	StftVocoder,
+	/// The OTT multiband compressor.
+	Ott,
+	/// The vocoder product.
+	Vocoder,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 33] = [
+	pub const ALL: [Self; 35] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
@@ -122,6 +126,8 @@ impl ModuleKind {
 		Self::Unstablizer,
 		Self::IrReverb,
 		Self::StftVocoder,
+		Self::Ott,
+		Self::Vocoder,
 	];
 
 	/// The catalog id this kind stores in its state.
@@ -160,6 +166,8 @@ impl ModuleKind {
 			Self::Unstablizer => "unstablizer",
 			Self::IrReverb => "ir_reverb",
 			Self::StftVocoder => "stft_vocoder",
+			Self::Ott => "ott",
+			Self::Vocoder => "vocoder",
 		}
 	}
 
@@ -253,6 +261,16 @@ pub fn shows_notes(kind: ModuleKind) -> bool {
 			| ModuleKind::Resonator
 			| ModuleKind::Unstablizer
 	)
+}
+
+/// The meter a kind publishes for its card: the OTT's three gain reductions, or
+/// a vocoder's band levels. Everything else draws parameters only.
+pub fn meter(kind: ModuleKind) -> Option<&'static str> {
+	match kind {
+		ModuleKind::Ott => Some("gain"),
+		ModuleKind::Vocoder => Some("bands"),
+		_ => None,
+	}
 }
 
 /// Builds a fresh effect for a kind at a sample rate.

@@ -129,6 +129,18 @@ pub trait Effect<const CHANNELS: usize = 2>: Send + Sync + Parameters {
 		None
 	}
 
+	/// The three gain-reduction values an OTT-style card draws, in dB.
+	fn gain_reduction(&self) -> Option<[f32; 3]> {
+		None
+	}
+
+	/// The band envelopes a vocoder-style card draws: how many bands, and the
+	/// input and output level of each, written into the slices.
+	fn band_meters(&self, input: &mut [f32], output: &mut [f32]) -> usize {
+		let _ = (input, output);
+		0
+	}
+
 	/// Drops the effect's stored history, so a reverb or delay tail stops now.
 	///
 	/// Most effects have no tail; the ones that do override this. It runs on the

@@ -723,6 +723,7 @@
       id: module.id,
       channels: module.scope,
       note: module.note,
+      meter: module.meter,
       card: card,
       context: cardAudio,
       fetching: false
@@ -2293,6 +2294,32 @@
       .catch(function () {});
   }
 
+  /// The band meter a module draws: the OTT's three gain bars, or the vocoder's
+  /// input and output level per band.
+  function fetchBands(entry) {
+    fetch("/module-bands?id=" + entry.id, { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        if (!value) return;
+
+        var changed;
+
+        if (value.gains) {
+          changed = JSON.stringify(entry.context.ott) !== JSON.stringify({ bands: value.input });
+          entry.context.ott = { bands: value.input };
+        } else {
+          var next = { bands: value.bands, input: value.input, output: value.output };
+          changed = JSON.stringify(entry.context.vocoder) !== JSON.stringify(next);
+          entry.context.vocoder = next;
+        }
+
+        if (changed) repaint(entry);
+      })
+      .catch(function () {});
+  }
+
   /// The note a pitch-tracking module is hearing, and the mask it tunes to: the
   /// card shows the note in its header, the autotune hero lights the mask.
   function fetchNote(entry) {
@@ -2339,6 +2366,7 @@
         }
 
         if (entry.note) fetchNote(entry);
+        if (entry.meter) fetchBands(entry);
       });
     }
 

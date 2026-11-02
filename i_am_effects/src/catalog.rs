@@ -5,11 +5,13 @@
 //! header, visible controls, switches). The hero is not here: it lives on the
 //! parameters, where the product page reads it too.
 
+use std::sync::Arc;
+
 use i_am_dsp::prelude::{
 	AutoTune, Chorus, Crusher, Delay, Distortion, Effect, Expander, Flanger, FormantFilter, Gain,
-	Gate, Limiter, LrControl, Multimode, Parameter, ParametricEq, Phaser, Resonator, SineWave,
-	SpectralRetuneEffect, StereoController, StereoRouter, StftVocoderEffect, TapeStopEffect,
-	TransientShaper,
+	Gate, Limiter, LrControl, Multimode, OttMeters, Parameter, ParametricEq, Phaser, Resonator,
+	SineWave, SpectralRetuneEffect, StereoController, StereoRouter, StftVocoderEffect,
+	TapeStopEffect, TransientShaper, VocoderEffect, VocoderMeters,
 };
 
 use i_am_web_gui::Switch;
@@ -18,6 +20,7 @@ use crate::allpass::AllpassEffect;
 use crate::comb::CombEffect;
 use crate::compressor::CompressorEffect;
 use crate::ir_reverb::IrReverbEffect;
+use crate::ott::OttEffect;
 use crate::disperser::Dispersion;
 use crate::particle_wider::ParticleWiderEffect;
 use crate::schroeder::SchroederEffect;
@@ -183,6 +186,19 @@ fn ir_reverb(sample_rate: usize) -> Box<dyn Effect<2>> {
 
 fn stft_vocoder(sample_rate: usize) -> Box<dyn Effect<2>> {
 	Box::new(StftVocoderEffect::new(sample_rate))
+}
+
+fn ott(sample_rate: usize) -> Box<dyn Effect<2>> {
+	// The rack's card reads the meter through the effect, so this Arc stays
+	// private to it.
+	Box::new(OttEffect::new(sample_rate, Arc::new(OttMeters::default())))
+}
+
+fn vocoder(sample_rate: usize) -> Box<dyn Effect<2>> {
+	Box::new(VocoderEffect::<2>::new(
+		sample_rate,
+		Arc::new(VocoderMeters::default()),
+	))
 }
 
 /// The multimode filter product.
@@ -581,6 +597,30 @@ pub const STFT_VOCODER: ModuleDescriptor = ModuleDescriptor {
 	build: stft_vocoder,
 };
 
+
+/// The OTT product.
+pub const OTT: ModuleDescriptor = ModuleDescriptor {
+	id: "ott",
+	name: "OTT",
+	accent: "#ffb454",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build: ott,
+};
+
+/// The vocoder product.
+pub const VOCODER: ModuleDescriptor = ModuleDescriptor {
+	id: "vocoder",
+	name: "Vocoder",
+	accent: "#e0a45a",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build: vocoder,
+};
 /// Every module the catalog currently exposes.
 pub const MODULES: &[ModuleDescriptor] = &[
 	FILTER,
@@ -616,6 +656,8 @@ pub const MODULES: &[ModuleDescriptor] = &[
 	UNSTABLIZER,
 	IR_REVERB,
 	STFT_VOCODER,
+	OTT,
+	VOCODER,
 ];
 
 /// Finds a descriptor by its stable id.

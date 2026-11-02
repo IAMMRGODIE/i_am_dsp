@@ -167,6 +167,11 @@ impl Effect<2> for OttEffect {
 		0
 	}
 
+	/// The meter the card's three bars draw.
+	fn gain_reduction(&self) -> Option<[f32; 3]> {
+		Some(self.meters.get())
+	}
+
 	fn process(
 		&mut self,
 		samples: &mut [f32; 2],

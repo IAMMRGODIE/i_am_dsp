@@ -21,7 +21,7 @@ use i_am_web_gui::{Control, Kind, Scope};
 use crate::crossover::Crossover;
 use crate::modulation::Modulation;
 use crate::module::{self, ModuleKind};
-use crate::shared::RackShared;
+use crate::shared::{ModuleMeters, RackShared, MAX_METER_BANDS};
 use crate::state::{Assignment, AssignmentMode, MACRO_BASE, ModuleState, RackState, SourceKind, Target};
 
 /// A boxed effect, adapted so Paramed can wrap it.
@@ -40,6 +40,14 @@ impl Parameters for ModuleEffect {
 impl ModuleEffect {
 	fn allowed_notes(&self) -> Option<u16> {
 		self.0.allowed_notes()
+	}
+
+	fn gain_reduction(&self) -> Option<[f32; 3]> {
+		self.0.gain_reduction()
+	}
+
+	fn band_meters(&self, input: &mut [f32], output: &mut [f32]) -> usize {
+		self.0.band_meters(input, output)
 	}
 }
 
@@ -81,10 +89,17 @@ struct Module {
 	scope: Arc<Scope>,
 	/// Whether the card shows the notes this module follows.
 	notes: bool,
+	/// Where this module's band meter goes, when its card draws one.
+	meters: Option<Arc<ModuleMeters>>,
 }
 
 impl Module {
-	fn new(state: &ModuleState, sample_rate: usize, scope: Arc<Scope>) -> Self {
+	fn new(
+		state: &ModuleState,
+		sample_rate: usize,
+		scope: Arc<Scope>,
+		meters: Option<Arc<ModuleMeters>>,
+	) -> Self {
 		let effect = module::build(state.kind, sample_rate);
 		let mut paramed = Paramed::new(ModuleEffect(effect));
 		let map = paramed.param_map();
@@ -113,6 +128,7 @@ impl Module {
 			controls,
 			scope,
 			notes: module::shows_notes(state.kind),
+			meters,
 		}
 	}
 
@@ -262,6 +278,14 @@ impl Scopes {
 		}
 	}
 
+	fn meters(&self, id: u32, kind: ModuleKind) -> Option<Arc<ModuleMeters>> {
+		if module::meter(kind).is_none() {
+			return None;
+		}
+
+		self.shared.as_ref().map(|shared| shared.meters(id))
+	}
+
 	fn get(&self, id: u32, kind: ModuleKind) -> Arc<Scope> {
 		let channels = module::audio_scope(kind);
 
@@ -298,6 +322,7 @@ fn apply_lane(
 						edited,
 						rate,
 						scopes.get(edited.id, edited.kind),
+						scopes.meters(edited.id, edited.kind),
 					));
 				} else if let Some(module) = &mut lane.slots[slot] {
 					module.update(edited);
@@ -613,6 +638,37 @@ impl Engine {
 
 		if note_changed || self.note_tick % 64 == 0 {
 			self.publish_notes();
+			self.publish_meters();
+		}
+	}
+
+	/// Publishes the band meter of every module whose card draws one. The OTT
+	/// has three gain values, a vocoder a level per band; both read at control
+	/// rate, because a card cannot draw faster than the page polls.
+	fn publish_meters(&self) {
+		let mut input = [0.0f32; MAX_METER_BANDS];
+		let mut output = [0.0f32; MAX_METER_BANDS];
+
+		for lane in self.lanes.iter().chain(std::iter::once(&self.parallel)) {
+			for module in lane.slots.iter().flatten() {
+				let Some(meters) = &module.meters else {
+					continue;
+				};
+
+				if let Some(gains) = module.paramed.value.gain_reduction() {
+					meters.publish_gains(gains);
+					continue;
+				}
+
+				let bands = module
+					.paramed
+					.value
+					.band_meters(&mut input, &mut output);
+
+				if bands > 0 {
+					meters.publish_bands(bands, &input[..bands], &output[..bands]);
+				}
+			}
 		}
 	}
 

@@ -83,6 +83,18 @@ impl VocoderMeters {
 		self.output[band].store(output.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
 	}
 
+	/// Copies the current levels into the slices, returning the band count.
+	pub fn read(&self, input: &mut [f32], output: &mut [f32]) -> usize {
+		let bands = self.bands.load(Ordering::Relaxed).min(MAX_BANDS);
+
+		for band in 0..bands.min(input.len()).min(output.len()) {
+			input[band] = f32::from_bits(self.input[band].load(Ordering::Relaxed));
+			output[band] = f32::from_bits(self.output[band].load(Ordering::Relaxed));
+		}
+
+		bands
+	}
+
 	/// The current pair of arrays, for the page route.
 	pub fn snapshot(&self) -> (usize, Vec<f32>, Vec<f32>) {
 		let bands = self.bands.load(Ordering::Relaxed).min(MAX_BANDS);
@@ -250,6 +262,10 @@ impl<const CHANNELS: usize> VocoderEffect<CHANNELS> {
 }
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for VocoderEffect<CHANNELS> {
+	fn band_meters(&self, input: &mut [f32], output: &mut [f32]) -> usize {
+		self.meters.read(input, output)
+	}
+
 	fn delay(&self) -> usize {
 		0
 	}

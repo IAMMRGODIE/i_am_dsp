@@ -116,6 +116,7 @@ impl Default for Rack {
 			live: Mutex::new(Vec::new()),
 			params: params.clone(),
 			scopes: Mutex::new(std::collections::HashMap::new()),
+			meters: Mutex::new(std::collections::HashMap::new()),
 		});
 
 		let engine = Engine::with_shared(DEFAULT_SAMPLE_RATE, &state, shared.clone());

@@ -176,7 +176,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[0]["hero"], "spectrum");
 
 	let kinds = json["kinds"].as_array().expect("kinds");
-	assert_eq!(kinds.len(), 33);
+	assert_eq!(kinds.len(), 35);
 
 	let names = kinds
 		.iter()
@@ -2082,6 +2082,10 @@ fn the_page_reads_the_audio_scope() {
 		js.contains("fetch(\"/module-note?id=\""),
 		"the cards never read the note their module hears"
 	);
+	assert!(
+		js.contains("fetch(\"/module-bands?id=\""),
+		"the cards never read their band meter"
+	);
 	assert!(js.contains("spectra: { input: null, output: null }"), "no per-card spectra");
 	assert!(
 		js.contains("channels: module.scope"),
@@ -2302,4 +2306,40 @@ fn a_chord_reaches_the_module_card() {
 			"note {pitch} is missing from the card"
 		);
 	}
+}
+
+/// The OTT card draws gain reduction, and the vocoder card draws bands: both
+/// publish through the module meter, not through the audio scope.
+#[test]
+fn a_metered_module_publishes_its_bands() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(40, ModuleKind::Ott));
+		state.bands[1].slots[0] = Some(ModuleState::new(41, ModuleKind::Vocoder));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+
+	for i in 0..512 {
+		let time = i as f32 / 48_000.0;
+		let sample = (2.0 * std::f32::consts::PI * 220.0 * time).sin() * 0.3;
+		let mut frame = [sample, sample];
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		rack.process(&mut frame, &[], &mut context);
+	}
+
+	let ott = rack.shared.existing_meters(40).expect("the ott meter");
+	let (bands, gains, input, _) = ott.snapshot();
+	assert_eq!(bands, 3);
+	assert!(gains, "the OTT reports gain reduction");
+	assert!(input.iter().all(|value| value.is_finite()));
+
+	let vocoder = rack.shared.existing_meters(41).expect("the vocoder meter");
+	let (bands, gains, input, output) = vocoder.snapshot();
+	assert!(!gains, "the vocoder reports levels");
+	assert!(bands >= 4, "the vocoder runs a band bank");
+	assert_eq!(input.len(), bands);
+	assert_eq!(output.len(), bands);
 }
