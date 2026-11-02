@@ -6,9 +6,9 @@
 //! parameters, where the product page reads it too.
 
 use i_am_dsp::prelude::{
-	Chorus, Crusher, Delay, Distortion, Effect, Expander, Flanger, FormantFilter, Gain, Gate,
-	Limiter, LrControl, Multimode, Parameter, ParametricEq, Phaser, SineWave, StereoController,
-	StereoRouter, TapeStopEffect, TransientShaper,
+	AutoTune, Chorus, Crusher, Delay, Distortion, Effect, Expander, Flanger, FormantFilter, Gain,
+	Gate, Limiter, LrControl, Multimode, Parameter, ParametricEq, Phaser, Resonator, SineWave,
+	SpectralRetuneEffect, StereoController, StereoRouter, TapeStopEffect, TransientShaper,
 };
 
 use i_am_web_gui::Switch;
@@ -20,6 +20,7 @@ use crate::disperser::Dispersion;
 use crate::particle_wider::ParticleWiderEffect;
 use crate::schroeder::SchroederEffect;
 use crate::shifter::ShifterEffect;
+use crate::unstablizer::UnstablizerEffect;
 use crate::{PITCH_VISIBLE, PitchEffect, ReverbEffect};
 
 /// One rack module: its product metadata and a fresh effect builder.
@@ -156,6 +157,22 @@ fn transient(sample_rate: usize) -> Box<dyn Effect<2>> {
 
 fn router(sample_rate: usize) -> Box<dyn Effect<2>> {
 	Box::new(StereoRouter::new(sample_rate))
+}
+
+fn autotune(sample_rate: usize) -> Box<dyn Effect<2>> {
+	Box::new(AutoTune::<2>::new(sample_rate))
+}
+
+fn spectral_retune(sample_rate: usize) -> Box<dyn Effect<2>> {
+	Box::new(SpectralRetuneEffect::new(sample_rate))
+}
+
+fn resonator(sample_rate: usize) -> Box<dyn Effect<2>> {
+	Box::new(Resonator::<2>::new(sample_rate))
+}
+
+fn unstablizer(sample_rate: usize) -> Box<dyn Effect<2>> {
+	Box::new(UnstablizerEffect::new(sample_rate))
 }
 
 /// The multimode filter product.
@@ -482,6 +499,54 @@ pub const ROUTER: ModuleDescriptor = ModuleDescriptor {
 	build: router,
 };
 
+
+/// The autotune product, which follows the notes the host plays.
+pub const AUTOTUNE: ModuleDescriptor = ModuleDescriptor {
+	id: "autotune",
+	name: "Autotune",
+	accent: "#ff6fae",
+	mode: Some("algorithm"),
+	header: &["window_size"],
+	visible: Some(crate::AUTOTUNE_VISIBLE),
+	switches: &[],
+	build: autotune,
+};
+
+/// The spectral retune product.
+pub const SPECTRAL_RETUNE: ModuleDescriptor = ModuleDescriptor {
+	id: "spectral_retune",
+	name: "Spectral Retune",
+	accent: "#5fd0c8",
+	mode: None,
+	header: &["window_size"],
+	visible: None,
+	switches: &[],
+	build: spectral_retune,
+};
+
+/// The resonator product, which rings at the notes the host plays.
+pub const RESONATOR: ModuleDescriptor = ModuleDescriptor {
+	id: "resonator",
+	name: "Resonator",
+	accent: "#b98cff",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build: resonator,
+};
+
+/// The unstablizer product.
+pub const UNSTABLIZER: ModuleDescriptor = ModuleDescriptor {
+	id: "unstablizer",
+	name: "Unstablizer",
+	accent: "#ff8f6b",
+	mode: Some("window_size"),
+	header: &[],
+	visible: None,
+	switches: &[],
+	build: unstablizer,
+};
 /// Every module the catalog currently exposes.
 pub const MODULES: &[ModuleDescriptor] = &[
 	FILTER,
@@ -511,6 +576,10 @@ pub const MODULES: &[ModuleDescriptor] = &[
 	PARTICLE_WIDER,
 	PITCH,
 	SHIFTER,
+	AUTOTUNE,
+	SPECTRAL_RETUNE,
+	RESONATOR,
+	UNSTABLIZER,
 ];
 
 /// Finds a descriptor by its stable id.

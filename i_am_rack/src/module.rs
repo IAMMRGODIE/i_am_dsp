@@ -72,11 +72,19 @@ pub enum ModuleKind {
 	Pitch,
 	/// A shifter product with its own window controls.
 	Shifter,
+	/// The autotune product, which follows the host's notes.
+	Autotune,
+	/// The spectral retune product.
+	SpectralRetune,
+	/// A resonator that rings at the host's notes.
+	Resonator,
+	/// The unstablizer product.
+	Unstablizer,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 27] = [
+	pub const ALL: [Self; 31] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
@@ -104,6 +112,10 @@ impl ModuleKind {
 		Self::ParticleWider,
 		Self::Pitch,
 		Self::Shifter,
+		Self::Autotune,
+		Self::SpectralRetune,
+		Self::Resonator,
+		Self::Unstablizer,
 	];
 
 	/// The catalog id this kind stores in its state.
@@ -136,6 +148,10 @@ impl ModuleKind {
 			Self::ParticleWider => "particle_wider",
 			Self::Pitch => "pitch",
 			Self::Shifter => "shifter",
+			Self::Autotune => "autotune",
+			Self::SpectralRetune => "spectral_retune",
+			Self::Resonator => "resonator",
+			Self::Unstablizer => "unstablizer",
 		}
 	}
 

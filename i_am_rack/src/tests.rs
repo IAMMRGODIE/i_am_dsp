@@ -176,7 +176,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[0]["hero"], "spectrum");
 
 	let kinds = json["kinds"].as_array().expect("kinds");
-	assert_eq!(kinds.len(), 27);
+	assert_eq!(kinds.len(), 31);
 
 	let names = kinds
 		.iter()
@@ -2191,5 +2191,21 @@ fn a_card_without_an_audio_plot_keeps_no_rings() {
 		rack.shared.scope(22, Channels::None).channels(),
 		Channels::Stereo,
 		"a width card draws the stereo pair"
+	);
+}
+
+/// The rack offers a note input, which is what the pitch-tracking modules read
+/// from the process context; a host that never sends notes still loads it.
+#[test]
+fn the_rack_declares_a_note_input() {
+	use i_am_plugin::Plugin;
+
+	assert_eq!(Rack::INPUT_MIDI_PORTS.len(), 1);
+	assert_eq!(Rack::INPUT_MIDI_PORTS[0].name, "Notes");
+	assert!(
+		ModuleKind::ALL
+			.iter()
+			.any(|kind| kind.name() == "Autotune"),
+		"the autotune is not offered"
 	);
 }

@@ -39,7 +39,7 @@ use i_am_dsp::prelude::{
 use i_am_dsp::ProcessContext;
 use i_am_plugin::processor::{DEFAULT_SAMPLE_RATE, EffectMessage};
 use i_am_plugin::{
-	AudioPort, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions,
+	AudioPort, Descriptor, Editor, GuiResizeHints, MidiPort, Plugin, WindowOptions,
 };
 use i_am_web_gui::{Faceplate, PageAssets, Scope};
 
@@ -337,6 +337,11 @@ impl Plugin for Rack {
 		AudioPort { name: "Main" },
 		AudioPort { name: "Sidechain" },
 	];
+
+	/// One note input, so the pitch-tracking modules follow what the host
+	/// plays. Every module reads the same note stream from the process context,
+	/// and a slot that ignores notes simply never looks at it.
+	const INPUT_MIDI_PORTS: &'static [MidiPort] = &[MidiPort { name: "Notes" }];
 
 	const HAS_GUI: bool = true;
 
