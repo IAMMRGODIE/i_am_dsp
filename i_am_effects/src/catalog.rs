@@ -19,6 +19,7 @@ use i_am_web_gui::Switch;
 use crate::allpass::AllpassEffect;
 use crate::comb::CombEffect;
 use crate::compressor::CompressorEffect;
+use crate::convolver::{ConvolverEffect, IrSlot};
 use crate::ir_reverb::IrReverbEffect;
 use crate::ott::OttEffect;
 use crate::disperser::Dispersion;
@@ -46,6 +47,10 @@ pub struct ModuleDescriptor {
 	pub switches: &'static [Switch],
 	/// Builds a fresh effect at the host sample rate.
 	pub build: fn(usize) -> Box<dyn Effect<2>>,
+	/// A build that hands the effect the shared object its page talks to — the
+	/// convolver's impulse response slot. Modules with nothing to hand over
+	/// leave this as None and are built by ["build"].
+	pub build_with_ir: Option<fn(usize, Arc<IrSlot>) -> Box<dyn Effect<2>>>,
 }
 
 impl ModuleDescriptor {
@@ -210,6 +215,7 @@ pub const FILTER: ModuleDescriptor = ModuleDescriptor {
 	header: crate::FILTER_HEADER,
 	visible: Some(crate::FILTER_VISIBLE),
 	switches: &[],
+	build_with_ir: None,
 	build: filter,
 };
 
@@ -222,6 +228,7 @@ pub const DISTORTION: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: Some(crate::DISTORTION_VISIBLE),
 	switches: &[],
+	build_with_ir: None,
 	build: distortion,
 };
 
@@ -234,6 +241,7 @@ pub const COMPRESSOR: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: Some(crate::COMPRESSOR_VISIBLE),
 	switches: &[],
+	build_with_ir: None,
 	build: compressor,
 };
 
@@ -246,6 +254,7 @@ pub const GAIN: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: gain,
 };
 
@@ -258,6 +267,7 @@ pub const DELAY: ModuleDescriptor = ModuleDescriptor {
 	header: crate::DELAY_HEADER,
 	visible: None,
 	switches: crate::DELAY_SWITCHES,
+	build_with_ir: None,
 	build: delay,
 };
 
@@ -270,6 +280,7 @@ pub const CRUSHER: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: crusher,
 };
 
@@ -282,6 +293,7 @@ pub const CHORUS: ModuleDescriptor = ModuleDescriptor {
 	header: crate::CHORUS_HEADER,
 	visible: None,
 	switches: crate::CHORUS_SWITCHES,
+	build_with_ir: None,
 	build: chorus,
 };
 
@@ -294,6 +306,7 @@ pub const PHASER: ModuleDescriptor = ModuleDescriptor {
 	header: crate::PHASER_HEADER,
 	visible: None,
 	switches: crate::PHASER_SWITCHES,
+	build_with_ir: None,
 	build: phaser,
 };
 
@@ -306,6 +319,7 @@ pub const REVERB: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: reverb,
 };
 
@@ -318,6 +332,7 @@ pub const PITCH: ModuleDescriptor = ModuleDescriptor {
 	header: &["window_size"],
 	visible: Some(PITCH_VISIBLE),
 	switches: &[],
+	build_with_ir: None,
 	build: pitch,
 };
 
@@ -330,6 +345,7 @@ pub const COMB: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: comb,
 };
 
@@ -342,6 +358,7 @@ pub const ALLPASS: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: allpass,
 };
 
@@ -354,6 +371,7 @@ pub const WIDTH: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: width,
 };
 
@@ -366,6 +384,7 @@ pub const SHIFTER: ModuleDescriptor = ModuleDescriptor {
 	header: &["window_size"],
 	visible: Some(crate::SHIFTER_VISIBLE),
 	switches: &[],
+	build_with_ir: None,
 	build: shifter,
 };
 
@@ -378,6 +397,7 @@ pub const DISPERSER: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: disperser,
 };
 
@@ -390,6 +410,7 @@ pub const BALANCE: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: balance,
 };
 
@@ -402,6 +423,7 @@ pub const PARTICLE_WIDER: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: particle_wider,
 };
 
@@ -414,6 +436,7 @@ pub const SCHROEDER: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: schroeder,
 };
 
@@ -426,6 +449,7 @@ pub const FLANGER: ModuleDescriptor = ModuleDescriptor {
 	header: crate::FLANGER_HEADER,
 	visible: None,
 	switches: crate::FLANGER_SWITCHES,
+	build_with_ir: None,
 	build: flanger,
 };
 
@@ -438,6 +462,7 @@ pub const EQ: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: Some(crate::EQ_VISIBLE),
 	switches: &[],
+	build_with_ir: None,
 	build: eq,
 };
 
@@ -450,6 +475,7 @@ pub const TAPE_STOP: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: tape_stop,
 };
 
@@ -462,6 +488,7 @@ pub const GATE: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: gate,
 };
 
@@ -474,6 +501,7 @@ pub const EXPANDER: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: expander,
 };
 
@@ -486,6 +514,7 @@ pub const LIMITER: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: limiter,
 };
 
@@ -498,6 +527,7 @@ pub const FORMANT: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: formant,
 };
 
@@ -510,6 +540,7 @@ pub const TRANSIENT: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: transient,
 };
 
@@ -522,6 +553,7 @@ pub const ROUTER: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: router,
 };
 
@@ -535,6 +567,7 @@ pub const AUTOTUNE: ModuleDescriptor = ModuleDescriptor {
 	header: &["window_size"],
 	visible: Some(crate::AUTOTUNE_VISIBLE),
 	switches: &[],
+	build_with_ir: None,
 	build: autotune,
 };
 
@@ -547,6 +580,7 @@ pub const SPECTRAL_RETUNE: ModuleDescriptor = ModuleDescriptor {
 	header: &["window_size"],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: spectral_retune,
 };
 
@@ -559,6 +593,7 @@ pub const RESONATOR: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: resonator,
 };
 
@@ -571,6 +606,7 @@ pub const UNSTABLIZER: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: unstablizer,
 };
 /// The IR reverb product, which convolves with a generated response.
@@ -582,6 +618,7 @@ pub const IR_REVERB: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: ir_reverb,
 };
 
@@ -594,6 +631,7 @@ pub const STFT_VOCODER: ModuleDescriptor = ModuleDescriptor {
 	header: &["window_size"],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: stft_vocoder,
 };
 
@@ -607,6 +645,7 @@ pub const OTT: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: ott,
 };
 
@@ -619,7 +658,21 @@ pub const VOCODER: ModuleDescriptor = ModuleDescriptor {
 	header: &[],
 	visible: None,
 	switches: &[],
+	build_with_ir: None,
 	build: vocoder,
+};
+
+/// The convolver product, whose impulse response the page loads from a file.
+pub const CONVOLVER: ModuleDescriptor = ModuleDescriptor {
+	id: "convolver",
+	name: "Convolver",
+	accent: "#b08cff",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build: |rate| Box::new(ConvolverEffect::new(rate, Arc::new(IrSlot::new()))),
+	build_with_ir: Some(|rate, slot| Box::new(ConvolverEffect::new(rate, slot))),
 };
 /// Every module the catalog currently exposes.
 pub const MODULES: &[ModuleDescriptor] = &[
@@ -658,6 +711,7 @@ pub const MODULES: &[ModuleDescriptor] = &[
 	STFT_VOCODER,
 	OTT,
 	VOCODER,
+	CONVOLVER,
 ];
 
 /// Finds a descriptor by its stable id.

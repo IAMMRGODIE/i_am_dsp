@@ -45,6 +45,7 @@
   // kept in one context object so a card can be redrawn whenever one arrives.
   var pageRate = 48000;
   var cardTimer = null;
+  var irTimer = null;
   var liveCards = [];
 
   /// Every card gets its own rings: a module's card shows what entered and left
@@ -678,6 +679,16 @@
     });
 
     var cardAudio = cardContext();
+    var entry = {
+      id: module.id,
+      channels: module.scope,
+      note: module.note,
+      meter: module.meter,
+      ir: module.ir,
+      card: null,
+      context: cardAudio,
+      fetching: false
+    };
 
     var card = window.IAmCard.create({
       title: module.kind,
@@ -693,6 +704,8 @@
       values: module.values,
       context: cardAudio,
       note: !!module.note,
+      ir: !!module.ir,
+      pickIr: function () { pickImpulse(entry); },
       kinds: kinds,
       kind: module.kind,
       dragData: bandIndex + "." + slotIndex,
@@ -719,15 +732,8 @@
 
     // The engine decides what a card reads from the audio, and says so in the
     // module: a hero that draws parameters gets nothing allocated at all.
-    liveCards.push({
-      id: module.id,
-      channels: module.scope,
-      note: module.note,
-      meter: module.meter,
-      card: card,
-      context: cardAudio,
-      fetching: false
-    });
+    entry.card = card;
+    liveCards.push(entry);
 
     return wrap;
   }
@@ -2294,6 +2300,60 @@
       .catch(function () {});
   }
 
+  /// Asks the person for an impulse response file and posts its bytes to the
+  /// module. The page reads the file itself, so the rack never opens a native
+  /// dialog and the host window cannot end up behind the DAW.
+  function pickImpulse(entry) {
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".wav,.aif,.aiff,.flac,audio/*";
+
+    input.addEventListener("change", function () {
+      var file = input.files && input.files[0];
+      if (!file) return;
+
+      file
+        .arrayBuffer()
+        .then(function (bytes) {
+          return fetch(
+            "/module-ir?id=" + entry.id + "&name=" + encodeURIComponent(file.name),
+            { method: "POST", body: bytes }
+          );
+        })
+        .then(function () { return fetchIr(entry); })
+        .catch(function () {});
+    });
+
+    input.click();
+  }
+
+  /// The impulse response a convolver module holds, with its picture.
+  function fetchIr(entry) {
+    fetch("/module-ir?id=" + entry.id, { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        if (!value) return;
+
+        var changed = JSON.stringify(entry.context.ir) !== JSON.stringify(value);
+        entry.context.ir = value;
+
+        if (changed) repaint(entry);
+      })
+      .catch(function () {});
+  }
+
+  function pollImpulses() {
+    if (!document.hidden) {
+      liveCards.forEach(function (entry) {
+        if (entry.ir) fetchIr(entry);
+      });
+    }
+
+    irTimer = setTimeout(pollImpulses, 250);
+  }
+
   /// The band meter a module draws: the OTT's three gain bars, or the vocoder's
   /// input and output level per band.
   function fetchBands(entry) {
@@ -2570,4 +2630,5 @@
   load();
   startLive();
   pollCards();
+  pollImpulses();
 })();

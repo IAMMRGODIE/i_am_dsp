@@ -65,6 +65,8 @@ pub(crate) fn route(
 		("GET", "/module-scope") => module_document(request, shared, false),
 		("GET", "/module-note") => module_note(request, shared),
 		("GET", "/module-bands") => module_bands(request, shared),
+		("GET", "/module-ir") => module_ir(request, shared),
+		("POST", "/module-ir") => module_ir(request, shared),
 		("GET", "/module-stereo") => module_document(request, shared, true),
 		_ => None,
 	}
@@ -131,6 +133,72 @@ fn module_bands(
 		row(&input),
 		row(&output)
 	)))
+}
+
+/// The impulse response a convolver module holds: a GET describes it, a POST
+/// loads the bytes the page picked as a file.
+fn module_ir(
+	request: &i_am_web_gui::ProtocolRequest<'_>,
+	shared: &RackShared,
+) -> Option<i_am_web_gui::ProtocolResponse> {
+	let id = module_id(request)?;
+	let slot = shared.existing_ir(id)?;
+
+	match request.method {
+		"GET" => Some(i_am_web_gui::ProtocolResponse::json(slot.json())),
+		"POST" => {
+			let name = request
+				.query
+				.and_then(|query| {
+					query
+						.split('&')
+						.find_map(|pair| pair.strip_prefix("name="))
+						.map(percent_decode)
+				})
+				.filter(|name| !name.is_empty())
+				.unwrap_or_else(|| "impulse".to_string());
+
+			match i_am_effects::decode_ir(request.body, slot.host_rate(), name) {
+				Ok(ir) => {
+					slot.set(std::sync::Arc::new(ir));
+					Some(i_am_web_gui::ProtocolResponse::json("{\"ok\":true}"))
+				},
+				Err(error) => {
+					slot.fail(error.clone());
+					Some(i_am_web_gui::ProtocolResponse::json(format!(
+						"{{\"error\":{}}}",
+						serde_json::to_string(&error).unwrap_or_else(|_| "\"load failed\"".to_string())
+					)))
+				},
+			}
+		},
+		_ => None,
+	}
+}
+
+/// Decodes the percent escapes a page sends in a query value.
+fn percent_decode(value: &str) -> String {
+	let bytes = value.as_bytes();
+	let mut out = Vec::with_capacity(bytes.len());
+	let mut index = 0;
+
+	while index < bytes.len() {
+		if bytes[index] == b'%' && index + 2 < bytes.len() {
+			let high = (bytes[index + 1] as char).to_digit(16);
+			let low = (bytes[index + 2] as char).to_digit(16);
+
+			if let (Some(high), Some(low)) = (high, low) {
+				out.push((high * 16 + low) as u8);
+				index += 3;
+				continue;
+			}
+		}
+
+		out.push(bytes[index]);
+		index += 1;
+	}
+
+	String::from_utf8_lossy(&out).to_string()
 }
 
 fn module_document(
@@ -407,6 +475,7 @@ fn module_json(
 		"kind": module.kind.name(),
 		"note": crate::module::shows_notes(module.kind),
 		"meter": crate::module::meter(module.kind),
+		"ir": crate::module::needs_ir(module.kind),
 		"scope": match crate::module::audio_scope(module.kind) {
 			i_am_web_gui::Channels::None => serde_json::Value::Null,
 			i_am_web_gui::Channels::Mono => "mono".into(),

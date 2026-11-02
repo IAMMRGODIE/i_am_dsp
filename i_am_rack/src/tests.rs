@@ -176,7 +176,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[0]["hero"], "spectrum");
 
 	let kinds = json["kinds"].as_array().expect("kinds");
-	assert_eq!(kinds.len(), 35);
+	assert_eq!(kinds.len(), 36);
 
 	let names = kinds
 		.iter()
@@ -2342,4 +2342,73 @@ fn a_metered_module_publishes_its_bands() {
 	assert!(bands >= 4, "the vocoder runs a band bank");
 	assert_eq!(input.len(), bands);
 	assert_eq!(output.len(), bands);
+}
+
+/// A convolver module owns an impulse response slot, and the page can load one
+/// through the same route the product uses.
+#[test]
+fn a_convolver_module_takes_an_impulse_response() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(42, ModuleKind::Convolver));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+
+	// One block builds the module and, with it, the slot the page talks to.
+	process_with(&mut rack, [0.0, 0.0], Vec::new());
+
+	assert!(
+		rack.shared.existing_ir(42).is_some(),
+		"the convolver has no impulse slot"
+	);
+
+	let wav = tiny_wav();
+	let request = i_am_web_gui::ProtocolRequest {
+		method: "POST",
+		path: "/module-ir",
+		query: Some("id=42&name=Test.wav"),
+		body: &wav,
+	};
+
+	assert!(
+		crate::web::route(&request, &rack.shared).is_some(),
+		"the impulse route refused the file"
+	);
+
+	let json = rack
+		.shared
+		.existing_ir(42)
+		.expect("the slot")
+		.json();
+	assert!(json.contains("Test.wav"), "{json}");
+	assert!(!json.contains("\"peaks\":[]"), "the impulse has no picture: {json}");
+}
+
+/// A one-sample impulse as a 16-bit mono wav, which is enough to load.
+fn tiny_wav() -> Vec<u8> {
+	let samples = [30_000i16, 15_000, 7_500, 3_000, 1_000];
+	let data_len = (samples.len() * 2) as u32;
+	let mut bytes = Vec::new();
+
+	bytes.extend_from_slice(b"RIFF");
+	bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+	bytes.extend_from_slice(b"WAVEfmt ");
+	bytes.extend_from_slice(&16u32.to_le_bytes());
+	bytes.extend_from_slice(&1u16.to_le_bytes());
+	bytes.extend_from_slice(&1u16.to_le_bytes());
+	bytes.extend_from_slice(&44_100u32.to_le_bytes());
+	bytes.extend_from_slice(&(44_100u32 * 2).to_le_bytes());
+	bytes.extend_from_slice(&2u16.to_le_bytes());
+	bytes.extend_from_slice(&16u16.to_le_bytes());
+	bytes.extend_from_slice(b"data");
+	bytes.extend_from_slice(&data_len.to_le_bytes());
+
+	for sample in samples {
+		bytes.extend_from_slice(&sample.to_le_bytes());
+	}
+
+	bytes
 }

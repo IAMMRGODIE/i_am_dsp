@@ -99,8 +99,9 @@ impl Module {
 		sample_rate: usize,
 		scope: Arc<Scope>,
 		meters: Option<Arc<ModuleMeters>>,
+		ir: Option<Arc<i_am_effects::IrSlot>>,
 	) -> Self {
-		let effect = module::build(state.kind, sample_rate);
+		let effect = module::build(state.kind, sample_rate, ir);
 		let mut paramed = Paramed::new(ModuleEffect(effect));
 		let map = paramed.param_map();
 
@@ -278,6 +279,19 @@ impl Scopes {
 		}
 	}
 
+	fn ir(&self, id: u32, kind: ModuleKind) -> Option<Arc<i_am_effects::IrSlot>> {
+		if !module::needs_ir(kind) {
+			return None;
+		}
+
+		Some(match &self.shared {
+			Some(shared) => shared.ir(id),
+			// An engine on its own (a test) still gets a slot, just not one a
+			// page can reach.
+			None => Arc::new(i_am_effects::IrSlot::new()),
+		})
+	}
+
 	fn meters(&self, id: u32, kind: ModuleKind) -> Option<Arc<ModuleMeters>> {
 		if module::meter(kind).is_none() {
 			return None;
@@ -323,6 +337,7 @@ fn apply_lane(
 						rate,
 						scopes.get(edited.id, edited.kind),
 						scopes.meters(edited.id, edited.kind),
+						scopes.ir(edited.id, edited.kind),
 					));
 				} else if let Some(module) = &mut lane.slots[slot] {
 					module.update(edited);

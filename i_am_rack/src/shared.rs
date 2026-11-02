@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use i_am_dsp::prelude::{ParamMap, SetValue};
+use i_am_effects::IrSlot;
 use i_am_web_gui::{Channels, Control, Scope};
 
 use crate::module::ModuleKind;
@@ -201,6 +202,8 @@ pub(crate) struct RackShared {
 	pub scopes: Mutex<HashMap<u32, Arc<Scope>>>,
 	/// One meter per module id, for the cards that draw band levels.
 	pub meters: Mutex<HashMap<u32, Arc<ModuleMeters>>>,
+	/// One impulse response slot per module id, for the convolver's card.
+	pub ir: Mutex<HashMap<u32, Arc<IrSlot>>>,
 }
 
 impl RackShared {
@@ -221,6 +224,30 @@ impl RackShared {
 		let scope = Arc::new(Scope::with_channels(channels));
 		scopes.insert(id, scope.clone());
 		scope
+	}
+
+	/// The impulse response slot of a module, created the first time the engine
+	/// or a page asks.
+	pub fn ir(&self, id: u32) -> Arc<IrSlot> {
+		let mut slots = self
+			.ir
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner());
+
+		slots
+			.entry(id)
+			.or_insert_with(|| Arc::new(IrSlot::new()))
+			.clone()
+	}
+
+	/// The impulse response slot of a module, when the engine has already built
+	/// one.
+	pub fn existing_ir(&self, id: u32) -> Option<Arc<IrSlot>> {
+		self.ir
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.get(&id)
+			.cloned()
 	}
 
 	/// The meter of a module, created the first time the engine or a page asks.
@@ -270,6 +297,12 @@ impl RackShared {
 			.lock()
 			.unwrap_or_else(|poisoned| poisoned.into_inner());
 		meters.retain(|id, _| live.contains(id));
+
+		let mut slots = self
+			.ir
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner());
+		slots.retain(|id, _| live.contains(id));
 	}
 
 	/// Locks the state, ignoring a poisoned lock: a panic in the page path must

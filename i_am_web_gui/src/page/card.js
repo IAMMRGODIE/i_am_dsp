@@ -2395,6 +2395,16 @@
       heroElement.className = "mcard-hero";
       card.appendChild(heroElement);
       paintHero();
+
+      // A product whose picture is also its file picker (the convolver) makes
+      // the hero clickable; the page that owns the card does the asking.
+      if (options.ir) {
+        heroElement.classList.add("ir-target");
+        heroElement.title = "Click to load an impulse response";
+        heroElement.addEventListener("click", function () {
+          if (options.pickIr) options.pickIr();
+        });
+      }
     }
 
     var body = document.createElement("div");

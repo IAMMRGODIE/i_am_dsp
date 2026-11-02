@@ -448,7 +448,9 @@ fn load_ir(slot: &IrSlot, path: &std::path::Path) {
 fn pick_ir(_slot: Arc<IrSlot>) {}
 
 /// Decodes an uploaded file into an impulse response at `sample_rate`.
-fn decode_ir(bytes: &[u8], sample_rate: usize, name: String) -> Result<IrData, String> {
+/// Decodes an impulse response file into the samples the convolver runs at.
+/// The page and the rack both load IRs through this, so a file means the same.
+pub fn decode_ir(bytes: &[u8], sample_rate: usize, name: String) -> Result<IrData, String> {
 	if bytes.is_empty() {
 		return Err("the file is empty".to_string());
 	}

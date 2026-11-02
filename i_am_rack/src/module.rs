@@ -6,6 +6,7 @@
 //! what the standalone plug-in does.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 use std::sync::OnceLock;
 
 use i_am_dsp::prelude::{Effect, Parameter, Value};
@@ -88,11 +89,13 @@ pub enum ModuleKind {
 	Ott,
 	/// The vocoder product.
 	Vocoder,
+	/// A convolver whose impulse response the card loads from a file.
+	Convolver,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 35] = [
+	pub const ALL: [Self; 36] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
@@ -128,6 +131,7 @@ impl ModuleKind {
 		Self::StftVocoder,
 		Self::Ott,
 		Self::Vocoder,
+		Self::Convolver,
 	];
 
 	/// The catalog id this kind stores in its state.
@@ -168,6 +172,7 @@ impl ModuleKind {
 			Self::StftVocoder => "stft_vocoder",
 			Self::Ott => "ott",
 			Self::Vocoder => "vocoder",
+			Self::Convolver => "convolver",
 		}
 	}
 
@@ -273,9 +278,26 @@ pub fn meter(kind: ModuleKind) -> Option<&'static str> {
 	}
 }
 
+/// Whether a kind keeps an impulse response the page can load into it.
+pub fn needs_ir(kind: ModuleKind) -> bool {
+	kind == ModuleKind::Convolver
+}
+
 /// Builds a fresh effect for a kind at a sample rate.
-pub(crate) fn build(kind: ModuleKind, sample_rate: usize) -> Box<dyn Effect<2>> {
-	(kind.descriptor().build)(sample_rate)
+///
+/// The kinds whose page talks to them (the convolver's impulse slot) get their
+/// shared object built into them, so the route and the audio thread see one.
+pub(crate) fn build(
+	kind: ModuleKind,
+	sample_rate: usize,
+	ir: Option<Arc<i_am_effects::IrSlot>>,
+) -> Box<dyn Effect<2>> {
+	let descriptor = kind.descriptor();
+
+	match descriptor.build_with_ir {
+		Some(build) => build(sample_rate, ir.expect("the kind needs its slot")),
+		None => (descriptor.build)(sample_rate),
+	}
 }
 
 /// The parameter schema of a kind, at a rate that does not affect the metadata.

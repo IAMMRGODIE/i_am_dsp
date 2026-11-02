@@ -41,7 +41,7 @@ mod vocoder;
 use allpass::AllpassEffect;
 use comb::CombEffect;
 pub use compressor::CompressorEffect;
-pub use convolver::{ConvolverWeb, IrData, IrSlot};
+pub use convolver::{ConvolverWeb, IrData, IrSlot, decode_ir};
 pub use script_distortion::ScriptDistortionWeb;
 pub use script_mapper::ScriptMapperWeb;
 pub use ott::OttWeb;

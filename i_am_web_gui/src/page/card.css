@@ -237,3 +237,7 @@
   font:10px/1.2 var(--font); color:var(--text3); pointer-events:none;
   text-align:center; padding:0 14px;
 }
+
+/* The convolver's picture is its file picker. */
+.mcard-hero.ir-target{cursor:pointer}
+.mcard-hero.ir-target:hover{outline:1px solid var(--accent); outline-offset:-1px}
