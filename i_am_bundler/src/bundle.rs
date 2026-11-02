@@ -160,8 +160,16 @@ pub fn plugin_dir(format: Format, kind: Kind, system: bool) -> Option<PathBuf> {
 	match format {
 		Format::Windows => {
 			if system {
+				// CommonProgramFiles is the documented root, but a shell started
+				// without it still has ProgramFiles, and the folder is always
+				// Common Files under that one.
 				std::env::var_os("CommonProgramFiles")
-					.map(|root| PathBuf::from(root).join(kind.folder()))
+					.map(PathBuf::from)
+					.or_else(|| {
+						std::env::var_os("ProgramFiles")
+							.map(|root| PathBuf::from(root).join("Common Files"))
+					})
+					.map(|root| root.join(kind.folder()))
 			} else {
 				std::env::var_os("LOCALAPPDATA").map(|root| {
 					PathBuf::from(root)

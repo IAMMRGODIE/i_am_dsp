@@ -378,6 +378,10 @@ fn run(args: Args) -> Result<(), String> {
 	}
 
 	if args.install || args.install_system {
+		// One target failing must not leave the rest half-done: copy everything
+		// that can be copied, then report what did not fit.
+		let mut failures = 0;
+
 		for (kind, path) in &written {
 			for system in [false, true] {
 				if system && !args.install_system {
@@ -393,9 +397,20 @@ fn run(args: Args) -> Result<(), String> {
 					);
 					continue;
 				};
-				let installed = bundle::install(path, &root)?;
-				field("installed", installed.display());
+				match bundle::install(path, &root) {
+					Ok(installed) => field("installed", installed.display()),
+					Err(error) => {
+						eprintln!("error: {error}");
+						failures += 1;
+					},
+				}
 			}
+		}
+
+		if failures > 0 {
+			return Err(format!(
+				"{failures} install(s) failed; the directories under Program Files\\Common Files need an elevated shell"
+			));
 		}
 	}
 
