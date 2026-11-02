@@ -181,7 +181,7 @@ impl<const CHANNELS: usize> Resonator<CHANNELS> {
 	/// effect does per block.
 	fn ensure_voices(&mut self) {
 		let wanted = self.wanted();
-		let capacity = (self.sample_rate as f32 / MIN_FREQUENCY).ceil() as usize + 8;
+		let capacity = (self.sample_rate / MIN_FREQUENCY).ceil() as usize + 8;
 
 		while self.strings.len() < wanted {
 			self.strings.push(Voice {
@@ -329,13 +329,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Resonator<CHANNELS> {
 
 		// With no note held, the Note knob is the excitation: that is the "always
 		// sounds" behaviour hosts that never send notes rely on.
-		if !self.played && self.strings.iter().all(|voice| voice.level <= 0.0) {
-			if let Some(voice) = self.strings.first_mut() {
-				voice.note = self.note;
-				voice.frequency = note_frequency(self.note);
-				voice.level = 1.0;
-				voice.released = false;
-			}
+		if !self.played
+			&& self.strings.iter().all(|voice| voice.level <= 0.0)
+			&& let Some(voice) = self.strings.first_mut()
+		{
+			voice.note = self.note;
+			voice.frequency = note_frequency(self.note);
+			voice.level = 1.0;
+			voice.released = false;
 		}
 
 		let active = self.wanted();

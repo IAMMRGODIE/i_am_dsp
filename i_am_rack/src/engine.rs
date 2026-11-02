@@ -311,9 +311,7 @@ impl Scopes {
 	}
 
 	fn meters(&self, id: u32, kind: ModuleKind) -> Option<Arc<ModuleMeters>> {
-		if module::meter(kind).is_none() {
-			return None;
-		}
+		module::meter(kind)?;
 
 		self.shared.as_ref().map(|shared| shared.meters(id))
 	}
@@ -560,7 +558,7 @@ impl Engine {
 					}
 				},
 				NoteEvent::NoteOff { note: pitch, .. } if note == pitch as i32 => note = -1,
-				NoteEvent::ImmediateStop { .. } => {
+				NoteEvent::ImmediateStop => {
 					note = -1;
 					held = 0;
 				},
@@ -670,7 +668,7 @@ impl Engine {
 
 		self.note_tick += 1;
 
-		if note_changed || self.note_tick % 64 == 0 {
+		if note_changed || self.note_tick.is_multiple_of(64) {
 			self.publish_notes();
 			self.publish_meters();
 		}

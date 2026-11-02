@@ -1790,10 +1790,11 @@ fn release_duplicates(state: &mut RackState, slot: usize) {
 			continue;
 		}
 
-		if let Some(other) = assignment {
-			if other.source == source && other.target.as_ref() == Some(&target) {
-				other.target = None;
-			}
+		if let Some(other) = assignment
+			&& other.source == source
+			&& other.target.as_ref() == Some(&target)
+		{
+			other.target = None;
 		}
 	}
 }

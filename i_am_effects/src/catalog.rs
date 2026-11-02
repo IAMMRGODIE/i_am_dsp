@@ -52,8 +52,11 @@ pub struct ModuleDescriptor {
 	/// A build that hands the effect the shared object its page talks to — the
 	/// convolver's impulse response slot. Modules with nothing to hand over
 	/// leave this as None and are built by ["build"].
-	pub build_with_ir: Option<fn(usize, Arc<IrSlot>) -> Box<dyn Effect<2>>>,
+	pub build_with_ir: Option<IrBuilder>,
 }
+
+/// Builds an impulse-driven module around the slot its page writes to.
+pub type IrBuilder = fn(usize, Arc<IrSlot>) -> Box<dyn Effect<2>>;
 
 impl ModuleDescriptor {
 	/// The parameter schema a fresh module starts with.
