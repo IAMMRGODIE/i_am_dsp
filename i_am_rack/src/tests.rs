@@ -2056,8 +2056,11 @@ fn the_page_reads_the_audio_scope() {
 	let js = include_str!("page/rack.js");
 
 	assert!(js.contains("fetch(\"/scope\""), "the rack does not read the scope");
+	assert!(js.contains("fetch(\"/stereo\""), "the rack does not read the stereo pair");
+	assert!(js.contains("fetch(\"/meter\""), "the rack does not read the meter");
 	assert!(js.contains("card.repaintHero"), "a live hero is never redrawn");
-	assert!(js.contains("context: { scope: scope }"), "the hero gets no scope");
+	assert!(js.contains("context: context"), "the hero gets no context");
+	assert!(js.contains("spectra: spectra"), "the spectrum heroes get no state");
 }
 
 /// The scope the page polls is fed by the audio thread, not by the UI thread.

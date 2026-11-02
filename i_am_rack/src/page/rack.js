@@ -39,10 +39,27 @@
   };
   var liveTimer = null;
   var scopeTimer = null;
-  // The heroes that draw the audio itself, and the object the poller fills in.
+  var stereoTimer = null;
+  var meterTimer = null;
+  // The audio the pages draw: the same three documents the product page polls,
+  // kept in one context object so a card can be redrawn whenever one arrives.
   var scope = { input: null, output: null, sidechain: null };
-  var scopePainters = [];
-  var SCOPE_HEROES = { waveform: true, transfer: true };
+  var stereo = { inputLeft: null, inputRight: null, outputLeft: null, outputRight: null };
+  var meter = { input: null, sidechain: null };
+  var spectra = { input: null, output: null };
+  var eqSpectrum = { input: null, output: null, rate: 0, inputPath: "", outputPath: "" };
+  var context = {
+    scope: scope, stereo: stereo, meter: meter, spectra: spectra,
+    eqSpectrum: eqSpectrum, rate: 48000
+  };
+  var liveCards = [];
+  // The heroes that draw audio rather than parameters. Everything else keeps
+  // its parameter drawing and is only repainted when a knob moves.
+  var LIVE_HEROES = {
+    waveform: true, transfer: true, spectrum: true, spectra: true,
+    compressor: true, limiter: true, gate: true, expander: true,
+    stereo: true, eq: true
+  };
 
   function slotLetter(index) {
     return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
@@ -673,7 +690,7 @@
       bypass: module.bypass,
       controls: module.controls,
       values: module.values,
-      context: { scope: scope },
+      context: context,
       kinds: kinds,
       kind: module.kind,
       dragData: bandIndex + "." + slotIndex,
@@ -698,11 +715,7 @@
 
     wrap.appendChild(card);
 
-    if (SCOPE_HEROES[module.hero]) {
-      scopePainters.push(function () {
-        if (card.repaintHero) card.repaintHero();
-      });
-    }
+    liveCards.push({ card: card, hero: module.hero });
 
     return wrap;
   }
@@ -2151,7 +2164,9 @@
     current = data;
     rangeLabels = [];
     livePainters = [];
-    scopePainters = [];
+    liveCards = [];
+    context.rate = data.rate;
+    eqSpectrum.rate = data.rate;
     rack.textContent = "";
 
     rack.appendChild(makeCrossover(data));
@@ -2221,8 +2236,7 @@
           scope.input = data.subarray(0, third);
           scope.output = data.subarray(third, third * 2);
           scope.sidechain = data.subarray(third * 2);
-
-          scopePainters.forEach(function (paint) { paint(); });
+          repaintLive();
         }
       })
       .catch(function () {
@@ -2231,6 +2245,68 @@
       .then(function () {
         scopeTimer = setTimeout(pollScope, 60);
       });
+  }
+
+  /// The goniometer wants both channels before and after the effect; the mono
+  /// scope cannot tell it anything about the stereo image.
+  function pollStereo() {
+    if (document.hidden) {
+      stereoTimer = setTimeout(pollStereo, 200);
+      return;
+    }
+
+    fetch("/stereo", { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("stereo " + response.status);
+        return response.arrayBuffer();
+      })
+      .then(function (buffer) {
+        var data = new Float32Array(buffer);
+        var points = data.length / 4;
+
+        if (points > 64) {
+          stereo.inputLeft = data.subarray(0, points);
+          stereo.inputRight = data.subarray(points, points * 2);
+          stereo.outputLeft = data.subarray(points * 2, points * 3);
+          stereo.outputRight = data.subarray(points * 3);
+          repaintLive();
+        }
+      })
+      .catch(function () {})
+      .then(function () {
+        stereoTimer = setTimeout(pollStereo, 60);
+      });
+  }
+
+  /// The meter is tiny JSON: the level the dynamics heroes mark on their trace.
+  function pollMeter() {
+    if (document.hidden) {
+      meterTimer = setTimeout(pollMeter, 400);
+      return;
+    }
+
+    fetch("/meter", { cache: "no-store" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("meter " + response.status);
+        return response.json();
+      })
+      .then(function (value) {
+        meter.input = typeof value.input === "number" ? value.input : null;
+        meter.sidechain = typeof value.sidechain === "number" ? value.sidechain : null;
+        repaintLive();
+      })
+      .catch(function () {})
+      .then(function () {
+        meterTimer = setTimeout(pollMeter, 100);
+      });
+  }
+
+  function repaintLive() {
+    liveCards.forEach(function (entry) {
+      if (!LIVE_HEROES[entry.hero]) return;
+      if (!entry.card.isConnected || entry.card.offsetParent === null) return;
+      if (entry.card.repaintHero) entry.card.repaintHero();
+    });
   }
 
   function startLive() {
@@ -2430,4 +2506,6 @@
   load();
   startLive();
   pollScope();
+  pollStereo();
+  pollMeter();
 })();
