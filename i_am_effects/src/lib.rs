@@ -576,6 +576,7 @@ web_plugin!(
 	"I Am Resonator",
 	(460.0, 300.0),
 	"#b98cff",
+	header = &["midi"],
 	midi = &[i_am_plugin::MidiPort { name: "Notes" }]
 );
 
@@ -1367,7 +1368,7 @@ mod tests {
 	fn the_resonator_and_formant_filter_have_their_controls() {
 		let resonator = i_am_web_gui::face_json(
 			&ResonatorWeb::new(),
-			&Faceplate::new("I Am Resonator", "#b98cff", (460.0, 300.0)),
+			&Faceplate::new("I Am Resonator", "#b98cff", (460.0, 300.0)).with_header(&["midi"]),
 		);
 		let formant = i_am_web_gui::face_json(
 			&FormantFilterWeb::new(),
@@ -1375,12 +1376,16 @@ mod tests {
 		);
 
 		assert!(resonator.contains("\"hero\":\"resonator\""), "{resonator}");
-		for id in ["note", "decay", "damping", "saw", "mix"] {
+		for id in ["note", "decay", "damping", "saw", "mix", "midi"] {
 			assert!(
 				resonator.contains(&format!("\"id\":\"{id}\"")),
 				"{resonator}"
 			);
 		}
+		assert!(
+			resonator.contains("\"header\":[\"midi\"]"),
+			"the MIDI switch belongs in the header: {resonator}"
+		);
 		assert_eq!(
 			<ResonatorWeb as i_am_plugin::Plugin>::INPUT_MIDI_PORTS.len(),
 			1,

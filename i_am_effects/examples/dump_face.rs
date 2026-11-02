@@ -355,7 +355,8 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Resonator", "#b98cff", (460.0, 300.0)),
+					&Faceplate::new("I Am Resonator", "#b98cff", (460.0, 300.0))
+						.with_header(&["midi"]),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

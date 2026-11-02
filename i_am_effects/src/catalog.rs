@@ -592,13 +592,14 @@ pub const SPECTRAL_RETUNE: ModuleDescriptor = ModuleDescriptor {
 	build: spectral_retune,
 };
 
-/// The resonator product, which rings at the notes the host plays.
+/// The resonator product, which rings at the notes the host plays, or at the
+/// Note knob when the MIDI switch in its header is off.
 pub const RESONATOR: ModuleDescriptor = ModuleDescriptor {
 	id: "resonator",
 	name: "Resonator",
 	accent: "#b98cff",
 	mode: None,
-	header: &[],
+	header: &["midi"],
 	visible: None,
 	switches: &[],
 	build_with_ir: None,

@@ -228,6 +228,8 @@ fn the_catalog_adds_reverb_and_pitch_modules() {
 	assert_eq!(ModuleKind::Pitch.mode(), Some("algorithm"));
 	assert_eq!(ModuleKind::Pitch.header(), &["window_size"]);
 	assert!(ModuleKind::Pitch.visible().is_some());
+	// The resonator can be switched to the Note knob without MIDI, from its card.
+	assert_eq!(ModuleKind::Resonator.header(), &["midi"]);
 	assert_eq!(module::hero(ModuleKind::Reverb), "tail");
 	assert_eq!(module::hero(ModuleKind::Chorus), "lfo");
 	assert_eq!(module::hero(ModuleKind::Flanger), "lfo");

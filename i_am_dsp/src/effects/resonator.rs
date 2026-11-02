@@ -9,7 +9,9 @@
 //! keeps up to [MAX_VOICES] of them, hands a note to the one that is free (or
 //! steals the oldest), and lets a released string ring out. MIDI notes played on
 //! the effect's note port decide which strings are excited; the Note knob is the
-//! fallback for hosts or clips that do not send notes.
+//! fallback for hosts or clips that do not send notes. The MIDI switch in the
+//! header turns the port off, which leaves the Note knob as the only excitation:
+//! an audio track with no note source needs nothing else.
 
 use i_am_dsp_derive::Parameters;
 
@@ -72,7 +74,8 @@ struct Voice<const CHANNELS: usize> {
 /// A tuned comb resonator driven by the input and a band-limited saw.
 #[derive(Parameters)]
 pub struct Resonator<const CHANNELS: usize = 2> {
-	/// The note used when the MIDI port is silent.
+	/// The note the resonator rings at when the note port is off, or has not
+	/// played anything yet.
 	#[range(min = 0.0, max = 127.0)]
 	#[unit(none)]
 	#[default(60.0)]
@@ -123,6 +126,16 @@ pub struct Resonator<const CHANNELS: usize = 2> {
 	#[layout(group = "Resonator", order = 5, widget = knob, step = 1.0)]
 	pub voices: i32,
 
+	/// Whether the note port is listened to.
+	///
+	/// Off, the Note knob is the only excitation and the effect needs no MIDI at
+	/// all. On, the first played note takes over from the knob, and every note
+	/// after it does too.
+	#[default(true)]
+	#[id(display = "MIDI")]
+	#[layout(group = "Resonator", order = 6, widget = toggle)]
+	pub midi: bool,
+
 	#[skip]
 	sample_rate: f32,
 	/// The strings, at most [MAX_VOICES] of them.
@@ -135,6 +148,9 @@ pub struct Resonator<const CHANNELS: usize = 2> {
 	/// excitation, so the effect still sounds for a host that never sends notes.
 	#[skip]
 	played: bool,
+	/// Whether the Note knob is currently exciting the first string.
+	#[skip]
+	knob_active: bool,
 }
 
 impl<const CHANNELS: usize> Resonator<CHANNELS> {
@@ -149,10 +165,12 @@ impl<const CHANNELS: usize> Resonator<CHANNELS> {
 			saw: 0.0,
 			mix: 0.5,
 			voices: 8,
+			midi: true,
 			sample_rate: sample_rate as f32,
 			strings: Vec::new(),
 			started: 0,
 			played: false,
+			knob_active: false,
 		};
 
 		resonator.ensure_voices();
@@ -197,6 +215,17 @@ impl<const CHANNELS: usize> Resonator<CHANNELS> {
 
 	fn note_on(&mut self, note: usize, velocity: f32) {
 		self.starting();
+
+		if !self.played {
+			// The first note takes over from the Note knob: its string fades
+			// instead of droning under the chord.
+			if let Some(voice) = self.strings.first_mut() {
+				voice.released = true;
+			}
+
+			self.knob_active = false;
+		}
+
 		self.played = true;
 
 		let note = note as f32;
@@ -311,7 +340,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Resonator<CHANNELS> {
 		_other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
-		self.track_events(process_context);
+		if self.midi {
+			self.track_events(process_context);
+		}
+
 		self.ensure_voices();
 
 		let glide = 1.0 - (-1.0 / (0.005 * self.sample_rate)).exp();
@@ -324,16 +356,32 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Resonator<CHANNELS> {
 		let saw_gain = self.saw;
 		let input = *samples;
 
-		// With no note held, the Note knob is the excitation: that is the "always
-		// sounds" behaviour hosts that never send notes rely on.
-		if !self.played
-			&& self.strings.iter().all(|voice| voice.level <= 0.0)
-			&& let Some(voice) = self.strings.first_mut()
-		{
-			voice.note = self.note;
-			voice.frequency = note_frequency(self.note);
-			voice.level = 1.0;
-			voice.released = false;
+		// Before a note has ever arrived -- or with the note port switched off --
+		// the Note knob is the excitation. Voice zero is that string: it follows the
+		// knob as it turns, and steps aside when MIDI takes over, so the two never
+		// drone together.
+		let knob_drives = !self.midi || !self.played;
+
+		if knob_drives {
+			self.knob_active = true;
+
+			for (index, voice) in self.strings.iter_mut().enumerate() {
+				if index == 0 {
+					voice.note = self.note;
+					voice.level = 1.0;
+					voice.released = false;
+				} else if !voice.released {
+					// A held MIDI note has to let go when the port is switched off.
+					voice.released = true;
+				}
+			}
+		} else if self.knob_active {
+			// The port was switched back on: let the knob string fade.
+			self.knob_active = false;
+
+			if let Some(voice) = self.strings.first_mut() {
+				voice.released = true;
+			}
 		}
 
 		let active = self.wanted();
@@ -608,5 +656,105 @@ mod tests {
 
 		assert!(output.iter().any(|sample| sample.abs() > 1e-3));
 		assert!(output.iter().all(|sample| sample.is_finite()));
+	}
+
+	#[test]
+	fn the_note_knob_retunes_without_midi() {
+		let mut resonator = Resonator::<1>::new(48_000);
+		resonator.saw = 0.8;
+		resonator.mix = 1.0;
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext { events: vec![] });
+
+		for _ in 0..64 {
+			let mut frame = [0.0];
+			resonator.process(&mut frame, &[], &mut context);
+		}
+
+		resonator.note = 72.0;
+
+		for _ in 0..4_800 {
+			let mut frame = [0.0];
+			resonator.process(&mut frame, &[], &mut context);
+		}
+
+		let voice = resonator.strings.first().expect("the knob string");
+		let target = note_frequency(72.0);
+		assert_eq!(voice.note, 72.0, "the knob did not retune the string");
+		assert!(
+			(voice.frequency - target).abs() < 0.5,
+			"the string glided to {} instead of {target}",
+			voice.frequency
+		);
+	}
+
+	#[test]
+	fn the_first_note_takes_over_from_the_note_knob() {
+		let mut resonator = Resonator::<1>::new(48_000);
+		resonator.voices = 8;
+		let mut quiet: Box<dyn ProcessContext> = Box::new(TestContext { events: vec![] });
+
+		for _ in 0..64 {
+			let mut frame = [0.0];
+			resonator.process(&mut frame, &[], &mut quiet);
+		}
+
+		assert!(
+			resonator.strings[0].level > 0.0,
+			"the knob string was not playing"
+		);
+
+		let mut notes: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![NoteEvent::NoteOn {
+				channel: 0,
+				note: 72,
+				velocity: 1.0,
+			}],
+		});
+
+		for _ in 0..64 {
+			let mut frame = [0.0];
+			resonator.process(&mut frame, &[], &mut notes);
+		}
+
+		assert!(
+			resonator.strings[0].released,
+			"the knob string did not stand down"
+		);
+		assert!(
+			resonator
+				.strings
+				.iter()
+				.any(|voice| voice.note == 72.0 && voice.level > 0.0),
+			"the note did not get a string"
+		);
+	}
+
+	#[test]
+	fn a_switched_off_note_port_ignores_midi() {
+		let mut resonator = Resonator::<1>::new(48_000);
+		resonator.midi = false;
+		resonator.voices = 8;
+		let mut notes: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![NoteEvent::NoteOn {
+				channel: 0,
+				note: 72,
+				velocity: 1.0,
+			}],
+		});
+
+		for _ in 0..64 {
+			let mut frame = [0.0];
+			resonator.process(&mut frame, &[], &mut notes);
+		}
+
+		assert!(
+			!resonator.played,
+			"the port still marked the note as played"
+		);
+		assert!(
+			resonator.strings.iter().all(|voice| voice.note != 72.0),
+			"the note was used with the port switched off"
+		);
+		assert!(resonator.strings[0].level > 0.0, "the knob string stopped");
 	}
 }
