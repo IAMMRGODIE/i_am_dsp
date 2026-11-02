@@ -685,6 +685,7 @@
       note: module.note,
       meter: module.meter,
       ir: module.ir,
+      script: module.script,
       card: null,
       context: cardAudio,
       fetching: false
@@ -705,7 +706,10 @@
       context: cardAudio,
       note: !!module.note,
       ir: !!module.ir,
+      script: !!module.script,
       pickIr: function () { pickImpulse(entry); },
+      loadScript: function () { loadScript(entry); },
+      applyScript: function (source) { applyScript(entry, source); },
       kinds: kinds,
       kind: module.kind,
       dragData: bandIndex + "." + slotIndex,
@@ -2344,10 +2348,56 @@
       .catch(function () {});
   }
 
+  /// The source a scripted module runs, for its editor.
+  function loadScript(entry) {
+    fetch("/module-script?id=" + entry.id, { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        if (!value) return;
+
+        entry.context.script = value;
+        entry.card.setScript(value.source);
+
+        if (value.error) entry.card.title = value.error;
+      })
+      .catch(function () {});
+  }
+
+  /// Posts a new source; the worker renders it on its own thread.
+  function applyScript(entry, source) {
+    fetch("/module-script?id=" + entry.id, {
+      method: "POST",
+      body: source
+    })
+      .then(function () { loadScript(entry); })
+      .catch(function () {});
+  }
+
+  /// The curve a script renders right now, which the card's picture draws.
+  function fetchCurve(entry) {
+    fetch("/module-curve?id=" + entry.id, { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        if (!value || !value.points) return;
+
+        var changed = JSON.stringify(entry.context.curve) !== JSON.stringify(value);
+        entry.context.curve = value;
+        entry.context.mapping = value;
+
+        if (changed) repaint(entry);
+      })
+      .catch(function () {});
+  }
+
   function pollImpulses() {
     if (!document.hidden) {
       liveCards.forEach(function (entry) {
         if (entry.ir) fetchIr(entry);
+        if (entry.script) fetchCurve(entry);
       });
     }
 

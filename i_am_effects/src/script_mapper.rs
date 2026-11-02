@@ -530,7 +530,8 @@ fn route(
 	None
 }
 
-fn mapper_worker() -> Arc<ScriptWorker<MapperTable>> {
+/// The worker a new script mapper starts with.
+pub fn mapper_worker() -> Arc<ScriptWorker<MapperTable>> {
 	let worker = ScriptWorker::spawn(
 		MapperTable::render,
 		MapperTable::curve_points,

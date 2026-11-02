@@ -100,8 +100,9 @@ impl Module {
 		scope: Arc<Scope>,
 		meters: Option<Arc<ModuleMeters>>,
 		ir: Option<Arc<i_am_effects::IrSlot>>,
+		script: Option<Arc<crate::script::ScriptSlot>>,
 	) -> Self {
-		let effect = module::build(state.kind, sample_rate, ir.clone());
+		let effect = module::build(state.kind, sample_rate, ir.clone(), script);
 
 		if let (Some(saved), Some(slot)) = (&state.ir, &ir) {
 			let saved = saved.resampled(sample_rate);
@@ -288,6 +289,14 @@ impl Scopes {
 		}
 	}
 
+	fn script(&self, id: u32, kind: ModuleKind) -> Option<Arc<crate::script::ScriptSlot>> {
+		if !module::needs_script(kind) {
+			return None;
+		}
+
+		self.shared.as_ref().map(|shared| shared.script(id, kind))
+	}
+
 	fn ir(&self, id: u32, kind: ModuleKind) -> Option<Arc<i_am_effects::IrSlot>> {
 		if !module::needs_ir(kind) {
 			return None;
@@ -347,6 +356,7 @@ fn apply_lane(
 						scopes.get(edited.id, edited.kind),
 						scopes.meters(edited.id, edited.kind),
 						scopes.ir(edited.id, edited.kind),
+						scopes.script(edited.id, edited.kind),
 					));
 				} else if let Some(module) = &mut lane.slots[slot] {
 					module.update(edited);

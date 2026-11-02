@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use i_am_dsp::prelude::{ParamMap, SetValue};
 use i_am_effects::IrSlot;
+
+use crate::script::ScriptSlot;
 use i_am_web_gui::{Channels, Control, Scope};
 
 use crate::module::ModuleKind;
@@ -204,6 +206,8 @@ pub(crate) struct RackShared {
 	pub meters: Mutex<HashMap<u32, Arc<ModuleMeters>>>,
 	/// One impulse response slot per module id, for the convolver's card.
 	pub ir: Mutex<HashMap<u32, Arc<IrSlot>>>,
+	/// One script worker per module id, for the scripted cards.
+	pub scripts: Mutex<HashMap<u32, Arc<ScriptSlot>>>,
 }
 
 impl RackShared {
@@ -224,6 +228,34 @@ impl RackShared {
 		let scope = Arc::new(Scope::with_channels(channels));
 		scopes.insert(id, scope.clone());
 		scope
+	}
+
+	/// The script worker of a module, created the first time the engine or a
+	/// page asks. The kind decides which product's worker it is.
+	pub fn script(&self, id: u32, kind: ModuleKind) -> Arc<ScriptSlot> {
+		let mut scripts = self
+			.scripts
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner());
+
+		scripts
+			.entry(id)
+			.or_insert_with(|| {
+				Arc::new(match kind {
+					ModuleKind::ScriptDistortion => ScriptSlot::distortion(),
+					_ => ScriptSlot::mapper(),
+				})
+			})
+			.clone()
+	}
+
+	/// The script worker of a module, when the engine has already built one.
+	pub fn existing_script(&self, id: u32) -> Option<Arc<ScriptSlot>> {
+		self.scripts
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.get(&id)
+			.cloned()
 	}
 
 	/// The impulse response slot of a module, created the first time the engine
@@ -303,6 +335,12 @@ impl RackShared {
 			.lock()
 			.unwrap_or_else(|poisoned| poisoned.into_inner());
 		slots.retain(|id, _| live.contains(id));
+
+		let mut scripts = self
+			.scripts
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner());
+		scripts.retain(|id, _| live.contains(id));
 	}
 
 	/// Locks the state, ignoring a poisoned lock: a panic in the page path must

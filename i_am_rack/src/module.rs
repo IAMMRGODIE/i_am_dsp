@@ -91,11 +91,15 @@ pub enum ModuleKind {
 	Vocoder,
 	/// A convolver whose impulse response the card loads from a file.
 	Convolver,
+	/// A distortion whose transfer curve is a script.
+	ScriptDistortion,
+	/// A frequency mapper whose table is a script.
+	ScriptMapper,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 36] = [
+	pub const ALL: [Self; 38] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
@@ -132,6 +136,8 @@ impl ModuleKind {
 		Self::Ott,
 		Self::Vocoder,
 		Self::Convolver,
+		Self::ScriptDistortion,
+		Self::ScriptMapper,
 	];
 
 	/// The catalog id this kind stores in its state.
@@ -173,6 +179,8 @@ impl ModuleKind {
 			Self::Ott => "ott",
 			Self::Vocoder => "vocoder",
 			Self::Convolver => "convolver",
+			Self::ScriptDistortion => "script_distortion",
+			Self::ScriptMapper => "script_mapper",
 		}
 	}
 
@@ -278,6 +286,11 @@ pub fn meter(kind: ModuleKind) -> Option<&'static str> {
 	}
 }
 
+/// Whether a kind runs a script the page can edit.
+pub fn needs_script(kind: ModuleKind) -> bool {
+	matches!(kind, ModuleKind::ScriptDistortion | ModuleKind::ScriptMapper)
+}
+
 /// Whether a kind keeps an impulse response the page can load into it.
 pub fn needs_ir(kind: ModuleKind) -> bool {
 	kind == ModuleKind::Convolver
@@ -291,13 +304,30 @@ pub(crate) fn build(
 	kind: ModuleKind,
 	sample_rate: usize,
 	ir: Option<Arc<i_am_effects::IrSlot>>,
+	script: Option<Arc<crate::script::ScriptSlot>>,
 ) -> Box<dyn Effect<2>> {
 	let descriptor = kind.descriptor();
 
-	match descriptor.build_with_ir {
-		Some(build) => build(sample_rate, ir.expect("the kind needs its slot")),
-		None => (descriptor.build)(sample_rate),
+	if let Some(build) = descriptor.build_with_ir {
+		return build(sample_rate, ir.expect("the kind needs its slot"));
 	}
+
+	// The scripted products are built around the worker the page edits.
+	if let Some(script) = script {
+		match &*script {
+			crate::script::ScriptSlot::Distortion(worker) => {
+				return Box::new(i_am_effects::ScriptDistortionEffect::new(worker.clone()));
+			},
+			crate::script::ScriptSlot::Mapper(worker) => {
+				return Box::new(i_am_effects::ScriptMapperEffect::new(
+					sample_rate,
+					worker.clone(),
+				));
+			},
+		}
+	}
+
+	(descriptor.build)(sample_rate)
 }
 
 /// The parameter schema of a kind, at a rate that does not affect the metadata.

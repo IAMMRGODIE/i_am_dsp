@@ -368,7 +368,8 @@ fn route(
 	None
 }
 
-fn distortion_worker() -> Arc<ScriptWorker<DistortionTable>> {
+/// The worker a new script distortion starts with.
+pub fn distortion_worker() -> Arc<ScriptWorker<DistortionTable>> {
 	let worker = ScriptWorker::spawn(
 		DistortionTable::render,
 		DistortionTable::curve_points,

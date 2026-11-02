@@ -241,3 +241,26 @@
 /* The convolver's picture is its file picker. */
 .mcard-hero.ir-target{cursor:pointer}
 .mcard-hero.ir-target:hover{outline:1px solid var(--accent); outline-offset:-1px}
+
+/* The scripted products' editor, under the card head. */
+.mcard-script{
+  display:flex; flex-direction:column; gap:6px;
+  padding:8px 10px; border-bottom:1px solid #303030; background:#191919;
+}
+.mcard-script-text{
+  width:100%; min-height:96px; resize:vertical;
+  background:#111; color:var(--text1); border:1px solid #353535; border-radius:4px;
+  font:11px/1.5 var(--mono); padding:6px 8px; tab-size:2;
+}
+.mcard-script-text:focus{outline:1px solid var(--accent); outline-offset:0}
+.mcard-script-actions{display:flex; justify-content:flex-end; gap:6px}
+.mcard-script-apply{
+  font:inherit; font-size:10px; padding:3px 10px; border-radius:4px; cursor:pointer;
+  color:#111; background:var(--accent); border:1px solid var(--accent);
+}
+.mcard-script-toggle{
+  font:inherit; font-size:9px; font-family:var(--mono); padding:1px 5px;
+  color:var(--text2); background:transparent; border:1px solid #3a3a3a; border-radius:4px;
+  cursor:pointer;
+}
+.mcard-script-toggle:hover{color:var(--text1); border-color:#585858}

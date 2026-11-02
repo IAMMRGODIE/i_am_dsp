@@ -20,6 +20,8 @@ use crate::allpass::AllpassEffect;
 use crate::comb::CombEffect;
 use crate::compressor::CompressorEffect;
 use crate::convolver::{ConvolverEffect, IrSlot};
+use crate::script_distortion::{ScriptDistortionEffect, distortion_worker};
+use crate::script_mapper::{ScriptMapperEffect, mapper_worker};
 use crate::ir_reverb::IrReverbEffect;
 use crate::ott::OttEffect;
 use crate::disperser::Dispersion;
@@ -674,6 +676,32 @@ pub const CONVOLVER: ModuleDescriptor = ModuleDescriptor {
 	build: |rate| Box::new(ConvolverEffect::new(rate, Arc::new(IrSlot::new()))),
 	build_with_ir: Some(|rate, slot| Box::new(ConvolverEffect::new(rate, slot))),
 };
+
+/// The scripted distortion product.
+pub const SCRIPT_DISTORTION: ModuleDescriptor = ModuleDescriptor {
+	id: "script_distortion",
+	name: "Script Distortion",
+	accent: "#ff7a6b",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build: |_| Box::new(ScriptDistortionEffect::new(distortion_worker())),
+	build_with_ir: None,
+};
+
+/// The scripted frequency mapper product.
+pub const SCRIPT_MAPPER: ModuleDescriptor = ModuleDescriptor {
+	id: "script_mapper",
+	name: "Script Mapper",
+	accent: "#8ad3ff",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build: |rate| Box::new(ScriptMapperEffect::new(rate, mapper_worker())),
+	build_with_ir: None,
+};
 /// Every module the catalog currently exposes.
 pub const MODULES: &[ModuleDescriptor] = &[
 	FILTER,
@@ -712,6 +740,8 @@ pub const MODULES: &[ModuleDescriptor] = &[
 	OTT,
 	VOCODER,
 	CONVOLVER,
+	SCRIPT_DISTORTION,
+	SCRIPT_MAPPER,
 ];
 
 /// Finds a descriptor by its stable id.

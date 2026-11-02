@@ -176,7 +176,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[0]["hero"], "spectrum");
 
 	let kinds = json["kinds"].as_array().expect("kinds");
-	assert_eq!(kinds.len(), 36);
+	assert_eq!(kinds.len(), 38);
 
 	let names = kinds
 		.iter()
@@ -2458,4 +2458,48 @@ fn a_preset_keeps_the_impulse_response() {
 		!json.contains("\"peaks\":[]"),
 		"the restored impulse has no picture: {json}"
 	);
+}
+
+/// A scripted module hands its source to a worker, which renders the curve the
+/// card draws. The route is the same shape the product page uses.
+#[test]
+fn a_scripted_module_takes_a_script() {
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(50, ModuleKind::ScriptDistortion));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+	process_with(&mut rack, [0.0, 0.0], Vec::new());
+
+	let source = "tanh(x * 2.0)";
+	let request = i_am_web_gui::ProtocolRequest {
+		method: "POST",
+		path: "/module-script",
+		query: Some("id=50"),
+		body: source.as_bytes(),
+	};
+	assert!(
+		crate::web::route(&request, &rack.shared).is_some(),
+		"the script route refused the source"
+	);
+
+	let script = rack.shared.existing_script(50).expect("the worker");
+	assert!(
+		script.json().contains("tanh(x * 2.0)"),
+		"the worker did not take the source"
+	);
+
+	// The render happens on the worker's thread.
+	for _ in 0..200 {
+		if !script.curve_json().contains("\"points\":[]") {
+			return;
+		}
+
+		std::thread::sleep(std::time::Duration::from_millis(10));
+	}
+
+	panic!("the script never rendered a curve");
 }

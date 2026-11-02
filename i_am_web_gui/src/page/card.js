@@ -2257,6 +2257,48 @@
     });
     head.appendChild(collapse);
 
+    // A scripted product carries its source in a small editor under the head.
+    var scriptArea = null;
+
+    if (options.script) {
+      var scriptToggle = document.createElement("button");
+      scriptToggle.type = "button";
+      scriptToggle.className = "mcard-script-toggle";
+      scriptToggle.textContent = "{ }";
+      scriptToggle.title = "Edit the script";
+      scriptToggle.setAttribute("aria-label", "Edit the script");
+      head.appendChild(scriptToggle);
+
+      var panel = document.createElement("div");
+      panel.className = "mcard-script";
+      panel.style.display = "none";
+
+      scriptArea = document.createElement("textarea");
+      scriptArea.className = "mcard-script-text";
+      scriptArea.spellcheck = false;
+      panel.appendChild(scriptArea);
+
+      var actions = document.createElement("div");
+      actions.className = "mcard-script-actions";
+
+      var apply = document.createElement("button");
+      apply.type = "button";
+      apply.className = "mcard-script-apply";
+      apply.textContent = "Apply";
+      apply.addEventListener("click", function () {
+        if (options.applyScript) options.applyScript(scriptArea.value);
+      });
+      actions.appendChild(apply);
+      panel.appendChild(actions);
+      card.appendChild(panel);
+
+      scriptToggle.addEventListener("click", function () {
+        var open = panel.style.display === "none";
+        panel.style.display = open ? "" : "none";
+        if (open && options.loadScript) options.loadScript();
+      });
+    }
+
     // A card for a module that follows the host's notes shows the note it is
     // hearing; the page pushes it in from /module-note.
     var noteBadge = null;
@@ -2454,6 +2496,12 @@
     // A live hero has to be redrawn when the audio moves, not only when a knob
     // does: the page keeps the card and calls this on every scope frame.
     card.repaintHero = paintHero;
+
+    card.setScript = function (source) {
+      if (scriptArea && source !== undefined && source !== null) {
+        scriptArea.value = source;
+      }
+    };
 
     card.setNote = function (notes) {
       if (!noteBadge) return;

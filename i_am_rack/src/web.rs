@@ -67,6 +67,9 @@ pub(crate) fn route(
 		("GET", "/module-bands") => module_bands(request, shared),
 		("GET", "/module-ir") => module_ir(request, shared),
 		("POST", "/module-ir") => module_ir(request, shared),
+		("GET", "/module-script") => module_script(request, shared),
+		("POST", "/module-script") => module_script(request, shared),
+		("GET", "/module-curve") => module_curve(request, shared),
 		("GET", "/module-stereo") => module_document(request, shared, true),
 		_ => None,
 	}
@@ -205,6 +208,55 @@ fn percent_decode(value: &str) -> String {
 	}
 
 	String::from_utf8_lossy(&out).to_string()
+}
+
+/// The script a scripted module runs: a GET describes it, a POST replaces it
+/// and asks the worker to render for the parameters the module currently has.
+fn module_script(
+	request: &i_am_web_gui::ProtocolRequest<'_>,
+	shared: &RackShared,
+) -> Option<i_am_web_gui::ProtocolResponse> {
+	let id = module_id(request)?;
+	let script = shared.existing_script(id)?;
+
+	match request.method {
+		"GET" => Some(i_am_web_gui::ProtocolResponse::json(script.json())),
+		"POST" => {
+			let source = String::from_utf8_lossy(request.body).to_string();
+			script.set_source(source);
+
+			let rate = shared.rate.load(std::sync::atomic::Ordering::Relaxed) as f32;
+			let (params, extra) = {
+				let state = shared.lock();
+				let module = state.module(id)?;
+				let value = |name: &str| module.params.get(name).copied().unwrap_or(0.0) as f32;
+				let extra = match module.kind {
+					crate::module::ModuleKind::ScriptMapper => rate,
+					_ => 10.0_f32.powf(value("in_gain") / 20.0),
+				};
+
+				(
+					[value("p1"), value("p2"), value("p3"), value("p4")],
+					extra,
+				)
+			};
+
+			script.request(params, extra);
+			Some(i_am_web_gui::ProtocolResponse::json("{\"ok\":true}"))
+		},
+		_ => None,
+	}
+}
+
+/// The curve a script currently renders, for the card's picture.
+fn module_curve(
+	request: &i_am_web_gui::ProtocolRequest<'_>,
+	shared: &RackShared,
+) -> Option<i_am_web_gui::ProtocolResponse> {
+	let id = module_id(request)?;
+	let script = shared.existing_script(id)?;
+
+	Some(i_am_web_gui::ProtocolResponse::json(script.curve_json()))
 }
 
 fn module_document(
@@ -482,6 +534,7 @@ fn module_json(
 		"note": crate::module::shows_notes(module.kind),
 		"meter": crate::module::meter(module.kind),
 		"ir": crate::module::needs_ir(module.kind),
+		"script": crate::module::needs_script(module.kind),
 		"scope": match crate::module::audio_scope(module.kind) {
 			i_am_web_gui::Channels::None => serde_json::Value::Null,
 			i_am_web_gui::Channels::Mono => "mono".into(),

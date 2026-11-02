@@ -17,6 +17,7 @@ mod crossover;
 mod engine;
 mod modulation;
 mod module;
+mod script;
 mod shared;
 mod state;
 mod web;
@@ -118,6 +119,7 @@ impl Default for Rack {
 			scopes: Mutex::new(std::collections::HashMap::new()),
 			meters: Mutex::new(std::collections::HashMap::new()),
 			ir: Mutex::new(std::collections::HashMap::new()),
+			scripts: Mutex::new(std::collections::HashMap::new()),
 		});
 
 		let engine = Engine::with_shared(DEFAULT_SAMPLE_RATE, &state, shared.clone());
