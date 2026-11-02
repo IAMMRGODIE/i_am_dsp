@@ -1187,7 +1187,56 @@
     );
   }
 
+  /// A gate, expander or limiter law drawn on its own, across the whole picture.
+  /// The meter version needs envelope history to plot beside it; a page that
+  /// only has parameters (the rack card) gets this instead.
+  function dynamicsSimpleHero(values, mode) {
+    var threshold = clamp(valueOf(values, "threshold", -40), -80, 0);
+    var range = clamp(valueOf(values, "range", 60), 0, 80);
+    var ratio = Math.max(valueOf(values, "ratio", 2), 1);
+    var ceiling = clamp(valueOf(values, "ceiling", -0.1), -30, 0);
+    var makeup = clamp(valueOf(values, "output", 0), -24, 24);
+    var points = [];
+
+    function xFor(db) { return 20 + (db + 60) / 60 * 480; }
+    function yFor(db) { return 148 - (db + 60) / 60 * 136; }
+
+    for (var i = 0; i <= 120; i++) {
+      var input = -60 + i / 120 * 60;
+      var output;
+
+      if (mode === "limiter") output = Math.min(input, ceiling);
+      else if (mode === "gate") output = input >= threshold ? input : input - range;
+      else output = input >= threshold ? input : threshold + (input - threshold) * ratio;
+
+      output = clamp(output + makeup, -60, 0);
+      points.push((i ? "L " : "M ") + xFor(input).toFixed(1) + " " + yFor(output).toFixed(1));
+    }
+
+    var law = mode === "limiter" ? ceiling : threshold;
+    var lawX = xFor(law);
+
+    return heroSvg(
+      '<line x1="20" y1="12" x2="20" y2="148" stroke="#2b2b2b"/>' +
+      '<line x1="20" y1="148" x2="500" y2="148" stroke="#2b2b2b"/>' +
+      '<line x1="20" y1="148" x2="500" y2="12" stroke="#333" stroke-width="1" ' +
+      'stroke-dasharray="3 5" vector-effect="non-scaling-stroke"/>' +
+      '<line x1="' + lawX.toFixed(1) + '" y1="12" x2="' + lawX.toFixed(1) +
+      '" y2="148" stroke="#3a2a2a"/>' +
+      '<path d="' + points.join(" ") + '" fill="none" stroke="var(--accent)" ' +
+      'stroke-width="2.2" vector-effect="non-scaling-stroke"/>' +
+      '<text x="' + (lawX + 4).toFixed(1) + '" y="22" fill="#777" font-size="9">' +
+      law.toFixed(0) + ' dB</text>' +
+      '<text x="462" y="140" fill="#777" font-size="9">' +
+      (mode === "limiter" ? "0 dBFS" : ratio.toFixed(1) + ":1") + '</text>'
+    );
+  }
+
   function dynamicsHero(values, mode, context) {
+    if (!context || !context.envHistory || !context.envHistory.input.length) {
+      return dynamicsSimpleHero(values, mode);
+    }
+
     var threshold = clamp(valueOf(values, "threshold", -40), -80, 0);
     var range = clamp(valueOf(values, "range", 60), 0, 80);
     var ratio = Math.max(valueOf(values, "ratio", 2), 1);
