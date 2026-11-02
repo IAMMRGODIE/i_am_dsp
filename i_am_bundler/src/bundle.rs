@@ -218,13 +218,44 @@ pub fn install(source: &Path, destination_root: &Path) -> Result<PathBuf, String
 	fs::create_dir_all(destination_root)
 		.map_err(|e| format!("cannot create `{}`: {e}", destination_root.display()))?;
 
+	// Copies moved aside by an earlier install are dead weight; a failure here
+	// just means a host still holds one, which the next run will collect.
+	if let Ok(entries) = fs::read_dir(destination_root) {
+		for entry in entries.flatten() {
+			let path = entry.path();
+			if path.extension().is_some_and(|extension| extension == "old") && path.is_dir() {
+				let _ = fs::remove_dir_all(&path);
+			} else if path.is_file() || path.is_dir() {
+				// A single file moved aside keeps its whole name, e.g. "A.clap.old".
+				if path.to_string_lossy().ends_with(".old") {
+					let _ = if path.is_dir() {
+						fs::remove_dir_all(&path)
+					} else {
+						fs::remove_file(&path)
+					};
+				}
+			}
+		}
+	}
+
 	let destination = destination_root.join(file_name);
-	if destination.is_dir() {
-		fs::remove_dir_all(&destination)
-			.map_err(|e| format!("cannot remove `{}`: {e}", destination.display()))?;
-	} else if destination.is_file() {
-		fs::remove_file(&destination)
-			.map_err(|e| format!("cannot remove `{}`: {e}", destination.display()))?;
+
+	// A host keeps the plug-in file open while it is loaded, and Windows then
+	// refuses to delete it. It does allow a rename, so an existing copy is moved
+	// aside and the fresh one written in its place; the stale copy is cleaned up
+	// by a later install.
+	if destination.exists() {
+		let stale = destination.with_file_name(format!("{}.old", file_name.to_string_lossy()));
+
+		if fs::rename(&destination, &stale).is_err() {
+			if destination.is_dir() {
+				fs::remove_dir_all(&destination)
+					.map_err(|e| format!("cannot remove `{}`: {e}", destination.display()))?;
+			} else {
+				fs::remove_file(&destination)
+					.map_err(|e| format!("cannot remove `{}`: {e}", destination.display()))?;
+			}
+		}
 	}
 
 	if source.is_dir() {
