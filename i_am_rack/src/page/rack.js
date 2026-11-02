@@ -970,17 +970,22 @@
     }
 
     function begin(band, pointerId) {
-      var svg = hero.querySelector("svg");
-      if (!svg) return;
+      if (!hero.querySelector("svg")) return;
 
-      drag = { band: band, svg: svg, pointerId: pointerId };
+      // The picture's contents are replaced while a card is live (the scope
+      // arrives every few frames), so nothing inside it is held on to: the
+      // element measured below is the one on screen at that moment.
+      drag = { band: band, pointerId: pointerId };
       queue(module.id + ".band", band);
     }
 
     function move(x, y) {
       if (!drag) return;
 
-      var rect = drag.svg.getBoundingClientRect();
+      var svg = hero.querySelector("svg");
+      if (!svg) return;
+
+      var rect = svg.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
 
       var u = Math.min(1, Math.max(0, (x - rect.left) / rect.width));
@@ -1020,6 +1025,15 @@
       move(event.clientX, event.clientY);
       event.preventDefault();
     });
+
+    // The picture redraws with every scope frame; while a node is held, those
+    // redraws would fight the drag, so the card pauses them.
+    card.addEventListener("pointerdown", function (event) {
+      if (drag) card.classList.add("dragging-band");
+    }, true);
+    card.addEventListener("pointerup", function () {
+      card.classList.remove("dragging-band");
+    }, true);
 
     card.addEventListener("pointerup", release);
     card.addEventListener("pointercancel", release);

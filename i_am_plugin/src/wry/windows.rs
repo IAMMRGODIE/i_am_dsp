@@ -7,13 +7,16 @@ use std::path::{Path, PathBuf};
 use crossbeam_channel::Sender;
 use crate::log::{clear_error, note};
 use crate::{Editor, EditorContext, EditorError, ParentWindow, Plugin, WindowSize};
-use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, GetLastError, HWND, SetLastError};
+use windows_sys::Win32::Foundation::{
+	ERROR_ACCESS_DENIED, GetLastError, HWND, LPARAM, LRESULT, SetLastError, WPARAM,
+};
 use windows_sys::Win32::Graphics::Gdi::COLOR_WINDOW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-	CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, IsWindow, RegisterClassW,
-	GetParent, SetParent, SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW,
-	WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_VISIBLE,
+	CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, IsWindow, KillTimer,
+	RegisterClassW, GWLP_WNDPROC, GetParent, SetParent, SetTimer, SetWindowLongPtrW, SetWindowPos,
+	ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, WM_TIMER, WNDCLASSW, WS_CHILD,
+	WS_CLIPCHILDREN, WS_VISIBLE,
 };
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use wry::dpi::{PhysicalPosition, PhysicalSize};
@@ -96,6 +99,52 @@ fn create_host_window(
 	}
 
 	Ok(window)
+}
+
+/// What the window's timer procedure needs to follow the host's window.
+///
+/// A host may resize its window without telling the plug-in. A Win32 timer on
+/// our own child window is delivered by whichever message loop the host runs,
+/// so it works even when the host offers no CLAP timer at all.
+#[derive(Copy, Clone)]
+struct EditorHook {
+	editor: *mut (),
+	follow: unsafe fn(*mut ()),
+}
+
+thread_local! {
+	static EDITOR_HOOK: RefCell<Option<EditorHook>> = const { RefCell::new(None) };
+}
+
+const FOLLOW_TIMER: usize = 0x1A33;
+
+unsafe extern "system" fn follow_timer(
+	hwnd: HWND,
+	message: u32,
+	wparam: WPARAM,
+	lparam: LPARAM,
+) -> LRESULT {
+	if message == WM_TIMER && wparam == FOLLOW_TIMER {
+		let hook = EDITOR_HOOK.with(|slot| *slot.borrow());
+
+		if let Some(hook) = hook {
+			// SAFETY: the pointer was stored by an open editor and cleared
+			// before that editor is dropped; both happen on this thread.
+			unsafe { (hook.follow)(hook.editor) };
+		}
+
+		return 0;
+	}
+
+	// SAFETY: the remaining window procedure is the class's own.
+	unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+}
+
+unsafe fn follow_editor<P: Plugin>(pointer: *mut ()) {
+	// SAFETY: the pointer is the editor that stored this function.
+	let editor = unsafe { &mut *(pointer as *mut WryEditor<P>) };
+
+	let _ = editor.follow_parent();
 }
 
 thread_local! {
@@ -402,6 +451,50 @@ pub struct WryEditor<P: Plugin> {
 }
 
 impl<P: Plugin> WryEditor<P> {
+
+	/// Make the page the size of the room the host's window has.
+	///
+	/// Called from the window's timer: a host can resize without calling
+	/// set_size (some only do that on release, others never), and the client
+	/// rectangle is the truth in every case.
+	fn follow_parent(&mut self) -> Result<(), EditorError> {
+		let Some(window) = self.window else {
+			return Ok(());
+		};
+		let parent = unsafe { GetParent(window) };
+
+		if parent.is_null() {
+			return Ok(());
+		}
+
+		let mut client = unsafe { std::mem::zeroed() };
+
+		if unsafe { GetClientRect(parent, &mut client) } == 0 {
+			return Ok(());
+		}
+
+		let width = (client.right - client.left) as f64;
+		let height = (client.bottom - client.top) as f64;
+
+		if width < 1.0 || height < 1.0 {
+			return Ok(());
+		}
+
+		let logical = WindowSize::new((width / self.scale) as f32, (height / self.scale) as f32);
+
+		if (logical.width - self.size.width).abs() < 1.0
+			&& (logical.height - self.size.height).abs() < 1.0
+		{
+			return Ok(());
+		}
+
+		note(&format!(
+			"follow: parent is {}x{} -> {}x{}",
+			width, height, logical.width, logical.height
+		));
+
+		self.set_size(logical)
+	}
 	/// Build an editor that shows `html` and turns each IPC string into a message.
 	pub fn new(
 		html: impl Into<String>,
@@ -497,6 +590,15 @@ impl<P: Plugin> WryEditor<P> {
 	/// This is used by both `close` and `Drop`: a host that drops the editor
 	/// without an explicit destroy must not leave a visible child window behind.
 	fn shutdown(&mut self) {
+		if let Some(window) = self.window {
+			unsafe {
+				KillTimer(window, FOLLOW_TIMER);
+				SetWindowLongPtrW(window, GWLP_WNDPROC, DefWindowProcW as *const () as isize);
+			}
+		}
+
+		EDITOR_HOOK.with(|slot| *slot.borrow_mut() = None);
+
 		if self.webview.is_none() && self.window.is_none() {
 			return;
 		}
@@ -777,6 +879,19 @@ impl<P: Plugin> Editor<P> for WryEditor<P> {
 
 		self.webview = Some(webview);
 		self.window = Some(window);
+
+		// The timer is ours, so no host support is needed for it: whichever
+		// message loop the host runs delivers WM_TIMER to this window.
+		EDITOR_HOOK.with(|slot| {
+			*slot.borrow_mut() = Some(EditorHook {
+				editor: self as *mut WryEditor<P> as *mut (),
+				follow: follow_editor::<P>,
+			});
+		});
+		unsafe {
+			SetWindowLongPtrW(window, GWLP_WNDPROC, follow_timer as *const () as isize);
+			SetTimer(window, FOLLOW_TIMER, 33, None);
+		}
 		Ok(())
 	}
 

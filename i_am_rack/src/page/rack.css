@@ -534,3 +534,6 @@ body.bypassed .footer{
   border-radius:1px; background:transparent;
 }
 .slot-resize:hover::before,.slot-resize.dragging::before{background:#4a4a4a}
+
+/* While a band node is held, the picture belongs to the pointer. */
+.slot .mcard.dragging-band .mcard-hero{pointer-events:auto}
