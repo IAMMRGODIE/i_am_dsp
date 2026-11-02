@@ -793,7 +793,10 @@
 
       var source = event.dataTransfer.getData("text/plain");
       var target = bandIndex + "." + slotIndex;
-      if (!source || source === target) return;
+
+      // A source or a macro dragged here belongs to a knob, not to the slot.
+      if (!source || source.indexOf("source:") === 0 || source.indexOf("macro:") === 0) return;
+      if (source === target) return;
 
       // Alt/Ctrl turns the drag into a copy instead of a move.
       var copy = event.altKey || event.ctrlKey || event.metaKey;

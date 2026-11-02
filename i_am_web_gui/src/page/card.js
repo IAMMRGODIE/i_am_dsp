@@ -1976,10 +1976,77 @@
       });
       dial.addEventListener("drop", function (event) {
         event.preventDefault();
+        // The knob stops the drop: without this the slot underneath would read
+        // the source as a module and try to move it.
+        event.stopPropagation();
         dial.classList.remove("drop-target");
         var data = event.dataTransfer ? event.dataTransfer.getData("text/plain") : "";
         if (data && spec.onModulationDrop) spec.onModulationDrop(data, spec.dropTarget);
       });
+    }
+
+    // Alt + right click edits how far each source pushes this knob.
+    dial.addEventListener("contextmenu", function (event) {
+      if (!event.altKey || !modulations.length) return;
+
+      event.preventDefault();
+      openDepths();
+    });
+
+    function openDepths() {
+      var box = document.createElement("div");
+      box.className = "knob-depths";
+
+      modulations.forEach(function (assignment) {
+        var row = document.createElement("label");
+        row.className = "knob-depth";
+
+        var name = document.createElement("span");
+        name.textContent = assignment.label || "source";
+
+        var range = document.createElement("input");
+        range.type = "range";
+        range.min = "-100";
+        range.max = "100";
+        range.step = "1";
+        range.value = String(Math.round((assignment.depth || 0) * 100));
+
+        var value = document.createElement("span");
+        value.className = "knob-depth-value";
+        value.textContent = range.value + "%";
+
+        range.addEventListener("input", function () {
+          var depth = Number(range.value) / 100;
+          assignment.depth = depth;
+          value.textContent = range.value + "%";
+          paint();
+
+          if (spec.onModulation) spec.onModulation(assignment.slot, depth);
+        });
+
+        row.appendChild(name);
+        row.appendChild(range);
+        row.appendChild(value);
+        box.appendChild(row);
+      });
+
+      var rect = dial.getBoundingClientRect();
+      box.style.left = Math.max(8, Math.min(window.innerWidth - 240, rect.left)) + "px";
+      box.style.top = Math.min(window.innerHeight - 120, rect.bottom + 8) + "px";
+      document.body.appendChild(box);
+
+      function dismiss(event) {
+        if (box.contains(event.target)) {
+          document.addEventListener("pointerdown", dismiss, { once: true, capture: true });
+          return;
+        }
+
+        box.remove();
+      }
+
+      setTimeout(function () {
+        document.addEventListener("pointerdown", dismiss, { once: true, capture: true });
+      }, 0);
     }
 
     dial.addEventListener("wheel", function (event) {
@@ -2289,6 +2356,11 @@
       values[spec.id] = valueOf(options.values, spec.id, spec.default);
     });
 
+    // The unmodulated values, kept apart: a live update must not become the next
+    // tick's base, or the needle would drift back onto the hand.
+    var baseValues = {};
+    Object.keys(values).forEach(function (id) { baseValues[id] = values[id]; });
+
     var byId = {};
     (options.controls || []).forEach(function (spec) { byId[spec.id] = spec; });
 
@@ -2498,6 +2570,7 @@
 
     function edited(id, value) {
       values[id] = value;
+      baseValues[id] = value;
       paintHero();
       // A switch appears in the header, so the body has to follow it.
       applyVisibility();
@@ -2614,8 +2687,8 @@
         if (typeof value !== "number") return;
 
         if (liveKnobs[id]) {
-          var offset = spec && typeof values[id] === "number"
-            ? norm(spec, value) - norm(spec, values[id])
+          var offset = spec && typeof baseValues[id] === "number"
+            ? norm(spec, value) - norm(spec, baseValues[id])
             : null;
 
           liveKnobs[id](offset === null ? null : clamp(offset, -1, 1));

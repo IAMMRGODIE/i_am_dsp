@@ -285,14 +285,31 @@
 .knob-live{stroke:var(--text1); stroke-width:1.5; stroke-linecap:round; opacity:.9}
 .knob.mod-selected{outline:1px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset:2px; border-radius:50%}
 
-/* A card reports its own width, so the knobs grow and shrink with it instead of
-   squeezing the readouts when a lane gets narrow. */
+/* A card sizes its knobs by the room it has. The default (68px) is the largest
+   size there is; a narrow card gets smaller ones, and so does a short window. */
 @container (max-width: 400px) {
-  .knob{width:54px; height:54px}
-  .knob-wrap{width:86px}
-  .mcard-body{gap:10px 12px; padding:14px 6px 16px}
+  .knob{width:60px; height:60px}
+  .knob-wrap{width:96px}
+  .mcard-body{gap:10px 14px; padding:14px 8px 16px}
 }
-@container (min-width: 520px) {
-  .knob{width:78px; height:78px}
-  .knob-wrap{width:126px}
+@container (max-width: 340px) {
+  .knob{width:50px; height:50px}
+  .knob-wrap{width:78px}
+  .mcard-body{gap:8px 10px; padding:12px 6px 14px}
 }
+@media (max-height: 620px) {
+  .knob{width:56px; height:56px}
+  .knob-wrap{width:92px}
+  .mcard-body{gap:8px 12px; padding:12px 8px 14px}
+}
+
+/* Alt + right click: the depths of every source on this knob. */
+.knob-depths{
+  position:fixed; z-index:120; display:flex; flex-direction:column; gap:6px;
+  min-width:220px; padding:8px 10px; background:#1b1b1b; border:1px solid #4a4a4a;
+  border-radius:6px; box-shadow:0 8px 24px rgba(0,0,0,.55);
+}
+.knob-depth{display:grid; grid-template-columns:1fr 90px 34px; align-items:center; gap:6px}
+.knob-depth span{font-size:10px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.knob-depth input{width:100%; accent-color:var(--accent)}
+.knob-depth-value{font-family:var(--mono); font-size:9px; color:var(--text1); text-align:right}

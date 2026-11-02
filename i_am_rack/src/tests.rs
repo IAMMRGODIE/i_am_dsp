@@ -2094,6 +2094,10 @@ fn the_page_reads_the_audio_scope() {
 		js.contains("liveModulation("),
 		"the cards never see the modulated values"
 	);
+	assert!(
+		js.contains("indexOf(\"source:\") === 0"),
+		"a source dropped on a slot would be treated as a module"
+	);
 	assert!(js.contains("spectra: { input: null, output: null }"), "no per-card spectra");
 	assert!(
 		js.contains("channels: module.scope"),
@@ -2593,4 +2597,24 @@ fn a_duplicate_edit_releases_the_older_row() {
 		Some(Target::BandGain(0)),
 		"the edited row lost its target"
 	);
+}
+
+/// Dragging a macro onto a module knob links it, the same way a source does.
+#[test]
+fn a_macro_links_to_a_module_knob() {
+	let rack = Rack::default();
+
+	command(&rack, "assign.add=macro1|m0.cutoff");
+
+	let state = rack.state();
+	let linked = state
+		.assignments
+		.iter()
+		.flatten()
+		.any(|assignment| assignment.target == Some(Target::Module {
+			module: 0,
+			parameter: "cutoff".to_string(),
+		}));
+
+	assert!(linked, "the macro link was not stored");
 }
