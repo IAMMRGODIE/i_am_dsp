@@ -56,7 +56,7 @@ pub struct StringInstrument {
 	#[choices("Piano", "Guitar", "Violin", "Cello")]
 	#[default(0)]
 	#[id(display = "Preset")]
-	#[layout(group = "Instrument", order = 0, widget = choice, hero = "string")]
+	#[layout(group = "String", order = 0, widget = choice, hero = "string")]
 	pub preset: i32,
 	/// How the string is excited: pluck, hammer or bow.
 	///
@@ -69,7 +69,7 @@ pub struct StringInstrument {
 	#[choices("Pluck", "Hammer", "Bow")]
 	#[default(1)]
 	#[id(display = "Excitation")]
-	#[layout(group = "Instrument", order = 1, widget = choice)]
+	#[layout(group = "String", order = 1, widget = choice)]
 	pub excitation: i32,
 	/// How the string itself is modelled. Not a quality setting: the waveguide
 	/// is cheap and its low partials are exact, the modal bank is exactly in
@@ -78,44 +78,44 @@ pub struct StringInstrument {
 	#[choices("Waveguide", "Modal")]
 	#[default(0)]
 	#[id(display = "String Model")]
-	#[layout(group = "Instrument", order = 2, widget = choice)]
+	#[layout(group = "String", order = 2, widget = choice)]
 	pub core: i32,
 	/// How many strings sound per note.
 	#[range(min = 1, max = 3)]
 	#[default(3)]
 	#[id(display = "Strings")]
-	#[layout(group = "Instrument", order = 3, widget = knob, size = small)]
+	#[layout(group = "String", order = 3, widget = knob, size = small)]
 	pub strings: i32,
 	/// The unison detune, in cents.
 	#[range(min = 0.0, max = 20.0)]
 	#[default(0.6)]
 	#[id(display = "Detune")]
-	#[layout(group = "Instrument", order = 4, widget = knob, size = small)]
+	#[layout(group = "String", order = 4, widget = knob, size = small)]
 	pub detune_cents: f32,
 	/// Hammer felt hardness, or plectrum hardness.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.5)]
 	#[id(display = "Hardness")]
-	#[layout(group = "Contact", order = 0, widget = knob)]
+	#[layout(group = "String", order = 5, widget = knob)]
 	pub hardness: f32,
 	/// Bow force.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.4)]
 	#[id(display = "Bow Force")]
-	#[layout(group = "Contact", order = 1, widget = knob)]
+	#[layout(group = "String", order = 6, widget = knob)]
 	pub bow_force: f32,
 	/// Bow speed.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.35)]
 	#[id(display = "Bow Speed")]
-	#[layout(group = "Contact", order = 2, widget = knob)]
+	#[layout(group = "String", order = 7, widget = knob)]
 	pub bow_speed: f32,
 	/// Where the string is excited, as a fraction of its length.
 	#[range(min = 0.01, max = 0.5)]
 	#[logarithmic]
 	#[default(0.125)]
 	#[id(display = "Excitation Point")]
-	#[layout(group = "Contact", order = 3, widget = knob)]
+	#[layout(group = "String", order = 8, widget = knob)]
 	pub position: f32,
 	/// Scales the frequency independent decay. Larger damps faster.
 	#[range(min = 0.1, max = 4.0)]
@@ -177,19 +177,19 @@ pub struct StringInstrument {
 	#[unit(hertz)]
 	#[default(5.4)]
 	#[id(display = "Vibrato Rate")]
-	#[layout(group = "Vibrato", order = 0, widget = knob)]
+	#[layout(group = "Performance", order = 3, widget = knob)]
 	pub vibrato_rate: f32,
 	/// How far either side of the note the hand bends it, in cents.
 	#[range(min = 0.0, max = 120.0)]
 	#[default(4.0)]
 	#[id(display = "Vibrato Depth")]
-	#[layout(group = "Vibrato", order = 1, widget = knob)]
+	#[layout(group = "Performance", order = 4, widget = knob)]
 	pub vibrato_depth: f32,
 	/// How long the note sounds before the hand starts to shake.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.12)]
 	#[id(display = "Vibrato Delay")]
-	#[layout(group = "Vibrato", order = 2, widget = knob)]
+	#[layout(group = "Performance", order = 5, widget = knob)]
 	pub vibrato_delay: f32,
 }
 

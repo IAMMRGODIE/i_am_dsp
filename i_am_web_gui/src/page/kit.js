@@ -1226,15 +1226,24 @@ var ENV_MAX = 512;
     // The shell exists before the body so the tab strip can sit between them.
     var shell = element("div", "face");
 
+    // A paged faceplate packs its rows: the tabs name the page, so the room the
+    // wide spacing used to take is not needed.
+    if (face.pages && face.pages.length) shell.classList.add("compact");
+
     var body = element("div", "body");
     var many = face.sections.length > 1;
+    // When every page holds a single section, the tab already names it: drawing
+    // the section caption as well would say the same thing twice.
+    var oneSectionPerPage =
+      face.pages && face.pages.length > 0 &&
+      face.pages.every(function (page) { return (page.sections || []).length === 1; });
     var usedHeroes = {};
     var sectionEls = [];
 
     face.sections.forEach(function (section) {
       var el = element("section", "section");
 
-      if (many && section.name) {
+      if (many && section.name && !oneSectionPerPage) {
         var caption = element("div", "caption");
         caption.textContent = section.name;
         el.appendChild(caption);

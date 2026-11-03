@@ -191,6 +191,18 @@ body.preview #app{
 .face-tab:hover{color:var(--text2)}
 .face-tab[aria-pressed="true"]{color:var(--text1); border-bottom-color:var(--accent)}
 .face-tab:focus-visible{outline:1px solid var(--accent); outline-offset:-1px}
+/* A paged faceplate packs its rows: tighter gaps, a smaller dial, and the row
+   centred instead of spread across the whole card. */
+.face.compact .controls{justify-content:center; gap:calc(6px * var(--scale))}
+.face.compact .choice{min-width:calc(96px * var(--scale))}
+.face.compact .face-knob{min-width:calc(56px * var(--scale))}
+.face.compact .face-knob .knob{
+  width:calc(48px * var(--scale)); height:calc(48px * var(--scale));
+}
+.face.compact .face-knob .knob-label{
+  margin-top:calc(4px * var(--scale)); font-size:calc(10px * var(--scale));
+}
+.face.compact .face-knob .knob-value{font-size:calc(11px * var(--scale))}
 .section{
   flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
   gap:calc(10px * var(--scale));

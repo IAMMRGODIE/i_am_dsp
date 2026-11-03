@@ -25,7 +25,7 @@ use i_am_plugin::{
 use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, editor_with};
 
 /// The face's design size, in points.
-const SIZE: (f32, f32) = (760.0, 560.0);
+const SIZE: (f32, f32) = (820.0, 420.0);
 /// The window's title and the face's title.
 const TITLE: &str = "I Am Strings";
 /// The identity colour, as #rrggbb.
@@ -34,9 +34,9 @@ const ACCENT: &str = "#8ac926";
 /// The face's tabs: the string and its contact on one page, the body on the
 /// next, and the controls a player moves while playing on the last.
 const PAGES: &[Page] = &[
-	Page::new("Voice", &["Instrument", "Contact"]),
+	Page::new("Voice", &["String"]),
 	Page::new("Body", &["Body"]),
-	Page::new("Performance", &["Performance", "Vibrato"]),
+	Page::new("Performance", &["Performance"]),
 ];
 
 /// The faceplate of the instrument.
@@ -309,14 +309,14 @@ mod tests {
 		);
 		assert!(
 			face.contains(
-				"\"pages\":[{\"name\":\"Voice\",\"sections\":[\"Instrument\",\"Contact\"]},\
+				"\"pages\":[{\"name\":\"Voice\",\"sections\":[\"String\"]},\
 				{\"name\":\"Body\",\"sections\":[\"Body\"]},\
-				{\"name\":\"Performance\",\"sections\":[\"Performance\",\"Vibrato\"]}]"
+				{\"name\":\"Performance\",\"sections\":[\"Performance\"]}]"
 			),
 			"{face}"
 		);
 
-		for name in ["Instrument", "Contact", "Body", "Performance", "Vibrato"] {
+		for name in ["String", "Body", "Performance"] {
 			assert!(face.contains(&format!("\"name\":\"{name}\"")), "{face}");
 		}
 	}

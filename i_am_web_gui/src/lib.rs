@@ -708,13 +708,10 @@ mod ui_contract_tests {
 			.map(|section| section.name.as_deref().unwrap_or(""))
 			.collect();
 
-		assert_eq!(
-			names,
-			["Instrument", "Contact", "Body", "Performance", "Vibrato"]
-		);
+		assert_eq!(names, ["String", "Body", "Performance"]);
 		assert_eq!(sections[0].hero.as_deref(), Some("string"));
-		assert_eq!(sections[2].hero.as_deref(), Some("partials"));
-		assert_eq!(sections[3].hero.as_deref(), Some("vibrato"));
+		assert_eq!(sections[1].hero.as_deref(), Some("partials"));
+		assert_eq!(sections[2].hero.as_deref(), Some("vibrato"));
 
 		let preset = parameters
 			.iter()
