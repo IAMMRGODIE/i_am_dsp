@@ -9,7 +9,10 @@ use i_am_dsp::prelude::{
 use i_am_dsp_derive::Parameters;
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
 use i_am_plugin::{AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions};
-use i_am_web_gui::{ProtocolRequest, ProtocolResponse, Scope};
+use i_am_web_gui::{Page, ProtocolRequest, ProtocolResponse, Scope};
+
+/// The OTT's two pages: the compressor and the three bands, each with the meter.
+pub const OTT_PAGES: &[Page] = &[Page::new("OTT", &["OTT"]), Page::new("Bands", &["Bands"])];
 
 #[derive(Parameters)]
 pub struct OttEffect {
@@ -66,7 +69,7 @@ pub struct OttEffect {
 	#[unit(db)]
 	#[default(-30.0)]
 	#[id(display = "Low Thresh")]
-	#[layout(group = "Bands", order = 0, widget = knob)]
+	#[layout(group = "Bands", order = 0, widget = knob, hero = "ott")]
 	pub band1_threshold: f32,
 
 	/// The low band output gain.
@@ -310,7 +313,8 @@ impl Plugin for OttWeb {
 	}
 
 	fn editor(&self) -> Option<Box<dyn Editor<Self>>> {
-		let face = i_am_web_gui::Faceplate::new("I Am OTT", "#ffb454", (700.0, 580.0));
+		let face = i_am_web_gui::Faceplate::new("I Am OTT", "#ffb454", (700.0, 580.0))
+			.with_pages(OTT_PAGES);
 		let meters = self.meters.clone();
 
 		i_am_web_gui::editor_with(

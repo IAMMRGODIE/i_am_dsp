@@ -44,7 +44,7 @@ pub use compressor::CompressorEffect;
 pub use convolver::{ConvolverWeb, IrData, IrSlot, decode_ir};
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
-pub use ott::OttWeb;
+pub use ott::{OTT_PAGES, OttWeb};
 use particle_wider::ParticleWiderEffect;
 pub use pitch::PITCH_VISIBLE;
 use pitch::PitchEffect;
@@ -70,6 +70,12 @@ pub const AUTOTUNE_VISIBLE: &[(i32, &[&str])] = &[
 ];
 /// The parameters the page draws in the header, beside the mode.
 pub const FILTER_HEADER: &[&str] = &["stages"];
+
+/// The compressor's two pages: the gain stage and the detector that drives it.
+pub const COMPRESSOR_PAGES: &[i_am_web_gui::Page] = &[
+	i_am_web_gui::Page::new("Compressor", &["Compressor"]),
+	i_am_web_gui::Page::new("Detector", &["Detector"]),
+];
 
 /// The controls each mode reads; the page hides the rest.
 pub const FILTER_VISIBLE: &[(i32, &[&str])] = &[
@@ -365,6 +371,7 @@ web_plugin!(
 	"#ff7a6b",
 	mode = "enveloper",
 	visible = COMPRESSOR_VISIBLE,
+	pages = COMPRESSOR_PAGES,
 	ports = COMPRESSOR_PORTS
 );
 
@@ -1420,10 +1427,18 @@ mod tests {
 	fn the_ott_has_band_meters_and_a_bands_section() {
 		let face = i_am_web_gui::face_json(
 			&OttWeb::new(),
-			&Faceplate::new("I Am OTT", "#ffb454", (700.0, 580.0)),
+			&Faceplate::new("I Am OTT", "#ffb454", (700.0, 580.0))
+				.with_pages(crate::ott::OTT_PAGES),
 		);
 
 		assert!(face.contains("\"hero\":\"ott\""), "{face}");
+		assert!(
+			face.contains(
+				"\"pages\":[{\"name\":\"OTT\",\"sections\":[\"OTT\"]},\
+				{\"name\":\"Bands\",\"sections\":[\"Bands\"]}]"
+			),
+			"{face}"
+		);
 
 		for id in [
 			"input_gain",
@@ -1470,10 +1485,18 @@ mod tests {
 			&CompressorWeb::new(),
 			&Faceplate::new("I Am Compressor", "#ff7a6b", (700.0, 380.0))
 				.with_mode("enveloper")
-				.with_visible(COMPRESSOR_VISIBLE),
+				.with_visible(COMPRESSOR_VISIBLE)
+				.with_pages(COMPRESSOR_PAGES),
 		);
 
 		assert!(face.contains("\"hero\":\"compressor\""), "{face}");
+		assert!(
+			face.contains(
+				"\"pages\":[{\"name\":\"Compressor\",\"sections\":[\"Compressor\"]},\
+				{\"name\":\"Detector\",\"sections\":[\"Detector\"]}]"
+			),
+			"{face}"
+		);
 		assert!(face.contains("\"id\":\"threshold\""), "{face}");
 		assert!(face.contains("\"id\":\"sidechain\""), "{face}");
 		assert!(face.contains("\"mode\":\"enveloper\""), "{face}");

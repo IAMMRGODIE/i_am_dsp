@@ -174,13 +174,13 @@ pub struct CompressorEffect {
 	#[choices("Peak", "RMS", "TKeo", "Hilbert")]
 	#[default(0)]
 	#[id(display = "Enveloper")]
-	#[layout(group = "Compressor", order = 0, widget = choice)]
+	#[layout(group = "Detector", order = 0, widget = choice)]
 	pub enveloper: i32,
 
 	/// Whether the detector follows the second input instead of the main one.
 	#[default(false)]
 	#[id(display = "Sidechain")]
-	#[layout(group = "Compressor", order = 8, widget = toggle)]
+	#[layout(group = "Detector", order = 1, widget = toggle, hero = "compressor")]
 	pub sidechain: bool,
 
 	/// The peak detector's own attack, distinct from the gain smoother.
@@ -188,7 +188,7 @@ pub struct CompressorEffect {
 	#[unit(milliseconds)]
 	#[default(0.1)]
 	#[id(display = "Env Attack")]
-	#[layout(group = "Compressor", order = 9, widget = knob)]
+	#[layout(group = "Detector", order = 2, widget = knob)]
 	pub env_attack: f32,
 
 	/// The peak detector's own release.
@@ -196,7 +196,7 @@ pub struct CompressorEffect {
 	#[unit(milliseconds)]
 	#[default(10.0)]
 	#[id(display = "Env Release")]
-	#[layout(group = "Compressor", order = 10, widget = knob)]
+	#[layout(group = "Detector", order = 3, widget = knob)]
 	pub env_release: f32,
 
 	/// The rectified detector's smoothing cutoff.
@@ -205,7 +205,7 @@ pub struct CompressorEffect {
 	#[unit(hertz)]
 	#[default(30.0)]
 	#[id(display = "Smooth")]
-	#[layout(group = "Compressor", order = 9, widget = knob)]
+	#[layout(group = "Detector", order = 4, widget = knob)]
 	pub env_cutoff: f32,
 
 	/// The detector's level gain.
@@ -214,7 +214,7 @@ pub struct CompressorEffect {
 	#[unit(percent)]
 	#[default(1.0)]
 	#[id(display = "Env Gain")]
-	#[layout(group = "Compressor", order = 11, widget = knob)]
+	#[layout(group = "Detector", order = 5, widget = knob)]
 	pub env_gain: f32,
 
 	#[skip]

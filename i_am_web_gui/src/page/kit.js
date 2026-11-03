@@ -1243,6 +1243,15 @@ var ENV_MAX = 512;
       face.pages.every(function (page) { return (page.sections || []).length === 1; });
     var usedHeroes = {};
     var sectionEls = [];
+    // Which page a section is on, so a hero shared by two pages (the OTT's meter
+    // is on both) can be drawn twice: only one page is visible at a time.
+    var heroPageOf = {};
+
+    if (face.pages) {
+      face.pages.forEach(function (page, index) {
+        (page.sections || []).forEach(function (name) { heroPageOf[name] = index; });
+      });
+    }
 
     face.sections.forEach(function (section) {
       var el = element("section", "section");
@@ -1253,11 +1262,19 @@ var ENV_MAX = 512;
         el.appendChild(caption);
       }
 
-      // One scope per page is enough: a nested effect can ask for the same hero
-      // in a second section (the crusher's gain stage embeds Gain), and drawing
-      // the same live trace twice only costs space.
-      if (section.hero && !usedHeroes[section.hero]) {
-        usedHeroes[section.hero] = true;
+      // One hero per page is enough: a nested effect can ask for the same hero
+      // in a second section on the same page (the crusher's gain stage embeds
+      // Gain), and drawing the same live trace twice only costs space. Two
+      // different pages may share it, because only one of them is ever shown.
+      var heroPage = Object.prototype.hasOwnProperty.call(heroPageOf, section.name)
+        ? heroPageOf[section.name]
+        : -1;
+      var heroUsed = usedHeroes[section.hero];
+      var heroAllowed = section.hero && (heroUsed === undefined ||
+        (heroPage >= 0 && heroUsed >= 0 && heroPage !== heroUsed));
+
+      if (heroAllowed) {
+        usedHeroes[section.hero] = heroPage;
         var hero = element("div", "hero");
         hero.dataset.hero = section.hero;
 

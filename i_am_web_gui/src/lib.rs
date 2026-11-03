@@ -297,6 +297,10 @@ pub fn apply_command<P: Plugin>(processor: &P, body: &str) -> bool {
 /// menu. The generator itself is played through
 /// [`GeneratorEffect`](i_am_dsp::GeneratorEffect).
 ///
+/// A product with more controls than one face shows comfortably can hand its
+/// sections to tabs with `pages = &[...]`, and `hidden = &[...]` keeps a
+/// parameter off the face while the host still sees it.
+///
 /// ```ignore
 /// web_plugin!(
 ///     FilterWeb,
@@ -311,7 +315,7 @@ pub fn apply_command<P: Plugin>(processor: &P, body: &str) -> bool {
 /// ```
 #[macro_export]
 macro_rules! web_plugin {
-	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)? $(, tags = $tags:expr)? $(, telemetry = $telemetry:expr)? $(, clear = $clear:literal)?) => {
+	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, pages = $pages:expr)? $(, hidden = $hidden:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)? $(, tags = $tags:expr)? $(, telemetry = $telemetry:expr)? $(, clear = $clear:literal)?) => {
 		#[doc = concat!("The ", $title, " plug-in, with a web faceplate.")]
 		pub struct $name {
 			processor: i_am_plugin::processor::EffectProcessor<$effect>,
@@ -481,7 +485,7 @@ macro_rules! web_plugin {
 			}
 
 			fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
-				let face = $crate::Faceplate::new($title, $accent, $size) $(.with_mode($mode))? $(.with_visible($visible))? $(.with_header($header))? $(.with_switches($switches))?;
+				let face = $crate::Faceplate::new($title, $accent, $size) $(.with_mode($mode))? $(.with_visible($visible))? $(.with_header($header))? $(.with_switches($switches))? $(.with_pages($pages))? $(.with_hidden($hidden))?;
 				$(let face = if $clear { face.with_clear() } else { face };)?
 
 				let clear = self.clear.clone();

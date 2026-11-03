@@ -14,13 +14,14 @@ use std::path::Path;
 
 use i_am_effects::{
 	AUTOTUNE_VISIBLE, AllpassWeb, AutoTuneWeb, BalanceWeb, CHORUS_HEADER, CHORUS_SWITCHES,
-	COMPRESSOR_VISIBLE, ChorusWeb, CombWeb, CompressorWeb, ConvolverWeb, CrusherWeb, DELAY_HEADER,
-	DELAY_SWITCHES, DISTORTION_VISIBLE, DelayWeb, DisperserWeb, DistortionWeb, EqWeb, ExpanderWeb,
-	FLANGER_HEADER, FLANGER_SWITCHES, FilterWeb, FlangerWeb, FormantFilterWeb, GainWeb, GateWeb,
-	IrReverbWeb, LimiterWeb, OttWeb, PHASER_HEADER, PHASER_SWITCHES, PITCH_VISIBLE,
-	ParticleWiderWeb, PhaserWeb, PitchWeb, ResonatorWeb, ReverbWeb, RouterWeb, SHIFTER_VISIBLE,
-	SchroederWeb, ScriptDistortionWeb, ScriptMapperWeb, ShifterWeb, SpectralRetuneWeb,
-	StftVocoderWeb, TapeStopWeb, TransientWeb, UnstablizerWeb, VocoderWeb, WidthWeb,
+	COMPRESSOR_PAGES, COMPRESSOR_VISIBLE, ChorusWeb, CombWeb, CompressorWeb, ConvolverWeb,
+	CrusherWeb, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE, DelayWeb, DisperserWeb,
+	DistortionWeb, EqWeb, ExpanderWeb, FLANGER_HEADER, FLANGER_SWITCHES, FilterWeb, FlangerWeb,
+	FormantFilterWeb, GainWeb, GateWeb, IrReverbWeb, LimiterWeb, OTT_PAGES, OttWeb, PHASER_HEADER,
+	PHASER_SWITCHES, PITCH_VISIBLE, ParticleWiderWeb, PhaserWeb, PitchWeb, ResonatorWeb, ReverbWeb,
+	RouterWeb, SHIFTER_VISIBLE, SchroederWeb, ScriptDistortionWeb, ScriptMapperWeb, ShifterWeb,
+	SpectralRetuneWeb, StftVocoderWeb, TapeStopWeb, TransientWeb, UnstablizerWeb, VocoderWeb,
+	WidthWeb,
 };
 use i_am_effects::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -233,7 +234,8 @@ fn main() {
 					&plugin,
 					&Faceplate::new("I Am Compressor", "#ff7a6b", (700.0, 380.0))
 						.with_mode("enveloper")
-						.with_visible(COMPRESSOR_VISIBLE),
+						.with_visible(COMPRESSOR_VISIBLE)
+						.with_pages(COMPRESSOR_PAGES),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -407,7 +409,7 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am OTT", "#ffb454", (700.0, 580.0)),
+					&Faceplate::new("I Am OTT", "#ffb454", (700.0, 580.0)).with_pages(OTT_PAGES),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
