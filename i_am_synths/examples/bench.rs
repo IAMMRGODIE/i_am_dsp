@@ -100,11 +100,14 @@ fn strings(
 	preset: i32,
 	excitation: i32,
 	core: i32,
+	pitch_step: usize,
 	rate: usize,
 	seconds: usize,
 ) -> (f64, f32) {
 	let mut instrument = StringInstrument::new(rate);
-	instrument.preset = preset;
+	// The preset's other controls matter: a violin string with a piano's
+	// damping and brightness is a different, much longer ringing object.
+	instrument.select_preset(preset);
 	instrument.excitation = excitation;
 	instrument.core = core;
 	instrument.strings = strings;
@@ -119,7 +122,7 @@ fn strings(
 	for index in 0..notes {
 		context.send_event(NoteEvent::NoteOn {
 			channel: 0,
-			note: 55 + index * 5,
+			note: 55 + index * pitch_step,
 			velocity: 0.8,
 		});
 	}
@@ -161,7 +164,7 @@ fn main() {
 	}
 
 	for excitation in [0, 1, 2] {
-		let (elapsed, peak) = strings(3, 1, 2, excitation, 0, rate, seconds);
+		let (elapsed, peak) = strings(3, 1, 2, excitation, 0, 5, rate, seconds);
 		print(
 			"strings violin",
 			&format!("excitation {excitation}, 3 strings, 1 note"),
@@ -171,8 +174,19 @@ fn main() {
 		);
 	}
 
+	for pitch_step in [0, 5] {
+		let (elapsed, peak) = strings(3, 4, 2, 0, 0, pitch_step, rate, seconds);
+		print(
+			"strings violin",
+			&format!("pluck, 4 notes, step {pitch_step}"),
+			elapsed,
+			seconds,
+			peak,
+		);
+	}
+
 	for excitation in [0, 2] {
-		let (elapsed, peak) = strings(3, 4, 2, excitation, 0, rate, seconds);
+		let (elapsed, peak) = strings(3, 4, 2, excitation, 0, 5, rate, seconds);
 		print(
 			"strings violin",
 			&format!("excitation {excitation}, 3 strings, 4 notes"),
@@ -183,7 +197,7 @@ fn main() {
 	}
 
 	for core in [0, 1] {
-		let (elapsed, peak) = strings(3, 4, 2, 2, core, rate, seconds);
+		let (elapsed, peak) = strings(3, 4, 2, 2, core, 5, rate, seconds);
 		print(
 			"strings violin",
 			&format!("core {core}, bow, 3 strings, 4 notes"),
