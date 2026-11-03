@@ -624,7 +624,15 @@ fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 						Some(child) => child.clone(),
 						None => p.identifier.rsplit('.').next().unwrap_or_default().into(),
 					};
-					p.meta.display_name = Some(format!("{} {}", #display_prefix, child).into());
+					// A level that names itself with an empty display contributes no word, so a
+					// sub-parameter can sit flat under its product (Oscillator > Bend) instead of
+					// carrying its internal field name (Oscillator Freq Gen Bend).
+					let joined = if #display_prefix.is_empty() {
+						child.into_owned()
+					} else {
+						format!("{} {}", #display_prefix, child)
+					};
+					p.meta.display_name = Some(joined.into());
 					#inherit_layout
 				});
 				parameters.extend(sub_parameters);
@@ -1289,11 +1297,9 @@ fn parse_id_attribute(attr: &Attribute) -> Result<IdAttribute> {
 			let val: Lit = meta.value()?.parse()?;
 			match val {
 				Lit::Str(inner) => {
-					let value = inner.value();
-					if value.trim().is_empty() {
-						return Err(Error::new_spanned(attr, "Display name must not be empty"));
-					}
-					display = Some(value);
+					// An empty display is a level that contributes no word: the
+					// sub-parameters under it sit flat under the product's name.
+					display = Some(inner.value());
 				}
 				_ => {
 					return Err(Error::new_spanned(

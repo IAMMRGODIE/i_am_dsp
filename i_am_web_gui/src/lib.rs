@@ -617,6 +617,7 @@ mod ui_contract_tests {
 			"vibrato",
 			"shape",
 			"envelope",
+			"additive",
 		] {
 			assert!(
 				CARD_SCRIPT.contains(&format!("registerHero(\"{kind}\"")),

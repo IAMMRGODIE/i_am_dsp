@@ -94,6 +94,7 @@ fn shapes(unisons: usize, notes: usize, rate: usize, seconds: usize) -> (f64, f3
 	(start.elapsed().as_secs_f64(), peak)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn strings(
 	strings: i32,
 	notes: usize,

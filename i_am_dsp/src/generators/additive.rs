@@ -21,6 +21,15 @@ pub trait GenFreqInfo: Send + Sync + Parameters {
 	///
 	/// the ratio of the frequency must greater than 1.0
 	fn gen_info(&mut self, index: usize, total_amount: usize) -> FreqInfo;
+
+	/// A value that changes whenever the generated partials would change.
+	///
+	/// The oscillator asks for this once per sample and regenerates its partial
+	/// table when it moves. A generator that returns 0 keeps whatever it built at
+	/// construction, which is right for one whose controls are not live.
+	fn revision(&self) -> u64 {
+		0
+	}
 	#[cfg(feature = "real_time_demo")]
 	/// Returns true if ratio should be updated in real-time demo
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) -> bool;
@@ -320,6 +329,8 @@ impl Wavetable {
 #[derive(Parameters)]
 pub struct AdditiveOsc<Freq: GenFreqInfo, const MAX_SINES: usize = 64, const CHANNELS: usize = 2> {
 	#[sub_param]
+	/// The generator that says where the partials sit and how loud they are.
+	#[id(display = "")]
 	freq_gen: Freq,
 	#[skip]
 	calculated_ratios: [f32; MAX_SINES],
@@ -351,11 +362,23 @@ pub struct AdditiveOsc<Freq: GenFreqInfo, const MAX_SINES: usize = 64, const CHA
 	#[skip]
 	has_damping: bool,
 	/// The number of sine waves to add up
+	#[range(min = 1, max = 64)]
+	#[default(32)]
+	#[id(display = "Partials")]
+	#[layout(widget = knob, hero = "additive")]
 	pub num_sines: usize,
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
+	#[default(1.0)]
+	#[id(display = "Level")]
 	/// The gain of the oscillator, which saves in linear scale
 	pub gain: f32,
+	/// The generator revision the partial table was built from.
+	#[skip]
+	last_revision: u64,
+	/// The partial count the table was built for.
+	#[skip]
+	last_num_sines: usize,
 }
 
 impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>
@@ -392,6 +415,7 @@ impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>
 
 		let calculated_ratios = core::array::from_fn(|i| calculated_ratios[i].ratio);
 
+		let last_revision = freq_gen.revision();
 		let mut output = Self {
 			freq_gen,
 			calculated_ratios,
@@ -406,6 +430,8 @@ impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>
 			max_harmonic: f32::INFINITY,
 			num_sines,
 			gain: 1.0,
+			last_revision,
+			last_num_sines: num_sines,
 		};
 		output.update_damping_cache();
 		output.rebuild_table();
@@ -415,7 +441,25 @@ impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>
 	/// Changes the frequency generator of the oscillator
 	pub fn change_freq_gen(&mut self, freq_gen: Freq) {
 		self.freq_gen = freq_gen;
+		self.last_revision = self.freq_gen.revision();
 		self.recaculate_ratio();
+	}
+
+	/// Rebuilds whatever the current controls imply, if they moved.
+	///
+	/// The generator's revision is a cheap hash of its controls, so calling this
+	/// every sample costs a few compares and no work at all while nothing moves.
+	pub fn refresh(&mut self) {
+		let revision = self.freq_gen.revision();
+
+		if revision != self.last_revision {
+			self.last_revision = revision;
+			self.recaculate_ratio();
+		}
+
+		if self.num_sines != self.last_num_sines {
+			self.rebuild_table();
+		}
 	}
 
 	/// Recalculates the ratio and amplitude of the oscillator
@@ -457,6 +501,7 @@ impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>
 	/// Call it after changing num_sines directly. Until it is called the oscillator sums its
 	/// partials one by one, which is correct but slower.
 	pub fn rebuild_table(&mut self) {
+		self.last_num_sines = self.num_sines;
 		self.table = if self.has_damping {
 			None
 		} else {
@@ -596,6 +641,10 @@ impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize> Oscillato
 		};
 	}
 
+	fn sync(&mut self) {
+		self.refresh();
+	}
+
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
 		use crate::tools::ui_tools::gain_ui;
@@ -669,19 +718,30 @@ pub struct BendedSawGen {
 	///
 	/// default to 0.0
 	#[range(min = -10.0, max = 10.0)]
+	#[default(0.0)]
+	#[id(display = "Bend")]
 	pub bend_amount: f32,
 	/// must be greater than 0.0
 	///
 	/// default to 1.0
+	#[range(min = 0.125, max = 8.0)]
+	#[logarithmic]
+	#[default(1.0)]
+	#[id(display = "Center")]
 	pub center_space: f32,
 	/// How much the bend should be shifted
 	///
 	/// default to 0.0
 	#[range(min = -10.0, max = 10.0)]
+	#[default(0.0)]
+	#[id(display = "Overall")]
 	pub total_bend_amount: f32,
 	/// How much the frequency should be scaled
 	///
 	/// default to 1.0
+	#[range(min = 0.01, max = 1.0)]
+	#[default(1.0)]
+	#[id(display = "Scale")]
 	pub scale_amount: f32,
 }
 
@@ -697,6 +757,23 @@ impl Default for BendedSawGen {
 }
 
 impl GenFreqInfo for BendedSawGen {
+	fn revision(&self) -> u64 {
+		// Four floats are all that change the partials; a small FNV-style hash is
+		// enough to tell a host's edit from a repeated read.
+		let mut hash = 0xcbf2_9ce4_8422_2325u64;
+
+		for value in [
+			self.bend_amount,
+			self.center_space,
+			self.total_bend_amount,
+			self.scale_amount,
+		] {
+			hash = (hash ^ value.to_bits() as u64).wrapping_mul(0x0000_0100_0000_01b3);
+		}
+
+		hash
+	}
+
 	fn gen_info(&mut self, index: usize, total_amount: usize) -> FreqInfo {
 		if total_amount == 0 {
 			return Default::default();
@@ -1043,5 +1120,23 @@ mod tests {
 		assert!(osc.table.is_some());
 		assert!((osc.max_ratio - (SINES * 2) as f32).abs() < 1e-3);
 		assert!(max_error(&osc, [0.0, 0.25]) < 5e-5);
+	}
+
+	/// A host edit to the bend moves the partials through the sync hook: the
+	/// oscillator is otherwise free to keep the table it built.
+	#[test]
+	fn a_bend_edit_rebuilds_the_partials_through_sync() {
+		let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> =
+			AdditiveOsc::new(BendedSawGen::default(), SINES);
+		let before = osc.play_at(1.0, 0.37, [0.0; 2]);
+
+		assert!(osc.set_parameter("freq_gen.bend_amount", SetValue::Float(3.0)));
+		osc.sync();
+
+		let after = osc.play_at(1.0, 0.37, [0.0; 2]);
+		assert!(
+			(before[0] - after[0]).abs() > 1e-4,
+			"the bend did not reach the partials: {before:?} vs {after:?}"
+		);
 	}
 }

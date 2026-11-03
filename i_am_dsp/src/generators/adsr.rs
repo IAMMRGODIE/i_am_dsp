@@ -268,7 +268,7 @@ impl<const CHANNELS: usize> PlayingNote<CHANNELS> {
 pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize> {
 	#[sub_param]
 	/// The oscillator to be played with ADSR envelope
-	#[id(display = "Oscillator")]
+	#[id(display = "")]
 	#[layout(group = "Shape", order = 0)]
 	pub oscillator: Osc,
 	#[skip]
@@ -762,6 +762,9 @@ impl<
 
 		self.sample_rate = process_context.infos().sample_rate;
 		self.update_times(process_context.infos());
+		// An oscillator whose parameters were just changed can rebuild its
+		// derived state here, once per sample rather than once per unison.
+		self.oscillator.sync();
 		let sample_rate = self.sample_rate as f32;
 		let mut note_playing = std::mem::take(&mut self.note_playing);
 		note_playing.retain(|_note, playing_notes| {

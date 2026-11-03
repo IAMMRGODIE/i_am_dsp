@@ -48,6 +48,13 @@ pub trait Oscillator<const CHANNELS: usize>: Parameters {
 		let _ = (frequency, sample_rate);
 	}
 
+	/// Called once per sample by a driver, before any [`play_at`](Self::play_at).
+	///
+	/// An oscillator that derives something from its parameters (an additive
+	/// oscillator's partial table, say) can notice a control change here; the
+	/// default does nothing.
+	fn sync(&mut self) {}
+
 	#[cfg(feature = "real_time_demo")]
 	/// Draws the wave table for the oscillator in the demo UI.
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String);

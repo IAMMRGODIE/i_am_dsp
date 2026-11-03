@@ -11,7 +11,9 @@
 use std::path::Path;
 
 use i_am_plugin::Plugin;
-use i_am_synths::{ShapesWeb, StringWeb, faceplate, shapes_faceplate};
+use i_am_synths::{
+	AdditiveWeb, ShapesWeb, StringWeb, additive_faceplate, faceplate, shapes_faceplate,
+};
 
 fn main() {
 	let mut arguments = std::env::args().skip(1);
@@ -25,6 +27,13 @@ fn main() {
 			let plugin = ShapesWeb::new();
 			(
 				i_am_web_gui::face_json(&plugin, &shapes_faceplate()),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
+		"additive" => {
+			let plugin = AdditiveWeb::new();
+			(
+				i_am_web_gui::face_json(&plugin, &additive_faceplate()),
 				i_am_web_gui::state_json(&plugin),
 			)
 		}
