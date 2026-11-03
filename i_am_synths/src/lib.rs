@@ -23,7 +23,7 @@ use i_am_plugin::processor::EffectProcessor;
 use i_am_plugin::{
 	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
 };
-use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, editor_with};
+use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, Switch, editor_with};
 
 /// The face's design size, in points.
 const SIZE: (f32, f32) = (820.0, 420.0);
@@ -271,19 +271,33 @@ const SHAPES_PAGES: &[Page] = &[
 	Page::new("Voice", &["Voice"]),
 ];
 
-/// The envelope's musical lengths stay the host's: the face draws the free ones.
+/// The per-stage sync switches stay the host's: the face has one for the envelope.
 const SHAPES_HIDDEN: &[&str] = &[
 	"delay.sync",
-	"delay.beats",
 	"attack.sync",
-	"attack.beats",
 	"hold.sync",
-	"hold.beats",
 	"decay.sync",
-	"decay.beats",
 	"release.sync",
-	"release.beats",
 ];
+
+/// The envelope's one Sync switch trades the free lengths for musical ones.
+const SHAPES_SWITCHES: &[Switch] = &[Switch::new(
+	"sync",
+	&[
+		"delay.beats",
+		"attack.beats",
+		"hold.beats",
+		"decay.beats",
+		"release.beats",
+	],
+	&[
+		"delay_time",
+		"attack_time",
+		"hold_time",
+		"decay_time",
+		"release_time",
+	],
+)];
 
 /// The shapes voice: four classic tables, morphed by the Shape control.
 type ShapeVoice = Adsr<TableOsc<WaveTableSmoother>, EqualTemperament, 2>;
@@ -308,6 +322,8 @@ fn shape_voice(rate: usize) -> ShapeVoice {
 pub fn shapes_faceplate() -> Faceplate {
 	Faceplate::new(SHAPES_TITLE, SHAPES_ACCENT, SHAPES_SIZE)
 		.with_pages(SHAPES_PAGES)
+		.with_header(&["sync"])
+		.with_switches(SHAPES_SWITCHES)
 		.with_hidden(SHAPES_HIDDEN)
 }
 
@@ -582,7 +598,7 @@ mod tests {
 	}
 
 	#[test]
-	fn the_shapes_face_is_three_pages_with_the_sync_pair_hidden() {
+	fn the_shapes_face_is_three_pages_with_one_sync_switch() {
 		let face = i_am_web_gui::face_json(&ShapesWeb::new(), &shapes_faceplate());
 
 		assert!(face.contains("\"hero\":\"shape\""), "{face}");
@@ -600,9 +616,17 @@ mod tests {
 			),
 			"{face}"
 		);
-		// The envelope's musical lengths are the host's, not the face's.
+		// One Sync switch in the header, trading the free lengths for beats.
+		assert!(face.contains("\"header\":[\"sync\"]"), "{face}");
 		assert!(
-			face.contains("\"hidden\":[\"delay.sync\",\"delay.beats\""),
+			face.contains("\"switches\":[{\"control\":\"sync\",\"on\":[\"delay.beats\""),
+			"{face}"
+		);
+		// The per-stage switches stay the host's; the beats lengths are on the face.
+		assert!(
+			face.contains(
+				"\"hidden\":[\"delay.sync\",\"attack.sync\",\"hold.sync\",\"decay.sync\",\"release.sync\"]"
+			),
 			"{face}"
 		);
 

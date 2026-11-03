@@ -135,6 +135,17 @@ impl SyncedTime {
 		}
 	}
 
+	/// The length, in seconds, read from the host's tempo whatever this value's own
+	/// sync switch says.
+	///
+	/// An envelope with one Sync button for all its stages asks the question the
+	/// other way round: the switch is on the whole envelope, so the stage values do
+	/// not decide. `None` means the host reports no tempo.
+	pub fn synced_seconds(&self, infos: &ProcessInfos) -> Option<f32> {
+		let tempo = infos.tempo.filter(|tempo| *tempo > 0.0)?;
+		Some((self.beats as f64 * 60.0 / tempo as f64) as f32)
+	}
+
 	/// The length, in samples, rounded to the nearest whole sample.
 	pub fn samples(&self, infos: &ProcessInfos, free_ms: f32, sample_rate: usize) -> usize {
 		(self.seconds(infos, free_ms) * sample_rate as f32)

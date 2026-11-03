@@ -1988,12 +1988,23 @@
   /// The envelope the controls describe: delay, attack, hold, decay, the level it
   /// sustains at, and the release, with the bends as the curves the DSP uses.
   function envelopeHero(values) {
-    var delay = Math.max(valueOf(values, "delay_time", 0), 0);
-    var attack = Math.max(valueOf(values, "attack_time", 10), 0);
-    var hold = Math.max(valueOf(values, "hold_time", 100), 0);
-    var decay = Math.max(valueOf(values, "decay_time", 100), 0);
+    // With the envelope's Sync switch on, the stage lengths are the musical ones.
+    // The page is not told the host's tempo, so the picture reads them at 120 bpm:
+    // every stage scales together, which is the shape the picture is about.
+    var synced = !!valueOf(values, "sync", 0);
+    var beats = function (id) {
+      return Math.max(valueOf(values, id, 1), 0.03125) * 500;
+    };
+    var free = function (id, fallback) {
+      return Math.max(valueOf(values, id, fallback), 0);
+    };
+
+    var delay = synced ? beats("delay.beats") : free("delay_time", 0);
+    var attack = synced ? beats("attack.beats") : free("attack_time", 10);
+    var hold = synced ? beats("hold.beats") : free("hold_time", 100);
+    var decay = synced ? beats("decay.beats") : free("decay_time", 100);
     var sustain = clamp(valueOf(values, "sustain_level", 1), 0, 1);
-    var release = Math.max(valueOf(values, "release_time", 100), 0);
+    var release = synced ? beats("release.beats") : free("release_time", 100);
     var attackBend = valueOf(values, "attack_bend", 0);
     var decayBend = valueOf(values, "decay_bend", 0);
     var releaseBend = valueOf(values, "release_bend", 0);
@@ -2050,8 +2061,9 @@
         'fill="var(--accent)" fill-opacity=".10"/>'
     ) +
       '<div class="hero-label" style="top:4%">ENVELOPE</div>' +
-      '<div class="hero-label" style="top:4%; left:auto; right:14px">' +
-        'S ' + Math.round(sustain * 100) + '%</div>';
+      '<div class="hero-label" style="top:calc(4% + 14px); left:auto; right:14px">' +
+        'S ' + Math.round(sustain * 100) + '%</div>' +
+      (synced ? '<div class="hero-badge">SYNC</div>' : '');
   }
 
   function registerHero(kind, renderer) {

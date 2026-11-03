@@ -263,76 +263,84 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	/// note whatever the host is playing at. See [`Self::times`] for how it is read.
 	#[sub_param]
 	#[id(display = "Delay")]
-	#[layout(group = "Envelope")]
+	#[layout(group = "Envelope", order = 1)]
 	pub delay: SyncedTime,
 	/// The attack time, saves in milliseconds
 	#[unit(milliseconds)]
 	#[default(10.0)]
 	#[id(display = "Attack")]
-	#[layout(group = "Envelope", order = 1, widget = knob)]
+	#[layout(group = "Envelope", order = 2, widget = knob)]
 	pub attack_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
 	#[id(display = "Attack")]
-	#[layout(group = "Envelope")]
+	#[layout(group = "Envelope", order = 3)]
 	pub attack: SyncedTime,
 	/// The attack bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
 	#[default(0.0)]
 	#[id(display = "Attack Bend")]
-	#[layout(group = "Envelope", order = 2, widget = knob, bipolar)]
+	#[layout(group = "Envelope", order = 4, widget = knob, bipolar)]
 	pub attack_bend: f32,
 	/// The hold time, saves in milliseconds
 	#[unit(milliseconds)]
 	#[default(100.0)]
 	#[id(display = "Hold")]
-	#[layout(group = "Envelope", order = 3, widget = knob)]
+	#[layout(group = "Envelope", order = 5, widget = knob)]
 	pub hold_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
 	#[id(display = "Hold")]
-	#[layout(group = "Envelope")]
+	#[layout(group = "Envelope", order = 6)]
 	pub hold: SyncedTime,
 	/// The decay time, saves in milliseconds
 	#[unit(milliseconds)]
 	#[default(100.0)]
 	#[id(display = "Decay")]
-	#[layout(group = "Envelope", order = 4, widget = knob)]
+	#[layout(group = "Envelope", order = 7, widget = knob)]
 	pub decay_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
 	#[id(display = "Decay")]
-	#[layout(group = "Envelope")]
+	#[layout(group = "Envelope", order = 8)]
 	pub decay: SyncedTime,
 	/// The decay bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
 	#[default(0.0)]
 	#[id(display = "Decay Bend")]
-	#[layout(group = "Envelope", order = 5, widget = knob, bipolar)]
+	#[layout(group = "Envelope", order = 9, widget = knob, bipolar)]
 	pub decay_bend: f32,
 	/// The sustain level, saves in linear scale
 	#[range(min = 0.0, max = 1.0)]
 	#[default(1.0)]
 	#[id(display = "Sustain")]
-	#[layout(group = "Envelope", order = 6, widget = knob)]
+	#[layout(group = "Envelope", order = 10, widget = knob)]
 	pub sustain_level: f32,
 	/// The release time, saves in milliseconds
 	#[unit(milliseconds)]
 	#[default(100.0)]
 	#[id(display = "Release")]
-	#[layout(group = "Envelope", order = 7, widget = knob)]
+	#[layout(group = "Envelope", order = 11, widget = knob)]
 	pub release_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
 	#[id(display = "Release")]
-	#[layout(group = "Envelope")]
+	#[layout(group = "Envelope", order = 12)]
 	pub release: SyncedTime,
 	/// The release bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
 	#[default(0.0)]
 	#[id(display = "Release Bend")]
-	#[layout(group = "Envelope", order = 8, widget = knob, bipolar)]
+	#[layout(group = "Envelope", order = 13, widget = knob, bipolar)]
 	pub release_bend: f32,
+	/// Whether every stage follows the host's tempo instead of its own free length.
+	///
+	/// One switch for the whole envelope: with it on, every stage takes its length
+	/// from the tempo, and the free lengths stand in when the host reports none.
+	#[default(false)]
+	#[id(display = "Sync")]
+	#[layout(group = "Envelope", order = 14, widget = toggle)]
+	pub sync: bool,
 	/// saves in linear scale
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
@@ -458,6 +466,7 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 			release_time: 100.0,
 			release: SyncedTime::default(),
 			release_bend: 0.0,
+			sync: false,
 			gain: 0.8,
 			unisons: 1,
 			unison_detune: 2.0,
@@ -487,7 +496,19 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 	/// A synced stage takes its length from the tempo instead of its own milliseconds. The
 	/// tempo changes with the host, so this runs once a block rather than once a sample.
 	fn update_times(&mut self, infos: &ProcessInfos) {
-		let to_ms = |synced: &SyncedTime, free_ms: f32| synced.seconds(infos, free_ms) * 1000.0;
+		// The envelope's one Sync switch overrides the per-stage synced values: a
+		// stage's own switch is a host automation detail, the product only shows
+		// the envelope-wide one.
+		let sync_all = self.sync;
+		let to_ms = |synced: &SyncedTime, free_ms: f32| {
+			if sync_all {
+				return synced
+					.synced_seconds(infos)
+					.map_or(free_ms, |seconds| seconds * 1000.0);
+			}
+
+			synced.seconds(infos, free_ms) * 1000.0
+		};
 
 		self.times = EnvelopeTimes {
 			delay: to_ms(&self.delay, self.delay_time),
