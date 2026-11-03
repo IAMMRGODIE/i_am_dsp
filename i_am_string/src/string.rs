@@ -205,7 +205,7 @@ impl Port {
 		}
 
 		let limit = (hi - lo) * 0.05;
-		let tolerance = 1e-9 * (1.0 + incident.abs());
+		let tolerance = 1e-6 * (1.0 + incident.abs());
 
 		// Phase one: warm started, step limited Newton. The step limit is what
 		// keeps it on the branch the string is already on.
@@ -228,8 +228,12 @@ impl Port {
 				residual.signum() * limit
 			};
 			let next = (v - step).clamp(lo, hi);
-			if (next - v).abs() <= f32::EPSILON * (1.0 + next.abs()) {
-				break;
+			if (next - v).abs() <= 1e-6 * (1.0 + next.abs()) {
+				// The step has run out of f32 resolution: this is as close to the
+				// root as the arithmetic can get, even if the residual is above
+				// the tolerance. Falling back here would solve the same equation
+				// again to the same precision.
+				return (next, self.law.force(y, next));
 			}
 			v = next;
 		}

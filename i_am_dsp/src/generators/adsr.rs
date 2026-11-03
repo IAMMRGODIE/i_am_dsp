@@ -179,6 +179,30 @@ impl EnvelopeTimes {
 	}
 }
 
+/// One unison's properties that the controls fix: the frequency its detune makes
+/// of the note, how much of the unison blend it gets, and its pan gain per
+/// channel.
+#[derive(Clone, Copy)]
+pub(crate) struct UnisonVoice<const CHANNELS: usize> {
+	frequency: f32,
+	blend: f32,
+	gains: [f32; CHANNELS],
+}
+
+/// The control values the unison table was built from.
+///
+/// A unison's detune, blend and pan are the same on every sample until one of
+/// these moves; comparing them is cheaper than recomputing a 2^x and a pan
+/// curve per unison per sample.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct UnisonControls {
+	detune: f32,
+	bend: f32,
+	blend: f32,
+	pan: f32,
+	random_pan: f32,
+}
+
 /// A struct to hold the state of a playing note
 pub struct PlayingNote<const CHANNELS: usize> {
 	pub(crate) note: Note,
@@ -189,6 +213,9 @@ pub struct PlayingNote<const CHANNELS: usize> {
 	pub(crate) pan_factors: Vec<f32>,
 	pub(crate) last_time: f32,
 	pub(crate) last_phase: Vec<f32>,
+	/// The per-unison table, rebuilt when any of the cached controls move.
+	pub(crate) unison_voices: Vec<UnisonVoice<CHANNELS>>,
+	pub(crate) unison_controls: Option<UnisonControls>,
 	/// The current pitch factor of the oscillator, used for pitch shifting.
 	pub current_pitch_factor: f32,
 }
@@ -519,6 +546,62 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 		};
 	}
 
+	/// Fill in the per-unison table for a note.
+	///
+	/// The detune, blend and pan of a unison only change when one of the controls
+	/// moves, so they are computed once here rather than once per unison per
+	/// sample: `get_frequency` is a 2^x, and sixteen unisons would ask for it
+	/// sixteen times a sample.
+	fn rebuild_unisons(&self, playing_note: &mut PlayingNote<CHANNELS>) {
+		let unisons = playing_note.phase_start.len();
+		let mid_point = (unisons - 1) as f32 / 2.0;
+		let mut voices = Vec::with_capacity(unisons);
+
+		for i in 0..unisons {
+			let index = if mid_point == 0.0 {
+				0.0
+			} else {
+				(i as f32 - mid_point) / mid_point
+			};
+			let blend = 1.0 - index.abs() * self.unison_blend;
+			let index = if index >= 0.0 {
+				bend(index, self.unison_bend)
+			} else {
+				-bend(index.abs(), self.unison_bend)
+			};
+			let frequency = self
+				.tuning_sys
+				.get_frequency(playing_note.note.note as f32 + self.unison_detune * index);
+			let mut gains = [0.0; CHANNELS];
+
+			for (channel, gain) in gains.iter_mut().enumerate() {
+				*gain = if CHANNELS == 1 {
+					1.0
+				} else {
+					let angle_uniformed = channel as f32 / (CHANNELS - 1) as f32;
+					let pan_factor = self.pan_position(playing_note.pan_factors[i]);
+					let delta = (angle_uniformed - pan_factor).abs();
+					2.0 - delta * 2.0
+				};
+			}
+
+			voices.push(UnisonVoice {
+				frequency,
+				blend,
+				gains,
+			});
+		}
+
+		playing_note.unison_voices = voices;
+		playing_note.unison_controls = Some(UnisonControls {
+			detune: self.unison_detune,
+			bend: self.unison_bend,
+			blend: self.unison_blend,
+			pan: self.pan,
+			random_pan: self.random_pan,
+		});
+	}
+
 	/// Where a unison sits in the stereo field, 0.0 for hard left and 1.0 for hard right.
 	///
 	/// `unison_pan` is that unison's random position, which [`Self::random_pan`] scales and
@@ -642,6 +725,8 @@ impl<
 						phase_start: phases,
 						pan_factors,
 						last_phase: vec![0.0; self.unisons],
+						unison_voices: Vec::new(),
+						unison_controls: None,
 						last_time: 0.0,
 						current_pitch_factor: 1.0,
 						channel: *channel,
@@ -679,7 +764,7 @@ impl<
 		self.update_times(process_context.infos());
 		let sample_rate = self.sample_rate as f32;
 		let mut note_playing = std::mem::take(&mut self.note_playing);
-		note_playing.retain(|note, playing_notes| {
+		note_playing.retain(|_note, playing_notes| {
 			playing_notes.retain_mut(|playing_note| {
 				let unisons = playing_note.phase_start.len();
 
@@ -700,27 +785,28 @@ impl<
 
 				let time = playing_note.count as f32 / sample_rate;
 				let mut output_samples = [0.0; CHANNELS];
-				let mid_point = (unisons - 1) as f32 / 2.0;
-				// let channels_f32 = CHANNELS as f32 - 1.0;
-				for i in 0..unisons {
-					let index = if mid_point == 0.0 {
-						0.0
-					} else {
-						(i as f32 - mid_point) / mid_point
-					};
-					let blend = 1.0 - index.abs() * self.unison_blend;
-					let index = if index >= 0.0 {
-						bend(index, self.unison_bend)
-					} else {
-						-bend(index.abs(), self.unison_bend)
-					};
-					let detune_factor = self.unison_detune * index;
-					let pitch_factor = playing_note.current_pitch_factor * self.pitch_factor;
-					let frequency =
-						self.tuning_sys.get_frequency(*note as f32 + detune_factor) * pitch_factor;
+				let controls = UnisonControls {
+					detune: self.unison_detune,
+					bend: self.unison_bend,
+					blend: self.unison_blend,
+					pan: self.pan,
+					random_pan: self.random_pan,
+				};
 
-					let t =
-						frequency * (time - playing_note.last_time) + playing_note.last_phase[i];
+				if playing_note.unison_voices.len() != unisons
+					|| playing_note.unison_controls != Some(controls)
+				{
+					self.rebuild_unisons(playing_note);
+				}
+
+				let pitch = self.pitch_factor * playing_note.current_pitch_factor;
+				let elapsed = time - playing_note.last_time;
+				let unison_gain = gain / unisons as f32;
+
+				for i in 0..unisons {
+					let voice = playing_note.unison_voices[i];
+					let frequency = voice.frequency * pitch;
+					let t = frequency * elapsed + playing_note.last_phase[i];
 					playing_note.last_phase[i] = t;
 
 					self.oscillator.set_pitch(frequency, self.sample_rate);
@@ -734,18 +820,9 @@ impl<
 						},
 					);
 
-					for (j, output_samples) in output_samples.iter_mut().enumerate() {
-						// let pan_gain = i as f32 / channels_f32 * index * 2.0 - index + 1.0;
-						let gain_factor = if CHANNELS == 1 {
-							1.0
-						} else {
-							let angle_uniformed = j as f32 / (CHANNELS - 1) as f32;
-							let pan_factor = self.pan_position(playing_note.pan_factors[i]);
-							let delta = (angle_uniformed - pan_factor).abs();
-							2.0 - delta * 2.0
-						};
-
-						*output_samples += samples[j] * gain / unisons as f32 * blend * gain_factor;
+					for (channel, output_samples) in output_samples.iter_mut().enumerate() {
+						*output_samples +=
+							samples[channel] * unison_gain * voice.blend * voice.gains[channel];
 					}
 				}
 				playing_note.last_time = time;

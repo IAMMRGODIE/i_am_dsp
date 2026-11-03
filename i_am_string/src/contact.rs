@@ -6,6 +6,8 @@
 //!
 //! All quantities are SI: metres, newtons, seconds.
 
+use std::sync::OnceLock;
+
 use crate::Rng;
 
 /// The constitutive law of an excitation port.
@@ -227,7 +229,7 @@ impl ContactLaw for HammerLaw {
 /// The negative slope around zero relative velocity is what makes a bowed
 /// string sing. Linearised, it subtracts from the port impedance and turns the
 /// string into a negative resistance oscillator.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrictionCurve {
 	/// The friction coefficient at zero relative velocity.
 	pub mu_static: f32,
@@ -297,6 +299,74 @@ impl FrictionCurve {
 	}
 }
 
+/// A sampled copy of the default friction curve.
+///
+/// The solver evaluates the friction force and its slope several times for
+/// every substep, string and sample, and the exact curve spends an `exp` and a
+/// `tanh` on each. That is where a bowed chord becomes the buffer's problem.
+/// The default curve never changes, so it is sampled once and interpolated; a
+/// bow that carries another curve keeps the exact path.
+struct FrictionTable {
+	mu: Box<[f32]>,
+	slope: Box<[f32]>,
+}
+
+impl FrictionTable {
+	/// The relative speeds the table covers, in metres per second.
+	///
+	/// A bow at a musical speed stays well inside this; a string's velocity can
+	/// leave it on a transient, and then the exact curve is used.
+	const RANGE: f32 = 4.0;
+	/// The number of samples in the table.
+	const STEPS: usize = 2049;
+
+	fn build(curve: &FrictionCurve) -> Self {
+		let mut mu = Vec::with_capacity(Self::STEPS);
+		let mut slope = Vec::with_capacity(Self::STEPS);
+
+		for index in 0..Self::STEPS {
+			let rel = -Self::RANGE + 2.0 * Self::RANGE * index as f32 / (Self::STEPS - 1) as f32;
+			mu.push(curve.mu(rel));
+			slope.push(curve.slope(rel));
+		}
+
+		Self {
+			mu: mu.into_boxed_slice(),
+			slope: slope.into_boxed_slice(),
+		}
+	}
+
+	#[inline]
+	fn interpolate(table: &[f32], rel: f32) -> Option<f32> {
+		if rel <= -Self::RANGE || rel >= Self::RANGE {
+			return None;
+		}
+
+		let position = (rel + Self::RANGE) / (2.0 * Self::RANGE) * (Self::STEPS - 1) as f32;
+		let index = (position as usize).min(Self::STEPS - 1);
+		let fraction = position - index as f32;
+		let a = table[index];
+		let b = table[(index + 1).min(Self::STEPS - 1)];
+		Some(a + (b - a) * fraction)
+	}
+
+	#[inline]
+	fn mu(&self, rel: f32) -> Option<f32> {
+		Self::interpolate(&self.mu, rel)
+	}
+
+	#[inline]
+	fn slope(&self, rel: f32) -> Option<f32> {
+		Self::interpolate(&self.slope, rel)
+	}
+}
+
+/// The table for [`FrictionCurve::default`], built on first use.
+fn default_friction() -> &'static FrictionTable {
+	static TABLE: OnceLock<FrictionTable> = OnceLock::new();
+	TABLE.get_or_init(|| FrictionTable::build(&FrictionCurve::default()))
+}
+
 /// A bow: a normal force and a sliding speed acting through a friction curve.
 #[derive(Clone, Debug)]
 pub struct BowLaw {
@@ -341,15 +411,43 @@ impl BowLaw {
 	pub fn relative(&self, string_v: f32) -> f32 {
 		self.bow_velocity + self.noise_state - string_v
 	}
+
+	/// The friction coefficient at a relative speed.
+	///
+	/// The solver asks for this far more often than anything else in a bow, so the
+	/// default curve is read from a table; a custom curve goes through the exact
+	/// expression.
+	#[inline]
+	fn mu(&self, rel: f32) -> f32 {
+		if self.curve != FrictionCurve::default() {
+			return self.curve.mu(rel);
+		}
+
+		default_friction()
+			.mu(rel)
+			.unwrap_or_else(|| self.curve.mu(rel))
+	}
+
+	/// The slope of the friction curve at a relative speed.
+	#[inline]
+	fn slope(&self, rel: f32) -> f32 {
+		if self.curve != FrictionCurve::default() {
+			return self.curve.slope(rel);
+		}
+
+		default_friction()
+			.slope(rel)
+			.unwrap_or_else(|| self.curve.slope(rel))
+	}
 }
 
 impl ContactLaw for BowLaw {
 	fn force(&self, _string_y: f32, string_v: f32) -> f32 {
-		self.normal_force * self.onset * self.curve.mu(self.relative(string_v))
+		self.normal_force * self.onset * self.mu(self.relative(string_v))
 	}
 
 	fn force_dv(&self, _string_y: f32, string_v: f32) -> f32 {
-		-self.normal_force * self.curve.slope(self.relative(string_v))
+		-self.normal_force * self.slope(self.relative(string_v))
 	}
 
 	fn max_force(&self) -> f32 {
@@ -378,5 +476,37 @@ impl ContactLaw for BowLaw {
 			let target = self.rng.bipolar() * self.noise;
 			self.noise_state += (target - self.noise_state) * (dt * 400.0).min(1.0);
 		}
+	}
+}
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// The table is only useful if it is close enough that the solver cannot
+	/// tell it from the curve it samples.
+	#[test]
+	fn the_sampled_friction_curve_tracks_the_exact_one() {
+		let curve = FrictionCurve::default();
+		let table = FrictionTable::build(&curve);
+
+		for step in -199..=199 {
+			let rel = step as f32 * 0.02;
+			let mu = table.mu(rel).expect("inside the table");
+			let slope = table.slope(rel).expect("inside the table");
+
+			assert!(
+				(mu - curve.mu(rel)).abs() < 1e-3,
+				"mu at {rel}: {mu} vs {}",
+				curve.mu(rel)
+			);
+			assert!(
+				(slope - curve.slope(rel)).abs() < 1.0,
+				"slope at {rel}: {slope} vs {}",
+				curve.slope(rel)
+			);
+		}
+
+		assert!(table.mu(4.0).is_none(), "the table's edge is exact");
+		assert!(table.mu(10.0).is_none(), "outside the table");
 	}
 }

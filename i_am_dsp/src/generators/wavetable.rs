@@ -425,18 +425,28 @@ impl Parameters for Vec<Box<dyn WaveTable + Send + Sync>> {
 
 impl WaveTable for WaveTableSmoother {
 	fn sample(&self, t: f32, channel: usize) -> f32 {
-		if self.tables.is_empty() {
+		let count = self.tables.len();
+
+		if count == 0 {
 			return 0.0;
-		} else if self.tables.len() == 1 {
+		} else if count == 1 {
 			return self.tables[0].sample(t, channel);
 		}
-		let smooth = self.smooth_factor * (self.tables.len() as f32 - 1.0);
-		let (from, to) = (smooth.floor() as usize, smooth.ceil() as usize);
-		let from_sample = self.tables[from].sample(t, channel);
-		let to_sample = self.tables[to].sample(t, channel);
-		let smooth = smooth % 1.0;
 
-		from_sample + (to_sample - from_sample) * smooth
+		let last = count - 1;
+		let smooth = (self.smooth_factor * last as f32).clamp(0.0, last as f32);
+		let from = smooth.floor() as usize;
+		let from_sample = self.tables[from].sample(t, channel);
+		let fraction = smooth - from as f32;
+
+		// The common case is a morph sitting exactly on one table: sampling the
+		// second table and throwing the result away would double the work.
+		if fraction <= f32::EPSILON || from == last {
+			return from_sample;
+		}
+
+		let to_sample = self.tables[from + 1].sample(t, channel);
+		from_sample + (to_sample - from_sample) * fraction
 	}
 }
 
@@ -464,18 +474,28 @@ impl WaveTableSmoother {
 	///
 	/// Due to rust's limitation, we can't implement [`WaveTable`] for `WaveTableSmoother`.
 	pub fn sample(&self, t: f32, channel: usize) -> f32 {
-		if self.tables.is_empty() {
+		let count = self.tables.len();
+
+		if count == 0 {
 			return 0.0;
-		} else if self.tables.len() == 1 {
+		} else if count == 1 {
 			return self.tables[0].sample(t, channel);
 		}
-		let smooth = self.smooth_factor * (self.tables.len() as f32 - 1.0);
-		let (from, to) = (smooth.floor() as usize, smooth.ceil() as usize);
-		let from_sample = self.tables[from].sample(t, channel);
-		let to_sample = self.tables[to].sample(t, channel);
-		let smooth = smooth % 1.0;
 
-		from_sample + (to_sample - from_sample) * smooth
+		let last = count - 1;
+		let smooth = (self.smooth_factor * last as f32).clamp(0.0, last as f32);
+		let from = smooth.floor() as usize;
+		let from_sample = self.tables[from].sample(t, channel);
+		let fraction = smooth - from as f32;
+
+		// The common case is a morph sitting exactly on one table: sampling the
+		// second table and throwing the result away would double the work.
+		if fraction <= f32::EPSILON || from == last {
+			return from_sample;
+		}
+
+		let to_sample = self.tables[from + 1].sample(t, channel);
+		from_sample + (to_sample - from_sample) * fraction
 	}
 
 	/// Create a new [`WaveTableSmoother`] from a vector of wave tables.
