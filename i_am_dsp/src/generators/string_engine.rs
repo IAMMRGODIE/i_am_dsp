@@ -56,7 +56,7 @@ pub struct StringInstrument {
 	#[choices("Piano", "Guitar", "Violin", "Cello")]
 	#[default(0)]
 	#[id(display = "Preset")]
-	#[layout(group = "Instrument", order = 0, widget = choice)]
+	#[layout(group = "Instrument", order = 0, widget = choice, hero = "string")]
 	pub preset: i32,
 	/// How the string is excited: pluck, hammer or bow.
 	///
@@ -121,7 +121,7 @@ pub struct StringInstrument {
 	#[range(min = 0.1, max = 4.0)]
 	#[default(0.9)]
 	#[id(display = "Damping")]
-	#[layout(group = "Body", order = 0, widget = knob)]
+	#[layout(group = "Body", order = 0, widget = knob, hero = "partials")]
 	pub damping: f32,
 	/// Scales the frequency dependent decay. Larger is darker.
 	#[range(min = 0.1, max = 4.0)]
@@ -151,7 +151,7 @@ pub struct StringInstrument {
 	#[range(min = 0.0, max = 2.0)]
 	#[default(0.8)]
 	#[id(display = "Gain")]
-	#[layout(group = "Performance", order = 0, widget = knob, size = large)]
+	#[layout(group = "Performance", order = 0, widget = knob, size = large, hero = "vibrato")]
 	pub gain: f32,
 	/// The sustain pedal, from 0 (up) to 1 (fully down).
 	///

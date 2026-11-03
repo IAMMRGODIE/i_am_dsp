@@ -22,18 +22,26 @@ use i_am_plugin::processor::EffectProcessor;
 use i_am_plugin::{
 	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
 };
-use i_am_web_gui::{Faceplate, ProtocolRequest, Scope, editor_with};
+use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, editor_with};
 
 /// The face's design size, in points.
-const SIZE: (f32, f32) = (760.0, 680.0);
+const SIZE: (f32, f32) = (760.0, 560.0);
 /// The window's title and the face's title.
 const TITLE: &str = "I Am Strings";
 /// The identity colour, as #rrggbb.
 const ACCENT: &str = "#8ac926";
 
+/// The face's tabs: the string and its contact on one page, the body on the
+/// next, and the controls a player moves while playing on the last.
+const PAGES: &[Page] = &[
+	Page::new("Voice", &["Instrument", "Contact"]),
+	Page::new("Body", &["Body"]),
+	Page::new("Performance", &["Performance", "Vibrato"]),
+];
+
 /// The faceplate of the instrument.
 pub fn faceplate() -> Faceplate {
-	Faceplate::new(TITLE, ACCENT, SIZE)
+	Faceplate::new(TITLE, ACCENT, SIZE).with_pages(PAGES)
 }
 
 /// The string instrument, with a web faceplate.
@@ -292,8 +300,19 @@ mod tests {
 	fn the_face_offers_the_four_instruments_and_five_sections() {
 		let face = i_am_web_gui::face_json(&StringWeb::new(), &faceplate());
 
+		assert!(face.contains("\"hero\":\"string\""), "{face}");
+		assert!(face.contains("\"hero\":\"partials\""), "{face}");
+		assert!(face.contains("\"hero\":\"vibrato\""), "{face}");
 		assert!(
 			face.contains("\"choices\":[\"Piano\",\"Guitar\",\"Violin\",\"Cello\"]"),
+			"{face}"
+		);
+		assert!(
+			face.contains(
+				"\"pages\":[{\"name\":\"Voice\",\"sections\":[\"Instrument\",\"Contact\"]},\
+				{\"name\":\"Body\",\"sections\":[\"Body\"]},\
+				{\"name\":\"Performance\",\"sections\":[\"Performance\",\"Vibrato\"]}]"
+			),
 			"{face}"
 		);
 

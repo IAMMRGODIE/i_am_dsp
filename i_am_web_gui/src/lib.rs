@@ -39,7 +39,7 @@
 mod face;
 mod scope;
 
-pub use face::{Control, Faceplate, Kind, Section, Switch};
+pub use face::{Control, Faceplate, Kind, Page, Section, Switch};
 pub use scope::{Channels, Scope};
 
 use std::sync::Arc;
@@ -604,7 +604,14 @@ mod ui_contract_tests {
 	/// The utility products' pictures are part of the shared registry too.
 	#[test]
 	fn the_new_product_heroes_are_registered() {
-		for kind in ["resonator", "formant", "autotune"] {
+		for kind in [
+			"resonator",
+			"formant",
+			"autotune",
+			"partials",
+			"string",
+			"vibrato",
+		] {
 			assert!(
 				CARD_SCRIPT.contains(&format!("registerHero(\"{kind}\"")),
 				"missing {kind} hero"
@@ -705,9 +712,9 @@ mod ui_contract_tests {
 			names,
 			["Instrument", "Contact", "Body", "Performance", "Vibrato"]
 		);
-		// The face is all controls: a hero would take the height the fifth
-		// section needs, and the sections would overlap it.
-		assert!(sections.iter().all(|section| section.hero.is_none()));
+		assert_eq!(sections[0].hero.as_deref(), Some("string"));
+		assert_eq!(sections[2].hero.as_deref(), Some("partials"));
+		assert_eq!(sections[3].hero.as_deref(), Some("vibrato"));
 
 		let preset = parameters
 			.iter()

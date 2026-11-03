@@ -1060,6 +1060,51 @@ var ENV_MAX = 512;
     return el;
   }
 
+  /// One strip of tabs, and only the sections the active tab names.
+  ///
+  /// A section that no page names stays visible on every page: the page list
+  /// hides what it mentions and never a control nobody thought about.
+  function buildPages(sectionEls) {
+    var pages = face.pages;
+    var mentioned = {};
+
+    pages.forEach(function (page) {
+      (page.sections || []).forEach(function (name) { mentioned[name] = true; });
+    });
+
+    var strip = element("div", "face-tabs");
+    var buttons = [];
+
+    function show(index) {
+      var page = pages[index] || pages[0];
+      var shown = {};
+
+      (page.sections || []).forEach(function (name) { shown[name] = true; });
+
+      buttons.forEach(function (button, position) {
+        button.setAttribute("aria-pressed", position === index ? "true" : "false");
+      });
+
+      sectionEls.forEach(function (section) {
+        var visible = !section.name || !mentioned[section.name] || !!shown[section.name];
+        section.el.style.display = visible ? "" : "none";
+      });
+    }
+
+    pages.forEach(function (page, index) {
+      var button = element("button", "face-tab");
+      button.type = "button";
+      button.textContent = page.name;
+      button.setAttribute("aria-pressed", "false");
+      button.addEventListener("click", function () { show(index); });
+      buttons.push(button);
+      strip.appendChild(button);
+    });
+
+    show(0);
+    return strip;
+  }
+
   function buildFace() {
     isPreview = !face.hosted;
     app.classList.toggle("hosted", !isPreview);
@@ -1178,9 +1223,13 @@ var ENV_MAX = 512;
 
     if (modeEl || headerSpecs.length || face.clear) header.appendChild(tools);
 
+    // The shell exists before the body so the tab strip can sit between them.
+    var shell = element("div", "face");
+
     var body = element("div", "body");
     var many = face.sections.length > 1;
     var usedHeroes = {};
+    var sectionEls = [];
 
     face.sections.forEach(function (section) {
       var el = element("section", "section");
@@ -1251,7 +1300,13 @@ var ENV_MAX = 512;
       });
       el.appendChild(row);
       body.appendChild(el);
+      sectionEls.push({ name: section.name, el: el });
     });
+
+    // A faceplate with more controls than one window shows comfortably can hand
+    // its sections to tabs; the hero and the switches stay in the sections they
+    // belong to.
+    var pagesStrip = face.pages && face.pages.length ? buildPages(sectionEls) : null;
 
     if (modeSpec) {
       var initialMode = Math.round(controls[modeSpec.id].value);
@@ -1333,8 +1388,8 @@ var ENV_MAX = 512;
       }, 40);
     }
 
-    var shell = element("div", "face");
     shell.appendChild(header);
+    if (pagesStrip) shell.appendChild(pagesStrip);
     shell.appendChild(body);
     app.appendChild(shell);
 
@@ -1384,7 +1439,7 @@ var ENV_MAX = 512;
       pollAllowed();
     })
     .catch(function (error) {
-      app.textContent = "faceplate unavailable";
+      app.textContent = "faceplate unavailable: " + error;
       console.error("i_am_web_gui: " + error);
     });
 })();

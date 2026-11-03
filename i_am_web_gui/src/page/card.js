@@ -1790,6 +1790,162 @@
 
   var HEROES = Object.create(null);
 
+  /// The string's partial ladder: where every partial sits, stretched by the
+  /// string's inharmonicity, against how loud it is, shaped by the excitation
+  /// point and the body. Unison strings are drawn as a cluster around each bar,
+  /// which is what the detune control buys.
+  function partialsHero(values) {
+    var position = clamp(valueOf(values, "position", 0.125), 0.01, 0.5);
+    var inharmonicity = clamp(valueOf(values, "inharmonicity", 1), 0, 4);
+    var damping = clamp(valueOf(values, "damping", 1), 0.1, 4);
+    var brightness = clamp(valueOf(values, "brightness", 1), 0.1, 4);
+    var hardness = clamp(valueOf(values, "hardness", 0.5), 0, 1);
+    var excitation = Math.round(valueOf(values, "excitation", 0));
+    var strings = Math.max(1, Math.round(valueOf(values, "strings", 1)));
+    var detune = clamp(valueOf(values, "detune_cents", 0), 0, 20) / 1200;
+
+    var count = 32;
+    var stretch = 0.0007 * inharmonicity;
+    var tilt = 0.55 * damping + 0.35 * brightness;
+    var partials = [];
+    var highest = 0;
+
+    for (var n = 1; n <= count; n++) {
+      var ratio = n * Math.sqrt(1 + stretch * n * n);
+      // The excitation point is a comb of nodes: a partial with a node where the
+      // string is touched is weak, which is what makes a pluck near the bridge
+      // bright and one in the middle hollow.
+      var amp = Math.abs(Math.sin(Math.PI * n * position));
+      amp *= Math.exp(-(n - 1) * tilt / 26);
+
+      if (excitation === 1) amp *= 0.55 + 0.9 * hardness;
+      else if (excitation === 2) amp *= 1.1 - 0.35 * Math.exp(-(n - 1) / 5);
+
+      partials.push({ ratio: ratio, amp: amp });
+      if (ratio > highest) highest = ratio;
+    }
+
+    var max = 0;
+    partials.forEach(function (partial) { if (partial.amp > max) max = partial.amp; });
+
+    var left = 20, width = 480, base = 148, full = 112;
+    var gap = width / count;
+    var bars = "";
+
+    for (var n = 0; n < count; n++) {
+      var partial = partials[n];
+      var weight = partial.amp / (max || 1);
+      var height = Math.max(2, weight * full);
+      var opacity = (0.18 + 0.7 * weight).toFixed(2);
+
+      for (var s = 0; s < strings; s++) {
+        var offset = strings === 1 ? 0 : (s - (strings - 1) / 2) * detune;
+        var x = left + clamp(partial.ratio * (1 + offset) / highest, 0, 1) * width;
+        var w = Math.max(2, gap * (strings > 1 ? 0.28 : 0.5));
+        bars += '<rect x="' + (x - w / 2).toFixed(1) + '" y="' + (base - height).toFixed(1) +
+          '" width="' + w.toFixed(1) + '" height="' + height.toFixed(1) +
+          '" rx="1" fill="var(--accent)" fill-opacity="' + opacity + '"/>';
+      }
+    }
+
+    var names = ["PLUCK", "HAMMER", "BOW"];
+    var excitationName = names[excitation] || names[0];
+    var stringName = strings === 1 ? "1 STRING" : strings + " STRINGS";
+
+    return heroSvg(
+      '<line x1="20" y1="148" x2="500" y2="148" stroke="#2f2f2f"/>' + bars
+    ) +
+      '<div class="hero-label" style="top:4%">PARTIALS</div>' +
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">' +
+        excitationName + ' · ' + stringName + '</div>';
+  }
+
+  /// The string itself: the triangle a pluck leaves, the point it is touched at,
+  /// and a ghost pair for a course of strings, so the unison count reads at a
+  /// glance. The dashed curve is the mode the string settles into, whose antinode
+  /// sits in the middle rather than at the excitation point.
+  function stringHero(values) {
+    var position = clamp(valueOf(values, "position", 0.125), 0.01, 0.5);
+    var strings = Math.max(1, Math.round(valueOf(values, "strings", 1)));
+    var excitation = Math.round(valueOf(values, "excitation", 0));
+
+    var left = 20, right = 500, middle = 92, peak = 58;
+    var x = left + position * (right - left);
+    var pluck = "M " + left + " " + middle +
+      " L " + x.toFixed(1) + " " + (middle - peak) +
+      " L " + right + " " + middle;
+    var mode = "";
+
+    for (var i = 0; i <= 120; i++) {
+      var t = i / 120;
+      var px = left + t * (right - left);
+      var py = middle - Math.sin(Math.PI * t) * peak * 0.82;
+      mode += (i ? " L " : "M ") + px.toFixed(1) + " " + py.toFixed(1);
+    }
+
+    var ghosts = "";
+
+    if (strings > 1) {
+      ghosts =
+        '<path d="' + pluck + '" fill="none" stroke="var(--accent)" stroke-opacity=".22" ' +
+          'stroke-width="1.4" transform="translate(0 -7)" vector-effect="non-scaling-stroke"/>' +
+        '<path d="' + pluck + '" fill="none" stroke="var(--accent)" stroke-opacity=".22" ' +
+          'stroke-width="1.4" transform="translate(0 7)" vector-effect="non-scaling-stroke"/>';
+    }
+
+    var names = ["PLUCK", "HAMMER", "BOW"];
+
+    return heroSvg(
+      '<line x1="20" y1="' + middle + '" x2="500" y2="' + middle + '" stroke="#2f2f2f"/>' +
+      ghosts +
+      '<path d="' + mode + '" fill="none" stroke="var(--accent)" stroke-opacity=".32" ' +
+        'stroke-dasharray="4 5" stroke-width="1.2" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + pluck + '" fill="none" stroke="var(--accent)" stroke-width="1.9" ' +
+        'vector-effect="non-scaling-stroke"/>' +
+      '<line x1="' + x.toFixed(1) + '" y1="14" x2="' + x.toFixed(1) + '" y2="118" ' +
+        'stroke="var(--accent)" stroke-opacity=".22" stroke-dasharray="2 4"/>' +
+      '<circle cx="' + x.toFixed(1) + '" cy="' + (middle - peak) + '" r="3" ' +
+        'fill="var(--accent)"/>'
+    ) +
+      '<div class="hero-label" style="top:4%">STRING</div>' +
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">' +
+        (names[excitation] || names[0]) + ' AT ' + Math.round(position * 100) + '%</div>';
+  }
+
+  /// The hand's vibrato: the pitch stays where it is for the delay, then swings
+  /// at the rate and depth the controls ask for.
+  function vibratoHero(values) {
+    var rate = clamp(valueOf(values, "vibrato_rate", 5.4), 0, 12);
+    var depth = clamp(valueOf(values, "vibrato_depth", 0), 0, 120);
+    var delay = clamp(valueOf(values, "vibrato_delay", 0), 0, 1);
+
+    var left = 20, right = 500, base = 88;
+    // The hero is about the shape: a subtle depth still shows its motion, and the
+    // label carries the exact cents.
+    var swing = depth <= 0 ? 0 : 12 + 44 * clamp(depth / 120, 0, 1);
+    var onset = left + delay * (right - left);
+    var path = "M " + left + " " + base + " L " + onset.toFixed(1) + " " + base;
+
+    for (var i = 0; i <= 240; i++) {
+      var t = i / 240;
+      var px = onset + (right - onset) * t;
+      var py = base + Math.sin(t * rate * Math.PI * 2) * swing;
+      path += " L " + px.toFixed(1) + " " + py.toFixed(1);
+    }
+
+    return heroSvg(
+      '<line x1="20" y1="' + base + '" x2="500" y2="' + base + '" stroke="#2f2f2f" ' +
+        'stroke-dasharray="3 5"/>' +
+      '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
+        'vector-effect="non-scaling-stroke"/>' +
+      '<line x1="' + onset.toFixed(1) + '" y1="18" x2="' + onset.toFixed(1) + '" y2="126" ' +
+        'stroke="var(--accent)" stroke-opacity=".22" stroke-dasharray="2 4"/>'
+    ) +
+      '<div class="hero-label" style="top:4%">VIBRATO</div>' +
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">' +
+        rate.toFixed(1) + ' Hz · ' + Math.round(depth) + ' ¢</div>';
+  }
+
   function registerHero(kind, renderer) {
     HEROES[kind] = renderer;
   }
@@ -1824,6 +1980,9 @@
   registerHero("resonator", resonatorHero);
   registerHero("formant", formantHero);
   registerHero("autotune", autotuneHero);
+  registerHero("partials", partialsHero);
+  registerHero("string", stringHero);
+  registerHero("vibrato", vibratoHero);
 
   function makeKnob(spec, value, onEdit) {
     var wrap = document.createElement("div");

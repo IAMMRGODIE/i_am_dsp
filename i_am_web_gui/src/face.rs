@@ -39,6 +39,26 @@ pub struct Faceplate {
 	pub script: bool,
 	/// Whether the page shows a clear-tail button that posts to `/clear`.
 	pub clear: bool,
+	/// The tabs a page can be split into. A product with more controls than one
+	/// window can show comfortably hands the page its sections in groups; the
+	/// page keeps one strip of tabs and only the sections of the active tab.
+	pub pages: Option<&'static [Page]>,
+}
+
+/// One tab of a faceplate: a name, and the sections it shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Page {
+	/// The tab's name, as the strip draws it.
+	pub name: &'static str,
+	/// The sections that tab shows, by their section names.
+	pub sections: &'static [&'static str],
+}
+
+impl Page {
+	/// A tab that shows the named sections.
+	pub const fn new(name: &'static str, sections: &'static [&'static str]) -> Self {
+		Self { name, sections }
+	}
 }
 
 /// One either-or pair of parameters, selected by a boolean parameter.
@@ -76,6 +96,7 @@ impl Faceplate {
 			switches: None,
 			script: false,
 			clear: false,
+			pages: None,
 		}
 	}
 
@@ -115,6 +136,12 @@ impl Faceplate {
 	/// Show the header's clear-tail button.
 	pub const fn with_clear(mut self) -> Self {
 		self.clear = true;
+		self
+	}
+
+	/// Split the faceplate into tabs, each showing some of its sections.
+	pub const fn with_pages(mut self, pages: &'static [Page]) -> Self {
+		self.pages = Some(pages);
 		self
 	}
 }
@@ -437,6 +464,29 @@ pub fn face_json_with_rate(
 						out.push(',');
 					}
 					string(&mut out, id);
+				}
+				out.push_str("]}");
+			}
+			out.push(']');
+		}
+		None => out.push_str("null"),
+	}
+	out.push_str(",\"pages\":");
+	match face.pages {
+		Some(pages) => {
+			out.push('[');
+			for (index, page) in pages.iter().enumerate() {
+				if index > 0 {
+					out.push(',');
+				}
+				out.push_str("{\"name\":");
+				string(&mut out, page.name);
+				out.push_str(",\"sections\":[");
+				for (position, name) in page.sections.iter().enumerate() {
+					if position > 0 {
+						out.push(',');
+					}
+					string(&mut out, name);
 				}
 				out.push_str("]}");
 			}

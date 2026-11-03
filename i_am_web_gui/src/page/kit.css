@@ -177,6 +177,20 @@ body.preview #app{
   font-size:calc(9px * var(--scale)); letter-spacing:.13em;
   color:#8a8a8a; font-weight:500;
 }
+/* A paged faceplate: one strip of tabs between the header and the body. */
+.face-tabs{
+  flex:0 0 auto; display:flex; align-items:stretch; gap:2px;
+  padding:0 calc(12px * var(--scale)); border-bottom:1px solid var(--border);
+}
+.face-tab{
+  padding:calc(7px * var(--scale)) calc(12px * var(--scale)) calc(6px * var(--scale));
+  font:inherit; font-size:calc(9px * var(--scale)); font-weight:600;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--text3);
+  background:transparent; border:0; border-bottom:2px solid transparent; cursor:pointer;
+}
+.face-tab:hover{color:var(--text2)}
+.face-tab[aria-pressed="true"]{color:var(--text1); border-bottom-color:var(--accent)}
+.face-tab:focus-visible{outline:1px solid var(--accent); outline-offset:-1px}
 .section{
   flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
   gap:calc(10px * var(--scale));
