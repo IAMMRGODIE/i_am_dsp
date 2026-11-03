@@ -1149,7 +1149,7 @@ const CANVAS_PAGES: &[Page] = &[
 ];
 
 /// The number of drawn pages the morph runs between.
-const CANVAS_PAGE_COUNT: usize = 2;
+const CANVAS_MAX_PAGES: usize = 4;
 /// How many points one drawn page is sampled into.
 const CANVAS_CACHE: usize = 1024;
 
@@ -1177,7 +1177,7 @@ fn circle_tokens(radius: f32) -> String {
 /// The two curves the face starts with: a wide stereo circle and a narrow one,
 /// so the Morph control has something to move between.
 fn default_canvas_text() -> String {
-	format!("{} {}", circle_tokens(0.8), circle_tokens(0.35))
+	format!("2 {} {}", circle_tokens(0.8), circle_tokens(0.35))
 }
 
 /// Parses the page's token form into generators with their caches built.
@@ -1195,9 +1195,15 @@ fn parse_canvas(text: &str) -> Result<Vec<StereoGenerator>, String> {
 			})
 	};
 
-	let mut pages = Vec::with_capacity(CANVAS_PAGE_COUNT);
+	let page_count = next("page count")? as usize;
 
-	for _ in 0..CANVAS_PAGE_COUNT {
+	if !(1..=CANVAS_MAX_PAGES).contains(&page_count) {
+		return Err(format!("page count {page_count} is out of range"));
+	}
+
+	let mut pages = Vec::with_capacity(page_count);
+
+	for _ in 0..page_count {
 		let start = (next("start x")?, next("start y")?);
 		let count = next("node count")? as i32;
 
