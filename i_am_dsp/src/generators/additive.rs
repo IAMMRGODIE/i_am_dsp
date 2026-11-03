@@ -438,6 +438,20 @@ impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>
 		output
 	}
 
+	/// The generator that says where the partials sit and how loud they are.
+	pub fn freq_gen(&self) -> &Freq {
+		&self.freq_gen
+	}
+
+	/// The generator, mutably.
+	///
+	/// A caller that changes it outside the parameter surface (a script arriving
+	/// from the page, say) has to call [`Self::refresh`] or let the oscillator's
+	/// own sync see the generator's revision change.
+	pub fn freq_gen_mut(&mut self) -> &mut Freq {
+		&mut self.freq_gen
+	}
+
 	/// Changes the frequency generator of the oscillator
 	pub fn change_freq_gen(&mut self, freq_gen: Freq) {
 		self.freq_gen = freq_gen;

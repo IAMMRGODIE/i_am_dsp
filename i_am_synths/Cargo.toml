@@ -10,6 +10,7 @@ edition = "2024"
 crate-type = ["rlib"]
 
 [dependencies]
-i_am_dsp = { workspace = true }
+# The scripted additive voice needs the Rhai generator.
+i_am_dsp = { workspace = true, features = ["rhai"] }
 i_am_plugin = { workspace = true }
 i_am_web_gui = { workspace = true }

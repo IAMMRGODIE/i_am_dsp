@@ -52,6 +52,8 @@ pub struct RhaiFreqGen {
 	need_recaculate: bool,
 	#[skip]
 	error: Option<RhaiFreqGenError>,
+	#[skip]
+	script_revision: u64,
 
 	#[cfg(feature = "real_time_demo")]
 	#[skip]
@@ -115,6 +117,7 @@ impl RhaiFreqGen {
 			ast: None,
 			need_recaculate: true,
 			error: None,
+			script_revision: 0,
 
 			#[cfg(feature = "real_time_demo")]
 			allow_load_code: false,
@@ -154,11 +157,57 @@ impl RhaiFreqGen {
 		let ast = RHAI_ENGINE.compile(code)?;
 		self.need_recaculate = true;
 		self.ast = Some((code.to_string(), ast));
+		self.script_revision = self.script_revision.wrapping_add(1);
 		Ok(())
+	}
+
+	/// Installs a script that was compiled off the audio thread.
+	pub fn load_compiled(&mut self, script: RhaiScript) {
+		self.need_recaculate = true;
+		self.error = None;
+		self.ast = Some((script.code, script.ast));
+		self.script_revision = self.script_revision.wrapping_add(1);
+	}
+}
+
+/// A script compiled away from the audio thread, ready for [`RhaiFreqGen`].
+///
+/// Compiling a script allocates and can take milliseconds; a host must not pay
+/// that inside a process callback, so the page compiles it and the audio thread
+/// only swaps the result in.
+pub struct RhaiScript {
+	code: String,
+	ast: rhai::AST,
+}
+
+impl RhaiScript {
+	/// Compiles a script body.
+	pub fn compile(code: &str) -> Result<Self, String> {
+		let ast = RHAI_ENGINE
+			.compile(code)
+			.map_err(|error| error.to_string())?;
+
+		Ok(Self {
+			code: code.to_string(),
+			ast,
+		})
 	}
 }
 
 impl GenFreqInfo for RhaiFreqGen {
+	fn revision(&self) -> u64 {
+		let mut hash = 0xcbf2_9ce4_8422_2325u64;
+
+		for value in [self.a, self.b, self.c, self.d] {
+			hash = (hash ^ value.to_bits() as u64).wrapping_mul(0x0000_0100_0000_01b3);
+		}
+
+		hash = (hash ^ self.sample_rate as u64).wrapping_mul(0x0000_0100_0000_01b3);
+		hash = (hash ^ self.script_revision).wrapping_mul(0x0000_0100_0000_01b3);
+
+		hash
+	}
+
 	fn gen_info(&mut self, index: usize, total_amount: usize) -> FreqInfo {
 		use std::f32::consts::PI;
 		self.need_recaculate = false;
