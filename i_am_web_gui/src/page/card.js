@@ -2179,7 +2179,7 @@
     var next = function () { return tokens[at++]; };
     var pageCount = next();
 
-    if (!(pageCount >= 1 && pageCount <= 4)) return null;
+    if (!(pageCount >= 1)) return null;
 
     var pages = [];
 
@@ -2187,7 +2187,7 @@
       var start = [next(), next()];
       var count = next();
 
-      if (!(count >= 1 && count <= 32) || at + count * 6 > tokens.length) return null;
+      if (!(count >= 1) || at + count * 6 > tokens.length) return null;
 
       var nodes = [];
       for (var index = 0; index < count; index++) {
@@ -2338,7 +2338,7 @@
       if (action) {
         var what = action.getAttribute("data-action");
 
-        if (what === "page-add" && model.pages.length < 4) {
+        if (what === "page-add") {
           model.pages.push(JSON.parse(JSON.stringify(model.pages[model.pages.length - 1])));
           canvasState.page = model.pages.length - 1;
           post();

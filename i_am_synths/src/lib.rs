@@ -1148,8 +1148,6 @@ const CANVAS_PAGES: &[Page] = &[
 	Page::new("Voice", &["Voice"]),
 ];
 
-/// The number of drawn pages the morph runs between.
-const CANVAS_MAX_PAGES: usize = 4;
 /// How many points one drawn page is sampled into.
 const CANVAS_CACHE: usize = 1024;
 
@@ -1197,21 +1195,25 @@ fn parse_canvas(text: &str) -> Result<Vec<StereoGenerator>, String> {
 
 	let page_count = next("page count")? as usize;
 
-	if !(1..=CANVAS_MAX_PAGES).contains(&page_count) {
-		return Err(format!("page count {page_count} is out of range"));
+	if page_count == 0 {
+		return Err("a canvas needs at least one page".to_string());
 	}
 
-	let mut pages = Vec::with_capacity(page_count);
+	// No cap on either count: the text itself bounds them, because a count
+	// larger than the numbers after it fails on the first missing token.
+	// Vec::new rather than with_capacity keeps a bogus count from asking for
+	// its memory.
+	let mut pages = Vec::new();
 
 	for _ in 0..page_count {
 		let start = (next("start x")?, next("start y")?);
 		let count = next("node count")? as i32;
 
-		if !(1..=32).contains(&count) {
-			return Err(format!("node count {count} is out of range"));
+		if count < 1 {
+			return Err("a page needs at least one node".to_string());
 		}
 
-		let mut graph = Vec::with_capacity(count as usize);
+		let mut graph = Vec::new();
 
 		for _ in 0..count {
 			graph.push(Node {
@@ -1967,6 +1969,27 @@ mod tests {
 			),
 			"{face}"
 		);
+	}
+
+	#[test]
+	fn the_canvas_keeps_as_many_pages_and_nodes_as_it_is_given() {
+		let mut text = "5".to_string();
+		for _ in 0..5 {
+			text.push_str(" 0 0 1 0.1 0.1 0.2 0.2 0.3 0.3");
+		}
+
+		let pages = parse_canvas(&text).expect("five pages parse");
+		assert_eq!(pages.len(), 5);
+		assert_eq!(pages[0].graph.len(), 1);
+
+		let mut nodes = "1 0 0 40".to_string();
+		for index in 0..40 {
+			let value = index as f32 * 0.01;
+			nodes.push_str(&format!(" {value} {value} {value} {value} {value} {value}"));
+		}
+
+		let pages = parse_canvas(&nodes).expect("forty nodes parse");
+		assert_eq!(pages[0].graph.len(), 40);
 	}
 
 	#[test]
