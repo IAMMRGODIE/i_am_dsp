@@ -16,4 +16,4 @@ pub use i_am_synths::*;
 
 use i_am_plugin::export_clap;
 
-export_clap!(StringWeb, ShapesWeb, AdditiveWeb);
+export_clap!(StringWeb, ShapesWeb, AdditiveWeb, SpectrumWeb);

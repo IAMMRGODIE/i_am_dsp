@@ -2066,9 +2066,59 @@
       (synced ? '<div class="hero-badge">SYNC</div>' : '');
   }
 
+  /// A spectrum-first additive voice: the bars are the partial amplitudes the
+  /// tilt, odd/even and formant controls make. Unlike the bent saw, every ratio
+  /// is an integer, so the oscillator plays this whole sum from one table.
+  function spectrumHero(values) {
+    var count = Math.round(clamp(valueOf(values, "oscillator.num_sines", 64), 1, 128));
+    var tilt = valueOf(values, "oscillator.freq_gen.tilt", 1);
+    var odd = clamp(valueOf(values, "oscillator.freq_gen.odd", 0), 0, 1);
+    var formant = valueOf(values, "oscillator.freq_gen.formant", 0);
+    var centre = Math.max(valueOf(values, "oscillator.freq_gen.formant_center", 4), 1);
+
+    var amplitudes = [];
+    var max = 0;
+
+    for (var i = 1; i <= count; i++) {
+      var amplitude = Math.pow(i, -tilt);
+      if (i % 2 === 0) amplitude *= 1 - odd;
+      if (formant > 0) {
+        var distance = Math.log(i / centre) / 0.5;
+        amplitude *= 1 + formant * Math.exp(-distance * distance);
+      }
+      amplitudes.push(amplitude);
+      max = Math.max(max, amplitude);
+    }
+
+    var base = 132;
+    var height = base - 24;
+    var step = 480 / count;
+    var barWidth = Math.max(1.5, step * 0.7);
+    var bars = "";
+
+    amplitudes.forEach(function (amplitude, index) {
+      var x = 20 + (index + 0.5) * step;
+      var y = base - (amplitude / Math.max(max, 1e-6)) * height * 0.9;
+      bars += '<rect x="' + (x - barWidth / 2).toFixed(1) + '" y="' + y.toFixed(1) +
+        '" width="' + barWidth.toFixed(1) + '" height="' + (base - y).toFixed(1) +
+        '" fill="var(--accent)" opacity="0.85"/>';
+    });
+
+    return heroSvg(
+      '<line x1="20" y1="' + base + '" x2="500" y2="' + base + '" stroke="#2c2c2c"/>' + bars
+    ) +
+      '<div class="hero-label" style="top:4%">SPECTRUM</div>' +
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">' +
+        count + ' PARTIALS</div>';
+  }
+
   /// The additive voice's partials: the saw the generator draws, bent by the
   /// controls. Bars are placed by partial ratio and sized by amplitude.
   function additiveHero(values) {
+    if (Object.prototype.hasOwnProperty.call(values, "oscillator.freq_gen.tilt")) {
+      return spectrumHero(values);
+    }
+
     var count = Math.round(clamp(valueOf(values, "oscillator.num_sines", 32), 1, 64));
     var bend = valueOf(values, "oscillator.freq_gen.bend_amount", 0);
     var center = Math.max(valueOf(values, "oscillator.freq_gen.center_space", 1), 0.125);
