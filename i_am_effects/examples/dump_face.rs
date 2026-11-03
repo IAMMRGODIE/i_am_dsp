@@ -99,7 +99,8 @@ fn main() {
 				i_am_web_gui::face_json(
 					&plugin,
 					&Faceplate::new("I Am Unstablizer", "#ff8f6b", (700.0, 340.0))
-						.with_mode("window_size"),
+						.with_mode("window_size")
+						.with_header(&["midi"]),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -156,7 +157,7 @@ fn main() {
 					&Faceplate::new("I Am Autotune", "#ff6fae", (700.0, 420.0))
 						.with_mode("algorithm")
 						.with_visible(AUTOTUNE_VISIBLE)
-						.with_header(&["window_size"]),
+						.with_header(&["window_size", "midi"]),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
@@ -167,7 +168,7 @@ fn main() {
 				i_am_web_gui::face_json(
 					&plugin,
 					&Faceplate::new("I Am Spectral Retune", "#5fd0c8", (700.0, 400.0))
-						.with_header(&["window_size"]),
+						.with_header(&["window_size", "midi"]),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

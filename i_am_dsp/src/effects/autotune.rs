@@ -2,8 +2,11 @@
 //! one of the pitch shifters with the resulting ratio.
 //!
 //! MIDI notes are treated as pitch classes, so holding a chord or a scale allows
-//! that set in every octave. With no MIDI held, the note mask from the faceplate
-//! is used. The mask has one bit per pitch class, C at bit 0 and B at bit 11.
+//! that set in every octave. The MIDI switch in the header decides what the port
+//! is worth: on, only the notes held on it count, and with nothing held nothing is
+//! tuned -- the faceplate mask is not a fallback. Off, the mask is the whole story
+//! and the port is ignored. The mask has one bit per pitch class, C at bit 0 and B
+//! at bit 11.
 
 use i_am_dsp_derive::Parameters;
 
@@ -83,6 +86,16 @@ pub struct AutoTune<const CHANNELS: usize = 2> {
 	#[layout(group = "Notes", order = 0, widget = notes)]
 	pub notes: i32,
 
+	/// Whether the note port sets the allowed notes.
+	///
+	/// On, only the notes held on the port count, and with nothing held nothing is
+	/// tuned: the mask above is not a fallback. Off, the mask is the whole story
+	/// and the port is ignored.
+	#[default(true)]
+	#[id(display = "MIDI")]
+	#[layout(group = "Notes", order = 1, widget = toggle)]
+	pub midi: bool,
+
 	#[skip]
 	sample_rate: f32,
 	#[skip]
@@ -113,6 +126,7 @@ impl<const CHANNELS: usize> AutoTune<CHANNELS> {
 			speed: 10.0,
 			window_size: 2,
 			notes: ALL_NOTES as i32,
+			midi: true,
 			sample_rate: sample_rate.max(1) as f32,
 			tracker: PitchTracker::new(sample_rate, 2_048),
 			time: PitchShifter::<CHANNELS>::new(1_024),
@@ -125,6 +139,11 @@ impl<const CHANNELS: usize> AutoTune<CHANNELS> {
 	}
 
 	fn track_events(&mut self, process_context: &mut Box<dyn ProcessContext>) {
+		if !self.midi {
+			self.held_notes.clear();
+			return;
+		}
+
 		for event in process_context.events() {
 			match event {
 				NoteEvent::NoteOn { note, .. } => {
@@ -141,16 +160,18 @@ impl<const CHANNELS: usize> AutoTune<CHANNELS> {
 		}
 	}
 
-	/// The pitch-class mask the tuner is using right now: MIDI held notes if
-	/// there are any, otherwise the faceplate mask.
+	/// The pitch-class mask the tuner is using right now.
+	///
+	/// With the note port on it is the held notes and nothing else: no notes held is
+	/// a zero mask, which tunes nothing. With the port off it is the faceplate mask.
 	pub fn allowed_mask(&self) -> u16 {
-		if self.held_notes.is_empty() {
-			(self.notes as u16) & ALL_NOTES
-		} else {
-			self.held_notes
-				.iter()
-				.fold(0, |mask, note| mask | (1 << (note % 12)))
+		if !self.midi {
+			return (self.notes as u16) & ALL_NOTES;
 		}
+
+		self.held_notes
+			.iter()
+			.fold(0, |mask, note| mask | (1 << (note % 12)))
 	}
 
 	fn target_ratio(&mut self, mono: f32, process_context: &mut Box<dyn ProcessContext>) -> f32 {
@@ -316,6 +337,8 @@ mod tests {
 		let mut tuner = AutoTune::<1>::new(48_000);
 		tuner.algorithm = 1;
 		tuner.speed = 0.0;
+		// The faceplate mask only applies with the note port switched off.
+		tuner.midi = false;
 		tuner.notes = (1 << 0) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 11);
 		let mut context: Box<dyn ProcessContext> = Box::new(TestContext { events: vec![] });
 		let mut output = Vec::new();
@@ -340,6 +363,51 @@ mod tests {
 
 		let frequency = estimate.expect("no pitch after autotune");
 		assert!((frequency - 392.0).abs() < 12.0, "got {frequency}");
+	}
+
+	#[test]
+	fn the_faceplate_mask_is_not_a_fallback_when_midi_is_on() {
+		let mut tuner = AutoTune::<1>::new(48_000);
+		tuner.midi = true;
+		tuner.notes = (1 << 0) | (1 << 4);
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext { events: vec![] });
+		let mut frame = [0.0];
+
+		tuner.process(&mut frame, &[], &mut context);
+		assert_eq!(
+			tuner.allowed_mask(),
+			0,
+			"no notes held means nothing to tune"
+		);
+
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![NoteEvent::NoteOn {
+				channel: 0,
+				note: 60,
+				velocity: 1.0,
+			}],
+		});
+		tuner.process(&mut frame, &[], &mut context);
+		assert_eq!(tuner.allowed_mask(), 1 << 0);
+	}
+
+	#[test]
+	fn midi_off_ignores_the_port_and_uses_the_mask() {
+		let mut tuner = AutoTune::<1>::new(48_000);
+		tuner.midi = false;
+		tuner.notes = 1 << 0;
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![NoteEvent::NoteOn {
+				channel: 0,
+				note: 64,
+				velocity: 1.0,
+			}],
+		});
+		let mut frame = [0.0];
+
+		tuner.process(&mut frame, &[], &mut context);
+
+		assert_eq!(tuner.allowed_mask(), 1 << 0, "the port changed the mask");
 	}
 
 	#[test]

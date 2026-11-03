@@ -1152,6 +1152,9 @@ var ENV_MAX = 512;
         caption.textContent = spec.label;
         wrap.appendChild(dot);
         wrap.appendChild(caption);
+        // A mode that hides this switch has to hide its caption too, so the
+        // control the visibility rules move is the whole item, not just the dot.
+        if (controls[spec.id]) controls[spec.id].el = wrap;
         tools.appendChild(wrap);
       } else {
         tools.appendChild(makeControl(spec, true));

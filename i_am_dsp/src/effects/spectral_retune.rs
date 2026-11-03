@@ -4,6 +4,11 @@
 //! the spectrum becomes a scale-quantized comb instead of a monophonic pitch
 //! correction. Strength blends the move, Speed smooths it between frames, and the
 //! low/high controls keep the operation away from the bass and the air band.
+//!
+//! The MIDI switch in the header decides where the allowed notes come from. On,
+//! only the notes held on the port count: with nothing held, nothing is retuned,
+//! and the faceplate mask is not a fallback. Off, the mask is used and the port is
+//! ignored.
 
 use i_am_dsp_derive::Parameters;
 
@@ -166,6 +171,16 @@ pub struct SpectralRetuneEffect {
 	#[layout(group = "Notes", order = 0, widget = notes)]
 	pub notes: i32,
 
+	/// Whether the note port sets the allowed notes.
+	///
+	/// On, only the notes held on the port count, and with nothing held nothing is
+	/// retuned: the mask above is not a fallback. Off, the mask is the whole story
+	/// and the port is ignored.
+	#[default(true)]
+	#[id(display = "MIDI")]
+	#[layout(group = "Notes", order = 1, widget = toggle)]
+	pub midi: bool,
+
 	/// The FFT size, picked from the header.
 	#[choices("512", "1024", "2048", "4096")]
 	#[default(2)]
@@ -195,6 +210,7 @@ impl SpectralRetuneEffect {
 			high_frequency: 8_000.0,
 			mix: 1.0,
 			notes: ALL_NOTES,
+			midi: true,
 			window_size: 2,
 			inner,
 			last_window_size: 2,
@@ -203,6 +219,11 @@ impl SpectralRetuneEffect {
 	}
 
 	fn track_events(&mut self, context: &mut Box<dyn ProcessContext>) {
+		if !self.midi {
+			self.held_notes.clear();
+			return;
+		}
+
 		for event in context.events() {
 			match event {
 				NoteEvent::NoteOn { note, .. } => {
@@ -219,16 +240,18 @@ impl SpectralRetuneEffect {
 		}
 	}
 
-	/// The pitch-class mask the retune is using: MIDI held notes if any,
-	/// otherwise the faceplate mask.
+	/// The pitch-class mask the retune is using right now.
+	///
+	/// With the note port on it is the held notes and nothing else: no notes held is
+	/// a zero mask, which retunes nothing. With the port off it is the faceplate mask.
 	pub fn allowed_mask(&self) -> u16 {
-		if self.held_notes.is_empty() {
-			(self.notes as u16) & 0x0fff
-		} else {
-			self.held_notes
-				.iter()
-				.fold(0, |mask, note| mask | (1 << (note % 12)))
+		if !self.midi {
+			return (self.notes as u16) & 0x0fff;
 		}
+
+		self.held_notes
+			.iter()
+			.fold(0, |mask, note| mask | (1 << (note % 12)))
 	}
 }
 
@@ -359,6 +382,46 @@ mod tests {
 		effect.process(&mut frame, &[], &mut context);
 
 		assert_eq!(effect.allowed_mask(), (1 << 0) | (1 << 4));
+	}
+
+	#[test]
+	fn the_faceplate_mask_is_not_a_fallback_when_midi_is_on() {
+		let mut effect = SpectralRetuneEffect::new(48_000);
+		effect.midi = true;
+		effect.notes = (1 << 0) | (1 << 4);
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![],
+			infos: crate::ProcessInfos::default(),
+		});
+		let mut frame = [0.0_f32, 0.0];
+
+		effect.process(&mut frame, &[], &mut context);
+
+		assert_eq!(
+			effect.allowed_mask(),
+			0,
+			"no notes held means nothing to retune"
+		);
+	}
+
+	#[test]
+	fn midi_off_ignores_the_port_and_uses_the_mask() {
+		let mut effect = SpectralRetuneEffect::new(48_000);
+		effect.midi = false;
+		effect.notes = 1 << 0;
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![NoteEvent::NoteOn {
+				channel: 0,
+				note: 64,
+				velocity: 1.0,
+			}],
+			infos: crate::ProcessInfos::default(),
+		});
+		let mut frame = [0.0_f32, 0.0];
+
+		effect.process(&mut frame, &[], &mut context);
+
+		assert_eq!(effect.allowed_mask(), 1 << 0, "the port changed the mask");
 	}
 
 	#[test]

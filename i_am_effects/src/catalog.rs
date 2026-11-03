@@ -566,13 +566,14 @@ pub const ROUTER: ModuleDescriptor = ModuleDescriptor {
 	build: router,
 };
 
-/// The autotune product, which follows the notes the host plays.
+/// The autotune product, which follows the notes the host plays while its MIDI
+/// switch is on, and its faceplate mask while it is off.
 pub const AUTOTUNE: ModuleDescriptor = ModuleDescriptor {
 	id: "autotune",
 	name: "Autotune",
 	accent: "#ff6fae",
 	mode: Some("algorithm"),
-	header: &["window_size"],
+	header: &["window_size", "midi"],
 	visible: Some(crate::AUTOTUNE_VISIBLE),
 	switches: &[],
 	build_with_ir: None,
@@ -585,7 +586,7 @@ pub const SPECTRAL_RETUNE: ModuleDescriptor = ModuleDescriptor {
 	name: "Spectral Retune",
 	accent: "#5fd0c8",
 	mode: None,
-	header: &["window_size"],
+	header: &["window_size", "midi"],
 	visible: None,
 	switches: &[],
 	build_with_ir: None,
@@ -612,7 +613,7 @@ pub const UNSTABLIZER: ModuleDescriptor = ModuleDescriptor {
 	name: "Unstablizer",
 	accent: "#ff8f6b",
 	mode: Some("window_size"),
-	header: &[],
+	header: &["midi"],
 	visible: None,
 	switches: &[],
 	build_with_ir: None,

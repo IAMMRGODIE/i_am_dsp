@@ -62,11 +62,11 @@ use unstablizer::UnstablizerEffect;
 pub use vocoder::VocoderWeb;
 
 /// The controls each autotune engine reads; the note mask lives in its own
-/// section and is always visible.
+/// section and is always visible, and so is the header's MIDI switch.
 pub const AUTOTUNE_VISIBLE: &[(i32, &[&str])] = &[
-	(0, &["strength", "speed", "notes"]),
-	(1, &["strength", "speed", "window_size", "notes"]),
-	(2, &["strength", "speed", "notes"]),
+	(0, &["strength", "speed", "notes", "midi"]),
+	(1, &["strength", "speed", "window_size", "notes", "midi"]),
+	(2, &["strength", "speed", "notes", "midi"]),
 ];
 /// The parameters the page draws in the header, beside the mode.
 pub const FILTER_HEADER: &[&str] = &["stages"];
@@ -189,7 +189,7 @@ web_plugin!(
 	"#ff6fae",
 	mode = "algorithm",
 	visible = AUTOTUNE_VISIBLE,
-	header = &["window_size"],
+	header = &["window_size", "midi"],
 	midi = &[i_am_plugin::MidiPort { name: "Notes" }],
 	telemetry = |tuner: &AutoTune<2>, scope: &i_am_web_gui::Scope| {
 		scope.set_allowed_notes(tuner.allowed_mask() as i32)
@@ -204,7 +204,7 @@ web_plugin!(
 	"I Am Spectral Retune",
 	(700.0, 400.0),
 	"#5fd0c8",
-	header = &["window_size"],
+	header = &["window_size", "midi"],
 	midi = &[i_am_plugin::MidiPort { name: "Notes" }],
 	telemetry = |retune: &SpectralRetuneEffect, scope: &i_am_web_gui::Scope| {
 		scope.set_allowed_notes(retune.allowed_mask() as i32)
@@ -388,6 +388,7 @@ web_plugin!(
 	(700.0, 340.0),
 	"#ff8f6b",
 	mode = "window_size",
+	header = &["midi"],
 	midi = &[i_am_plugin::MidiPort { name: "Notes" }]
 );
 
@@ -1007,13 +1008,16 @@ mod tests {
 			&Faceplate::new("I Am Autotune", "#ff6fae", (700.0, 420.0))
 				.with_mode("algorithm")
 				.with_visible(AUTOTUNE_VISIBLE)
-				.with_header(&["window_size"]),
+				.with_header(&["window_size", "midi"]),
 		);
 
 		assert!(face.contains("\"hero\":\"autotune\""), "{face}");
 		assert!(face.contains("\"mode\":\"algorithm\""), "{face}");
-		assert!(face.contains("\"header\":[\"window_size\"]"), "{face}");
-		for id in ["strength", "speed", "window_size", "notes"] {
+		assert!(
+			face.contains("\"header\":[\"window_size\",\"midi\"]"),
+			"{face}"
+		);
+		for id in ["strength", "speed", "window_size", "notes", "midi"] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
 		}
 		assert!(face.contains("\"widget\":\"notes\""), "{face}");
@@ -1022,7 +1026,7 @@ mod tests {
 			"{face}"
 		);
 		assert!(
-			face.contains("[1,[\"strength\",\"speed\",\"window_size\",\"notes\"]]"),
+			face.contains("[1,[\"strength\",\"speed\",\"window_size\",\"notes\",\"midi\"]]"),
 			"{face}"
 		);
 		assert_eq!(
@@ -1064,7 +1068,7 @@ mod tests {
 		let face = i_am_web_gui::face_json(
 			&SpectralRetuneWeb::new(),
 			&Faceplate::new("I Am Spectral Retune", "#5fd0c8", (700.0, 400.0))
-				.with_header(&["window_size"]),
+				.with_header(&["window_size", "midi"]),
 		);
 
 		assert!(face.contains("\"hero\":\"autotune\""), "{face}");
@@ -1076,11 +1080,15 @@ mod tests {
 			"mix",
 			"notes",
 			"window_size",
+			"midi",
 		] {
 			assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
 		}
 		assert!(face.contains("\"widget\":\"notes\""), "{face}");
-		assert!(face.contains("\"header\":[\"window_size\"]"), "{face}");
+		assert!(
+			face.contains("\"header\":[\"window_size\",\"midi\"]"),
+			"{face}"
+		);
 		assert_eq!(
 			<SpectralRetuneWeb as i_am_plugin::Plugin>::INPUT_MIDI_PORTS.len(),
 			1,
@@ -1120,7 +1128,9 @@ mod tests {
 	fn the_unstablizer_has_before_and_after_spectra() {
 		let face = i_am_web_gui::face_json(
 			&UnstablizerWeb::new(),
-			&Faceplate::new("I Am Unstablizer", "#ff8f6b", (700.0, 340.0)).with_mode("window_size"),
+			&Faceplate::new("I Am Unstablizer", "#ff8f6b", (700.0, 340.0))
+				.with_mode("window_size")
+				.with_header(&["midi"]),
 		);
 
 		assert!(face.contains("\"hero\":\"spectra\""), "{face}");
@@ -1129,7 +1139,8 @@ mod tests {
 		assert!(face.contains("\"id\":\"shift\""), "{face}");
 		assert!(face.contains("\"id\":\"anchor\""), "{face}");
 		assert!(face.contains("\"id\":\"window_size\""), "{face}");
-		assert!(face.contains("\"id\":\"follow_notes\""), "{face}");
+		assert!(face.contains("\"id\":\"midi\""), "{face}");
+		assert!(face.contains("\"header\":[\"midi\"]"), "{face}");
 		assert!(face.contains("\"mode\":\"window_size\""), "{face}");
 		assert!(
 			face.contains("\"choices\":[\"512\",\"1024\",\"2048\",\"4096\"]"),

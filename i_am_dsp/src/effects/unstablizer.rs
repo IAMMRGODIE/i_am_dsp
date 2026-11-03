@@ -10,8 +10,12 @@
 //!
 //! The plug-in stops outputting frames while no note is held. This effect keeps
 //! the anchor at the last note it saw instead, so that it can be used without
-//! note input at all (set [`Unstablizer::follow_notes`] to false and the
-//! mapper's own `anchor` is used).
+//! note input at all (set [`Unstablizer::midi`] to false and the mapper's own
+//! `anchor` is used).
+//!
+//! With the note port on and no note ever played there is no anchor to hold in
+//! tune, and the mapper's anchor is the other mode's setting: the mapping is left
+//! neutral instead, so nothing is warped around a note that was never played.
 
 use i_am_dsp_derive::Parameters;
 
@@ -97,12 +101,15 @@ pub struct Unstablizer<const CHANNELS: usize = 2> {
 	/// How far the anchor is transposed from the played note, in semitones.
 	#[range(min = -24.0, max = 24.0)]
 	pub transpose: f32,
-	/// Whether the notes played through the effect set the anchor.
+	/// Whether the note port sets the anchor.
 	///
-	/// While this is on, the note that is held sets the anchor of the mapper, and
-	/// the last note that was played keeps it after all notes are released. Turn
-	/// it off to leave [`NoteAnchoredShift::anchor`] alone.
-	pub follow_notes: bool,
+	/// On, the note that is held sets the anchor of the mapper, and the last note
+	/// that was played keeps it after all notes are released. Before any note has
+	/// arrived there is nothing to hold in tune, and the anchor knob belongs to the
+	/// other mode, so the signal is left alone instead of being warped around it.
+	/// Off, [`NoteAnchoredShift::anchor`] is used and the port is ignored.
+	#[id(display = "MIDI")]
+	pub midi: bool,
 	/// The phase vocoder that moves the bins.
 	#[sub_param]
 	pub vocoder: PhaseVocoder<NoteAnchoredShift, CHANNELS>,
@@ -134,7 +141,7 @@ impl<const CHANNELS: usize> Unstablizer<CHANNELS> {
 		Self {
 			reference_pitch: 440.0,
 			transpose: 0.0,
-			follow_notes: true,
+			midi: true,
 			vocoder,
 			held_notes: HeldNotes::new(),
 			last_note: None,
@@ -179,13 +186,26 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Unstablizer<CHANNELS> {
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
-		if self.follow_notes {
+		if self.midi {
 			self.track_events(process_context);
+		}
 
-			if let Some(note) = self.held_notes.last().or(self.last_note) {
+		let note = if self.midi {
+			self.held_notes.last().or(self.last_note)
+		} else {
+			None
+		};
+
+		match note {
+			Some(note) => {
 				self.vocoder.mapper.anchor =
 					note_frequency(self.reference_pitch, note as f32 + self.transpose);
+				self.vocoder.mapper.neutral = false;
 			}
+			// The port is on but no note has ever arrived: nothing to hold in tune,
+			// and the anchor setting is the other mode's control, so leave the
+			// signal alone. With the port off the setting is the point.
+			None => self.vocoder.mapper.neutral = self.midi,
 		}
 
 		self.vocoder.process(samples, other, process_context);
@@ -198,7 +218,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Unstablizer<CHANNELS> {
 		self.vocoder.demo_ui(ui, format!("{}_vocoder", id_prefix));
 		ui.add(Slider::new(&mut self.reference_pitch, 400.0..=480.0).text("Reference Pitch (Hz)"));
 		ui.add(Slider::new(&mut self.transpose, -24.0..=24.0).text("Transpose (semitones)"));
-		ui.checkbox(&mut self.follow_notes, "Follow Notes");
+		ui.checkbox(&mut self.midi, "MIDI");
 	}
 }
 
@@ -287,10 +307,39 @@ mod tests {
 	#[test]
 	fn the_anchor_is_left_alone_when_the_notes_are_not_followed() {
 		let mut unstablizer = Unstablizer::<1>::new(48000);
-		unstablizer.follow_notes = false;
+		unstablizer.midi = false;
 		unstablizer.vocoder.mapper.anchor = 123.0;
 
 		process_with_events(&mut unstablizer, vec![note_on(69)]);
+		assert_eq!(unstablizer.vocoder.mapper.anchor, 123.0);
+	}
+
+	#[test]
+	fn midi_on_without_a_note_leaves_the_setting_alone() {
+		let mut unstablizer = Unstablizer::<1>::new(48000);
+		unstablizer.midi = true;
+		unstablizer.vocoder.mapper.shift = 2.0;
+		unstablizer.vocoder.mapper.anchor = 468.75;
+
+		// The port is on and no note has ever arrived: the anchor setting is not a
+		// fallback, so the mapping stays neutral.
+		process_with_events(&mut unstablizer, vec![]);
+		assert!(unstablizer.vocoder.mapper.neutral);
+
+		process_with_events(&mut unstablizer, vec![note_on(69)]);
+		assert!(!unstablizer.vocoder.mapper.neutral);
+		assert!((unstablizer.vocoder.mapper.anchor - 440.0).abs() < 0.01);
+	}
+
+	#[test]
+	fn midi_off_uses_the_anchor_setting() {
+		let mut unstablizer = Unstablizer::<1>::new(48000);
+		unstablizer.midi = false;
+		unstablizer.vocoder.mapper.anchor = 123.0;
+
+		process_with_events(&mut unstablizer, vec![note_on(69)]);
+
+		assert!(!unstablizer.vocoder.mapper.neutral);
 		assert_eq!(unstablizer.vocoder.mapper.anchor, 123.0);
 	}
 
@@ -305,8 +354,8 @@ mod tests {
 		assert_eq!(unstablizer.vocoder.window_factor, 0.5);
 		assert!(unstablizer.set_parameter("transpose", SetValue::Float(12.0)));
 		assert_eq!(unstablizer.transpose, 12.0);
-		assert!(unstablizer.set_parameter("follow_notes", SetValue::Bool(false)));
-		assert!(!unstablizer.follow_notes);
+		assert!(unstablizer.set_parameter("midi", SetValue::Bool(false)));
+		assert!(!unstablizer.midi);
 	}
 
 	/// The magnitude of a frequency in the given samples.
@@ -330,9 +379,9 @@ mod tests {
 	fn the_shift_moves_a_tone_away_from_the_anchor() {
 		let sample_rate = 48000.0;
 		let mut unstablizer = Unstablizer::<1>::new(48000);
-		// No notes: the mapper anchor is the one that is set, and it is what the
-		// tone is shifted around.
-		unstablizer.follow_notes = false;
+		// No notes and the port off: the mapper anchor is the one that is set, and
+		// it is what the tone is shifted around.
+		unstablizer.midi = false;
 		unstablizer.vocoder.mapper.anchor = 468.75;
 		unstablizer.vocoder.mapper.shift = 2.0;
 

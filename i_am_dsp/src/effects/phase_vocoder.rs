@@ -441,6 +441,13 @@ pub struct NoteAnchoredShift {
 	#[logarithmic]
 	#[unit(hertz)]
 	pub anchor: f32,
+	/// Whether the mapping is bypassed, leaving every bin where it is.
+	///
+	/// The unstablizer sets this while its note port is on and no note has ever
+	/// arrived: with no anchor to hold there is nothing to warp around, and the
+	/// anchor setting belongs to the other mode.
+	#[skip]
+	pub neutral: bool,
 }
 
 impl Default for NoteAnchoredShift {
@@ -448,12 +455,17 @@ impl Default for NoteAnchoredShift {
 		Self {
 			shift: 1.0,
 			anchor: 440.0,
+			neutral: false,
 		}
 	}
 }
 
 impl FrequencyMapper for NoteAnchoredShift {
 	fn map_frequency(&mut self, frequency: f32, amplitude: f32) -> (f32, f32) {
+		if self.neutral {
+			return (frequency, amplitude);
+		}
+
 		let new_freq = frequency * self.shift + self.anchor * (1.0 - self.shift);
 		(new_freq, amplitude)
 	}

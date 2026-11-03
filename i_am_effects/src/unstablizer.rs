@@ -29,7 +29,7 @@ pub struct UnstablizerEffect {
 	#[layout(group = "Unstablizer", order = 2, widget = knob)]
 	pub shift: f32,
 
-	/// The manual anchor when Follow Notes is off.
+	/// The manual anchor when the MIDI switch is off.
 	#[range(min = 20.0, max = 20_000.0)]
 	#[logarithmic]
 	#[unit(hertz)]
@@ -52,11 +52,15 @@ pub struct UnstablizerEffect {
 	#[layout(group = "Unstablizer", order = 5, widget = choice)]
 	pub window_size: i32,
 
-	/// Whether played notes set the anchor.
+	/// Whether the note port sets the anchor.
+	///
+	/// On, the note that is played sets the anchor; with no note ever played the
+	/// signal is left alone instead of being warped around the Anchor knob, which
+	/// belongs to the other mode. Off, the Anchor knob is the anchor.
 	#[default(true)]
-	#[id(display = "Follow")]
+	#[id(display = "MIDI")]
 	#[layout(group = "Unstablizer", order = 6, widget = toggle)]
-	pub follow_notes: bool,
+	pub midi: bool,
 
 	#[skip]
 	inner: Unstablizer<2>,
@@ -75,7 +79,7 @@ impl UnstablizerEffect {
 			anchor: 440.0,
 			window_factor: 0.6,
 			window_size: 2,
-			follow_notes: true,
+			midi: true,
 			inner: Unstablizer::new(sample_rate),
 			last_window_factor: 0.6,
 			last_window_size: 2,
@@ -115,12 +119,14 @@ impl Effect<2> for UnstablizerEffect {
 		self.inner.reference_pitch = self.reference_pitch;
 		self.inner.transpose = self.transpose;
 		self.inner.vocoder.mapper.shift = self.shift;
-		self.inner.follow_notes = self.follow_notes;
+		self.inner.midi = self.midi;
 
-		// Follow Notes only overrides the anchor when it actually has a note.
-		// Setting the manual anchor first makes it a fallback when no note has
-		// arrived, instead of leaving the mapper at a stale/default frequency.
-		self.inner.vocoder.mapper.anchor = self.anchor;
+		// With the port off the Anchor knob is the anchor, every block, so a note
+		// played earlier does not leave it behind. With the port on the note sets
+		// it, and before any note has arrived the mapper is neutral, not the knob.
+		if !self.midi {
+			self.inner.vocoder.mapper.anchor = self.anchor;
+		}
 
 		self.inner.process(samples, other, context);
 	}
