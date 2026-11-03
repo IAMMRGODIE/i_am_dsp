@@ -2168,6 +2168,192 @@
         count + ' SINES</div>';
   }
 
+  /// The stereo canvas is a list of token numbers: per page a start point, a
+  /// node count, then six numbers per node (two controls and the end point).
+  function parseCanvas(shape) {
+    if (!shape) return null;
+
+    var tokens = String(shape).trim().split(/\s+/).map(Number);
+    var at = 0;
+    var next = function () { return tokens[at++]; };
+    var pages = [];
+
+    for (var page = 0; page < 2; page++) {
+      var start = [next(), next()];
+      var count = next();
+
+      if (!(count >= 1 && count <= 32) || at + count * 6 > tokens.length) return null;
+
+      var nodes = [];
+      for (var index = 0; index < count; index++) {
+        nodes.push([next(), next(), next(), next(), next(), next()]);
+      }
+      pages.push({ start: start, nodes: nodes });
+    }
+
+    return { pages: pages };
+  }
+
+  function serializeCanvas(model) {
+    var parts = [];
+    model.pages.forEach(function (page) {
+      parts.push(page.start[0] + " " + page.start[1] + " " + page.nodes.length);
+      page.nodes.forEach(function (node) { parts.push(node.join(" ")); });
+    });
+    return parts.join(" ");
+  }
+
+  /// The canvas' [-1, 1] square in the hero's view box.
+  function canvasPoint(point) {
+    return [20 + (point[0] + 1) * 240, 80 - point[1] * 60];
+  }
+
+  function canvasPath(page) {
+    var first = canvasPoint(page.start);
+    var d = "M " + first[0].toFixed(1) + " " + first[1].toFixed(1);
+
+    page.nodes.forEach(function (node) {
+      var c1 = canvasPoint([node[0], node[1]]);
+      var c2 = canvasPoint([node[2], node[3]]);
+      var to = canvasPoint([node[4], node[5]]);
+      d += " C " + c1[0].toFixed(1) + " " + c1[1].toFixed(1) + " " +
+        c2[0].toFixed(1) + " " + c2[1].toFixed(1) + " " +
+        to[0].toFixed(1) + " " + to[1].toFixed(1);
+    });
+
+    return d;
+  }
+
+  /// Two drawn stereo curves. The left and right channels are the curve's x
+  /// and y, so a circle is a quadrature pair and a line is mono.
+  function canvasHero(values, context) {
+    var model = parseCanvas(context && context.canvas && context.canvas.shape);
+
+    if (!model) {
+      return heroSvg('<text x="260" y="84" fill="#6a6a6a" font-size="12" text-anchor="middle">no canvas</text>');
+    }
+
+    var handle = function (page, node, part, point) {
+      var screen = canvasPoint(point);
+      return '<circle class="canvas-handle" data-page="' + page + '" data-node="' + node +
+        '" data-part="' + part + '" cx="' + screen[0].toFixed(1) + '" cy="' +
+        screen[1].toFixed(1) + '" r="4" fill="' +
+        (page === 0 ? "var(--accent)" : "#777") + '"/>';
+    };
+
+    var paths = "";
+    var handles = "";
+
+    model.pages.forEach(function (page, index) {
+      paths += '<path class="canvas-path" data-page="' + index + '" d="' +
+        canvasPath(page) + '" fill="none" stroke="' +
+        (index === 0 ? "var(--accent)" : "#777") + '" stroke-width="' +
+        (index === 0 ? 2 : 1.5) + '" vector-effect="non-scaling-stroke" pointer-events="none"/>';
+
+      handles += handle(index, -1, 0, page.start);
+      page.nodes.forEach(function (node, nodeIndex) {
+        handles += handle(index, nodeIndex, 0, [node[0], node[1]]);
+        handles += handle(index, nodeIndex, 1, [node[2], node[3]]);
+        handles += handle(index, nodeIndex, 2, [node[4], node[5]]);
+      });
+    });
+
+    return heroSvg(
+      '<rect x="20" y="18" width="480" height="124" fill="none" stroke="#2b2b2b"/>' +
+      '<line x1="260" y1="18" x2="260" y2="142" stroke="#242424"/>' +
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#242424"/>' +
+      paths + handles
+    ) +
+      '<div class="hero-label" style="top:4%">STEREO CANVAS</div>' +
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">DRAG THE HANDLES</div>';
+  }
+
+  /// Turns the drawn canvas into a pointer editor. The kit calls this after it
+  /// puts the hero's markup in the page, and again after each repaint.
+  function wireCanvas(el, kind, values, canvasState) {
+    if (kind !== "canvas" || !canvasState) return;
+
+    var model = parseCanvas(canvasState.shape);
+    var svg = el.querySelector("svg");
+    if (!model || !svg) return;
+
+    var drag = null;
+
+    var pointer = function (event) {
+      var rect = svg.getBoundingClientRect();
+      var x = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 520;
+      var y = ((event.clientY - rect.top) / Math.max(rect.height, 1)) * 160;
+      return [
+        Math.max(-1, Math.min(1, (x - 20) / 240 - 1)),
+        Math.max(-1, Math.min(1, (80 - y) / 60))
+      ];
+    };
+
+    var redraw = function (pageIndex) {
+      var path = svg.querySelector('.canvas-path[data-page="' + pageIndex + '"]');
+      if (path) path.setAttribute("d", canvasPath(model.pages[pageIndex]));
+    };
+
+    svg.addEventListener("pointerdown", function (event) {
+      var handle = event.target.closest && event.target.closest("[data-page]");
+      if (!handle) return;
+
+      drag = {
+        page: Number(handle.getAttribute("data-page")),
+        node: Number(handle.getAttribute("data-node")),
+        part: Number(handle.getAttribute("data-part")),
+        element: handle
+      };
+
+      el.dataset.busy = "1";
+      event.preventDefault();
+
+      if (svg.setPointerCapture) {
+        try { svg.setPointerCapture(event.pointerId); } catch (error) { }
+      }
+    });
+
+    svg.addEventListener("pointermove", function (event) {
+      if (!drag) return;
+
+      var point = pointer(event);
+      var page = model.pages[drag.page];
+
+      if (drag.node < 0) {
+        page.start = point;
+      } else {
+        var node = page.nodes[drag.node];
+        node[drag.part * 2] = point[0];
+        node[drag.part * 2 + 1] = point[1];
+      }
+
+      var screen = canvasPoint(point);
+      drag.element.setAttribute("cx", screen[0].toFixed(1));
+      drag.element.setAttribute("cy", screen[1].toFixed(1));
+      redraw(drag.page);
+    });
+
+    var finish = function () {
+      if (!drag) return;
+
+      drag = null;
+      delete el.dataset.busy;
+
+      var text = serializeCanvas(model);
+      canvasState.shape = text;
+
+      fetch("/canvas", { method: "POST", body: text })
+        .then(function (response) { return response.ok ? response.json() : null; })
+        .then(function (result) {
+          if (result && result.error) console.warn(result.error);
+        })
+        .catch(function () {});
+    };
+
+    svg.addEventListener("pointerup", finish);
+    svg.addEventListener("pointercancel", finish);
+  }
+
   function registerHero(kind, renderer) {
     HEROES[kind] = renderer;
   }
@@ -2178,6 +2364,7 @@
   }
 
   registerHero("spectrum", spectrumHero);
+  registerHero("canvas", canvasHero);
   registerHero("spectra", spectraHero);
   registerHero("transfer", transferHero);
   registerHero("compressor", compressorHero);
@@ -3235,6 +3422,7 @@
     choiceHandle: makeChoiceHandle,
     sliderHandle: makeSliderHandle,
     hero: hero,
+    wire: wireCanvas,
     registerHero: registerHero,
     bandsOf: bandsOf,
     smoothBands: smoothBands,

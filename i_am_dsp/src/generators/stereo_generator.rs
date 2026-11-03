@@ -410,6 +410,9 @@ pub struct MultiStereoGenerators {
 	pub generators: Vec<StereoGenerator>,
 	/// The smooth factor for the interpolation.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Morph")]
+	#[layout(widget = knob, hero = "canvas")]
 	pub smooth_factor: f32,
 
 	#[cfg(feature = "real_time_demo")]

@@ -12,8 +12,9 @@ use std::path::Path;
 
 use i_am_plugin::Plugin;
 use i_am_synths::{
-	AdditiveWeb, ScriptWeb, ShapesWeb, SpectrumWeb, StringWeb, additive_faceplate, faceplate,
-	script_faceplate, shapes_faceplate, spectrum_faceplate,
+	AdditiveWeb, CanvasWeb, ScriptWeb, ShapesWeb, SpectrumWeb, StringWeb, additive_faceplate,
+	canvas_faceplate, canvas_shape, faceplate, script_faceplate, shapes_faceplate,
+	spectrum_faceplate,
 };
 
 fn main() {
@@ -52,6 +53,13 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		}
+		"canvas" => {
+			let plugin = CanvasWeb::new();
+			(
+				i_am_web_gui::face_json(&plugin, &canvas_faceplate()),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
 		_ => {
 			let plugin = StringWeb::new();
 			(
@@ -68,6 +76,16 @@ fn main() {
 
 	for (name, body) in [("face", face), ("state", state)] {
 		let path = Path::new(&directory).join(name);
+
+		if let Err(error) = std::fs::write(&path, body) {
+			eprintln!("cannot write {}: {error}", path.display());
+			std::process::exit(1);
+		}
+	}
+
+	if product == "canvas" {
+		let path = Path::new(&directory).join("canvas");
+		let body = format!("{{\"shape\":\"{}\"}}", canvas_shape());
 
 		if let Err(error) = std::fs::write(&path, body) {
 			eprintln!("cannot write {}: {error}", path.display());

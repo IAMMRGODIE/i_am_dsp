@@ -34,6 +34,7 @@ var scriptDirty = false;
 var scriptEpoch = 0;
 var wantsCurve = false;
 var curveState = null;
+var canvasState = null;
 var wantsOtt = false;
 var ottState = null;
 var wantsVocoder = false;
@@ -442,14 +443,20 @@ var ENV_MAX = 512;
     var values = heroValues();
 
     heroes.forEach(function (hero) {
+      // A canvas being dragged owns its own markup until the pointer is up.
+      if (hero.el.dataset.busy === "1") return;
+
       var content = IAmCard.hero(hero.kind, values, {
         ir: irState, curve: curveState, stereo: stereoScope, scope: scope,
         rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,
         ott: ottState, vocoder: vocoderState, eqSpectrum: eqSpectrum,
-        autotune: autotuneState
+        autotune: autotuneState, canvas: canvasState
       });
-      if (content) hero.el.innerHTML = content;
+      if (content) {
+        hero.el.innerHTML = content;
+        if (IAmCard.wire) IAmCard.wire(hero.el, hero.kind, values, canvasState);
+      }
     });
   }
 
@@ -709,6 +716,25 @@ var ENV_MAX = 512;
       .catch(function () {})
       .then(function () {
         setTimeout(pollVocoder, 60);
+      });
+  }
+
+  /// The canvas product's drawn curves. It is not a parameter, so the page has
+  /// to ask the product for it.
+  function pollCanvas() {
+    fetch("/canvas", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state || !state.shape) return;
+        if (document.querySelector(".hero[data-busy='1']")) return;
+        canvasState = state;
+        markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollCanvas, 1500);
       });
   }
 
@@ -1426,6 +1452,7 @@ var ENV_MAX = 512;
     applyScale();
     markDirty();
     poll();
+    pollCanvas();
     if (wantsScope) pollScope();
   }
 
