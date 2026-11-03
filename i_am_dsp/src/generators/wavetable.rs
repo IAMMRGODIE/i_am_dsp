@@ -374,6 +374,9 @@ pub struct WaveTableSmoother {
 	/// The wave tables to smooth between.
 	pub tables: Vec<Box<dyn WaveTable + Send + Sync>>,
 	/// should be between 0 and 1, where 0 is first table and 1 is last table.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Morph")]
 	pub smooth_factor: f32,
 
 	#[skip]

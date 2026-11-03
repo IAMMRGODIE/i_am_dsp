@@ -1126,8 +1126,10 @@ var ENV_MAX = 512;
     // header, not knobs in the body.
     var headerIds = face.header || [];
     var headerSpecs = [];
+    // Parameters the face is told not to draw: the host still has them.
+    var hiddenIds = face.hidden || [];
 
-    if (face.mode || headerIds.length) {
+    if (face.mode || headerIds.length || hiddenIds.length) {
       face.sections.forEach(function (section) {
         section.params = section.params.filter(function (spec) {
           if (face.mode && spec.id === face.mode) {
@@ -1139,6 +1141,8 @@ var ENV_MAX = 512;
             headerSpecs.push(spec);
             return false;
           }
+
+          if (hiddenIds.indexOf(spec.id) >= 0) return false;
 
           return true;
         });

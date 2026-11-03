@@ -1,8 +1,8 @@
-//! Writes the faceplate and state JSON for the string instrument, for a browser
-//! preview.
+//! Writes the faceplate and state JSON of one instrument, for a browser preview.
 //!
 //! ```text
-//! cargo run -p i_am_synths --example dump_face -- target/synth-preview
+//! cargo run -p i_am_synths --example dump_face -- target/synth-preview strings
+//! cargo run -p i_am_synths --example dump_face -- target/shapes-preview shapes
 //! ```
 //!
 //! The page fetches /face and /state, so a static server whose root also holds
@@ -11,16 +11,31 @@
 use std::path::Path;
 
 use i_am_plugin::Plugin;
-use i_am_synths::{StringWeb, faceplate};
+use i_am_synths::{ShapesWeb, StringWeb, faceplate, shapes_faceplate};
 
 fn main() {
-	let directory = std::env::args()
-		.nth(1)
+	let mut arguments = std::env::args().skip(1);
+	let directory = arguments
+		.next()
 		.unwrap_or_else(|| "target/synth-preview".to_string());
+	let product = arguments.next().unwrap_or_else(|| "strings".to_string());
 
-	let plugin = StringWeb::new();
-	let face = i_am_web_gui::face_json(&plugin, &faceplate());
-	let state = i_am_web_gui::state_json(&plugin);
+	let (face, state) = match product.as_str() {
+		"shapes" => {
+			let plugin = ShapesWeb::new();
+			(
+				i_am_web_gui::face_json(&plugin, &shapes_faceplate()),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
+		_ => {
+			let plugin = StringWeb::new();
+			(
+				i_am_web_gui::face_json(&plugin, &faceplate()),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
+	};
 
 	if let Err(error) = std::fs::create_dir_all(&directory) {
 		eprintln!("cannot create {directory}: {error}");
@@ -36,5 +51,5 @@ fn main() {
 		}
 	}
 
-	println!("strings: {directory}/face, {directory}/state");
+	println!("{product}: {directory}/face, {directory}/state");
 }

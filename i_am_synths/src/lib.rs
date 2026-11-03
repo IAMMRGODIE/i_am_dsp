@@ -14,7 +14,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use i_am_dsp::prelude::{
-	GeneratorEffect, ParamMap, Parameter, Parameters, SetValue, StringInstrument,
+	Adsr, EqualTemperament, GeneratorEffect, ParamMap, Parameter, Parameters, SawWave, SetValue,
+	SineWave, SquareWave, StringInstrument, TableOsc, TriangleWave, WaveTableSmoother,
 };
 use i_am_dsp::{NoteEvent, ProcessContext, Processor};
 use i_am_plugin::processor::EffectMessage;
@@ -103,30 +104,14 @@ impl Processor for StringWeb {
 		other: &[[f32; 2]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
-		// The note badge: the page shows the note the host is playing.
-		for event in process_context.events() {
-			match event {
-				NoteEvent::NoteOn { note, .. } => self.scope.set_note(*note as i32),
-				NoteEvent::NoteOff { note, .. } | NoteEvent::Stop { note, .. } => {
-					if self.scope.note() == *note as i32 {
-						self.scope.set_note(-1);
-					}
-				}
-				NoteEvent::ImmediateStop => self.scope.set_note(-1),
-				_ => {}
-			}
-		}
-
-		if self.bypass.load(Ordering::Relaxed) {
-			// An instrument has nothing to pass through: bypassed is silence.
-			*samples = [0.0; 2];
-			self.scope.push_stereo([0.0; 2], [0.0; 2], 0.0);
-			return;
-		}
-
-		Processor::process(&mut self.processor, samples, other, process_context);
-
-		self.scope.push_stereo([0.0; 2], *samples, 0.0);
+		play_synth(
+			&mut self.processor,
+			&self.scope,
+			&self.bypass,
+			samples,
+			other,
+			process_context,
+		);
 	}
 
 	fn on_message(&self, message: Self::Message) {
@@ -197,6 +182,43 @@ impl Plugin for StringWeb {
 	}
 }
 
+/// The body both instruments share: the note badge, the bypass and the audio.
+///
+/// An instrument has nothing to pass through, so bypass is silence, and the scope
+/// always sees silence as its input: the pictures draw the sound the voice made.
+fn play_synth<P: Processor>(
+	processor: &mut P,
+	scope: &Scope,
+	bypass: &AtomicBool,
+	samples: &mut [f32; 2],
+	other: &[[f32; 2]],
+	process_context: &mut Box<dyn ProcessContext>,
+) {
+	// The note badge: the page shows the note the host is playing.
+	for event in process_context.events() {
+		match event {
+			NoteEvent::NoteOn { note, .. } => scope.set_note(*note as i32),
+			NoteEvent::NoteOff { note, .. } | NoteEvent::Stop { note, .. } => {
+				if scope.note() == *note as i32 {
+					scope.set_note(-1);
+				}
+			}
+			NoteEvent::ImmediateStop => scope.set_note(-1),
+			_ => {}
+		}
+	}
+
+	if bypass.load(Ordering::Relaxed) {
+		*samples = [0.0; 2];
+		scope.push_stereo([0.0; 2], [0.0; 2], 0.0);
+		return;
+	}
+
+	Processor::process(processor, samples, other, process_context);
+
+	scope.push_stereo([0.0; 2], *samples, 0.0);
+}
+
 /// Answers the preset choice before the generic parameter parser sees it.
 ///
 /// The DSP follows the `preset` parameter every block, so it switches the string
@@ -232,6 +254,188 @@ fn apply_preset(map: &ParamMap, rate: usize, index: i32) {
 		let identifier = parameter.identifier;
 		let value = parameter.value.to_set_value();
 		map.set(&identifier, value, Ordering::Relaxed);
+	}
+}
+
+/// The shapes face's design size, in points.
+const SHAPES_SIZE: (f32, f32) = (820.0, 420.0);
+/// The shapes window's title and the face's title.
+const SHAPES_TITLE: &str = "I Am Shapes";
+/// The shapes identity colour, as #rrggbb.
+const SHAPES_ACCENT: &str = "#4cc9f0";
+
+/// The shapes face's tabs: the sound, the envelope, and the voice's unisons.
+const SHAPES_PAGES: &[Page] = &[
+	Page::new("Shape", &["Shape"]),
+	Page::new("Envelope", &["Envelope"]),
+	Page::new("Voice", &["Voice"]),
+];
+
+/// The envelope's musical lengths stay the host's: the face draws the free ones.
+const SHAPES_HIDDEN: &[&str] = &[
+	"delay.sync",
+	"delay.beats",
+	"attack.sync",
+	"attack.beats",
+	"hold.sync",
+	"hold.beats",
+	"decay.sync",
+	"decay.beats",
+	"release.sync",
+	"release.beats",
+];
+
+/// The shapes voice: four classic tables, morphed by the Shape control.
+type ShapeVoice = Adsr<TableOsc<WaveTableSmoother>, EqualTemperament, 2>;
+
+fn shape_voice(rate: usize) -> ShapeVoice {
+	Adsr::new(
+		TableOsc(WaveTableSmoother::new(
+			vec![
+				Box::new(SineWave),
+				Box::new(TriangleWave),
+				Box::new(SawWave),
+				Box::new(SquareWave),
+			],
+			0.0,
+		)),
+		EqualTemperament,
+		rate,
+	)
+}
+
+/// The faceplate of the shapes instrument.
+pub fn shapes_faceplate() -> Faceplate {
+	Faceplate::new(SHAPES_TITLE, SHAPES_ACCENT, SHAPES_SIZE)
+		.with_pages(SHAPES_PAGES)
+		.with_hidden(SHAPES_HIDDEN)
+}
+
+/// The wavetable shapes instrument, with a web faceplate.
+pub struct ShapesWeb {
+	processor: EffectProcessor<GeneratorEffect<ShapeVoice>>,
+	bypass: Arc<AtomicBool>,
+	scope: Arc<Scope>,
+}
+
+impl Default for ShapesWeb {
+	fn default() -> Self {
+		Self {
+			processor: EffectProcessor::new(|rate: usize| GeneratorEffect::new(shape_voice(rate))),
+			bypass: Arc::new(AtomicBool::new(false)),
+			scope: Arc::new(Scope::new()),
+		}
+	}
+}
+
+impl ShapesWeb {
+	/// The rate the instrument inside is currently built for.
+	pub fn sample_rate(&self) -> usize {
+		self.processor.sample_rate()
+	}
+
+	/// Whether the editor's bypass switch is on.
+	pub fn is_bypassed(&self) -> bool {
+		self.bypass.load(Ordering::Relaxed)
+	}
+
+	/// Turn the bypass on or off from code, for a test.
+	pub fn set_bypassed(&self, bypassed: bool) {
+		self.bypass.store(bypassed, Ordering::Relaxed);
+	}
+}
+
+impl Parameters for ShapesWeb {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		self.processor.parameters()
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		self.processor.set_parameter(identifier, value)
+	}
+}
+
+impl Processor for ShapesWeb {
+	type Message = EffectMessage;
+
+	fn delay(&self) -> usize {
+		Processor::delay(&self.processor)
+	}
+
+	fn process(
+		&mut self,
+		samples: &mut [f32; 2],
+		other: &[[f32; 2]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		play_synth(
+			&mut self.processor,
+			&self.scope,
+			&self.bypass,
+			samples,
+			other,
+			process_context,
+		);
+	}
+
+	fn on_message(&self, message: Self::Message) {
+		Processor::on_message(&self.processor, message);
+	}
+}
+
+impl Plugin for ShapesWeb {
+	const DESCRIPTOR: Descriptor = Descriptor::new("iamdsp.synths.shapes.web", SHAPES_TITLE)
+		.with_vendor("iamplugins")
+		.with_version(env!("CARGO_PKG_VERSION"))
+		.with_description("An ADSR around a morphing wavetable: sine, triangle, saw and square.")
+		.with_tags(&[Tag::Instrument, Tag::Synthesizer]);
+
+	const INPUT_PORTS: &'static [i_am_plugin::AudioPort] = &[];
+	const INPUT_MIDI_PORTS: &'static [MidiPort] = &[MidiPort { name: "Notes" }];
+	const HAS_GUI: bool = true;
+
+	fn new() -> Self {
+		Self::default()
+	}
+
+	fn window_options() -> WindowOptions {
+		const FACE_FRACTION: f64 = 0.85;
+
+		WindowOptions::new()
+			.with_size((
+				SHAPES_SIZE.0 as f64 / FACE_FRACTION,
+				SHAPES_SIZE.1 as f64 / FACE_FRACTION,
+			))
+			.with_title(SHAPES_TITLE)
+			.with_resize_hints(GuiResizeHints {
+				can_resize_horizontally: true,
+				can_resize_vertically: true,
+				strategy: AspectRatioStrategy::Disregard,
+			})
+	}
+
+	fn param_map(&self) -> ParamMap {
+		self.processor.param_map()
+	}
+
+	fn sync_params(&mut self) {
+		self.processor.sync_params();
+	}
+
+	fn on_activate(&mut self, sample_rate: usize) {
+		self.processor.activate(sample_rate);
+	}
+
+	fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
+		editor_with(
+			self,
+			shapes_faceplate(),
+			self.bypass.clone(),
+			self.scope.clone(),
+			self.processor.sample_rate(),
+			|_: &ProtocolRequest<'_>| None,
+			|_: &str| false,
+		)
 	}
 }
 
@@ -358,6 +562,78 @@ mod tests {
 		let mut peak = 0.0f32;
 
 		for _ in 0..24_000 {
+			let mut frame = [0.0f32; 2];
+			Processor::process(&mut plugin, &mut frame, &[], &mut context);
+			peak = peak.max(frame[0].abs());
+		}
+
+		assert!(peak > 1e-3, "the instrument was silent: {peak}");
+		assert!(peak < 4.0, "the instrument ran away: {peak}");
+	}
+
+	#[test]
+	fn a_shapes_synth_has_a_note_port_and_no_audio_input() {
+		assert!(<ShapesWeb as Plugin>::INPUT_PORTS.is_empty());
+		assert_eq!(<ShapesWeb as Plugin>::INPUT_MIDI_PORTS.len(), 1);
+
+		let tags = <ShapesWeb as Plugin>::DESCRIPTOR.tags;
+		assert!(tags.iter().any(|tag| matches!(tag, Tag::Instrument)));
+		assert!(tags.iter().any(|tag| matches!(tag, Tag::Synthesizer)));
+	}
+
+	#[test]
+	fn the_shapes_face_is_three_pages_with_the_sync_pair_hidden() {
+		let face = i_am_web_gui::face_json(&ShapesWeb::new(), &shapes_faceplate());
+
+		assert!(face.contains("\"hero\":\"shape\""), "{face}");
+		assert!(face.contains("\"hero\":\"envelope\""), "{face}");
+		assert!(face.contains("\"hero\":\"waveform\""), "{face}");
+		assert!(
+			face.contains("\"id\":\"oscillator.smooth_factor\""),
+			"{face}"
+		);
+		assert!(
+			face.contains(
+				"\"pages\":[{\"name\":\"Shape\",\"sections\":[\"Shape\"]},\
+				{\"name\":\"Envelope\",\"sections\":[\"Envelope\"]},\
+				{\"name\":\"Voice\",\"sections\":[\"Voice\"]}]"
+			),
+			"{face}"
+		);
+		// The envelope's musical lengths are the host's, not the face's.
+		assert!(
+			face.contains("\"hidden\":[\"delay.sync\",\"delay.beats\""),
+			"{face}"
+		);
+
+		for name in ["Shape", "Envelope", "Voice"] {
+			assert!(face.contains(&format!("\"name\":\"{name}\"")), "{face}");
+		}
+	}
+
+	#[test]
+	fn a_note_plays_through_the_shapes_plugin() {
+		let mut plugin = ShapesWeb::new();
+		Plugin::on_activate(&mut plugin, 48_000);
+
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![NoteEvent::NoteOn {
+				channel: 0,
+				note: 57,
+				velocity: 1.0,
+			}],
+			infos: TestContext::new().infos,
+		});
+		// A host shows a note only at the sample it arrived at, and the Adsr reads
+		// the events without consuming them: clear them after the first frame, as
+		// the host would.
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+		context.clear_events();
+
+		let mut peak = frame[0].abs();
+
+		for _ in 1..24_000 {
 			let mut frame = [0.0f32; 2];
 			Processor::process(&mut plugin, &mut frame, &[], &mut context);
 			peak = peak.max(frame[0].abs());

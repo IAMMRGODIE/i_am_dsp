@@ -43,6 +43,13 @@ pub struct Faceplate {
 	/// window can show comfortably hands the page its sections in groups; the
 	/// page keeps one strip of tabs and only the sections of the active tab.
 	pub pages: Option<&'static [Page]>,
+	/// Parameters the page must not draw at all.
+	///
+	/// The host still sees them, and a project still saves them; they are only kept
+	/// off the face. An envelope that can follow the tempo has a free length and a
+	/// musical one, and drawing both would double every stage: the product shows
+	/// the free lengths and leaves the synced pair to the host.
+	pub hidden: Option<&'static [&'static str]>,
 }
 
 /// One tab of a faceplate: a name, and the sections it shows.
@@ -97,6 +104,7 @@ impl Faceplate {
 			script: false,
 			clear: false,
 			pages: None,
+			hidden: None,
 		}
 	}
 
@@ -142,6 +150,12 @@ impl Faceplate {
 	/// Split the faceplate into tabs, each showing some of its sections.
 	pub const fn with_pages(mut self, pages: &'static [Page]) -> Self {
 		self.pages = Some(pages);
+		self
+	}
+
+	/// Keep these parameters off the face.
+	pub const fn with_hidden(mut self, hidden: &'static [&'static str]) -> Self {
+		self.hidden = Some(hidden);
 		self
 	}
 }
@@ -489,6 +503,20 @@ pub fn face_json_with_rate(
 					string(&mut out, name);
 				}
 				out.push_str("]}");
+			}
+			out.push(']');
+		}
+		None => out.push_str("null"),
+	}
+	out.push_str(",\"hidden\":");
+	match face.hidden {
+		Some(ids) => {
+			out.push('[');
+			for (index, id) in ids.iter().enumerate() {
+				if index > 0 {
+					out.push(',');
+				}
+				string(&mut out, id);
 			}
 			out.push(']');
 		}

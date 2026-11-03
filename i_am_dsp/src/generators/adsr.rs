@@ -241,6 +241,8 @@ impl<const CHANNELS: usize> PlayingNote<CHANNELS> {
 pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize> {
 	#[sub_param]
 	/// The oscillator to be played with ADSR envelope
+	#[id(display = "Oscillator")]
+	#[layout(group = "Shape", order = 0)]
 	pub oscillator: Osc,
 	#[skip]
 	tuning_sys: TuningSys,
@@ -253,74 +255,128 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	pub sample_rate: usize,
 	/// The delay time, saves in milliseconds
 	#[unit(milliseconds)]
+	#[default(0.0)]
+	#[id(display = "Delay")]
+	#[layout(group = "Envelope", order = 0, widget = knob, hero = "envelope")]
 	pub delay_time: f32,
 	/// The same stage length in musical time: a sixteenth note of delay stays a sixteenth
 	/// note whatever the host is playing at. See [`Self::times`] for how it is read.
 	#[sub_param]
 	#[id(display = "Delay")]
+	#[layout(group = "Envelope")]
 	pub delay: SyncedTime,
 	/// The attack time, saves in milliseconds
 	#[unit(milliseconds)]
+	#[default(10.0)]
+	#[id(display = "Attack")]
+	#[layout(group = "Envelope", order = 1, widget = knob)]
 	pub attack_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
 	#[id(display = "Attack")]
+	#[layout(group = "Envelope")]
 	pub attack: SyncedTime,
 	/// The attack bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
+	#[default(0.0)]
+	#[id(display = "Attack Bend")]
+	#[layout(group = "Envelope", order = 2, widget = knob, bipolar)]
 	pub attack_bend: f32,
 	/// The hold time, saves in milliseconds
 	#[unit(milliseconds)]
+	#[default(100.0)]
+	#[id(display = "Hold")]
+	#[layout(group = "Envelope", order = 3, widget = knob)]
 	pub hold_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
 	#[id(display = "Hold")]
+	#[layout(group = "Envelope")]
 	pub hold: SyncedTime,
 	/// The decay time, saves in milliseconds
 	#[unit(milliseconds)]
+	#[default(100.0)]
+	#[id(display = "Decay")]
+	#[layout(group = "Envelope", order = 4, widget = knob)]
 	pub decay_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
 	#[id(display = "Decay")]
+	#[layout(group = "Envelope")]
 	pub decay: SyncedTime,
 	/// The decay bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
+	#[default(0.0)]
+	#[id(display = "Decay Bend")]
+	#[layout(group = "Envelope", order = 5, widget = knob, bipolar)]
 	pub decay_bend: f32,
 	/// The sustain level, saves in linear scale
+	#[range(min = 0.0, max = 1.0)]
+	#[default(1.0)]
+	#[id(display = "Sustain")]
+	#[layout(group = "Envelope", order = 6, widget = knob)]
 	pub sustain_level: f32,
 	/// The release time, saves in milliseconds
 	#[unit(milliseconds)]
+	#[default(100.0)]
+	#[id(display = "Release")]
+	#[layout(group = "Envelope", order = 7, widget = knob)]
 	pub release_time: f32,
 	/// The same stage length in musical time.
 	#[sub_param]
 	#[id(display = "Release")]
+	#[layout(group = "Envelope")]
 	pub release: SyncedTime,
 	/// The release bend, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
+	#[default(0.0)]
+	#[id(display = "Release Bend")]
+	#[layout(group = "Envelope", order = 8, widget = knob, bipolar)]
 	pub release_bend: f32,
 	/// saves in linear scale
 	#[range(min = 0.01, max = 4.0)]
 	#[logarithmic]
+	#[default(0.8)]
+	#[id(display = "Gain")]
+	#[layout(group = "Shape", order = 1, widget = knob, size = large, hero = "shape")]
 	pub gain: f32,
 	/// The number of unison, 1 for no unison
 	#[range(min = 1, max = 32)]
+	#[default(1)]
+	#[id(display = "Unison")]
+	#[layout(group = "Voice", order = 0, widget = knob, hero = "waveform")]
 	pub unisons: usize,
 	/// Maxium detune of each unison, the unit is note
 	#[range(min = 0.0, max = 2.0)]
+	#[default(2.0)]
+	#[id(display = "Detune")]
+	#[layout(group = "Voice", order = 1, widget = knob)]
 	pub unison_detune: f32,
 	/// Bend of each unison, 0.0 for no bend
 	#[range(min = -10.0, max = 10.0)]
+	#[default(0.0)]
+	#[id(display = "Unison Bend")]
+	#[layout(group = "Voice", order = 2, widget = knob, bipolar)]
 	pub unison_bend: f32,
 	/// The blend of each unison, 0.0 for no blend
 	///
 	/// This will lower the amplitude of "side" unison.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Blend")]
+	#[layout(group = "Voice", order = 3, widget = knob)]
 	pub unison_blend: f32,
 	/// The random phase range of each unison, 0.0 for no random phase
 	#[range(min = 0.0, max = 1.0)]
+	#[default(1.0)]
+	#[id(display = "Random Phase")]
+	#[layout(group = "Voice", order = 4, widget = knob)]
 	pub random_phase: f32,
 	#[range(min = 0.25, max = 4.0)]
 	#[logarithmic]
+	#[default(1.0)]
+	#[id(display = "Pitch")]
+	#[layout(group = "Shape", order = 2, widget = knob)]
 	/// The pitch factor of the oscillator, used for pitch shifting.
 	pub pitch_factor: f32,
 	/// Where the voice sits in the stereo field: -1.0 hard left, 0.0 centre, 1.0 hard right.
@@ -328,14 +384,26 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	/// [`Self::random_pan`] spreads the unisons around this position, so the two do not
 	/// fight: the position moves the whole voice, the spread widens it.
 	#[range(min = -1.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Pan")]
+	#[layout(group = "Shape", order = 3, widget = knob, bipolar)]
 	pub pan: f32,
 	/// The random pan range of each unison, 0.0 for no random pan
 	#[range(min = 0.0, max = 1.0)]
+	#[default(1.0)]
+	#[id(display = "Random Pan")]
+	#[layout(group = "Voice", order = 5, widget = knob)]
 	pub random_pan: f32,
 	/// If true, the phase of each channel will also apply random phase.
+	#[default(false)]
+	#[id(display = "Phase per Channel")]
+	#[layout(group = "Voice", order = 6, widget = toggle)]
 	pub random_phase_by_channel: bool,
 	/// The start phase postion of the oscillator, 0.0 for no phase shift.
 	#[range(min = 0.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Start Phase")]
+	#[layout(group = "Voice", order = 7, widget = knob)]
 	pub phase_start: f32,
 
 	/// The stage lengths in milliseconds this block runs at: the free values, or what the

@@ -1946,6 +1946,114 @@
         rate.toFixed(1) + ' Hz · ' + Math.round(depth) + ' ¢</div>';
   }
 
+  /// The wavetable morph: the four classic tables, and the one the Shape control
+  /// sits between. The caption says which pair and how far into it the blend is.
+  function shapeHero(values) {
+    var morph = clamp(valueOf(values, "oscillator.smooth_factor", 0), 0, 1);
+    var names = ["SINE", "TRIANGLE", "SAW", "SQUARE"];
+    var tables = [
+      function (x) { return Math.sin(2 * Math.PI * x); },
+      function (x) { return 1 - 4 * Math.abs(x - 0.5); },
+      function (x) { return 2 * x - 1; },
+      function (x) { return x < 0.5 ? 1 : -1; }
+    ];
+    var smooth = morph * (tables.length - 1);
+    var from = Math.min(Math.floor(smooth), tables.length - 1);
+    var to = Math.min(from + 1, tables.length - 1);
+    var blend = smooth - from;
+    var path = "";
+
+    for (var i = 0; i <= 240; i++) {
+      var t = i / 240;
+      var x = 20 + t * 480;
+      var phase = (t * 2) % 1;
+      var value = tables[from](phase) + (tables[to](phase) - tables[from](phase)) * blend;
+      var y = 80 - value * 54;
+      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    var caption = from === to
+      ? names[from]
+      : names[from] + " → " + names[to] + " " + Math.round(blend * 100) + "%";
+
+    return heroSvg(
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c" stroke-dasharray="3 5"/>' +
+      '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
+        'vector-effect="non-scaling-stroke"/>'
+    ) +
+      '<div class="hero-label" style="top:4%">SHAPE</div>' +
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">' + caption + '</div>';
+  }
+
+  /// The envelope the controls describe: delay, attack, hold, decay, the level it
+  /// sustains at, and the release, with the bends as the curves the DSP uses.
+  function envelopeHero(values) {
+    var delay = Math.max(valueOf(values, "delay_time", 0), 0);
+    var attack = Math.max(valueOf(values, "attack_time", 10), 0);
+    var hold = Math.max(valueOf(values, "hold_time", 100), 0);
+    var decay = Math.max(valueOf(values, "decay_time", 100), 0);
+    var sustain = clamp(valueOf(values, "sustain_level", 1), 0, 1);
+    var release = Math.max(valueOf(values, "release_time", 100), 0);
+    var attackBend = valueOf(values, "attack_bend", 0);
+    var decayBend = valueOf(values, "decay_bend", 0);
+    var releaseBend = valueOf(values, "release_bend", 0);
+
+    var weight = function (time) { return Math.sqrt(Math.max(time, 0.001)); };
+    var sustainWidth =
+      (weight(delay) + weight(attack) + weight(hold) + weight(decay) + weight(release)) * 0.35;
+    var total = weight(delay) + weight(attack) + weight(hold) + weight(decay) +
+      weight(release) + sustainWidth;
+
+    var left = 20, width = 480, base = 140, top = 18;
+    var height = base - top;
+    var x = left;
+    var points = [];
+
+    var bend = function (t, factor) {
+      if (Math.abs(factor) < 1e-4) return t;
+      return (Math.exp(factor * t) - 1) / (Math.exp(factor) - 1);
+    };
+
+    var stage = function (time, from, to, factor) {
+      var stageWidth = weight(time) / total * width;
+      var steps = Math.max(2, Math.round(stageWidth / 6));
+
+      for (var i = 1; i <= steps; i++) {
+        var t = bend(i / steps, factor);
+        points.push([
+          x + stageWidth * (i / steps),
+          base - (from + (to - from) * t) * height
+        ]);
+      }
+
+      x += stageWidth;
+    };
+
+    stage(delay, 0, 0, 0);
+    stage(attack, 0, 1, attackBend);
+    stage(hold, 1, 1, 0);
+    stage(decay, 1, sustain, decayBend);
+    stage(sustainWidth, sustain, sustain, 0);
+    stage(release, sustain, 0, releaseBend);
+
+    var line = "M " + left + " " + base;
+
+    points.forEach(function (point) {
+      line += " L " + point[0].toFixed(1) + " " + point[1].toFixed(1);
+    });
+
+    return heroSvg(
+      '<line x1="20" y1="' + base + '" x2="500" y2="' + base + '" stroke="#2c2c2c"/>' +
+      '<path d="' + line + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
+        'vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + line + ' L ' + (left + width) + ' ' + base + ' Z" ' +
+        'fill="var(--accent)" fill-opacity=".10"/>'
+    ) +
+      '<div class="hero-label" style="top:4%">ENVELOPE</div>' +
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">' +
+        'S ' + Math.round(sustain * 100) + '%</div>';
+  }
+
   function registerHero(kind, renderer) {
     HEROES[kind] = renderer;
   }
@@ -1983,6 +2091,8 @@
   registerHero("partials", partialsHero);
   registerHero("string", stringHero);
   registerHero("vibrato", vibratoHero);
+  registerHero("shape", shapeHero);
+  registerHero("envelope", envelopeHero);
 
   function makeKnob(spec, value, onEdit) {
     var wrap = document.createElement("div");
