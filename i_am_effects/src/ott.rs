@@ -291,7 +291,7 @@ impl Plugin for OttWeb {
 		const FACE_FRACTION: f64 = 0.85;
 
 		WindowOptions::new()
-			.with_size((700.0 / FACE_FRACTION, 580.0 / FACE_FRACTION))
+			.with_size((640.0 / FACE_FRACTION, 440.0 / FACE_FRACTION))
 			.with_title("I Am OTT")
 			.with_resize_hints(GuiResizeHints {
 				can_resize_horizontally: true,
@@ -313,7 +313,7 @@ impl Plugin for OttWeb {
 	}
 
 	fn editor(&self) -> Option<Box<dyn Editor<Self>>> {
-		let face = i_am_web_gui::Faceplate::new("I Am OTT", "#ffb454", (700.0, 580.0))
+		let face = i_am_web_gui::Faceplate::new("I Am OTT", "#ffb454", (640.0, 440.0))
 			.with_pages(OTT_PAGES);
 		let meters = self.meters.clone();
 

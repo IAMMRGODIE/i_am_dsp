@@ -367,7 +367,7 @@ web_plugin!(
 	CompressorEffect::new,
 	"iamdsp.effects.compressor.web",
 	"I Am Compressor",
-	(700.0, 380.0),
+	(640.0, 320.0),
 	"#ff7a6b",
 	mode = "enveloper",
 	visible = COMPRESSOR_VISIBLE,

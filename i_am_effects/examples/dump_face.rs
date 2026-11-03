@@ -232,7 +232,7 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Compressor", "#ff7a6b", (700.0, 380.0))
+					&Faceplate::new("I Am Compressor", "#ff7a6b", (640.0, 320.0))
 						.with_mode("enveloper")
 						.with_visible(COMPRESSOR_VISIBLE)
 						.with_pages(COMPRESSOR_PAGES),
@@ -409,7 +409,7 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am OTT", "#ffb454", (700.0, 580.0)).with_pages(OTT_PAGES),
+					&Faceplate::new("I Am OTT", "#ffb454", (640.0, 440.0)).with_pages(OTT_PAGES),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)
