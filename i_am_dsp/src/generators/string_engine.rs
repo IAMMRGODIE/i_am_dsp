@@ -56,7 +56,7 @@ pub struct StringInstrument {
 	#[choices("Piano", "Guitar", "Violin", "Cello")]
 	#[default(0)]
 	#[id(display = "Preset")]
-	#[layout(group = "Instrument", order = 0, widget = choice, hero = "spectrum")]
+	#[layout(group = "Instrument", order = 0, widget = choice)]
 	pub preset: i32,
 	/// How the string is excited: pluck, hammer or bow.
 	///
@@ -150,6 +150,7 @@ pub struct StringInstrument {
 	/// The output gain.
 	#[range(min = 0.0, max = 2.0)]
 	#[default(0.8)]
+	#[id(display = "Gain")]
 	#[layout(group = "Performance", order = 0, widget = knob, size = large)]
 	pub gain: f32,
 	/// The sustain pedal, from 0 (up) to 1 (fully down).
@@ -272,6 +273,15 @@ impl StringInstrument {
 
 	/// Push the controls into the engine, rebuilding only what changed.
 	fn sync(&mut self) {
+		// The preset chooses the string and the body, which are not engine params.
+		// The controls are not reset: a project restores all of them explicitly,
+		// and the page's preset command moves them through the parameter map.
+		let preset = PRESETS[self.preset.clamp(0, PRESETS.len() as i32 - 1) as usize];
+
+		if self.engine.preset() != preset {
+			self.engine.set_preset(preset);
+		}
+
 		let wanted = strings::EngineParams {
 			core: CORES[self.core.clamp(0, 1) as usize],
 			excitation: EXCITATIONS[self.excitation.clamp(0, 2) as usize],

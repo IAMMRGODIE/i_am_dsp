@@ -135,6 +135,26 @@ fn every_preset_makes_a_bounded_sound() {
 	}
 }
 
+/// Moving the preset number switches the string and the body, without resetting
+/// the controls: a restored project has its own values, and the faceplate's
+/// preset command moves all of them through the parameter map.
+#[test]
+fn a_preset_number_switches_the_string_without_touching_the_controls() {
+	let mut instrument = StringInstrument::new(FS);
+	instrument.gain = 0.25;
+	instrument.preset = 1;
+
+	let mut context: Box<dyn ProcessContext> = Box::new(TestContext::new());
+	instrument.generate(&mut context);
+
+	assert_eq!(instrument.engine().preset(), PRESETS[1]);
+	assert!(
+		(instrument.gain - 0.25).abs() < 1e-6,
+		"the controls were reset: {}",
+		instrument.gain
+	);
+}
+
 #[test]
 fn a_released_note_decays_away() {
 	let mut instrument = StringInstrument::new(FS);

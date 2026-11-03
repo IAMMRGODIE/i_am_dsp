@@ -1,0 +1,15 @@
+[package]
+name = "i_am_synths"
+version = "0.1.0"
+edition = "2024"
+
+# The synthesizer products: instruments, not effects. A product is the DSP, the
+# parameter metadata and one line naming the window; the CLAP/VST3 entry points
+# live in `i_am_synths_bundle`, so this crate stays a plain library.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+i_am_dsp = { workspace = true }
+i_am_plugin = { workspace = true }
+i_am_web_gui = { workspace = true }

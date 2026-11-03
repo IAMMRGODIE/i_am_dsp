@@ -10,6 +10,8 @@ members = [
 	"i_am_effects_bundle",
 	"i_am_web_gui",
 	"i_am_rack",
+	"i_am_synths",
+	"i_am_synths_bundle",
 ]
 
 [workspace.dependencies]
@@ -21,6 +23,7 @@ i_am_effects = { path = "i_am_effects" }
 i_am_effects_bundle = { path = "i_am_effects_bundle" }
 i_am_web_gui = { path = "i_am_web_gui" }
 i_am_rack = { path = "i_am_rack" }
+i_am_synths = { path = "i_am_synths" }
 
 # wry 0.57.1 registers a process-global WRY_WEBVIEW window class. A host that
 # unloads a plug-in DLL while the process stays alive leaves that class with a

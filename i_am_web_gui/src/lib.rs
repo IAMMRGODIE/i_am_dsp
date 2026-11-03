@@ -705,7 +705,9 @@ mod ui_contract_tests {
 			names,
 			["Instrument", "Contact", "Body", "Performance", "Vibrato"]
 		);
-		assert_eq!(sections[0].hero.as_deref(), Some("spectrum"));
+		// The face is all controls: a hero would take the height the fifth
+		// section needs, and the sections would overlap it.
+		assert!(sections.iter().all(|section| section.hero.is_none()));
 
 		let preset = parameters
 			.iter()

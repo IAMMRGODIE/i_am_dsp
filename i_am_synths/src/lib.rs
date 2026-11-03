@@ -1,0 +1,350 @@
+//! The synthesizer products.
+//!
+//! An instrument is a plug-in with no audio input and a note input, and its face
+//! is the same web faceplate the effects use: the parameter metadata is the whole
+//! layout, and [`i_am_web_gui`] draws it. The one thing an instrument needs that
+//! an effect does not is a preset: choosing an instrument has to move the other
+//! controls as well, which a single parameter cannot do, so the editor answers the
+//! preset choice itself before the generic command parser sees it.
+//!
+//! The CLAP and VST3 entry points live in `i_am_synths_bundle`, because
+//! `clap_entry` is a global symbol.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use i_am_dsp::prelude::{
+	GeneratorEffect, ParamMap, Parameter, Parameters, SetValue, StringInstrument,
+};
+use i_am_dsp::{NoteEvent, ProcessContext, Processor};
+use i_am_plugin::processor::EffectMessage;
+use i_am_plugin::processor::EffectProcessor;
+use i_am_plugin::{
+	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
+};
+use i_am_web_gui::{Faceplate, ProtocolRequest, Scope, editor_with};
+
+/// The face's design size, in points.
+const SIZE: (f32, f32) = (760.0, 680.0);
+/// The window's title and the face's title.
+const TITLE: &str = "I Am Strings";
+/// The identity colour, as #rrggbb.
+const ACCENT: &str = "#8ac926";
+
+/// The faceplate of the instrument.
+pub fn faceplate() -> Faceplate {
+	Faceplate::new(TITLE, ACCENT, SIZE)
+}
+
+/// The string instrument, with a web faceplate.
+pub struct StringWeb {
+	processor: EffectProcessor<GeneratorEffect<StringInstrument>>,
+	bypass: Arc<AtomicBool>,
+	scope: Arc<Scope>,
+}
+
+impl Default for StringWeb {
+	fn default() -> Self {
+		Self {
+			processor: EffectProcessor::new(|rate: usize| {
+				GeneratorEffect::new(StringInstrument::new(rate))
+			}),
+			bypass: Arc::new(AtomicBool::new(false)),
+			scope: Arc::new(Scope::new()),
+		}
+	}
+}
+
+impl StringWeb {
+	/// The rate the instrument inside is currently built for.
+	pub fn sample_rate(&self) -> usize {
+		self.processor.sample_rate()
+	}
+
+	/// Whether the editor's bypass switch is on.
+	pub fn is_bypassed(&self) -> bool {
+		self.bypass.load(Ordering::Relaxed)
+	}
+
+	/// Turn the bypass on or off from code, for a test.
+	pub fn set_bypassed(&self, bypassed: bool) {
+		self.bypass.store(bypassed, Ordering::Relaxed);
+	}
+}
+
+impl Parameters for StringWeb {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		self.processor.parameters()
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		self.processor.set_parameter(identifier, value)
+	}
+}
+
+impl Processor for StringWeb {
+	type Message = EffectMessage;
+
+	fn delay(&self) -> usize {
+		Processor::delay(&self.processor)
+	}
+
+	fn process(
+		&mut self,
+		samples: &mut [f32; 2],
+		other: &[[f32; 2]],
+		process_context: &mut Box<dyn ProcessContext>,
+	) {
+		// The note badge: the page shows the note the host is playing.
+		for event in process_context.events() {
+			match event {
+				NoteEvent::NoteOn { note, .. } => self.scope.set_note(*note as i32),
+				NoteEvent::NoteOff { note, .. } | NoteEvent::Stop { note, .. } => {
+					if self.scope.note() == *note as i32 {
+						self.scope.set_note(-1);
+					}
+				}
+				NoteEvent::ImmediateStop => self.scope.set_note(-1),
+				_ => {}
+			}
+		}
+
+		if self.bypass.load(Ordering::Relaxed) {
+			// An instrument has nothing to pass through: bypassed is silence.
+			*samples = [0.0; 2];
+			self.scope.push_stereo([0.0; 2], [0.0; 2], 0.0);
+			return;
+		}
+
+		Processor::process(&mut self.processor, samples, other, process_context);
+
+		self.scope.push_stereo([0.0; 2], *samples, 0.0);
+	}
+
+	fn on_message(&self, message: Self::Message) {
+		Processor::on_message(&self.processor, message);
+	}
+}
+
+impl Plugin for StringWeb {
+	const DESCRIPTOR: Descriptor = Descriptor::new("iamdsp.synths.strings.web", TITLE)
+		.with_vendor("iamplugins")
+		.with_version(env!("CARGO_PKG_VERSION"))
+		.with_description(
+			"A physically modelled string instrument: piano, guitar, violin and cello.",
+		)
+		.with_tags(&[Tag::Instrument, Tag::Synthesizer]);
+
+	/// A synthesizer makes its sound instead of processing one, so it has no audio
+	/// input at all.
+	const INPUT_PORTS: &'static [i_am_plugin::AudioPort] = &[];
+	const INPUT_MIDI_PORTS: &'static [MidiPort] = &[MidiPort { name: "Notes" }];
+	const HAS_GUI: bool = true;
+
+	fn new() -> Self {
+		Self::default()
+	}
+
+	fn window_options() -> WindowOptions {
+		// The page draws the faceplate at 85% of the window, so the window asks for
+		// the design size over that: the first open has the same faceplate, with a
+		// frame around it.
+		const FACE_FRACTION: f64 = 0.85;
+
+		WindowOptions::new()
+			.with_size((SIZE.0 as f64 / FACE_FRACTION, SIZE.1 as f64 / FACE_FRACTION))
+			.with_title(TITLE)
+			.with_resize_hints(GuiResizeHints {
+				can_resize_horizontally: true,
+				can_resize_vertically: true,
+				strategy: AspectRatioStrategy::Disregard,
+			})
+	}
+
+	fn param_map(&self) -> ParamMap {
+		self.processor.param_map()
+	}
+
+	fn sync_params(&mut self) {
+		self.processor.sync_params();
+	}
+
+	fn on_activate(&mut self, sample_rate: usize) {
+		self.processor.activate(sample_rate);
+	}
+
+	fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
+		let map = self.processor.param_map();
+		let rate = self.processor.sample_rate();
+
+		editor_with(
+			self,
+			faceplate(),
+			self.bypass.clone(),
+			self.scope.clone(),
+			rate,
+			|_: &ProtocolRequest<'_>| None,
+			move |body: &str| apply_preset_command(&map, rate, body),
+		)
+	}
+}
+
+/// Answers the preset choice before the generic parameter parser sees it.
+///
+/// The DSP follows the `preset` parameter every block, so it switches the string
+/// and the body on its own, but the other controls are independent parameters:
+/// loading a patch means moving all of them. The map is the shared state the page
+/// and the audio thread both read, so writing them here is the whole operation.
+fn apply_preset_command(map: &ParamMap, rate: usize, body: &str) -> bool {
+	let Some(value) = body.strip_prefix("preset=") else {
+		return false;
+	};
+
+	let Ok(index) = value.trim().parse::<i32>() else {
+		return false;
+	};
+
+	apply_preset(map, rate, index);
+
+	true
+}
+
+/// Moves every control to the preset's values, except the performance controls.
+fn apply_preset(map: &ParamMap, rate: usize, index: i32) {
+	let mut instrument = StringInstrument::new(rate);
+	instrument.select_preset(index);
+
+	for parameter in instrument.get_parameters() {
+		// The transpose is a performance control, not part of an instrument; the
+		// DSP's own preset loading leaves it alone and so does this.
+		if parameter.identifier == "transpose" {
+			continue;
+		}
+
+		let identifier = parameter.identifier;
+		let value = parameter.value.to_set_value();
+		map.set(&identifier, value, Ordering::Relaxed);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use i_am_dsp::ProcessInfos;
+
+	struct TestContext {
+		events: Vec<NoteEvent>,
+		infos: ProcessInfos,
+	}
+
+	impl TestContext {
+		fn new() -> Self {
+			let mut infos = ProcessInfos::default();
+			infos.sample_rate = 48_000;
+			infos.playing = true;
+			Self {
+				events: Vec::new(),
+				infos,
+			}
+		}
+	}
+
+	impl ProcessContext for TestContext {
+		fn infos(&self) -> &ProcessInfos {
+			&self.infos
+		}
+
+		fn next_event(&mut self) -> Option<NoteEvent> {
+			self.events.pop()
+		}
+
+		fn send_event(&mut self, event: NoteEvent) {
+			self.events.push(event);
+		}
+
+		fn events(&self) -> &[NoteEvent] {
+			&self.events
+		}
+
+		fn clear_events(&mut self) {
+			self.events.clear();
+		}
+	}
+
+	fn value(map: &ParamMap, identifier: &str) -> SetValue {
+		map.get(identifier)
+			.expect(identifier)
+			.load(Ordering::Relaxed)
+	}
+
+	#[test]
+	fn a_synthesizer_has_a_note_port_and_no_audio_input() {
+		assert!(<StringWeb as Plugin>::INPUT_PORTS.is_empty());
+		assert_eq!(<StringWeb as Plugin>::INPUT_MIDI_PORTS.len(), 1);
+		assert_eq!(<StringWeb as Plugin>::INPUT_MIDI_PORTS[0].name, "Notes");
+
+		let tags = <StringWeb as Plugin>::DESCRIPTOR.tags;
+		assert!(tags.iter().any(|tag| matches!(tag, Tag::Instrument)));
+		assert!(tags.iter().any(|tag| matches!(tag, Tag::Synthesizer)));
+	}
+
+	#[test]
+	fn the_face_offers_the_four_instruments_and_five_sections() {
+		let face = i_am_web_gui::face_json(&StringWeb::new(), &faceplate());
+
+		assert!(
+			face.contains("\"choices\":[\"Piano\",\"Guitar\",\"Violin\",\"Cello\"]"),
+			"{face}"
+		);
+
+		for name in ["Instrument", "Contact", "Body", "Performance", "Vibrato"] {
+			assert!(face.contains(&format!("\"name\":\"{name}\"")), "{face}");
+		}
+	}
+
+	#[test]
+	fn choosing_an_instrument_moves_the_controls() {
+		let plugin = StringWeb::new();
+		let map = plugin.param_map();
+
+		map.set("transpose", 5.0f32, Ordering::Relaxed);
+		apply_preset_command(&map, 48_000, "preset=1");
+
+		assert!(matches!(value(&map, "preset"), SetValue::Int(1)));
+		assert!(
+			matches!(value(&map, "gain"), SetValue::Float(gain) if (gain - 0.9).abs() < 1e-6),
+			"the guitar's gain did not arrive: {:?}",
+			value(&map, "gain")
+		);
+		assert!(
+			matches!(value(&map, "transpose"), SetValue::Float(shift) if (shift - 5.0).abs() < 1e-6),
+			"the performance transpose was overwritten: {:?}",
+			value(&map, "transpose")
+		);
+	}
+
+	#[test]
+	fn a_note_plays_through_the_plugin() {
+		let mut plugin = StringWeb::new();
+		Plugin::on_activate(&mut plugin, 48_000);
+
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![NoteEvent::NoteOn {
+				channel: 0,
+				note: 57,
+				velocity: 1.0,
+			}],
+			infos: TestContext::new().infos,
+		});
+		let mut peak = 0.0f32;
+
+		for _ in 0..24_000 {
+			let mut frame = [0.0f32; 2];
+			Processor::process(&mut plugin, &mut frame, &[], &mut context);
+			peak = peak.max(frame[0].abs());
+		}
+
+		assert!(peak > 1e-3, "the instrument was silent: {peak}");
+		assert!(peak < 4.0, "the instrument ran away: {peak}");
+	}
+}
