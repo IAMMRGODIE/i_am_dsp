@@ -176,7 +176,7 @@ pub struct SpectralRetuneEffect {
 	/// On, only the notes held on the port count, and with nothing held nothing is
 	/// retuned: the mask above is not a fallback. Off, the mask is the whole story
 	/// and the port is ignored.
-	#[default(true)]
+	#[default(false)]
 	#[id(display = "MIDI")]
 	#[layout(group = "Notes", order = 1, widget = toggle)]
 	pub midi: bool,
@@ -210,7 +210,7 @@ impl SpectralRetuneEffect {
 			high_frequency: 8_000.0,
 			mix: 1.0,
 			notes: ALL_NOTES,
-			midi: true,
+			midi: false,
 			window_size: 2,
 			inner,
 			last_window_size: 2,
@@ -362,6 +362,7 @@ mod tests {
 	#[test]
 	fn midi_notes_override_the_faceplate_mask() {
 		let mut effect = SpectralRetuneEffect::new(48_000);
+		effect.midi = true;
 		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
 			events: vec![
 				NoteEvent::NoteOn {

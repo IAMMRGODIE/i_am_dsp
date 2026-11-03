@@ -57,7 +57,7 @@ pub struct UnstablizerEffect {
 	/// On, the note that is played sets the anchor; with no note ever played the
 	/// signal is left alone instead of being warped around the Anchor knob, which
 	/// belongs to the other mode. Off, the Anchor knob is the anchor.
-	#[default(true)]
+	#[default(false)]
 	#[id(display = "MIDI")]
 	#[layout(group = "Unstablizer", order = 6, widget = toggle)]
 	pub midi: bool,
@@ -79,7 +79,7 @@ impl UnstablizerEffect {
 			anchor: 440.0,
 			window_factor: 0.6,
 			window_size: 2,
-			midi: true,
+			midi: false,
 			inner: Unstablizer::new(sample_rate),
 			last_window_factor: 0.6,
 			last_window_size: 2,

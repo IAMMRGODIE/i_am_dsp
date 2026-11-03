@@ -91,7 +91,7 @@ pub struct AutoTune<const CHANNELS: usize = 2> {
 	/// On, only the notes held on the port count, and with nothing held nothing is
 	/// tuned: the mask above is not a fallback. Off, the mask is the whole story
 	/// and the port is ignored.
-	#[default(true)]
+	#[default(false)]
 	#[id(display = "MIDI")]
 	#[layout(group = "Notes", order = 1, widget = toggle)]
 	pub midi: bool,
@@ -126,7 +126,7 @@ impl<const CHANNELS: usize> AutoTune<CHANNELS> {
 			speed: 10.0,
 			window_size: 2,
 			notes: ALL_NOTES as i32,
-			midi: true,
+			midi: false,
 			sample_rate: sample_rate.max(1) as f32,
 			tracker: PitchTracker::new(sample_rate, 2_048),
 			time: PitchShifter::<CHANNELS>::new(1_024),
@@ -313,6 +313,7 @@ mod tests {
 	#[test]
 	fn midi_notes_become_the_allowed_pitch_classes() {
 		let mut tuner = AutoTune::<1>::new(48_000);
+		tuner.midi = true;
 		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
 			events: vec![
 				NoteEvent::NoteOn {

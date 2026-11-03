@@ -1040,6 +1040,7 @@ mod tests {
 	#[test]
 	fn the_autotune_publishes_its_live_mask() {
 		let mut plugin = AutoTuneWeb::new();
+		i_am_web_gui::apply_command(&plugin, "midi=1");
 		let mut context: Box<dyn i_am_dsp::ProcessContext> = Box::new(NoteContext {
 			events: vec![
 				i_am_dsp::NoteEvent::NoteOn {
@@ -1101,6 +1102,7 @@ mod tests {
 	#[test]
 	fn the_spectral_retune_publishes_its_live_mask() {
 		let mut plugin = SpectralRetuneWeb::new();
+		i_am_web_gui::apply_command(&plugin, "midi=1");
 		let mut context: Box<dyn i_am_dsp::ProcessContext> = Box::new(NoteContext {
 			events: vec![
 				i_am_dsp::NoteEvent::NoteOn {
