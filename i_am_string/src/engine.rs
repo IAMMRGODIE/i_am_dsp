@@ -134,6 +134,8 @@ pub enum Event {
 struct Attack {
 	low: NoiseBand,
 	high: NoiseBand,
+	/// The felt dragging across the string as the hammer lets go.
+	scrape: NoiseBand,
 	/// The keybed and soundboard knock: five fixed low resonances, rung by
 	/// the impact and gone in two thirds of a second.
 	knock: Vec<f32>,
@@ -164,6 +166,20 @@ impl NoiseBand {
 		self.decay = (-1.0 / (seconds * sample_rate).max(1.0)).exp();
 	}
 
+	/// Trigger a highpassed burst: the scrape has no bottom end.
+	fn trigger_highpass(
+		&mut self,
+		centre: f32,
+		q: f32,
+		level: f32,
+		seconds: f32,
+		sample_rate: f32,
+	) {
+		self.filter = crate::body::Biquad::highpass(centre, q, sample_rate);
+		self.envelope = self.envelope.max(level);
+		self.decay = (-1.0 / (seconds * sample_rate).max(1.0)).exp();
+	}
+
 	#[inline]
 	fn process(&mut self, noise: f32) -> f32 {
 		if self.envelope < 1e-7 {
@@ -180,6 +196,7 @@ impl Attack {
 		Self {
 			low: NoiseBand::new(1000.0),
 			high: NoiseBand::new(3000.0),
+			scrape: NoiseBand::new(4000.0),
 			knock: Vec::new(),
 			knock_index: 0,
 			knock_gain: 0.0,
@@ -247,10 +264,18 @@ impl Attack {
 		self.high.trigger(centre, q, level, seconds, sample_rate);
 	}
 
+	/// The felt dragging across the string, which is a highpassed noise and
+	/// not a thump.
+	fn trigger_scrape(&mut self, centre: f32, q: f32, level: f32, seconds: f32, sample_rate: f32) {
+		self.scrape
+			.trigger_highpass(centre, q, level, seconds, sample_rate);
+	}
+
 	#[inline]
 	fn process(&mut self) -> f32 {
 		let noise = self.rng.bipolar();
-		let mut value = self.low.process(noise) + self.high.process(noise);
+		let mut value =
+			self.low.process(noise) + self.high.process(noise) + self.scrape.process(noise);
 		if self.knock_index < self.knock.len() {
 			value += self.knock[self.knock_index] * self.knock_gain;
 			self.knock_index += 1;
@@ -529,6 +554,15 @@ impl StringEngine {
 				// the sound of the action, so it fades in over an octave.
 				let body = ((note as f32 - 68.0) / 12.0).clamp(0.0, 1.0);
 				self.attack.trigger_knock(scale * 0.20 * velocity * body);
+				// The felt lets go of the string over a few milliseconds; the
+				// scrape is the noise of it, highpassed and gone in 25 ms.
+				self.attack.trigger_scrape(
+					2500.0,
+					0.7,
+					scale * 0.02 * velocity.powf(1.8),
+					0.025,
+					self.sample_rate,
+				);
 			}
 			Excitation::Pluck => {
 				self.attack.trigger(

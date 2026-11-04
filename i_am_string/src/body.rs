@@ -94,33 +94,39 @@ impl Biquad {
 /// One measured-ish resonance: frequency, sharpness, and how strongly it radiates.
 type Mode = (f32, f32, f32);
 
-/// The resonance set of a piano soundboard.
+/// The resonance set of a piano soundboard, generated rather than tabulated.
 ///
-/// A soundboard is large and heavily damped, so its modes are broad and its
-/// response is closer to smooth than a violin's. Most of a piano's character
-/// comes from its strings; the board mostly has to not get in the way.
-const PIANO: &[Mode] = &[
-	(58.0, 7.0, 1.00),
-	(94.0, 8.0, 0.90),
-	(141.0, 9.0, 0.80),
-	(203.0, 10.0, 0.70),
-	(286.0, 11.0, 0.62),
-	(398.0, 10.0, 0.53),
-	(556.0, 9.0, 0.45),
-	(772.0, 8.0, 0.38),
-	(1063.0, 8.0, 0.31),
-	(1450.0, 7.0, 0.25),
-	(1980.0, 6.0, 0.19),
-	(2700.0, 5.0, 0.14),
-	// The bridge hill. A piano board is not a low-pass: the hammer's edge
-	// and the strings' upper partials reach the ear through a broad lift
-	// between two and five kilohertz. Without it the attack of every note
-	// arrives rolled off, which is heard as a soft, synthetic strike even
-	// when the hammer itself is right.
-	(3200.0, 1.6, 0.50),
-	(4600.0, 1.2, 0.35),
-	(6500.0, 1.0, 0.18),
-];
+/// A soundboard is large and heavily damped: its modes are broad and dense
+/// enough that the response is smooth, and most of a piano's character comes
+/// from the strings. Fifteen hand-picked resonances leave gaps that a real
+/// board does not have, and a gap is heard as a note with a partial missing,
+/// so the board is built from its envelope instead: forty modes spaced evenly
+/// in octaves from 40 Hz to 8 kHz, each carrying the target response at its
+/// own frequency, with a quarter of modal ripple kept and the bridge hill
+/// included in the target.
+fn piano_table() -> Vec<Mode> {
+	const MODES: usize = 40;
+	let mut modes = Vec::with_capacity(MODES);
+	for index in 0..MODES {
+		let t = index as f32 / (MODES - 1) as f32;
+		// 40 Hz to 8 kHz, evenly in octaves, with a deterministic scatter so
+		// the modes do not line up with the harmonic series.
+		let frequency = 40.0 * 200.0f32.powf(t) * (1.0 + 0.02 * ((index * 37) as f32).sin());
+		let square = frequency * frequency;
+		// The board's envelope: a 70 Hz corner, a 3.8 kHz treble corner with a
+		// 1.8 slope, and a broad bridge hill between two and five kilohertz.
+		let envelope = square / (square + 70.0 * 70.0) / (1.0 + (frequency / 3800.0).powf(1.8))
+			* (1.0 + 0.7 * (-((frequency - 3200.0) / 1200.0).powi(2)).exp());
+		// A quarter of modal ripple is what a board's response keeps above the
+		// smooth curve; the gain carries it at the mode's own frequency.
+		let ripple = 1.0 + 0.25 * ((index * 53) as f32).sin();
+		// Broader at the bottom, where a board is large, and at the top, where
+		// radiation takes over; the sharpest modes sit in the middle.
+		let q = 3.0 + 9.0 * (1.0 - (2.0 * t - 1.0).abs());
+		modes.push((frequency, q, envelope * ripple));
+	}
+	modes
+}
 
 /// The box of a steel string guitar.
 ///
@@ -241,15 +247,19 @@ impl Body {
 		// the normalisation cancels any edit to the gains, and a body measured
 		// from a recording cannot be made to fit -- scaling every resonance by
 		// two used to change the rendered spectrum by less than a decibel.
-		let (table, direct, highpass, lowpass, mix): (&[Mode], f32, f32, f32, f32) = match preset {
-			Preset::Piano => (PIANO, 0.35, 32.0, 9000.0, 6.27),
-			// A denser table spreads the same shape over more, narrower modes, so
-			// each one carries less: the strength is up from 6.93 to put the body
-			// back where it was against the dry string.
-			Preset::Guitar => (GUITAR, 0.22, 72.0, 7500.0, 12.5),
-			Preset::Violin => (VIOLIN, 0.18, 210.0, 11000.0, 8.58),
-			Preset::Cello => (CELLO, 0.18, 78.0, 9000.0, 8.58),
+		// The piano's board is generated rather than tabulated: forty modes
+		// from 40 Hz to 8 kHz, spaced evenly in octaves, each carrying the
+		// board's envelope at its own frequency. Fifteen hand-picked modes
+		// leave gaps a real board does not have, and a gap is heard as a note
+		// with a partial missing.
+		let (table, direct, highpass, lowpass, mix): (Vec<Mode>, f32, f32, f32, f32) = match preset
+		{
+			Preset::Piano => (piano_table(), 0.35, 32.0, 9000.0, 14.0),
+			Preset::Guitar => (GUITAR.to_vec(), 0.22, 72.0, 7500.0, 12.5),
+			Preset::Violin => (VIOLIN.to_vec(), 0.18, 210.0, 11000.0, 8.58),
+			Preset::Cello => (CELLO.to_vec(), 0.18, 78.0, 9000.0, 8.58),
 		};
+		let table = table.as_slice();
 
 		let modes: Vec<Biquad> = table
 			.iter()
