@@ -230,12 +230,19 @@ impl Preset {
 				8,
 			),
 			Preset::Violin => (1.4e-4, 60.0, 0.35, 0.9, 0.20, 32, 8),
-			Preset::Cello => (9.0e-5, 110.0, 0.75, 0.85, 0.5, 24, 8),
+			Preset::Cello => (9.0e-5, 110.0, 0.75, 1.2, 0.25, 24, 8),
 		};
 
 		let (mut sigma0, mut sigma1) = decay_from_t60(f0, t60_low, t60_high);
 		sigma0 *= params.damping.max(0.01);
 		sigma1 *= params.brightness.max(0.01);
+		// A plucked note decays faster than a bowed one on the same string: the
+		// bow keeps feeding the string, so the preset's T60 is really the decay
+		// of a note after the bow lifts. Left alone, a pizzicato rang for 1.5
+		// seconds where the recorded ones last about one.
+		if params.excitation == Excitation::Pluck {
+			sigma0 *= 1.6;
+		}
 
 		let string = StringConfig {
 			frequency: f0,
