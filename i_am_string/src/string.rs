@@ -787,7 +787,12 @@ fn design_loss(
 	// for. The average is unchanged, so the preset's T60 still means what it did.
 	let round_trip = |f: f64| {
 		let damping = if bridge > 0.0 {
-			crate::bridge::damping_ratio(f as f32).powf(bridge) as f64
+			// A linear blend, not `ratio^bridge`: the ratio is relative to the
+			// board's local mean, and a concave power of a quantity with mean
+			// one has a mean below one, so the old form quietly stretched every
+			// preset's T60 by up to half again. The scatter is the point; the
+			// average has to stay where the preset put it.
+			1.0 + bridge as f64 * (crate::bridge::damping_ratio(f as f32) as f64 - 1.0)
 		} else {
 			1.0
 		};

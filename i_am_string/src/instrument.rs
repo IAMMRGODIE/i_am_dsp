@@ -264,7 +264,11 @@ impl Preset {
 		// together; a plucked or struck one has neither of those things.
 		let plucked = matches!(params.excitation, Excitation::Pluck | Excitation::Hammer);
 		let (late_decay, doublet, winding) = match self {
-			Preset::Piano => (0.78, 0.0, 0.25),
+			// A piano's prompt decay is real but small. At 0.78 the late stage
+			// doubled the T60 of F3 to 15 s against the 8 s of a recorded note,
+			// and a piano whose every note has twice the tail it should is the
+			// sound of the sustain pedal being held down.
+			Preset::Piano => (0.95, 0.0, 0.25),
 			Preset::Guitar => (0.70, 0.18, 0.55),
 			Preset::Violin => (0.85, 0.07, 0.30),
 			Preset::Cello => (0.85, 0.10, 0.45),

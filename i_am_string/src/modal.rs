@@ -444,8 +444,11 @@ impl ModalString {
 				// The board drains a partial that sits on one of its resonances
 				// faster than its neighbours, and its reactance pulls the
 				// partial off the harmonic grid.
-				let damping = damping_ratio(frequency as f32).powf(config.bridge);
-				sigma *= damping as f64;
+				// A linear blend keeps the average where the preset put it; a
+				// power of the ratio stretched every decay by up to half again.
+				let damping =
+					1.0 + config.bridge as f64 * (damping_ratio(frequency as f32) as f64 - 1.0);
+				sigma *= damping;
 				frequency += detune(f0 as f32, impedance as f32, frequency as f32) as f64
 					* config.bridge as f64;
 			}
