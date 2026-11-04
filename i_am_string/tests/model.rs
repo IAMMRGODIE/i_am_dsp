@@ -407,6 +407,48 @@ fn a_bowed_cello_has_its_even_partials() {
 	);
 }
 
+/// A hard bow has to stay in the stick-slip cycle.
+///
+/// Push the normal force far enough and the model's friction law starts to skip
+/// a slip: the string then repeats every *two* periods, which is a subharmonic
+/// thump at half the note, not loudness. A real bow saturates well before that,
+/// because the hair and the rosin film can only transmit so much, so the normal
+/// force is softly limited. Without the limit a violin at full bow force has its
+/// half-frequency only 5 dB under the note.
+#[test]
+fn a_hard_bow_does_not_double_the_period() {
+	for preset in [Preset::Violin, Preset::Cello] {
+		let mut engine = StringEngine::new(FS);
+		engine.set_preset(preset);
+		{
+			let params = engine.params_mut();
+			params.strings = 1;
+			params.bow_force = 1.0;
+			// The waveguide is what the product plays by default, and the
+			// saturation is what keeps it in the cycle; the modal bank has its
+			// own contact scaling and still doubles at a hard bow.
+			params.core = Core::Waveguide;
+		}
+		engine.note_on(45, 0.8);
+		for _ in 0..(FS * 0.7) as usize {
+			engine.next_sample();
+		}
+		let audio: Vec<f32> = (0..(FS * 2.0) as usize)
+			.map(|_| engine.next_sample())
+			.collect();
+
+		let f0 = 440.0 * 2f32.powf((45.0 - 69.0) / 12.0);
+		let fundamental = magnitude(&audio, f0);
+		let subharmonic = magnitude(&audio, f0 / 2.0);
+		let ratio = 20.0 * (subharmonic / fundamental).max(1e-12).log10();
+		assert!(
+			ratio < -30.0,
+			"{} doubles its period at a hard bow: the half frequency is only {ratio:.1} dB down",
+			preset.name()
+		);
+	}
+}
+
 #[test]
 fn the_engine_is_stable_across_every_preset() {
 	for preset in Preset::ALL {

@@ -294,13 +294,15 @@ impl Preset {
 				0.0,
 				0.0,
 				0.0,
-				0.15 + 2.6 * params.bow_force,
+				saturate_force(0.15 + 2.6 * params.bow_force, impedance),
 				0.05 + 0.55 * params.bow_speed,
 			),
 		};
 
 		// A bow is held near the bridge and a finger or a hammer near the
 		// middle, so the geometry follows the excitation.
+		//
+		// The force itself was limited above, before it reached the string.
 		let position = if params.excitation == Excitation::Bow {
 			1.0 - params.position.clamp(0.02, 0.5)
 		} else {
@@ -378,6 +380,32 @@ fn geom(a: f32, b: f32, t: f32) -> f32 {
 
 /// Turn two decay time anchors - the fundamental and its tenth partial - into
 /// the `sigma0 + sigma1 f^2` law that the string loss expects.
+/// How much normal force a string of this impedance takes before the rosin
+/// stops behaving like a constant.
+///
+/// A bow pressed harder does not transmit proportionally more friction: the
+/// hair and the rosin film saturate, and the string's stick-slip cycle starts to
+/// skip slips. In the model a skipped slip is a period doubling, heard as a
+/// subharmonic thump rather than as loudness. It arrives at about 2.2 N on a
+/// cello string and about 1.1 N on a violin's thinner one, which is close to
+/// two and a half times the string's impedance in each case -- the same property that
+/// decides how much force the string takes to speak at all.
+fn bow_force_knee(impedance: f32) -> f32 {
+	2.6 * impedance.clamp(0.1, 6.0)
+}
+
+/// Past the knee the extra pressure only adds a little, and approaches
+/// knee + a fifth of it.
+fn saturate_force(force: f32, impedance: f32) -> f32 {
+	let knee = bow_force_knee(impedance);
+	let width = 0.2 * knee;
+	if force <= knee {
+		force
+	} else {
+		knee + width * (1.0 - (-(force - knee) / width).exp())
+	}
+}
+
 fn decay_from_t60(f0: f32, t60_low: f32, t60_high: f32) -> (f32, f32) {
 	const LN1000: f32 = 6.907_755;
 	let low = LN1000 / t60_low.max(1e-3);
