@@ -112,6 +112,14 @@ const PIANO: &[Mode] = &[
 	(1450.0, 7.0, 0.25),
 	(1980.0, 6.0, 0.19),
 	(2700.0, 5.0, 0.14),
+	// The bridge hill. A piano board is not a low-pass: the hammer's edge
+	// and the strings' upper partials reach the ear through a broad lift
+	// between two and five kilohertz. Without it the attack of every note
+	// arrives rolled off, which is heard as a soft, synthetic strike even
+	// when the hammer itself is right.
+	(3200.0, 1.6, 0.50),
+	(4600.0, 1.2, 0.35),
+	(6500.0, 1.0, 0.18),
 ];
 
 /// The box of a steel string guitar.

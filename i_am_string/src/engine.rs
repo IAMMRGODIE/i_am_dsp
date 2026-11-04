@@ -132,19 +132,24 @@ pub enum Event {
 /// clearest reasons a physical model is heard as synthetic, because a string
 /// excited by a perfectly smooth force is a thing that does not exist.
 struct Attack {
-	envelope: f32,
-	decay: f32,
-	filter: crate::body::Biquad,
+	low: NoiseBand,
+	high: NoiseBand,
 	rng: Rng,
 }
 
-impl Attack {
-	fn new() -> Self {
+/// One band of the attack noise, with its own envelope and filter.
+struct NoiseBand {
+	envelope: f32,
+	decay: f32,
+	filter: crate::body::Biquad,
+}
+
+impl NoiseBand {
+	fn new(centre: f32) -> Self {
 		Self {
 			envelope: 0.0,
 			decay: 0.0,
-			filter: crate::body::Biquad::bandpass(1000.0, 0.8, 48_000.0),
-			rng: Rng::new(0x2F9A_1C43),
+			filter: crate::body::Biquad::bandpass(centre, 0.8, 48_000.0),
 		}
 	}
 
@@ -155,13 +160,45 @@ impl Attack {
 	}
 
 	#[inline]
-	fn process(&mut self) -> f32 {
+	fn process(&mut self, noise: f32) -> f32 {
 		if self.envelope < 1e-7 {
 			return 0.0;
 		}
-		let value = self.filter.process(self.rng.bipolar()) * self.envelope;
+		let value = self.filter.process(noise) * self.envelope;
 		self.envelope *= self.decay;
 		value
+	}
+}
+
+impl Attack {
+	fn new() -> Self {
+		Self {
+			low: NoiseBand::new(1000.0),
+			high: NoiseBand::new(3000.0),
+			rng: Rng::new(0x2F9A_1C43),
+		}
+	}
+
+	/// The low thump: the soundboard being hit, the finger leaving the string.
+	fn trigger(&mut self, centre: f32, q: f32, level: f32, seconds: f32, sample_rate: f32) {
+		self.low.trigger(centre, q, level, seconds, sample_rate);
+	}
+
+	/// The bright tick: the hammer's hard edge, the plectrum snapping off.
+	///
+	/// A piano's impact noise is not one band. The felt gives a thump of a
+	/// few milliseconds around a few hundred hertz, and the hard parts give
+	/// a tick of under two milliseconds that reaches several kilohertz;
+	/// without the tick the note starts like a filter being excited rather
+	/// than like a hammer being thrown at it.
+	fn trigger_tick(&mut self, centre: f32, q: f32, level: f32, seconds: f32, sample_rate: f32) {
+		self.high.trigger(centre, q, level, seconds, sample_rate);
+	}
+
+	#[inline]
+	fn process(&mut self) -> f32 {
+		let noise = self.rng.bipolar();
+		self.low.process(noise) + self.high.process(noise)
 	}
 }
 
@@ -231,7 +268,13 @@ const SYMPATHETIC_LOWEST_NOTE: u8 = 21;
 /// The highest note that has a sympathetic string.
 const SYMPATHETIC_HIGHEST_NOTE: u8 = 108;
 /// Undamped strings are not allowed to ring forever; this caps their T60.
-const SYMPATHETIC_MAX_T60: f32 = 12.0;
+///
+/// A resonator takes its own T60 divided by 6.9 to reach two thirds of its
+/// steady state, so a twelve second cap made the sympathetic bank arrive a
+/// third of a second after the note and push the peak of the attack out to
+/// 130 ms. A real instrument's undamped strings are coupled to the bridge
+/// and answer within tens of milliseconds, so the cap is four seconds.
+const SYMPATHETIC_MAX_T60: f32 = 4.0;
 /// The T60 of a string with the felt fully resting on it.
 const SYMPATHETIC_DAMPED_T60: f32 = 0.12;
 /// The dampers, the pedal and the sympathetic bank are updated this often.
@@ -406,20 +449,40 @@ impl StringEngine {
 		match spec.excitation {
 			// The mechanism noise grows with the dynamics, but less steeply than
 			// the note itself, which is why a very soft note is mostly mechanism.
-			Excitation::Hammer => self.attack.trigger(
-				450.0 + 700.0 * velocity,
-				0.7,
-				scale * 0.30 * velocity.powf(1.6),
-				0.008,
-				self.sample_rate,
-			),
-			Excitation::Pluck => self.attack.trigger(
-				1500.0 + 2500.0 * velocity,
-				0.9,
-				scale * 0.40 * velocity.powf(1.6),
-				0.004,
-				self.sample_rate,
-			),
+			Excitation::Hammer => {
+				self.attack.trigger(
+					300.0 + 500.0 * velocity,
+					0.8,
+					scale * 0.30 * velocity.powf(1.6),
+					0.010,
+					self.sample_rate,
+				);
+				// The hard edge of the hammer on the string, gone in under two
+				// milliseconds. A felt hammer is soft, but it is not a filter.
+				self.attack.trigger_tick(
+					2600.0 + 1800.0 * velocity,
+					0.6,
+					scale * 0.30 * velocity.powf(1.2),
+					0.0018,
+					self.sample_rate,
+				);
+			}
+			Excitation::Pluck => {
+				self.attack.trigger(
+					1500.0 + 2500.0 * velocity,
+					0.9,
+					scale * 0.40 * velocity.powf(1.6),
+					0.004,
+					self.sample_rate,
+				);
+				self.attack.trigger_tick(
+					4000.0 + 2000.0 * velocity,
+					0.5,
+					scale * 0.06 * velocity.powf(1.5),
+					0.0012,
+					self.sample_rate,
+				);
+			}
 			// A bow bites rather than clicks, so its noise is brighter and
 			// lasts longer than a hammer's.
 			Excitation::Bow => self.attack.trigger(
@@ -575,7 +638,15 @@ impl StringEngine {
 			config.dispersion_coefficients = coefficients.clone();
 			config.frequency = spec.string.frequency * 2f32.powf(offset / 1200.0);
 			let mut string = StringCore::new(core, self.sample_rate, &config);
-			excite(&mut string, spec);
+			// A hammer is not perfectly parallel to the strings: it reaches the
+			// three of a unison a fraction of a millimetre apart. The same
+			// excitation on all three gives an attack that is phase-locked and
+			// reads as synthetic, so each string is struck at its own point.
+			let mut struck = spec.clone();
+			struck.position =
+				(spec.position + unison_offset(i, count) * 0.0015 + 0.0007 * (i as f32).sin())
+					.clamp(0.02, 0.96);
+			excite(&mut string, &struck);
 			strings.push(string);
 		}
 
