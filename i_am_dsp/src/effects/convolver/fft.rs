@@ -7,6 +7,8 @@ use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 use rustfft::num_complex::Complex;
 use wide::f32x4;
 
+#[cfg(feature = "real_time_demo")]
+use super::hilbert_transform;
 use super::{format_ir, parse_ir};
 
 use crate::{Effect, ProcessContext};

@@ -3,6 +3,9 @@
 use crate::prelude::{Parameter, Parameters};
 
 #[cfg(feature = "sin_table")]
+use std::f32::consts::PI;
+
+#[cfg(feature = "sin_table")]
 lazy_static::lazy_static! {
 	static ref SINE_TABLE: Vec<f32> = (0..256).map(|i| (i as f32 / 256.0 * 2.0 * PI).sin()).collect();
 }

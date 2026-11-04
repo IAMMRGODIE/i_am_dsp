@@ -43,6 +43,8 @@ mod menus;
 
 pub use context::SimpleContext;
 
+#[cfg(feature = "standalone")]
+use self::menus::simulate_midi;
 use self::menus::{draw_change_history, effect_add_menu, generator_add_menu, get_range};
 
 lazy_static::lazy_static! {

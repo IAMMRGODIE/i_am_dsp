@@ -1,5 +1,6 @@
 //! The wave tables: the slices, the buffers and the four basic waves.
 
+#[cfg(not(feature = "sin_table"))]
 use std::f32::consts::PI;
 
 use i_am_dsp_derive::Parameters;
