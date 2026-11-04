@@ -3,10 +3,9 @@
 use std::f32::consts::PI;
 
 use i_am_dsp_derive::Parameters;
-use rustfft::Fft;
 use wide::f32x4;
 
-use crate::prelude::{Oscillator, Parameters};
+use crate::prelude::Oscillator;
 
 use super::{FreqInfo, GenFreqInfo, UNDAMPED_FACTOR, Wavetable};
 
