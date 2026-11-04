@@ -81,12 +81,27 @@ def align(x, sr):
     start = int(np.argmax(np.abs(x) > 0.02 * peak))
     return x[max(0, start - int(0.01 * sr)):]
 
+def retune(x, sr, ratio):
+    """Shift a signal's pitch by ratio (f0_new = f0_old * ratio), resampling."""
+    n = max(2, int(len(x) / ratio))
+    source = np.linspace(0, len(x) - 1, n)
+    return np.interp(source, np.arange(len(x)), x)
+
+
 def compare(model_path, sample_path):
     sr, m = load(model_path)
     sr2, s = load(sample_path)
     if sr != sr2:
         return None
     m, s = align(m, sr), align(s, sr)
+    # The model is rendered on the equal-tempered grid, so its partials sit
+    # within a few percent of the recording's; without removing that offset the
+    # comparison would be measuring tuning, and a one percent detune moves a
+    # 2 kHz partial by a whole band.
+    m_f0 = note_of(model_path)
+    s_f0 = f0_of(s, sr)
+    if m_f0 > 0 and s_f0 > 0:
+        m = retune(m, sr, s_f0 / m_f0)
     fm = bands_of(m, sr)
     fs = bands_of(s, sr)
     n = min(len(fm), len(fs), int(1.6 * sr / 512))
@@ -98,14 +113,23 @@ def compare(model_path, sample_path):
     for f in range(n):
         if fs[f].max() > -80:
             fm[f] += fs[f].max() - fm[f].max()
-    valid = fs.max(axis=1) > -60
-    diff = np.abs(fm[valid] - fs[valid])
-    per_frame = diff.mean(axis=1)
-    frame_t = np.arange(n)[valid] * 512 / sr
+    # Only bands the recording actually has energy in: a band that is digital
+    # silence in one and -90 dB in the other would otherwise count as a 110 dB
+    # error and drown the bands a person can hear.
+    loud = fs > (fs.max(axis=1, keepdims=True) - 40.0)
+    valid_frames = fs.max(axis=1) > -60
+    rows = np.where(valid_frames)[0]
+    diff_per_frame = []
+    for fi in rows:
+        m = loud[fi]
+        diff_per_frame.append(float(np.abs(fm[fi][m] - fs[fi][m]).mean()) if m.any() else 0.0)
+    diff = np.array(diff_per_frame)
+    per_frame = diff
+    frame_t = rows * 512 / sr
     return {
         "mean": float(diff.mean()) if diff.size else float("nan"),
         "per_frame": (frame_t, per_frame),
-        "frames": np.sum(valid),
+        "frames": len(rows),
     }
 
 def note_of(path):
