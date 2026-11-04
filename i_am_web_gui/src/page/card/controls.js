@@ -1,0 +1,610 @@
+// Part nine: the controls themselves.
+  function makeKnob(spec, value, onEdit) {
+    var wrap = document.createElement("div");
+    wrap.className = "knob-wrap";
+
+    var dial = document.createElement("div");
+    dial.className = "knob";
+    dial.tabIndex = 0;
+    dial.setAttribute("role", "slider");
+    dial.setAttribute("aria-label", spec.label);
+    dial.setAttribute("aria-valuemin", String(spec.min));
+    dial.setAttribute("aria-valuemax", String(spec.max));
+
+    var drawing = svg("svg", { viewBox: "0 0 64 64" });
+    drawing.appendChild(svg("circle", { class: "knob-bg", cx: 32, cy: 32, r: 25 }));
+    drawing.appendChild(svg("path", {
+      class: "knob-track",
+      d: arcPath(32, 32, 25, START, START + SWEEP)
+    }));
+
+    var modulations = spec.modulations || [];
+
+    var mods = svg("g", { class: "knob-mods" });
+    var fill = svg("path", { class: "knob-arc" });
+    var hand = svg("line", { class: "knob-hand" });
+    var live = svg("line", { class: "knob-live" });
+    live.style.display = "none";
+    drawing.appendChild(mods);
+    drawing.appendChild(fill);
+    drawing.appendChild(hand);
+    drawing.appendChild(live);
+    dial.appendChild(drawing);
+
+    if (modulations.some(function (assignment) { return assignment.selected; })) {
+      dial.classList.add("mod-selected");
+    }
+
+    // A thin needle for where the modulation is right now, so the knob shows
+    // the sound while its main hand keeps the value a person set.
+    /// The needle is an offset from the hand, so turning the knob carries it
+    /// along and the modulation keeps its distance.
+    var liveOffset = null;
+
+    wrap.__live = function (offset) {
+      liveOffset = offset;
+      paintLive();
+    };
+
+    function paintLive() {
+      if (liveOffset === null) {
+        live.style.display = "none";
+        return;
+      }
+
+      var position = clamp(norm(spec, current) + liveOffset, 0, 1);
+      var angle = START + SWEEP * position;
+      var inner = polar(32, 32, 18, angle);
+      var tip = polar(32, 32, 29, angle);
+      live.setAttribute("x1", inner.x.toFixed(2));
+      live.setAttribute("y1", inner.y.toFixed(2));
+      live.setAttribute("x2", tip.x.toFixed(2));
+      live.setAttribute("y2", tip.y.toFixed(2));
+      live.style.display = "";
+    }
+
+    // The depth a source is adding while it is dragged with Alt.
+    var modHint = document.createElement("span");
+    modHint.className = "knob-mod-hint";
+    modHint.style.display = "none";
+    wrap.appendChild(modHint);
+
+    var label = document.createElement("div");
+    label.className = "knob-label";
+    label.textContent = spec.label;
+
+    var readout = document.createElement("div");
+    readout.className = "knob-value";
+
+    var current = clamp(value, spec.min, spec.max);
+
+    function paint() {
+      var position = clamp(norm(spec, current), 0, 1);
+      var angle = START + SWEEP * position;
+      fill.setAttribute("d", arcPath(32, 32, 25, START, angle));
+
+      // One arc per source, in that source's colour: a knob driven by two of
+      // them shows two arcs instead of one merged span nobody can attribute.
+      while (mods.firstChild) {
+        mods.removeChild(mods.firstChild);
+      }
+
+      modulations.forEach(function (assignment) {
+        var depth = assignment.depth || 0;
+        var mode = assignment.mode || "centered";
+        var low = position;
+        var high = position;
+
+        if (mode === "frombase" || mode === "from-base" || mode === "start") {
+          var end = clamp(position + depth, 0, 1);
+          low = Math.min(low, end);
+          high = Math.max(high, end);
+        } else {
+          var span = Math.abs(depth);
+          low = Math.min(low, clamp(position - span, 0, 1));
+          high = Math.max(high, clamp(position + span, 0, 1));
+        }
+
+        if (high - low <= 0.0001) return;
+
+        var arc = svg("path", {
+          class: "knob-mod",
+          d: arcPath(32, 32, 29, START + SWEEP * low, START + SWEEP * high)
+        });
+
+        if (assignment.color) arc.style.stroke = assignment.color;
+        mods.appendChild(arc);
+      });
+
+      if (modulations.length) {
+        dial.title = modulations
+          .map(function (assignment) {
+            var depth = assignment.depth || 0;
+            return (assignment.label || "source") + "  " +
+              (depth >= 0 ? "+" : "") + Math.round(depth * 100) + "%";
+          })
+          .join("\n");
+      }
+      var inner = polar(32, 32, 9, angle);
+      var tip = polar(32, 32, 25, angle);
+      hand.setAttribute("x1", inner.x.toFixed(2));
+      hand.setAttribute("y1", inner.y.toFixed(2));
+      hand.setAttribute("x2", tip.x.toFixed(2));
+      hand.setAttribute("y2", tip.y.toFixed(2));
+      readout.textContent = display(spec, current);
+      dial.setAttribute("aria-valuenow", String(current));
+      dial.setAttribute("aria-valuetext", display(spec, current));
+      paintLive();
+    }
+
+    function set(value, send) {
+      current = clamp(value, spec.min, spec.max);
+      if (spec.kind === "int") current = Math.round(current);
+      // A stepped parameter only takes its own intervals: a kernel length that
+      // has to be odd, a semitone, an eighth note.
+      if (spec.step > 0) {
+        current = clamp(
+          spec.min + Math.round((current - spec.min) / spec.step) * spec.step,
+          spec.min,
+          spec.max
+        );
+        if (spec.kind === "int") current = Math.round(current);
+      }
+      paint();
+      if (send && onEdit) onEdit(spec.id, current);
+    }
+
+    var drag = null;
+    var modDrag = null;
+
+    dial.addEventListener("pointerdown", function (event) {
+      if (event.button !== 0) return;
+
+      if (event.altKey && modulations.length) {
+        var target = modulations[0];
+        modDrag = {
+          y: event.clientY,
+          depth: target.depth || 0,
+          name: target.label || "source"
+        };
+        dial.classList.add("mod-drag");
+        modHint.textContent = modDrag.name + "  " + Math.round(modDrag.depth * 100) + "%";
+        modHint.style.display = "";
+      } else {
+        drag = { y: event.clientY, position: norm(spec, current) };
+      }
+
+      dial.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    dial.addEventListener("pointermove", function (event) {
+      if (modDrag) {
+        var next = clamp(modDrag.depth + (modDrag.y - event.clientY) / 150, -1, 1);
+        modulations[0].depth = next;
+        modHint.textContent = modDrag.name + "  " +
+          (next >= 0 ? "+" : "") + Math.round(next * 100) + "%";
+        modHint.style.display = "";
+
+        if (spec.onModulation && modulations[0].slot !== undefined) {
+          spec.onModulation(modulations[0].slot, next);
+        }
+
+        paint();
+        return;
+      }
+
+      if (!drag) return;
+      // Shift is the fine drag, the same gesture the faceplate used to have.
+      var distance = (drag.y - event.clientY) / 150 * (event.shiftKey ? 0.1 : 1);
+      var position = clamp(drag.position + distance, 0, 1);
+      set(at(spec, position), true);
+    });
+
+    function stop(event) {
+      if (!drag && !modDrag) return;
+      drag = null;
+      modDrag = null;
+      modHint.style.display = "none";
+      dial.classList.remove("mod-drag");
+      try {
+        dial.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        // Released outside the window.
+      }
+    }
+
+    dial.addEventListener("pointerup", stop);
+    dial.addEventListener("pointercancel", stop);
+    dial.addEventListener("dblclick", function () { set(spec.default, true); });
+    dial.addEventListener("click", function (event) {
+      if (!event.ctrlKey || !modulations.length) return;
+      var next = (modulations[0].mode || "frombase") === "frombase" ? "center" : "start";
+      if (spec.onModeToggle) {
+        spec.onModeToggle(modulations.map(function (modulation) { return modulation.slot; }), next);
+      }
+      event.preventDefault();
+    });
+    dial.title = "Drag to change; right-click to type a value";
+    dial.addEventListener("contextmenu", function (event) {
+      event.preventDefault();
+      openKnobEditor(spec, current, set, dial);
+    });
+
+    if (spec.dropTarget) {
+      dial.addEventListener("dragover", function (event) {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "link";
+        dial.classList.add("drop-target");
+      });
+      dial.addEventListener("dragleave", function () {
+        dial.classList.remove("drop-target");
+      });
+      dial.addEventListener("drop", function (event) {
+        event.preventDefault();
+        // The knob stops the drop: without this the slot underneath would read
+        // the source as a module and try to move it.
+        event.stopPropagation();
+        dial.classList.remove("drop-target");
+        var data = event.dataTransfer ? event.dataTransfer.getData("text/plain") : "";
+        if (data && spec.onModulationDrop) spec.onModulationDrop(data, spec.dropTarget);
+      });
+    }
+
+    // Alt + right click edits how far each source pushes this knob.
+    dial.addEventListener("contextmenu", function (event) {
+      if (!event.altKey || !modulations.length) return;
+
+      event.preventDefault();
+      openDepths();
+    });
+
+    function openDepths() {
+      var box = document.createElement("div");
+      box.className = "knob-depths";
+
+      modulations.forEach(function (assignment) {
+        var row = document.createElement("label");
+        row.className = "knob-depth";
+
+        var name = document.createElement("span");
+        name.textContent = assignment.label || "source";
+
+        var range = document.createElement("input");
+        range.type = "range";
+        range.min = "-100";
+        range.max = "100";
+        range.step = "1";
+        range.value = String(Math.round((assignment.depth || 0) * 100));
+
+        var value = document.createElement("span");
+        value.className = "knob-depth-value";
+        value.textContent = range.value + "%";
+
+        range.addEventListener("input", function () {
+          var depth = Number(range.value) / 100;
+          assignment.depth = depth;
+          value.textContent = range.value + "%";
+          paint();
+
+          if (spec.onModulation) spec.onModulation(assignment.slot, depth);
+        });
+
+        row.appendChild(name);
+        row.appendChild(range);
+        row.appendChild(value);
+        box.appendChild(row);
+      });
+
+      var rect = dial.getBoundingClientRect();
+      box.style.left = Math.max(8, Math.min(window.innerWidth - 240, rect.left)) + "px";
+      box.style.top = Math.min(window.innerHeight - 120, rect.bottom + 8) + "px";
+      document.body.appendChild(box);
+
+      function dismiss(event) {
+        if (box.contains(event.target)) {
+          document.addEventListener("pointerdown", dismiss, { once: true, capture: true });
+          return;
+        }
+
+        box.remove();
+      }
+
+      setTimeout(function () {
+        document.addEventListener("pointerdown", dismiss, { once: true, capture: true });
+      }, 0);
+    }
+
+    dial.addEventListener("wheel", function (event) {
+      event.preventDefault();
+      var direction = event.deltaY < 0 ? 1 : -1;
+      set(stepBy(spec, current, direction, event.shiftKey), true);
+    }, { passive: false });
+
+    dial.addEventListener("keydown", function (event) {
+      var fine = event.shiftKey;
+      if (event.key === "ArrowUp" || event.key === "ArrowRight") {
+        set(stepBy(spec, current, 1, fine), true);
+        event.preventDefault();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowLeft") {
+        set(stepBy(spec, current, -1, fine), true);
+        event.preventDefault();
+      } else if (event.key === "Home") {
+        set(spec.min, true);
+        event.preventDefault();
+      } else if (event.key === "End") {
+        set(spec.max, true);
+        event.preventDefault();
+      }
+    });
+
+    paint();
+    wrap.appendChild(dial);
+    wrap.appendChild(label);
+    wrap.appendChild(readout);
+
+    return { el: wrap, set: set };
+  }
+
+  function makeChoiceHandle(spec, value, onEdit, className) {
+    var select = document.createElement("select");
+    select.className = className || "mcard-select";
+    select.setAttribute("aria-label", spec.label);
+
+    spec.choices.forEach(function (name, index) {
+      var option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = name;
+      select.appendChild(option);
+    });
+
+    function set(next) {
+      select.value = String(Math.round(next));
+    }
+
+    set(value);
+    select.addEventListener("change", function () {
+      if (onEdit) onEdit(spec.id, Number(select.value));
+    });
+
+    return { el: select, set: set };
+  }
+
+  function makeChoice(spec, value, onEdit, className) {
+    return makeChoiceHandle(spec, value, onEdit, className).el;
+  }
+
+  function makeSliderHandle(spec, value, onEdit) {
+    var wrap = document.createElement("div");
+    wrap.className = "mcard-slider";
+
+    var top = document.createElement("div");
+    top.className = "mcard-slider-top";
+    var label = document.createElement("span");
+    label.className = "mcard-row-label";
+    label.textContent = spec.label;
+    var readout = document.createElement("span");
+    readout.className = "mcard-slider-value";
+    top.appendChild(label);
+    top.appendChild(readout);
+    wrap.appendChild(top);
+
+    var track = document.createElement("div");
+    track.className = "mcard-slider-track";
+    track.tabIndex = 0;
+    track.setAttribute("role", "slider");
+    track.setAttribute("aria-label", spec.label);
+    track.setAttribute("aria-valuemin", String(spec.min));
+    track.setAttribute("aria-valuemax", String(spec.max));
+
+    var fill = document.createElement("div");
+    fill.className = "mcard-slider-fill";
+    var knob = document.createElement("div");
+    knob.className = "mcard-slider-handle";
+    track.appendChild(fill);
+    track.appendChild(knob);
+    wrap.appendChild(track);
+
+    var zero = spec.bipolar ? clamp(norm(spec, 0), 0, 1) : 0;
+    var current = clamp(value, spec.min, spec.max);
+
+    function paint() {
+      var position = clamp(norm(spec, current), 0, 1);
+      fill.style.left = (Math.min(zero, position) * 100) + "%";
+      fill.style.width = (Math.abs(position - zero) * 100) + "%";
+      knob.style.left = (position * 100) + "%";
+      readout.textContent = display(spec, current);
+      track.setAttribute("aria-valuenow", String(current));
+      track.setAttribute("aria-valuetext", display(spec, current));
+    }
+
+    function set(next, send) {
+      current = clamp(next, spec.min, spec.max);
+      if (spec.kind === "int") current = Math.round(current);
+      paint();
+      if (send && onEdit) onEdit(spec.id, current);
+    }
+
+    function apply(event) {
+      var box = track.getBoundingClientRect();
+      var position = box.width > 0 ? (event.clientX - box.left) / box.width : 0;
+      set(at(spec, position), true);
+    }
+
+    var drag = false;
+    track.addEventListener("pointerdown", function (event) {
+      if (event.button !== 0) return;
+      drag = true;
+      track.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      apply(event);
+    });
+    track.addEventListener("pointermove", function (event) {
+      if (drag) apply(event);
+    });
+    function stop(event) {
+      if (!drag) return;
+      drag = false;
+      try { track.releasePointerCapture(event.pointerId); } catch (error) {}
+    }
+    track.addEventListener("pointerup", stop);
+    track.addEventListener("pointercancel", stop);
+    track.addEventListener("wheel", function (event) {
+      event.preventDefault();
+      set(stepBy(spec, current, event.deltaY < 0 ? 1 : -1, event.shiftKey), true);
+    }, { passive: false });
+    track.addEventListener("keydown", function (event) {
+      var fine = event.shiftKey;
+      if (event.key === "ArrowUp" || event.key === "ArrowRight") {
+        set(stepBy(spec, current, 1, fine), true);
+        event.preventDefault();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowLeft") {
+        set(stepBy(spec, current, -1, fine), true);
+        event.preventDefault();
+      } else if (event.key === "Home") {
+        set(spec.min, true);
+        event.preventDefault();
+      } else if (event.key === "End") {
+        set(spec.max, true);
+        event.preventDefault();
+      }
+    });
+
+    paint();
+    return { el: wrap, set: set };
+  }
+
+  function makeSwitch(spec, value, onEdit) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "mcard-switch";
+    var current = !!value;
+    var thumb = document.createElement("i");
+    button.appendChild(thumb);
+    button.setAttribute("role", "switch");
+    button.setAttribute("aria-label", spec.label);
+    button.setAttribute("aria-checked", current ? "true" : "false");
+    button.classList.toggle("on", current);
+
+    function paint() {
+      button.classList.toggle("on", current);
+      button.setAttribute("aria-checked", current ? "true" : "false");
+    }
+
+    function set(value, send) {
+      current = !!value;
+      paint();
+      if (send && onEdit) onEdit(spec.id, current ? 1 : 0);
+    }
+
+    button.addEventListener("click", function () {
+      set(!current, true);
+    });
+
+    paint();
+    return { el: button, set: set };
+  }
+
+  function makeToggle(spec, value, onEdit) {
+    return makeSwitch(spec, value, onEdit).el;
+  }
+
+  function makeNotePickerHandle(spec, value, onEdit) {
+    var labels = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    var mask = Math.round(Number(value) || 0) & 4095;
+    var wrap = document.createElement("div");
+    wrap.className = "mcard-notes";
+    wrap.setAttribute("role", "group");
+    wrap.setAttribute("aria-label", spec.label);
+    var buttons = [];
+
+    function paint() {
+      buttons.forEach(function (button, index) {
+        var on = (mask & (1 << index)) !== 0;
+        button.classList.toggle("on", on);
+        button.setAttribute("aria-checked", on ? "true" : "false");
+      });
+    }
+
+    function set(next) {
+      mask = Math.round(Number(next) || 0) & 4095;
+      paint();
+    }
+
+    labels.forEach(function (label, index) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "mcard-note" + (label.length > 1 ? " sharp" : "");
+      button.textContent = label;
+      button.setAttribute("role", "checkbox");
+      button.setAttribute("aria-label", label);
+      button.addEventListener("click", function () {
+        mask ^= 1 << index;
+        paint();
+        if (onEdit) onEdit(spec.id, mask);
+      });
+      buttons.push(button);
+      wrap.appendChild(button);
+    });
+
+    paint();
+    return { el: wrap, set: set };
+  }
+
+  function makeNotePicker(spec, value, onEdit) {
+    return makeNotePickerHandle(spec, value, onEdit).el;
+  }
+
+  function makeBodyControl(spec, value, onEdit) {
+    if (spec.widget === "notes") {
+      return makeNotePicker(spec, value, onEdit);
+    }
+
+    if (spec.kind === "bool") {
+      var row = document.createElement("div");
+      row.className = "mcard-row";
+      var toggleLabel = document.createElement("span");
+      toggleLabel.className = "mcard-row-label";
+      toggleLabel.textContent = spec.label;
+      row.appendChild(toggleLabel);
+      row.appendChild(makeSwitch(spec, value, onEdit).el);
+      return row;
+    }
+
+    if (spec.widget === "slider") {
+      return makeSliderHandle(spec, value, onEdit).el;
+    }
+
+    if (spec.widget === "choice" || (spec.kind === "int" && spec.choices && spec.choices.length)) {
+      var choiceRow = document.createElement("div");
+      choiceRow.className = "mcard-row";
+      var choiceLabel = document.createElement("span");
+      choiceLabel.className = "mcard-row-label";
+      choiceLabel.textContent = spec.label;
+      choiceRow.appendChild(choiceLabel);
+      choiceRow.appendChild(makeChoice(spec, value, onEdit));
+      return choiceRow;
+    }
+
+    return makeKnob(spec, value, onEdit).el;
+  }
+
+  function control(spec, value, onEdit) {
+    return makeBodyControl(spec, value, onEdit);
+  }
+
+  /// A bare knob with a setter, for a faceplate that owns its own layout.
+  function controlHandle(spec, value, onEdit) {
+    return makeKnob(spec, value, onEdit);
+  }
+
+  function setting(label, control) {
+    var box = document.createElement("div");
+    box.className = "mcard-setting";
+    var name = document.createElement("span");
+    name.className = "mcard-setting-label";
+    name.textContent = label.toUpperCase();
+    box.appendChild(name);
+    box.appendChild(control);
+    return box;
+  }
