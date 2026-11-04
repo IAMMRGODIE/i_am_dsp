@@ -413,8 +413,12 @@ fn a_bowed_cello_has_its_even_partials() {
 /// a slip: the string then repeats every *two* periods, which is a subharmonic
 /// thump at half the note, not loudness. A real bow saturates well before that,
 /// because the hair and the rosin film can only transmit so much, so the normal
-/// force is softly limited. Without the limit a violin at full bow force has its
-/// half-frequency only 5 dB under the note.
+/// force is softly limited.
+///
+/// Measured on a violin at full bow force, before the limit: the half frequency
+/// was 4.8 dB *above* the note at A2 and 3.0 dB above at C3, so what was heard
+/// was an octave-down drone with a click on every second period. After it, both
+/// are more than forty decibels down.
 #[test]
 fn a_hard_bow_does_not_double_the_period() {
 	for preset in [Preset::Violin, Preset::Cello] {
