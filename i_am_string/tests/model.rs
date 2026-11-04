@@ -232,6 +232,32 @@ fn decay_follows_the_loss_filter() {
 	);
 }
 
+/// The fundamental has to decay at the rate the losses ask for.
+///
+/// The waveguide fits one loop gain plus a one pole to the losses of every
+/// partial. Fitting that gain to the *mean* of the round-trip losses is wrong:
+/// the mean is the loss of a partial in the middle of the series, so a string
+/// with a wide partial range came out with a fundamental gain above one, which
+/// was clamped to one, and the fundamental never decayed at all. A plucked cello
+/// at C3 rang for nine seconds where its preset asks for one and a half.
+#[test]
+fn a_plucked_string_decays_at_the_rate_its_losses_ask_for() {
+	let mut string = string_with(130.81, 9e-5, 4.43, 1.23e-5);
+	string.pluck(0.1, 0.011);
+	let audio = render(&mut string, (FS * 1.5) as usize);
+
+	let level = |start: f32| {
+		let from = (start * FS) as usize;
+		let to = from + (0.5 * FS) as usize;
+		magnitude(&audio[from..to], 130.81)
+	};
+	let drop = 20.0 * (level(0.1) / level(0.6)).max(1e-9).log10();
+	assert!(
+		drop > 20.0,
+		"the fundamental only fell {drop:.1} dB in half a second"
+	);
+}
+
 #[test]
 fn a_damper_stops_the_note() {
 	let mut string = string_with(220.0, 0.0, 0.4, 0.0);

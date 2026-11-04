@@ -172,7 +172,7 @@ impl Preset {
 				params.strings = 1;
 				params.hardness = 0.5;
 				params.damping = 0.8;
-				params.brightness = 0.95;
+				params.brightness = 0.90;
 				params.inharmonicity = 1.0;
 				// The bow was fitted to a recorded cello section rather than
 				// picked by ear: force and speed were swept against the partial

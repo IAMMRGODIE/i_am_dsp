@@ -727,37 +727,50 @@ impl WaveguideString {
 	}
 }
 
-/// Fit one scalar gain plus a one pole lowpass to the requested per-round-trip
-/// decay of every partial.
+/// Fit the loop's loss: how much the fundamental loses per sample, and the tilt
+/// a one pole adds on top of that.
+///
+/// The string loses exp(-(sigma0 + sigma1 f^2)) of its amplitude per second,
+/// which is one round trip of a partial at f in 1/f0 seconds. The loss therefore
+/// has a fixed part (the fundamental) and a part that grows with the partial.
+/// The fixed part is a per-round-trip scalar -- the filter sits in the loop and
+/// sees each partial once per round trip -- and only the difference across
+/// partials is left for the one pole.
+///
+/// Fitting a single gain to the round-trip losses of every partial, which is
+/// what this did, cannot work: the mean of the log gains is the gain of a
+/// partial somewhere in the middle of the series, so the fundamental came out
+/// with a gain above one, that was clamped to one, and the string never decayed
+/// at all below the body's own resonances. A plucked cello rang for nine
+/// seconds where the preset asks for one and a half.
 fn design_loss(partials: &[(f64, f64)], sigma0: f64, sigma1: f64, fs: f64) -> (f32, f32) {
-	let gains: Vec<f64> = partials
-		.iter()
-		.map(|&(k, f)| {
-			let sigma = sigma0 + sigma1 * f * f;
-			(-sigma * k / f).exp()
-		})
-		.collect();
+	let f0 = partials[0].1.max(1.0);
+	let round_trip = |f: f64| (-(sigma0 + sigma1 * f * f) / f0).exp();
+	let fundamental = round_trip(f0);
+	// The loss filter sits where the wave turns round, so it sees each partial
+	// once per round trip, not once per sample.
+	let gain = fundamental.min(1.0);
+
 	let omegas: Vec<f64> = partials
 		.iter()
 		.map(|&(_, f)| std::f64::consts::TAU * f / fs)
 		.collect();
-	let logs: Vec<f64> = gains.iter().map(|g| g.max(1e-12).ln()).collect();
+	// What is left for the filter: the extra loss of every partial over the
+	// fundamental, per round trip.
+	let logs: Vec<f64> = partials
+		.iter()
+		.map(|&(_, f)| (round_trip(f) / fundamental).clamp(1e-12, 1.0).ln())
+		.collect();
 
 	let objective = |a: f64| {
 		let residuals: Vec<f64> = (0..logs.len())
 			.map(|i| logs[i] - OnePole::magnitude(a, omegas[i]).max(1e-12).ln())
 			.collect();
-		let mean = residuals.iter().sum::<f64>() / residuals.len() as f64;
-		residuals.iter().map(|r| (r - mean) * (r - mean)).sum()
+		residuals.iter().map(|r| r * r).sum()
 	};
 
 	let a = golden_section(&objective, 0.0, 0.995, 26);
-	let mean = (0..logs.len())
-		.map(|i| logs[i] - OnePole::magnitude(a, omegas[i]).max(1e-12).ln())
-		.sum::<f64>()
-		/ logs.len() as f64;
-	let gain = mean.exp().min(1.0) as f32;
-	(a as f32, gain)
+	(a as f32, gain as f32)
 }
 
 fn golden_section(f: &impl Fn(f64) -> f64, mut lo: f64, mut hi: f64, iterations: usize) -> f64 {
