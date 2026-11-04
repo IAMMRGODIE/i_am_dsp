@@ -192,12 +192,13 @@ fn the_two_cores_play_at_the_same_level() {
 fn a_settled_string_stops_computing() {
 	let mut engine = StringEngine::new(FS);
 	engine.set_preset(Preset::Guitar);
-	let spec = Preset::Guitar.spec(60, 1.0, engine.params());
+	let mut spec = Preset::Guitar.spec(60, 1.0, engine.params());
+	// This test is about the modes going to sleep, not about how long a guitar
+	// rings; the decay law has tests of its own. Damp it so the wait is short.
+	spec.string.sigma0 *= 4.0;
 	let mut string = StringCore::new(Core::Modal, FS, &spec.string);
 	string.pluck(spec.position, spec.pluck_amplitude);
-	// A guitar note now has a slow tail on purpose, so it needs longer than the
-	// bare loss law to fall under the floor.
-	for _ in 0..(FS as usize * 14) {
+	for _ in 0..(FS as usize * 8) {
 		string.step();
 	}
 	assert!(

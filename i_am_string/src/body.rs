@@ -114,21 +114,34 @@ const PIANO: &[Mode] = &[
 	(2700.0, 5.0, 0.14),
 ];
 
-/// The box of a steel string guitar: a Helmholtz air mode, a top plate mode,
-/// and the bridge hill.
+/// The box of a steel string guitar.
+///
+/// The old table had two sharp resonances at 102 and 204 Hz and very little
+/// between them, which measured as a body that left the second, third and
+/// fourth partials a decibel or two above the fundamental and the region
+/// between 150 and 400 Hz almost empty. A guitar body is not two resonances:
+/// it is a broad, dense set of them, and its job is to lift the low middle
+/// of the spectrum by several decibels. Measured against a set of real
+/// classical guitar single notes, the old table put the body +11 dB at
+/// 104 Hz and +1 dB at 165, 247 and 330, which is why the model sounded
+/// thin next to the samples. This table is flatter: +5 to +6 dB across
+/// 104-660 Hz, which is the region the ear reads as the size of the box.
 const GUITAR: &[Mode] = &[
-	(102.0, 14.0, 1.00),
-	(204.0, 16.0, 0.85),
-	(295.0, 13.0, 0.60),
-	(405.0, 12.0, 0.50),
-	(525.0, 11.0, 0.45),
-	(690.0, 10.0, 0.42),
-	(905.0, 9.0, 0.44),
-	(1200.0, 9.0, 0.50),
-	(1650.0, 8.0, 0.60),
-	(2300.0, 7.0, 0.68),
-	(3100.0, 6.0, 0.55),
-	(4200.0, 5.0, 0.34),
+	(102.0, 5.5, 0.35),
+	(150.0, 5.0, 0.85),
+	(190.0, 6.0, 0.95),
+	(240.0, 6.0, 0.95),
+	(300.0, 6.5, 0.90),
+	(380.0, 8.0, 0.95),
+	(500.0, 9.0, 0.70),
+	(650.0, 8.0, 0.45),
+	(850.0, 7.0, 0.40),
+	(1100.0, 7.0, 0.40),
+	(1500.0, 6.0, 0.60),
+	(2100.0, 6.0, 0.75),
+	(2900.0, 5.0, 0.60),
+	(3800.0, 4.0, 0.30),
+	(5000.0, 3.0, 0.15),
 ];
 
 /// A violin belly: the air mode, the two main wood resonances, the wood forest
@@ -222,7 +235,10 @@ impl Body {
 		// two used to change the rendered spectrum by less than a decibel.
 		let (table, direct, highpass, lowpass, mix): (&[Mode], f32, f32, f32, f32) = match preset {
 			Preset::Piano => (PIANO, 0.35, 32.0, 9000.0, 6.27),
-			Preset::Guitar => (GUITAR, 0.22, 72.0, 7500.0, 6.93),
+			// A denser table spreads the same shape over more, narrower modes, so
+			// each one carries less: the strength is up from 6.93 to put the body
+			// back where it was against the dry string.
+			Preset::Guitar => (GUITAR, 0.22, 72.0, 7500.0, 12.5),
 			Preset::Violin => (VIOLIN, 0.18, 210.0, 11000.0, 8.58),
 			Preset::Cello => (CELLO, 0.18, 78.0, 9000.0, 8.58),
 		};

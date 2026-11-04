@@ -620,7 +620,10 @@ impl ModalString {
 	/// `amplitude` is the peak displacement as a fraction of the speaking
 	/// length. The mode amplitudes of a triangle are known in closed form.
 	pub fn pluck(&mut self, position: f32, amplitude: f32) {
-		let beta = position.clamp(0.01, 0.5) as f64;
+		// The pluck point is given from the nut, and the triangle is not
+		// symmetric about the middle: 0.75 is the soundhole of a guitar and
+		// 0.25 is the same point seen from the other end.
+		let beta = position.clamp(0.01, 0.95) as f64;
 		// The amplitude is a fraction of the speaking length and the mode
 		// coordinates are displacements, so it has to become a length before the
 		// mode sum means anything. Leaving it as a fraction and reading metres
@@ -653,6 +656,38 @@ impl ModalString {
 		}
 		self.envelope = 0.0;
 		self.rebuild_modes();
+	}
+
+	/// Release the string from a triangular displacement over a finite time.
+	///
+	/// `seconds` is how long the finger takes to slip off. The string follows
+	/// it while it is still touching, so it is already moving when contact is
+	/// lost: the displacement is the same triangle, but every mode starts
+	/// with a velocity as well. The partials are unchanged; what changes is
+	/// the first few milliseconds, which are no longer a step.
+	pub fn pluck_with_release(&mut self, position: f32, amplitude: f32, seconds: f32) {
+		self.pluck(position, amplitude);
+		if seconds <= 0.0 {
+			return;
+		}
+		let beta = position.clamp(0.01, 0.95) as f64;
+		// The finger is a few millimetres wide, and the string does not keep
+		// up with the whole stroke: it slips before the finger has gone far.
+		// A quarter of the finger's speed is what the string keeps.
+		let width = 0.006;
+		let height = amplitude as f64 * self.length as f64;
+		let velocity = -0.25 * height / seconds.max(1e-4) as f64;
+		let pi = std::f64::consts::PI;
+		for mode in &mut self.modes {
+			let n = mode.order as f64;
+			let aperture = n * pi * width * 0.5;
+			let aperture = if aperture.abs() < 1e-9 {
+				1.0
+			} else {
+				aperture.sin() / aperture
+			};
+			mode.v = (4.0 * velocity / (n * pi) * (n * pi * beta).sin() * aperture) as f32;
+		}
 	}
 
 	/// Tell every port to let go of the string.

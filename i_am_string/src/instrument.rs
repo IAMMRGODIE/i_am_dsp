@@ -69,6 +69,8 @@ pub struct VoiceSpec {
 	pub detune_cents: f32,
 	/// The pluck displacement as a fraction of the speaking length.
 	pub pluck_amplitude: f32,
+	/// How long the finger takes to slip off, in seconds; zero is instant.
+	pub pluck_release: f32,
 	/// The hammer mass, in kilograms.
 	pub hammer_mass: f32,
 	/// The hammer velocity at impact, in metres per second.
@@ -241,7 +243,13 @@ impl Preset {
 		// bow keeps feeding the string, so the preset's T60 is really the decay
 		// of a note after the bow lifts. Left alone, a pizzicato rang for 1.5
 		// seconds where the recorded ones last about one.
-		if params.excitation == Excitation::Pluck {
+		//
+		// Only the bowed presets need it. Their T60 anchors describe a note
+		// under the bow; a guitar's and a piano's describe the note itself,
+		// and shortening those made a guitar's low E die in 5.6 s where a real
+		// one rings for about 8.
+		if params.excitation == Excitation::Pluck && matches!(self, Preset::Cello | Preset::Violin)
+		{
 			sigma0 *= 1.6;
 		}
 
@@ -357,7 +365,17 @@ impl Preset {
 			// the fingerboard ends - so the pluck point follows the control but
 			// sits well inside it. Plucking where the bow sits gave the attack a
 			// centroid of 320 Hz on a cello's C3 against 160 in the recording.
-			(params.position + 0.2).clamp(0.15, 0.45)
+			//
+			// A guitar is the exception: the hand hangs over the soundhole,
+			// three quarters of the way down the string, not over the end of
+			// the fingerboard. Plucking a guitar at 0.4 put a null on its fifth
+			// partial and left the second twenty decibels under the first,
+			// which is exactly what a thin guitar sounds like.
+			if matches!(self, Preset::Guitar) {
+				(params.position + 0.52).clamp(0.60, 0.85)
+			} else {
+				(params.position + 0.2).clamp(0.15, 0.45)
+			}
 		} else {
 			params.position.clamp(0.01, 0.5)
 		};
@@ -371,7 +389,20 @@ impl Preset {
 			// slope: T h / (L (1 - beta)). In units of the speaking length that
 			// is T A / (1 - beta). It is exact rather than an estimate, because
 			// the string is already in that state before it is let go.
-			Excitation::Pluck => tension * (0.003 + 0.013) / (1.0 - position),
+			//
+			// Normalised by the energy the triangle carries, not by the force at
+			// the bridge corner. The corner's force goes as 1/(1 - beta), so a
+			// pluck moved from the middle to the soundhole would be turned down
+			// by the gain stage by four decibels even though the note carries
+			// the same energy - and the position control would double as a
+			// volume control, which is what made the soundhole pluck quiet.
+			Excitation::Pluck => {
+				let beta = position.clamp(0.02, 0.98);
+				// 0.0125 rather than the full 0.016 amplitude keeps the rendered
+				// level where the old corner-force normalisation had it, while
+				// removing its dependence on where along the string the pluck is.
+				tension * 0.0125 / (beta * (1.0 - beta)).sqrt()
+			}
 			Excitation::Hammer => {
 				// The peak force of a felt hammer follows from the energy it
 				// carries and the stiffness of the felt:
@@ -407,6 +438,15 @@ impl Preset {
 			Excitation::Bow => 2,
 		};
 
+		// The string does not let go in a single sample. A plectrum releases in
+		// under a millisecond, a fingertip in three or four, and a soft pluck
+		// takes longer than a hard one.
+		let pluck_release = if params.excitation == Excitation::Pluck {
+			0.0015 + 0.0025 * (1.0 - velocity)
+		} else {
+			0.0
+		};
+
 		VoiceSpec {
 			string,
 			excitation: params.excitation,
@@ -414,6 +454,7 @@ impl Preset {
 			strings: params.strings.clamp(1, 4),
 			detune_cents: params.detune_cents.max(0.0),
 			pluck_amplitude,
+			pluck_release,
 			hammer_mass,
 			hammer_velocity,
 			hammer_exponent,

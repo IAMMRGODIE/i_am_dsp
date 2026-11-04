@@ -188,6 +188,43 @@ fn the_pluck_contact_darkens_the_attack() {
 	);
 }
 
+/// A finite release leaves the string moving when the finger lets go.
+///
+/// The spectral magnitude barely moves - a release that is smooth in time is
+/// still smooth in frequency - but the first samples and the phase of every
+/// partial are different, which is what the attack is made of. The test
+/// checks that the difference is real and that the string stays bounded.
+#[test]
+fn a_finite_release_starts_the_string_moving() {
+	let mut instant = StringCore::new(Core::Modal, FS, &config(110.0));
+	instant.pluck(0.25, 0.01);
+	let mut released = StringCore::new(Core::Modal, FS, &config(110.0));
+	released.pluck_with_release(0.25, 0.01, 0.004);
+
+	let frames = (FS * 0.01) as usize;
+	let a: Vec<f32> = (0..frames).map(|_| instant.step()).collect();
+	let b: Vec<f32> = (0..frames).map(|_| released.step()).collect();
+	let peak = a
+		.iter()
+		.chain(b.iter())
+		.fold(0.0f32, |peak, value| peak.max(value.abs()));
+	let difference = a
+		.iter()
+		.zip(b.iter())
+		.map(|(x, y)| (x - y).abs())
+		.fold(0.0f32, f32::max);
+	assert!(peak > 1e-4, "the pluck was silent");
+	assert!(
+		difference > 0.01 * peak,
+		"the release made no difference: {difference} against a peak of {peak}"
+	);
+	assert!(
+		b.iter()
+			.all(|value| value.is_finite() && value.abs() < 10.0),
+		"the release ran away"
+	);
+}
+
 /// A stab is released harder than a note that has been left ringing.
 ///
 /// The usual note-off is one damper for every gesture. A hand that has been

@@ -164,6 +164,18 @@ impl StringCore {
 		}
 	}
 
+	/// Release the string over `seconds` rather than instantly.
+	///
+	/// Only the mode bank models the release; the waveguide takes the same
+	/// string but lets go in one sample, which is one of the differences
+	/// between the two cores rather than a property of the excitation.
+	pub fn pluck_with_release(&mut self, position: f32, amplitude: f32, seconds: f32) {
+		match self {
+			StringCore::Waveguide(string) => string.pluck(position, amplitude),
+			StringCore::Modal(string) => string.pluck_with_release(position, amplitude, seconds),
+		}
+	}
+
 	/// Add an excitation point with its own contact law.
 	pub fn add_port(&mut self, position: f32, law: Box<dyn ContactLaw>, substeps: u32) {
 		match self {

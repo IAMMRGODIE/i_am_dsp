@@ -597,7 +597,7 @@ impl WaveguideString {
 	/// length. The initial shape is split into the two travelling waves exactly,
 	/// which is the whole of a pluck: F = -/+ (T/2) dy0/dx.
 	pub fn pluck(&mut self, position: f32, amplitude: f32) {
-		let beta = position.clamp(0.01, 0.5);
+		let beta = position.clamp(0.01, 0.95);
 		let n = self.nominal.max(1.0);
 		let half_tension = 0.5 * self.tension;
 		let left_slope = amplitude / beta;

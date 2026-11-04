@@ -114,7 +114,12 @@ impl ContactLaw for PluckLaw {
 		self.stiffness * self.finger_y.abs() + self.damping * self.finger_v.abs() + 1.0
 	}
 
-	fn advance(&mut self, _string_y: f32, _string_v: f32, _dt: f32) {}
+	fn advance(&mut self, _string_y: f32, _string_v: f32, dt: f32) {
+		// The finger keeps moving while it is still touching the string, so a
+		// release that takes a millisecond is a millisecond of the finger
+		// withdrawing rather than an instant of the force disappearing.
+		self.finger_y += self.finger_v * dt;
+	}
 }
 
 /// A piano hammer: a mass with a non-linear felt spring.

@@ -770,7 +770,9 @@ fn unison_offset(index: usize, count: usize) -> f32 {
 
 fn excite(string: &mut StringCore, spec: &VoiceSpec) {
 	match spec.excitation {
-		Excitation::Pluck => string.pluck(spec.position, spec.pluck_amplitude),
+		Excitation::Pluck => {
+			string.pluck_with_release(spec.position, spec.pluck_amplitude, spec.pluck_release)
+		}
 		Excitation::Hammer => string.add_port(
 			spec.position,
 			Box::new(HammerLaw::new(
