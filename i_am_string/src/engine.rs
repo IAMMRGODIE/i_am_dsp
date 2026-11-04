@@ -136,6 +136,8 @@ struct Attack {
 	high: NoiseBand,
 	/// The felt dragging across the string as the hammer lets go.
 	scrape: NoiseBand,
+	/// The room the instrument is standing in, as a short bed of noise.
+	bed: NoiseBand,
 	/// The keybed and soundboard knock: five fixed low resonances, rung by
 	/// the impact and gone in two thirds of a second.
 	knock: Vec<f32>,
@@ -197,6 +199,7 @@ impl Attack {
 			low: NoiseBand::new(1000.0),
 			high: NoiseBand::new(3000.0),
 			scrape: NoiseBand::new(4000.0),
+			bed: NoiseBand::new(3500.0),
 			knock: Vec::new(),
 			knock_index: 0,
 			knock_gain: 0.0,
@@ -271,11 +274,20 @@ impl Attack {
 			.trigger_highpass(centre, q, level, seconds, sample_rate);
 	}
 
+	/// The room's bed: the noise a real recording has under the note, which a
+	/// dry model does not. It is not the string and it is not the hammer; it
+	/// is the microphone hearing the room after both have stopped.
+	fn trigger_bed(&mut self, level: f32, seconds: f32, sample_rate: f32) {
+		self.bed.trigger(3500.0, 0.7, level, seconds, sample_rate);
+	}
+
 	#[inline]
 	fn process(&mut self) -> f32 {
 		let noise = self.rng.bipolar();
-		let mut value =
-			self.low.process(noise) + self.high.process(noise) + self.scrape.process(noise);
+		let mut value = self.low.process(noise)
+			+ self.high.process(noise)
+			+ self.scrape.process(noise)
+			+ self.bed.process(noise);
 		if self.knock_index < self.knock.len() {
 			value += self.knock[self.knock_index] * self.knock_gain;
 			self.knock_index += 1;
@@ -563,6 +575,11 @@ impl StringEngine {
 					0.025,
 					self.sample_rate,
 				);
+				// The room under the note. A dry model never has the noise floor
+				// a recording does, and that floor is a large part of what makes
+				// a real waveform look rough above a kilohertz.
+				self.attack
+					.trigger_bed(scale * 0.03 * velocity.powf(1.5), 0.2, self.sample_rate);
 			}
 			Excitation::Pluck => {
 				self.attack.trigger(
