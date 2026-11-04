@@ -157,16 +157,14 @@ impl Preset {
 				params.body = 0.9;
 				params.gain = 0.8;
 				params.sympathetic = 0.35;
-				// The vibrato measured on a recorded string section: about five
-				// and a third shakes a second, fifteen cents either way, and it
-				// arrives rather than starting with the note. The old 42 cents
-				// was a caricature - wide enough to hear the modulation instead
-				// of the note, and it began 90 ms in, which is before a player's
-				// hand has moved.
-				params.vibrato_rate = 5.3;
-				params.vibrato_depth = 24.0;
-				params.vibrato_delay = 0.28;
-				params.vibrato_onset = 0.35;
+				// The vibrato measured on a solo violin recording: five shakes a
+				// second and thirteen cents either way. The old 42 cents was a
+				// caricature - wide enough to hear the modulation instead of the
+				// note - and it began 90 ms in, before a player's hand has moved.
+				params.vibrato_rate = 4.9;
+				params.vibrato_depth = 19.0;
+				params.vibrato_delay = 0.22;
+				params.vibrato_onset = 0.3;
 			}
 			Preset::Cello => {
 				params.excitation = Excitation::Bow;

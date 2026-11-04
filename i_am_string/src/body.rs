@@ -214,11 +214,17 @@ impl Body {
 	/// share. That is the difference between an instrument and a mono source
 	/// panned into the middle of the stereo field.
 	pub(crate) fn for_preset(preset: Preset, sample_rate: f32, side: f32) -> Self {
-		let (table, direct, highpass, lowpass): (&[Mode], f32, f32, f32) = match preset {
-			Preset::Piano => (PIANO, 0.35, 32.0, 9000.0),
-			Preset::Guitar => (GUITAR, 0.22, 72.0, 7500.0),
-			Preset::Violin => (VIOLIN, 0.18, 210.0, 11000.0),
-			Preset::Cello => (CELLO, 0.18, 78.0, 9000.0),
+		// The mode bank's strength is a constant per instrument, and the table's
+		// gains are normalised to a sum of one: the shape of the body and how
+		// much of it is heard are then two separate numbers. Without that split
+		// the normalisation cancels any edit to the gains, and a body measured
+		// from a recording cannot be made to fit -- scaling every resonance by
+		// two used to change the rendered spectrum by less than a decibel.
+		let (table, direct, highpass, lowpass, mix): (&[Mode], f32, f32, f32, f32) = match preset {
+			Preset::Piano => (PIANO, 0.35, 32.0, 9000.0, 6.27),
+			Preset::Guitar => (GUITAR, 0.22, 72.0, 7500.0, 6.93),
+			Preset::Violin => (VIOLIN, 0.18, 210.0, 11000.0, 8.58),
+			Preset::Cello => (CELLO, 0.18, 78.0, 9000.0, 8.58),
 		};
 
 		let modes: Vec<Biquad> = table
@@ -233,14 +239,18 @@ impl Body {
 				Biquad::bandpass(frequency * detune, q / detune.sqrt(), sample_rate)
 			})
 			.collect();
-		let gains: Vec<f32> = table
+		let raw: Vec<f32> = table
 			.iter()
 			.enumerate()
 			.map(|(index, (_, _, gain))| gain * (1.0 + 0.30 * scatter(index + 11, side)))
 			.collect();
-		// Normalise so that the body neither buries the string nor disappears
-		// behind it whichever note is played.
-		let total = direct + gains.iter().sum::<f32>() * 0.5;
+		// The gains sum to the instrument's strength, not to whatever the table
+		// happens to add up to, so the mode bank neither buries the string nor
+		// disappears behind it, and a resonance can be asked for more strongly
+		// than its neighbours without the normalisation eating the difference.
+		let sum = raw.iter().sum::<f32>().max(1e-6);
+		let gains: Vec<f32> = raw.iter().map(|gain| mix * gain / sum).collect();
+		let total = direct + mix * 0.5;
 		Self {
 			modes,
 			gains,
