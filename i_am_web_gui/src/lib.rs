@@ -53,8 +53,18 @@ use i_am_plugin::{Editor, Plugin};
 const PAGE: &str = include_str!("page/index.html");
 /// The page's styles.
 const STYLE: &str = include_str!("page/kit.css");
-/// The page's script.
-const SCRIPT: &str = include_str!("page/kit.js");
+/// The page's script, one IIFE split over the files in page/kit.
+const SCRIPT: &str = concat!(
+	include_str!("page/kit/state.js"),
+	include_str!("page/kit/format.js"),
+	include_str!("page/kit/controls.js"),
+	include_str!("page/kit/eq.js"),
+	include_str!("page/kit/heroes.js"),
+	include_str!("page/kit/polls.js"),
+	include_str!("page/kit/face.js"),
+	include_str!("page/kit/build.js"),
+	include_str!("page/kit/boot.js"),
+);
 
 /// The card a faceplate and a rack module share, served at `/card.css`.
 pub const CARD_STYLE: &str = include_str!("page/card.css");
@@ -603,7 +613,7 @@ mod ui_contract_tests {
 	/// needs its own atan curve.
 	#[test]
 	fn bipolar_log_parameters_use_symlog_in_both_pages() {
-		for script in [CARD_SCRIPT, include_str!("page/kit.js")] {
+		for script in [CARD_SCRIPT, SCRIPT] {
 			assert!(script.contains("Math.asinh"), "missing symlog forward map");
 			assert!(script.contains("Math.sinh"), "missing symlog inverse map");
 			assert!(
@@ -649,7 +659,7 @@ mod ui_contract_tests {
 			"the note picker needs a selected state"
 		);
 		assert!(
-			include_str!("page/kit.js").contains("buildNotePicker"),
+			SCRIPT.contains("buildNotePicker"),
 			"the faceplate does not build the note picker"
 		);
 		assert!(
