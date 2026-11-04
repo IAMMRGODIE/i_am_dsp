@@ -1,0 +1,846 @@
+//! The partitioned FFT convolver: an IR split into hops the audio thread can keep up with.
+
+use std::sync::Arc;
+
+use i_am_dsp_derive::Parameters;
+use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
+use rustfft::num_complex::Complex;
+use wide::f32x4;
+
+use super::{format_ir, parse_ir};
+
+use crate::{Effect, ProcessContext};
+
+const FFT_CONVOLVER_HISTORY_LEN: usize = 64;
+
+/// The longest hop a partition grows to, in input samples.
+///
+/// The partition length and hop double together, so that every octave of the
+/// impulse response is only transformed at its own rate. Doubling stops here
+/// because a partition with hop h is transformed with an FFT of up to 2 * h
+/// points, and that single transform has to fit inside one audio block: a longer
+/// partition would make the block that evaluates it proportionally more
+/// expensive, and unlike the first block it cannot be evaluated directly. The
+/// rest of the impulse response is covered by partitions of this size.
+pub(crate) const MAX_PARTITION_HOP: usize = 16384;
+
+/// Input values below this are flushed to zero.
+///
+/// The transforms run an order of magnitude slower on subnormals, and a
+/// signal that has decayed to -500 dB is inaudible anyway.
+const DENORMAL_THRESHOLD: f32 = 1e-25;
+
+/// Convolve one sample against the direct head coefficients.
+///
+/// The block transforms can only produce their first sample once a whole hop of
+/// input has been collected, so the taps of the first hop are evaluated in the
+/// time domain instead: that is what makes the convolver zero latency, at the
+/// price of 'coeffs.len()' multiply-adds per sample per channel. 'coeffs' holds
+/// the impulse response taps in reverse, so the window, which is in
+/// chronological order, is read forwards like the coefficients.
+///
+/// Four taps per multiply-add is as far as this is worth taking. The loop is
+/// bound by reading the window, and a wider version with avx2 and fma behind a
+/// runtime check measured no faster: the loads it saves are not the bottleneck.
+/// See 'FftBuffer::frame' for what the bottleneck is.
+fn head_convolve(coeffs: &[f32], window: &[f32]) -> f32 {
+	let mut sum = f32x4::ZERO;
+	let (coefficients, coefficient_tail) = coeffs.as_chunks::<4>();
+	let (samples, sample_tail) = window.as_chunks::<4>();
+	for (coefficients, samples) in coefficients.iter().zip(samples.iter()) {
+		sum = f32x4::from(*coefficients).mul_add(f32x4::from(*samples), sum);
+	}
+	let mut output = sum.reduce_add();
+	for (coefficient, sample) in coefficient_tail.iter().zip(sample_tail) {
+		output += coefficient * sample;
+	}
+	output
+}
+
+/// A single partition of the impulse response.
+///
+/// The partition covers the taps [offset, offset + segment_len) and consumes
+/// 'hop' new input samples per evaluation. The linear convolution of one hop of
+/// input with the segment uses an FFT of size next_power_of_two(hop +
+/// segment_len - 1), so a partition that covers one octave of the impulse
+/// response is only transformed once per octave of input instead of once per
+/// block. Both the input window and the impulse response segment are real, so
+/// the transforms are real-to-complex and complex-to-real and only the N / 2 + 1
+/// non-redundant bins are stored and multiplied.
+///
+/// 'offset' is always at least 'hop', so the result of an evaluation starts at
+/// the sample that is played out next and the convolver has no latency.
+///
+/// 'phase' staggers the partitions inside their 'hop_blocks' cycle so that they
+/// do not all run in the same audio block. Any phase is correct: a partition
+/// always convolves its most recent 'hop' input samples, so the phase only
+/// decides which block pays for which FFT, not what is computed.
+struct FftPartition {
+	/// Offset of this partition inside the impulse response.
+	offset: usize,
+	/// Input samples consumed by one evaluation (a multiple of the block size).
+	hop: usize,
+	/// Number of input blocks between two evaluations (hop / block_size).
+	hop_blocks: usize,
+	/// Firing phase inside the hop_blocks cycle.
+	phase: usize,
+	/// Number of impulse response taps covered by this partition.
+	segment_len: usize,
+	/// FFT size, a power of two >= hop + segment_len - 1.
+	fft_size: usize,
+	/// Precomputed half spectrum of the zero padded impulse response segment,
+	/// with the 1 / fft_size of the unnormalized inverse transform folded in.
+	ir_spectrum: Vec<Complex<f32>>,
+	/// The real input window of this partition, zero padded. The forward
+	/// transform clobbers it, so it is refilled from the block ring every time.
+	work: Vec<f32>,
+	/// Half spectrum of the current window. The inverse transform clobbers it.
+	spectrum: Vec<Complex<f32>>,
+	/// Preallocated scratch, so evaluating a partition never allocates.
+	scratch: Vec<Complex<f32>>,
+	/// Forward transform of size fft_size.
+	forward_fft: Arc<dyn RealToComplex<f32>>,
+	/// Inverse transform of size fft_size.
+	inverse_fft: Arc<dyn ComplexToReal<f32>>,
+}
+
+impl FftPartition {
+	fn new(
+		ir_segment: &[f32],
+		offset: usize,
+		hop: usize,
+		phase: usize,
+		block_size: usize,
+		planner: &mut RealFftPlanner<f32>,
+	) -> Self {
+		let segment_len = ir_segment.len();
+		// The real transforms need at least two samples, which a one sample
+		// window with a one tap segment would otherwise ask for.
+		let fft_size = (hop + segment_len - 1).max(2).next_power_of_two();
+
+		let forward_fft = planner.plan_fft_forward(fft_size);
+		let inverse_fft = planner.plan_fft_inverse(fft_size);
+
+		let mut work = forward_fft.make_input_vec();
+		let mut ir_spectrum = forward_fft.make_output_vec();
+		let mut scratch = vec![
+			Complex::ZERO;
+			forward_fft
+				.get_scratch_len()
+				.max(inverse_fft.get_scratch_len())
+		];
+		work[..segment_len].copy_from_slice(ir_segment);
+		forward_fft
+			.process_with_scratch(&mut work, &mut ir_spectrum, &mut scratch)
+			.expect("the impulse response window has the size the plan asked for");
+		// Both transforms are unnormalized, so the 1 / fft_size of the inverse
+		// transform is folded into the precomputed spectrum. The overlap-add then
+		// only has to add instead of multiply-add.
+		let inv_fft_size = 1.0 / fft_size as f32;
+		for bin in ir_spectrum.iter_mut() {
+			*bin *= inv_fft_size;
+		}
+
+		Self {
+			offset,
+			hop,
+			hop_blocks: hop / block_size,
+			phase,
+			segment_len,
+			fft_size,
+			ir_spectrum,
+			work,
+			spectrum: forward_fft.make_output_vec(),
+			scratch,
+			forward_fft,
+			inverse_fft,
+		}
+	}
+
+	/// Convolve the most recent 'hop' input samples with this partition and
+	/// overlap-add the result into the output accumulator.
+	///
+	/// 'history' holds history_mask + 1 completed input blocks of 'block_size'
+	/// samples, 'window_start' is the ring position of the oldest block of this
+	/// partition's window, 'acc_start' is where the result lands in the output
+	/// accumulator, and the accumulator wraps at its own length.
+	fn process(
+		&mut self,
+		history: &[f32],
+		window_start: usize,
+		history_mask: usize,
+		block_size: usize,
+		acc: &mut [f32],
+		acc_start: usize,
+	) {
+		// Gather the input window in chronological order. Ring slots that have
+		// not been written yet are still zero, which is exactly what the samples
+		// before the start of the stream are, so early windows need no special
+		// case.
+		for i in 0..self.hop_blocks {
+			let source = &history[((window_start + i) & history_mask) * block_size..][..block_size];
+			self.work[i * block_size..][..block_size].copy_from_slice(source);
+		}
+		// The zero padding past the window still holds the previous evaluation
+		// and has to be cleared before the forward transform.
+		self.work[self.hop..].fill(0.0);
+
+		self.forward_fft
+			.process_with_scratch(&mut self.work, &mut self.spectrum, &mut self.scratch)
+			.expect("the input window has the size the plan asked for");
+		for (spectrum, ir) in self.spectrum.iter_mut().zip(self.ir_spectrum.iter()) {
+			*spectrum *= *ir;
+		}
+		self.inverse_fft
+			.process_with_scratch(&mut self.spectrum, &mut self.work, &mut self.scratch)
+			.expect("the spectrum has the size the plan asked for");
+
+		// Only hop + segment_len - 1 samples of the circular convolution are the
+		// linear convolution, and the spectrum already carries the 1 / fft_size of
+		// the unnormalized inverse transform.
+		let end = (self.hop + self.segment_len - 1).min(self.fft_size);
+		// Splitting the overlap-add where the accumulator ring wraps keeps both
+		// halves contiguous, which is what lets the add vectorize.
+		let first = (acc.len() - acc_start).min(end);
+		for (acc, result) in acc[acc_start..].iter_mut().zip(self.work[..first].iter()) {
+			*acc += *result;
+		}
+		let rest = end - first;
+		for (acc, result) in acc[..rest].iter_mut().zip(self.work[first..end].iter()) {
+			*acc += *result;
+		}
+	}
+}
+
+/// The streaming FFT convolution engine.
+///
+/// The convolver is zero latency. The first hop of the impulse response is
+/// convolved directly, sample by sample, because a block transform can only
+/// produce its first sample after a whole hop of input has been collected. The
+/// rest of the impulse response is split into non-uniform partitions whose
+/// length and hop both grow by powers of two, so one partition covers one octave
+/// of the impulse response and is only evaluated once per octave of input; every
+/// evaluation overlap-adds its result into a single output accumulator. Because
+/// every partition keeps offset >= hop, its result starts exactly at the sample
+/// that is played out next, which is what removes the block of latency a
+/// partitioned convolver normally has.
+///
+/// This keeps the per-sample cost proportional to log(ir_len) plus the direct
+/// head. Evaluating every partition on every block instead costs the whole
+/// impulse response per block, that is O(ir_len) per sample, which is what a
+/// partitioned convolver is supposed to avoid.
+pub(crate) struct FftBuffer<
+	const CHANNELS: usize = 2,
+	const FFT_SIZE: usize = FFT_CONVOLVER_HISTORY_LEN,
+> {
+	/// The raw impulse response, kept for serialization.
+	ir: [Vec<f32>; CHANNELS],
+	/// The first FFT_SIZE taps of every channel in reverse, or the whole impulse
+	/// response when it is shorter than one block: the direct head.
+	head: [Vec<f32>; CHANNELS],
+	/// The most recent 2 * FFT_SIZE input samples of every channel. Each sample is
+	/// written twice, at 'pos' and at 'pos + FFT_SIZE', so that the head window is
+	/// always contiguous and needs no wrapping.
+	head_window: [Vec<f32>; CHANNELS],
+	/// Per-channel partition structures.
+	partitions: [Vec<FftPartition>; CHANNELS],
+	/// Completed input blocks as a ring (history_mask + 1 blocks of FFT_SIZE).
+	history: [Vec<f32>; CHANNELS],
+	/// Ring position the next completed block is written to.
+	history_pos: usize,
+	/// Mask for the block ring.
+	history_mask: usize,
+	/// The input block currently being filled.
+	current_block: [Vec<f32>; CHANNELS],
+	/// Output accumulator ring. The partitions add into it, the samples are
+	/// played out one at a time, and every played sample is cleared so that the
+	/// next lap starts from silence.
+	out_acc: [Vec<f32>; CHANNELS],
+	/// Mask for the output accumulator ring.
+	acc_mask: usize,
+	/// Position within the input block being filled.
+	pos: usize,
+	/// Number of output samples already played out.
+	emit_pos: usize,
+	/// Number of completed input blocks.
+	blocks_completed: usize,
+}
+
+impl<const CHANNELS: usize, const FFT_SIZE: usize> FftBuffer<CHANNELS, FFT_SIZE> {
+	fn new(ir: [Vec<f32>; CHANNELS], _sample_rate: usize) -> Self {
+		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
+		let mut buffer = Self {
+			ir,
+			head: core::array::from_fn(|_| vec![]),
+			head_window: core::array::from_fn(|_| vec![]),
+			partitions: core::array::from_fn(|_| vec![]),
+			history: core::array::from_fn(|_| vec![]),
+			history_pos: 0,
+			history_mask: 0,
+			current_block: core::array::from_fn(|_| vec![0.0; FFT_SIZE]),
+			out_acc: core::array::from_fn(|_| vec![]),
+			acc_mask: 0,
+			pos: 0,
+			emit_pos: 0,
+			blocks_completed: 0,
+		};
+		buffer.rebuild_partitions();
+		buffer
+	}
+
+	/// Recompute the direct head and the partition layout from the current
+	/// impulse response, and clear all running state.
+	fn rebuild_partitions(&mut self) {
+		let block_size = FFT_SIZE;
+		let ir_len = self
+			.ir
+			.iter()
+			.map(|channel| channel.len())
+			.max()
+			.unwrap_or(0);
+		let max_hop = MAX_PARTITION_HOP.max(block_size);
+
+		// The direct head covers the first block of every channel, in reverse.
+		// A channel whose impulse response is shorter than a block is convolved
+		// by the head alone and gets no partitions at all.
+		self.head = core::array::from_fn(|channel| {
+			let ir = &self.ir[channel];
+			ir[..ir.len().min(block_size)]
+				.iter()
+				.rev()
+				.copied()
+				.collect()
+		});
+		self.head_window = core::array::from_fn(|_| vec![0.0; 2 * block_size]);
+
+		let mut planner = RealFftPlanner::<f32>::new();
+		self.partitions = core::array::from_fn(|channel| {
+			let ir = &self.ir[channel];
+
+			// The partitions pick up where the direct head stops, so the first
+			// one starts at one block and every later offset is at least the hop
+			// that covers it: the doubling lengths keep the coverage contiguous
+			// and the offset >= hop invariant keeps the convolver zero latency.
+			let mut layout = Vec::new();
+			let mut offset = ir.len().min(block_size);
+			let mut hop = block_size;
+			while offset < ir.len() {
+				let end = (offset + hop).min(ir.len());
+				layout.push((offset, hop, end - offset));
+				offset = end;
+				hop = (hop * 2).min(max_hop);
+			}
+
+			let count = layout.len().max(1);
+			layout
+				.iter()
+				.enumerate()
+				.map(|(i, (offset, hop, segment_len))| {
+					// Stagger the partitions across the longest cycle so that their
+					// FFTs are spread over the blocks instead of all landing in the
+					// same one. i * hop_blocks / count stays below hop_blocks, which
+					// is what the alignment of a staggered partition needs.
+					let hop_blocks = hop / block_size;
+					let phase = i * hop_blocks / count;
+					let segment = &ir[*offset..*offset + *segment_len];
+					FftPartition::new(segment, *offset, *hop, phase, block_size, &mut planner)
+				})
+				.collect()
+		});
+
+		// The block ring only has to hold the longest window any partition
+		// consumes. The accumulator has to hold the result span of one evaluation
+		// plus the block that is played out next to it, so that a partition can
+		// never wrap around onto samples that are still live.
+		let max_hop_blocks = self
+			.partitions
+			.iter()
+			.flatten()
+			.map(|partition| partition.hop_blocks)
+			.max()
+			.unwrap_or(1);
+		let max_span = self
+			.partitions
+			.iter()
+			.flatten()
+			.map(|partition| partition.hop + partition.segment_len)
+			.max()
+			.unwrap_or(0);
+		let history_blocks = max_hop_blocks.next_power_of_two();
+		let acc_len = (ir_len + block_size)
+			.max(max_span + block_size + 1)
+			.next_power_of_two();
+
+		self.history_mask = history_blocks - 1;
+		self.history = core::array::from_fn(|_| vec![0.0; history_blocks * block_size]);
+		self.history_pos = 0;
+		self.acc_mask = acc_len - 1;
+		self.out_acc = core::array::from_fn(|_| vec![0.0; acc_len]);
+		self.pos = 0;
+		self.emit_pos = 0;
+		self.blocks_completed = 0;
+		for block in self.current_block.iter_mut() {
+			block.fill(0.0);
+		}
+	}
+
+	/// Clears every running buffer, including the direct head's window and the
+	/// partition accumulator, without touching the impulse response or the FFT
+	/// partitions. The next sample starts from silence.
+	fn clear_state(&mut self) {
+		for window in &mut self.head_window {
+			window.fill(0.0);
+		}
+		for history in &mut self.history {
+			history.fill(0.0);
+		}
+		for block in &mut self.current_block {
+			block.fill(0.0);
+		}
+		for accumulator in &mut self.out_acc {
+			accumulator.fill(0.0);
+		}
+
+		self.history_pos = 0;
+		self.pos = 0;
+		self.emit_pos = 0;
+		self.blocks_completed = 0;
+	}
+
+	fn frame(&mut self, input: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		// Subnormals are flushed to zero up front, so that a signal that has
+		// decayed into the subnormal range cannot make the transforms an order of
+		// magnitude slower. Callers that can set flush to zero for their audio
+		// thread (see 'enable_flush_to_zero') do not have to pay for this.
+		let input: [f32; CHANNELS] = core::array::from_fn(|channel| {
+			let value = input[channel];
+			if value.abs() > DENORMAL_THRESHOLD {
+				value
+			} else {
+				0.0
+			}
+		});
+
+		let mut output = [0.0; CHANNELS];
+		let pos = self.pos;
+
+		// The direct head convolves the sample that has just arrived against the
+		// first block of the impulse response, so its contribution is available
+		// immediately: this is the zero latency part of the output.
+		for channel in 0..CHANNELS {
+			let window = &mut self.head_window[channel];
+			let sample = input[channel];
+
+			let head = &self.head[channel];
+			if !head.is_empty() {
+				// The oldest taps read the window that ends one sample back and the
+				// newest tap is applied straight to the sample that just arrived.
+				// Reading a window that is a whole sample old is what keeps the
+				// vector loads off the store below: loading a sample that was
+				// stored a few cycles earlier stalls on store to load forwarding,
+				// and that stall measured as expensive as the multiply-adds
+				// themselves.
+				let recent = &head[..head.len() - 1];
+				let start = pos + FFT_SIZE - recent.len();
+				output[channel] = head[head.len() - 1] * sample
+					+ head_convolve(recent, &window[start..start + recent.len()]);
+			}
+
+			// The window is written after the convolution, so the next sample
+			// finds this one where it expects it.
+			window[pos] = sample;
+			window[pos + FFT_SIZE] = sample;
+		}
+
+		// Add what the block partitions have already written for this sample.
+		// The sample is cleared while it is played, so the next lap of the
+		// accumulator ring starts from silence.
+		let index = self.emit_pos & self.acc_mask;
+		for (channel, output) in output.iter_mut().enumerate() {
+			*output += self.out_acc[channel][index];
+			self.out_acc[channel][index] = 0.0;
+		}
+		self.emit_pos += 1;
+
+		// Collect the current input sample.
+		for (channel, input) in input.iter().enumerate() {
+			self.current_block[channel][pos] = *input;
+		}
+		self.pos += 1;
+
+		// Once a full block has been collected, store it and run the partitions
+		// whose hop period has elapsed. They can only write samples from here on,
+		// which is what keeps the output causal.
+		if self.pos == FFT_SIZE {
+			self.pos = 0;
+			self.blocks_completed += 1;
+			self.compute_block();
+		}
+
+		output
+	}
+
+	/// Store the block that was just filled and let every partition whose hop
+	/// period has elapsed add its contribution to the output accumulator.
+	fn compute_block(&mut self) {
+		let block_size = FFT_SIZE;
+
+		// Store the block that was just filled; the ring keeps the most recent
+		// blocks, which is exactly the longest window any partition consumes.
+		let slot = self.history_pos;
+		for channel in 0..CHANNELS {
+			let start = slot * block_size;
+			self.history[channel][start..start + block_size]
+				.copy_from_slice(&self.current_block[channel]);
+		}
+		self.history_pos = (self.history_pos + 1) & self.history_mask;
+
+		let blocks = self.blocks_completed;
+		let emit_pos = self.emit_pos;
+		let history_pos = self.history_pos;
+		let history_mask = self.history_mask;
+		let acc_mask = self.acc_mask;
+
+		for channel in 0..CHANNELS {
+			let history = &self.history[channel];
+			let acc = &mut self.out_acc[channel];
+
+			for partition in self.partitions[channel].iter_mut() {
+				if !(blocks + partition.phase).is_multiple_of(partition.hop_blocks) {
+					continue;
+				}
+
+				// This partition consumes its most recent hop_blocks blocks.
+				let window_start =
+					(history_pos + history_mask + 1 - partition.hop_blocks) & history_mask;
+
+				// Convolving that window with the segment produces samples starting
+				// offset - hop samples after the sample that is played out next.
+				// Offset is never below hop, so those samples are in the future and
+				// the convolver stays causal and zero latency.
+				let acc_start = emit_pos + partition.offset - partition.hop;
+				debug_assert!(partition.offset >= partition.hop);
+				debug_assert!(partition.hop + partition.segment_len <= acc.len() - block_size);
+
+				partition.process(
+					history,
+					window_start,
+					history_mask,
+					block_size,
+					acc,
+					acc_start & acc_mask,
+				);
+			}
+		}
+	}
+}
+
+// Manual Parameters implementation so the FftBuffer can be serialized together
+// with FftConvolver. The raw impulse response is what gets persisted; the
+// FFT partitions are state derived from it and rebuild automatically.
+impl<const CHANNELS: usize, const FFT_SIZE: usize> crate::prelude::Parameters
+	for FftBuffer<CHANNELS, FFT_SIZE>
+{
+	fn get_parameters(&self) -> Vec<crate::prelude::Parameter> {
+		vec![crate::prelude::Parameter::new(
+			"ir",
+			crate::prelude::Value::Serialized(format_ir(&self.ir)),
+		)]
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: crate::prelude::SetValue) -> bool {
+		if identifier != "ir" {
+			return false;
+		}
+		if let crate::prelude::SetValue::Serialized(data) = value {
+			self.ir = parse_ir(data);
+			self.rebuild_partitions();
+			true
+		} else {
+			false
+		}
+	}
+}
+
+/// The Fft-based convolver.
+///
+/// It has no latency: the first 'FFT_SIZE' taps of the impulse response are
+/// convolved directly in the time domain, so the wet path is available at the
+/// same time as the input and the dry path needs no alignment. The direct head
+/// costs 'FFT_SIZE' multiply-adds per sample per channel, which is why a small
+/// FFT_SIZE is the cheap choice here: it shortens the head and only makes the
+/// partition tail slightly more expensive, since one more octave of the impulse
+/// response has to be transformed.
+#[derive(Parameters)]
+pub struct FftConvolver<
+	const CHANNELS: usize = 2,
+	const FFT_SIZE: usize = FFT_CONVOLVER_HISTORY_LEN,
+> {
+	#[sub_param]
+	buffer: FftBuffer<CHANNELS, FFT_SIZE>,
+
+	#[cfg(feature = "real_time_demo")]
+	#[skip]
+	ir: [Vec<f32>; CHANNELS],
+
+	// #[skip]
+	// other_way_convolver: [fft_convolver::FFTConvolver<f32>; CHANNELS],
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
+	/// The wet gain of the convolver, saves in linear scale.
+	#[default(0.0125)]
+	pub wet_gain: f32,
+	#[range(min = 0.01, max = 4.0)]
+	#[logarithmic]
+	/// The dry gain of the convolver, saves in linear scale.
+	#[default(1.0)]
+	pub dry_gain: f32,
+
+	#[cfg(feature = "real_time_demo")]
+	#[skip]
+	allow_change_ir: bool,
+
+	#[cfg(feature = "real_time_demo")]
+	#[skip]
+	error: Option<String>,
+
+	#[cfg(feature = "real_time_demo")]
+	#[skip]
+	opened_file: Option<std::path::PathBuf>,
+	#[cfg(feature = "real_time_demo")]
+	#[skip]
+	dialog: Option<egui_file::FileDialog>,
+
+	#[skip]
+	sample_rate: usize,
+
+	/// The summed L2 energy of the IR, for [normalize_energy](Self::normalize_energy).
+	#[skip]
+	ir_energy: f32,
+	/// The wet scale chosen by [normalize_energy](Self::normalize_energy).
+	#[skip]
+	normalization: f32,
+	// #[cfg(feature = "real_time_demo")]
+	// #[skip]
+	// other_way: bool,
+}
+
+impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SIZE> {
+	/// Create a new FftConvolver with the given IR.
+	///
+	/// # Panics
+	///
+	/// Panics if `CHANNELS` is 0.
+	pub fn new(ir: [Vec<f32>; CHANNELS], sample_rate: usize) -> Self {
+		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
+		let ir_energy = ir
+			.iter()
+			.flatten()
+			.map(|sample| sample * sample)
+			.sum::<f32>();
+		Self {
+			#[cfg(feature = "real_time_demo")]
+			ir: ir.clone(),
+
+			buffer: FftBuffer::new(ir, sample_rate),
+
+			// other_way_convolver,
+			dry_gain: 1.0,
+			wet_gain: 0.0125,
+
+			#[cfg(feature = "real_time_demo")]
+			allow_change_ir: false,
+			#[cfg(feature = "real_time_demo")]
+			error: None,
+
+			#[cfg(feature = "real_time_demo")]
+			opened_file: None,
+			#[cfg(feature = "real_time_demo")]
+			dialog: None,
+			sample_rate,
+			ir_energy,
+			normalization: 1.0,
+			// #[cfg(feature = "real_time_demo")]
+			// other_way: false,
+		}
+	}
+
+	/// Scale the wet path by the IR's L2 energy, so an IR normalised to peak 1
+	/// does not make the convolution louder as the room or tail grows. The
+	/// dry/wet gains remain the mix controls.
+	pub fn normalize_energy(&mut self) {
+		self.normalization = if self.ir_energy > 0.0 {
+			1.0 / self.ir_energy.sqrt()
+		} else {
+			1.0
+		};
+	}
+
+	/// Clear the convolution history, so a tail stops immediately.
+	pub fn clear(&mut self) {
+		self.buffer.clear_state();
+	}
+
+	/// Replace the IR.
+	pub fn replace_ir(&mut self, ir: [Vec<f32>; CHANNELS]) {
+		self.ir_energy = ir
+			.iter()
+			.flatten()
+			.map(|sample| sample * sample)
+			.sum::<f32>();
+		self.normalization = 1.0;
+
+		#[cfg(feature = "real_time_demo")]
+		{
+			self.ir = ir.clone();
+		}
+
+		self.buffer = FftBuffer::new(ir, self.sample_rate);
+	}
+}
+
+impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS>
+	for FftConvolver<CHANNELS, FFT_SIZE>
+{
+	fn delay(&self) -> usize {
+		// The first block is convolved directly in the time domain, so the wet
+		// signal comes out of the same sample it goes in at.
+		0
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn name(&self) -> &str {
+		"FftConvolver"
+	}
+
+	fn process(
+		&mut self,
+		samples: &mut [f32; CHANNELS],
+		_: &[&[f32; CHANNELS]],
+		_: &mut Box<dyn ProcessContext>,
+	) {
+		let dry = *samples;
+		// Both paths are zero latency, so the dry signal is mixed in as it is.
+		let wet = self.buffer.frame(dry);
+
+		for (i, sample) in samples.iter_mut().enumerate() {
+			*sample = dry[i] * self.dry_gain + wet[i] * self.wet_gain * self.normalization;
+		}
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		use crate::tools::pcm_data::PcmOutput;
+		use crate::tools::pcm_data::load_from_file;
+		use crate::tools::ui_tools::draw_waveform;
+		use crate::tools::ui_tools::gain_ui;
+		use egui::*;
+
+		let mut clear_error = false;
+		if let Some(error) = self.error.as_ref() {
+			ui.colored_label(Color32::RED, error);
+
+			if ui.button("clear error").clicked() {
+				clear_error = true;
+			}
+		}
+
+		if clear_error {
+			self.error = None;
+		}
+
+		egui::Resize::default()
+			.resizable([false, true])
+			// .auto_sized()
+			.min_width(ui.available_width())
+			.max_width(ui.available_width())
+			.id_salt(format!("{id_prefix}_convolver"))
+			.show(ui, |ui| {
+				let ir = self.ir.iter().map(|v| v.as_slice()).collect::<Vec<_>>();
+				draw_waveform(ui, None, &ir, &None, false, false);
+			});
+
+		ui.horizontal(|ui| {
+			let mut path = None;
+
+			if self.allow_change_ir {
+				ui.input(|input| {
+					path = input
+						.raw
+						.dropped_files
+						.first()
+						.map(|inner| inner.path().to_path_buf());
+				});
+			}
+
+			if ui.button("replace ir").clicked() {
+				use egui_file::FileDialog;
+				use std::ffi::OsStr;
+
+				let filter = Box::new({
+					let ext = Some(OsStr::new("wav"));
+					move |path: &std::path::Path| -> bool { path.extension() == ext }
+				});
+				let mut dialog = FileDialog::open_file().show_files_filter(filter);
+				if let Some(opened_file) = &self.opened_file {
+					dialog = dialog.initial_path(
+						opened_file
+							.parent()
+							.map(|inner| inner.to_path_buf())
+							.unwrap_or(std::path::PathBuf::from(".")),
+					)
+				}
+				dialog.open();
+
+				self.dialog = Some(dialog);
+			}
+
+			if let Some(dialog) = self.dialog.as_mut() {
+				let dialog = dialog.show(ui.ctx());
+				if dialog.selected() {
+					path = dialog.path().map(|path| path.to_path_buf());
+				}
+			}
+
+			if let Some(path) = path {
+				if path
+					.extension()
+					.map(|ext| ext.to_string_lossy().to_lowercase() != "wav")
+					.unwrap_or(true)
+				{
+					return;
+				}
+
+				self.opened_file = Some(path.clone());
+
+				match load_from_file::<CHANNELS>(path) {
+					Ok(PcmOutput { pcm_data, .. }) => {
+						self.replace_ir(pcm_data);
+					}
+					Err(e) => {
+						self.error = Some(format!("Error: {}", e));
+					}
+				}
+			}
+			if ui.button("hilbert transform").clicked() {
+				self.replace_ir(hilbert_transform(511));
+			}
+			if ui
+				.selectable_label(self.allow_change_ir, "Allow Replace IR")
+				.clicked()
+			{
+				self.allow_change_ir = !self.allow_change_ir;
+			}
+
+			gain_ui(ui, &mut self.dry_gain, Some("Dry Gain".to_string()), false);
+			gain_ui(ui, &mut self.wet_gain, Some("Wet Gain".to_string()), true);
+
+			// if ui.selectable_label(self.other_way, "Other Way").clicked() {
+			// 	self.other_way = !self.other_way;
+			// }
+		});
+	}
+}
+
+#[cfg(test)]
+mod tests;
