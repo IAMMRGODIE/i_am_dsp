@@ -25,7 +25,7 @@ fn main() {
 	)
 	.expect("the page");
 	fs::write(out.join("kit.css"), include_str!("../src/page/rack.css")).expect("the styles");
-	fs::write(out.join("kit.js"), include_str!("../src/page/rack.js")).expect("the script");
+	fs::write(out.join("kit.js"), i_am_rack::PAGE_JS).expect("the script");
 	fs::write(out.join("card.css"), i_am_web_gui::CARD_STYLE).expect("the shared card styles");
 	fs::write(out.join("card.js"), i_am_web_gui::CARD_SCRIPT).expect("the shared card script");
 	fs::write(out.join("rack"), i_am_rack::Rack::default().rack_json()).expect("the rack JSON");

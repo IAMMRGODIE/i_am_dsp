@@ -1957,7 +1957,7 @@ fn the_rack_page_loads_the_shared_controls() {
 #[test]
 fn the_band_header_keeps_its_trim_controls_compact() {
 	let css = include_str!("page/rack.css");
-	let js = include_str!("page/rack.js");
+	let js = PAGE_JS;
 
 	assert!(
 		css.contains("min-height:52px"),
@@ -1989,7 +1989,7 @@ fn the_band_header_keeps_its_trim_controls_compact() {
 /// for dragging an existing point or bend handle.
 #[test]
 fn the_lfo_adds_points_on_double_click() {
-	let js = include_str!("page/rack.js");
+	let js = PAGE_JS;
 
 	assert!(
 		js.contains("svg.ondblclick"),
@@ -2010,7 +2010,7 @@ fn the_lfo_adds_points_on_double_click() {
 #[test]
 fn bypass_dims_the_rack_surfaces() {
 	let css = include_str!("page/rack.css");
-	let js = include_str!("page/rack.js");
+	let js = PAGE_JS;
 
 	assert!(
 		css.contains("body.bypassed .rack"),
@@ -2129,7 +2129,7 @@ fn every_catalog_product_can_run_in_a_slot() {
 /// that draw audio are useless without it.
 #[test]
 fn the_page_reads_the_audio_scope() {
-	let js = include_str!("page/rack.js");
+	let js = PAGE_JS;
 
 	assert!(
 		js.contains("fetch(\"/module-scope?id=\""),
@@ -2351,7 +2351,7 @@ fn a_note_module_reads_notes_without_audio() {
 		"the autotune card draws no audio"
 	);
 
-	let js = include_str!("page/rack.js");
+	let js = PAGE_JS;
 	assert!(
 		js.contains("if (entry.channels) {"),
 		"the note poll is still gated behind the audio one"

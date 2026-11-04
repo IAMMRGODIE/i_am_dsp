@@ -52,7 +52,25 @@ const HEIGHT: f32 = 700.0;
 
 const PAGE_HTML: &str = include_str!("page/rack.html");
 const PAGE_CSS: &str = include_str!("page/rack.css");
-const PAGE_JS: &str = include_str!("page/rack.js");
+
+/// The page's script, one IIFE split over the files in page/rack.
+///
+/// The pieces share one scope: none of them can stand alone, and the page loads
+/// the concatenation as one script.
+pub const PAGE_JS: &str = concat!(
+	include_str!("page/rack/state.js"),
+	include_str!("page/rack/core.js"),
+	include_str!("page/rack/bands.js"),
+	include_str!("page/rack/cards.js"),
+	include_str!("page/rack/shapes.js"),
+	include_str!("page/rack/macros.js"),
+	include_str!("page/rack/modulation.js"),
+	include_str!("page/rack/pages.js"),
+	include_str!("page/rack/render.js"),
+	include_str!("page/rack/live.js"),
+	include_str!("page/rack/panel.js"),
+	include_str!("page/rack/boot.js"),
+);
 
 fn host_float(value: f32) -> AtomicValue {
 	AtomicValue::Float {
