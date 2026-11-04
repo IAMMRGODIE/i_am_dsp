@@ -1,6 +1,6 @@
 use super::super::{BendedSawGen, SpectralGen};
 use super::*;
-use crate::prelude::{Parameter, SetValue};
+use crate::prelude::{Parameter, Parameters, SetValue};
 
 const SINES: usize = 16;
 
