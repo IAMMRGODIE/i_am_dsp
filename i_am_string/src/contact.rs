@@ -229,6 +229,17 @@ impl ContactLaw for HammerLaw {
 /// The negative slope around zero relative velocity is what makes a bowed
 /// string sing. Linearised, it subtracts from the port impedance and turns the
 /// string into a negative resistance oscillator.
+///
+/// The Stribeck velocity has to sit *inside* the range of relative speeds the
+/// bow actually produces, which is the bow speed itself: a stroke at 0.25 m/s
+/// that leaves the hair at 0.48 m/s during the slip has to cross the part of the
+/// curve where friction is still falling. Rosin falls off over roughly a tenth
+/// of a metre per second, and a narrower curve -- 0.03, which is barely faster
+/// than a slow stroke -- leaves the operating point on the flat kinetic branch
+/// and the string never locks into a Helmholtz cycle. Measured by the harmonic
+/// series it is unmistakable: with a curve this wide a bowed cello at C3 has its
+/// second partial within a few decibels of the first, and with the narrow one
+/// the second partial is thirty decibels down and the string sounds hollow.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrictionCurve {
 	/// The friction coefficient at zero relative velocity.
@@ -253,7 +264,7 @@ impl Default for FrictionCurve {
 		Self {
 			mu_static: 0.60,
 			mu_dynamic: 0.20,
-			stribeck_velocity: 0.03,
+			stribeck_velocity: 0.08,
 			viscous: 0.05,
 			stiction_band: 0.012,
 		}

@@ -333,6 +333,54 @@ fn a_bowed_string_sustains_without_growing() {
 	);
 }
 
+/// A bowed string is a sawtooth, not a hollow odd-harmonic whistle.
+///
+/// A cello recorded at C3 has its second partial 8 dB under the first and its
+/// third 17 dB under, and the first six fall away smoothly. The model used to
+/// put the second partial 39 dB down and the fourth 40, because the rosin
+/// friction curve had fallen to its kinetic value by the speed the string
+/// actually slides at, so the string never settled into a Helmholtz cycle and
+/// only the odd partials got excited. This test is what says whether it still
+/// does.
+#[test]
+fn a_bowed_cello_has_its_even_partials() {
+	let mut engine = StringEngine::new(FS);
+	engine.set_preset(Preset::Cello);
+	engine.params_mut().strings = 1;
+	engine.note_on(48, 0.8);
+	for _ in 0..(FS * 0.7) as usize {
+		engine.next_sample();
+	}
+	let audio: Vec<f32> = (0..(FS * 1.0) as usize)
+		.map(|_| engine.next_sample())
+		.collect();
+
+	let f0 = 440.0 * 2f32.powf((48.0 - 69.0) / 12.0);
+	// The vibrato sweeps a partial across a few hertz, so the level of a
+	// partial is the highest the window sees near it rather than the value at
+	// one bin.
+	let level = |centre: f32| peak_in(&audio, centre * 0.98, centre * 1.02, 0.5);
+	let first = level(f0);
+	assert!(first > 0.0, "the bow never got going");
+	let relative = |partial: f32| 20.0 * (level(f0 * partial) / first).log10();
+
+	assert!(
+		relative(2.0) > -22.0,
+		"the second partial is {:.1} dB under the first",
+		relative(2.0)
+	);
+	assert!(
+		relative(3.0) > -22.0,
+		"the third partial is {:.1} dB under the first",
+		relative(3.0)
+	);
+	assert!(
+		relative(4.0) > -30.0,
+		"the fourth partial is {:.1} dB under the first",
+		relative(4.0)
+	);
+}
+
 #[test]
 fn the_engine_is_stable_across_every_preset() {
 	for preset in Preset::ALL {

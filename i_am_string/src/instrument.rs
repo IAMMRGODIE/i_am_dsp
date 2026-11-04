@@ -157,11 +157,16 @@ impl Preset {
 				params.body = 0.9;
 				params.gain = 0.8;
 				params.sympathetic = 0.35;
-				// A violinist's hand shakes the string much harder and more
-				// slowly than a guitarist's, and it starts almost at once.
-				params.vibrato_rate = 5.6;
-				params.vibrato_depth = 42.0;
-				params.vibrato_delay = 0.09;
+				// The vibrato measured on a recorded string section: about five
+				// and a third shakes a second, fifteen cents either way, and it
+				// arrives rather than starting with the note. The old 42 cents
+				// was a caricature - wide enough to hear the modulation instead
+				// of the note, and it began 90 ms in, which is before a player's
+				// hand has moved.
+				params.vibrato_rate = 5.3;
+				params.vibrato_depth = 24.0;
+				params.vibrato_delay = 0.28;
+				params.vibrato_onset = 0.35;
 			}
 			Preset::Cello => {
 				params.excitation = Excitation::Bow;
@@ -172,13 +177,19 @@ impl Preset {
 				params.brightness = 0.9;
 				params.inharmonicity = 1.0;
 				params.bow_force = 0.45;
-				params.bow_speed = 0.35;
+				// 0.18 of the control's range is a stroke of about 0.15 m/s,
+				// which is what the recorded cello is bowing at: the partials
+				// of its C3 come out within a few decibels of the model's.
+				params.bow_speed = 0.18;
 				params.body = 0.9;
 				params.gain = 0.8;
 				params.sympathetic = 0.45;
-				params.vibrato_rate = 5.0;
-				params.vibrato_depth = 34.0;
-				params.vibrato_delay = 0.11;
+				// A cellist's hand is heavier and slower to arrive than a
+				// violinist's, and the measured width is about 24 cents.
+				params.vibrato_rate = 6.0;
+				params.vibrato_depth = 30.0;
+				params.vibrato_delay = 0.2;
+				params.vibrato_onset = 0.28;
 			}
 		}
 		params
