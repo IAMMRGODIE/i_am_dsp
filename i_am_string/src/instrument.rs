@@ -218,7 +218,15 @@ impl Preset {
 				1e-5 * 10f32.powf(3.0 * t),
 				geom(700.0, 420.0, t),
 				geom(14.0, 3.0, t),
-				geom(30.0, 3.0, t),
+				// The fundamental's T60. The old anchors, 30 s at A0 and 3 s at C8,
+				// made E1 ring for 19 s where the sample set lets it go in 11, and
+				// fell too fast through the middle: C4 decayed in 7 s against the
+				// recording's 9. Measured envelope by envelope, this set of samples
+				// wants a nearly flat 10-12 s from E1 to C4, so the anchors are 11 s
+				// at A0 and 8 s at C8 - flatter than a geometric curve wants to be,
+				// but the bridge's damping already makes the treble decay faster
+				// than its anchor.
+				geom(11.0, 8.0, t),
 				geom(6.0, 0.45, t),
 				40,
 				8,

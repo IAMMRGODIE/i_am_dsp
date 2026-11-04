@@ -41,6 +41,12 @@ fn main() {
 		Some("modal") => Core::Modal,
 		_ => Core::Waveguide,
 	};
+	// The number of unison strings, so a piano can be rendered the way it is
+	// played (three) and compared with a recording.
+	let strings: usize = arguments
+		.get(7)
+		.and_then(|value| value.parse().ok())
+		.unwrap_or(1);
 
 	let preset = match preset_name.as_str() {
 		"piano" => Preset::Piano,
@@ -84,7 +90,7 @@ fn main() {
 		engine.set_preset(preset);
 		{
 			let params = engine.params_mut();
-			params.strings = 1;
+			params.strings = strings;
 			params.core = core;
 			params.excitation = excitation;
 		}
