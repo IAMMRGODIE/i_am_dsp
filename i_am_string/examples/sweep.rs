@@ -49,21 +49,37 @@ fn main() {
 		_ => Preset::Violin,
 	};
 
-	let (first, last) = match notes.split_once(':') {
-		Some((a, b)) => (
-			a.parse::<u8>().expect("first note"),
-			b.parse::<u8>().expect("last note"),
-		),
-		None => {
-			let note = note_argument(&notes);
-			(note, note)
-		}
+	// A range ("48:60"), one note ("69" or "A4"), or a list ("32,36,40,44").
+	let list: Option<Vec<u8>> = if notes.contains(',') {
+		Some(
+			notes
+				.split(',')
+				.map(|note| note_argument(note.trim()))
+				.collect(),
+		)
+	} else {
+		None
 	};
+	let notes: Vec<u8> = match list {
+		Some(list) => list,
+		None => match notes.split_once(':') {
+			Some((a, b)) => {
+				let first: u8 = a.parse().expect("first note");
+				let last: u8 = b.parse().expect("last note");
+				(first..=last).collect()
+			}
+			None => vec![note_argument(&notes)],
+		},
+	};
+	let (first, last) = (
+		*notes.first().expect("a note"),
+		*notes.last().expect("a note"),
+	);
 
 	let sample_rate = 44_100.0;
 	std::fs::create_dir_all(&directory).expect("create the output directory");
 
-	for note in first..=last {
+	for note in notes {
 		let mut engine = StringEngine::new(sample_rate);
 		engine.set_preset(preset);
 		{
@@ -85,14 +101,7 @@ fn main() {
 		write_wav(&path, &samples, sample_rate as u32).expect("write the wav");
 	}
 
-	println!(
-		"{}: {} notes {}..{} into {}",
-		preset_name,
-		last - first + 1,
-		first,
-		last,
-		directory
-	);
+	println!("{}: notes {first}..{last} into {}", preset_name, directory);
 }
 
 /// Accepts a note as a number, or as a scientific pitch name such as C3.

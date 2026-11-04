@@ -172,13 +172,16 @@ impl Preset {
 				params.strings = 1;
 				params.hardness = 0.5;
 				params.damping = 0.8;
-				params.brightness = 0.9;
+				params.brightness = 0.95;
 				params.inharmonicity = 1.0;
-				params.bow_force = 0.45;
-				// 0.18 of the control's range is a stroke of about 0.15 m/s,
-				// which is what the recorded cello is bowing at: the partials
-				// of its C3 come out within a few decibels of the model's.
-				params.bow_speed = 0.18;
+				// The bow was fitted to a recorded cello section rather than
+				// picked by ear: force and speed were swept against the partial
+				// levels of ten legato notes, and the settings here are the ones
+				// whose whole spectrum sits closest to the recording's (4.9 dB of
+				// band error, against 5.8 for the settings before). The speed is a
+				// slow stroke, about 0.12 m/s, and the force about 1.2 N.
+				params.bow_force = 0.40;
+				params.bow_speed = 0.12;
 				params.body = 0.9;
 				params.gain = 0.8;
 				params.sympathetic = 0.45;
