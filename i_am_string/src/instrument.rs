@@ -226,7 +226,11 @@ impl Preset {
 				// at A0 and 8 s at C8 - flatter than a geometric curve wants to be,
 				// but the bridge's damping already makes the treble decay faster
 				// than its anchor.
-				geom(11.0, 8.0, t),
+				// The first polarization is the prompt: 2.5 times faster than the
+				// tail, so these anchors are the sample's 11-8 s divided by that.
+				// The second polarization multiplies by 0.4 and lands on the tail
+				// the samples asked for.
+				geom(4.4, 3.2, t),
 				geom(6.0, 0.45, t),
 				40,
 				8,
@@ -276,7 +280,7 @@ impl Preset {
 			// doubled the T60 of F3 to 15 s against the 8 s of a recorded note,
 			// and a piano whose every note has twice the tail it should is the
 			// sound of the sustain pedal being held down.
-			Preset::Piano => (0.95, 0.0, 0.25),
+			Preset::Piano => (1.0, 0.0, 0.25),
 			Preset::Guitar => (0.70, 0.18, 0.55),
 			Preset::Violin => (0.85, 0.07, 0.30),
 			Preset::Cello => (0.85, 0.10, 0.45),
@@ -298,6 +302,20 @@ impl Preset {
 				0.0
 			},
 			pluck_tilt: 0.0,
+			// The two things a piano has that a guitar does not: a second
+			// polarization that holds the aftersound, and the longitudinal sum
+			// tones the hammer's blow rings out of the string.
+			phantom: if matches!(self, Preset::Piano) {
+				1.0
+			} else {
+				0.0
+			},
+			horizontal: if matches!(self, Preset::Piano) {
+				1.0
+			} else {
+				0.0
+			},
+			horizontal_decay: 0.4,
 		};
 		if params.excitation == Excitation::Pluck {
 			// A soft pluck is flesh and a hard one is a plectrum: the harder

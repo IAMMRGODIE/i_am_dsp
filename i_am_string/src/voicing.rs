@@ -64,6 +64,31 @@ pub struct Voicing {
 	/// exponential the top of a plucked spectrum actually falls off with over
 	/// the first octave or so. Zero is the ideal triangle.
 	pub pluck_tilt: f32,
+	/// How strongly the string's longitudinal motion is heard, 0..1.
+	///
+	/// A struck string does not only move sideways. The hammer's blow also
+	/// compresses it, and the transverse motion of two partials couples
+	/// quadratically into a longitudinal force at the sum of their
+	/// frequencies. Those sum tones are the metallic `zing` of a piano
+	/// attack: they rise with the square of the velocity, so a soft note has
+	/// none and a hard one has a lot, and they die within a few tenths of a
+	/// second. Zero leaves them out entirely.
+	pub phantom: f32,
+	/// The share of each partial that goes to the string's second
+	/// polarization, 0..1.
+	///
+	/// A real string vibrates in two planes. The hammer hits both, but the
+	/// bridge drains one quickly; the other holds on, so the note has a fast
+	/// prompt and a long aftersound. A model with a single polarization has to
+	/// fake that with a timer, which sounds like one note fading rather than
+	/// two exchanging energy. 1.0 gives the second plane the same initial
+	/// amplitude as the first.
+	pub horizontal: f32,
+	/// The second polarization's decay rate as a fraction of the first's.
+	///
+	/// 0.6 is a gentle aftersound; the reference piano's prompt is several
+	/// times faster than its tail, but its tail T60 is fitted separately.
+	pub horizontal_decay: f32,
 }
 
 impl Default for Voicing {
@@ -76,6 +101,9 @@ impl Default for Voicing {
 			doublet_detune: 0.003,
 			winding: 0.0,
 			pluck_tilt: 0.0,
+			phantom: 0.0,
+			horizontal: 0.0,
+			horizontal_decay: 0.6,
 		}
 	}
 }

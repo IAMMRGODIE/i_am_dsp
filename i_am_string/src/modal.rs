@@ -130,6 +130,28 @@ const LATE_T60_MAX: f64 = 30.0;
 /// rebuilt.
 const BLEND_RESOLUTION: f32 = 0.02;
 
+/// The highest harmonic that can be a phantom's parent.
+///
+/// The sum tones of low partials are where the metallic attack lives; a
+/// pair of high partials sums past the band the ear attaches to the
+/// instrument.
+const PHANTOM_ORDER: usize = 12;
+
+/// How many neighbours each parent pairs with.
+///
+/// The coupling is strongest between adjacent modes and falls off as
+/// `0.55^(j-i)`, so three neighbours carry all of it.
+const PHANTOM_PAIRS: usize = 3;
+
+/// The highest frequency a phantom is kept at, in hertz.
+const PHANTOM_FMAX: f64 = 4200.0;
+
+/// The phantom's share of its parents' geometric mean.
+const PHANTOM_LEVEL: f32 = 0.22;
+
+/// The highest harmonic that gets a second polarization.
+const HORIZONTAL_MODES: usize = 16;
+
 /// How far the damper must move before the coefficients are worth rebuilding.
 ///
 /// The engine moves the damper every sample and it approaches its target
@@ -226,12 +248,23 @@ struct Mode {
 	/// The fraction of `sigma` the decay rate relaxes to at the end of the
 	/// note. 1 is a single exponential.
 	tail: f32,
+	/// Whether this is the second polarization of a partial.
+	horizontal: bool,
 	/// The displacement below which this mode is inaudible at the bridge.
 	quiet_q: f32,
 	/// The matching velocity.
 	quiet_v: f32,
 	/// Whether the mode is still loud enough to be worth updating.
 	awake: bool,
+}
+
+/// A pair of transverse partials whose product drives one phantom.
+struct Pair {
+	/// The two parent modes in the mode list.
+	first: usize,
+	second: usize,
+	/// The coupling of this pair, already including the neighbour falloff.
+	gain: f32,
 }
 
 /// One excitation point on the string.
@@ -376,6 +409,22 @@ impl Port {
 	}
 }
 
+/// The exact state transition of a damped oscillator over one sample.
+fn transition(frequency: f64, sigma: f64, t: f64) -> (f32, f32, f32, f32) {
+	let omega = std::f64::consts::TAU * frequency;
+	let sigma = sigma.min(0.9 * omega);
+	let damped = (omega * omega - sigma * sigma).max(1e-12).sqrt();
+	let decay = (-sigma * t).exp();
+	let (sine, cosine) = (damped * t).sin_cos();
+	let ratio = sigma / damped;
+	(
+		(decay * (cosine + ratio * sine)) as f32,
+		(decay * sine / damped) as f32,
+		(decay * -omega * omega * sine / damped) as f32,
+		(decay * (cosine - ratio * sine)) as f32,
+	)
+}
+
 /// A single physical string, as a bank of modes with any number of ports.
 pub struct ModalString {
 	modes: Vec<Mode>,
@@ -403,6 +452,12 @@ pub struct ModalString {
 	blend: f32,
 	/// The blend the coefficients were last built for.
 	blend_applied: f32,
+	/// The transverse pairs whose products drive phantoms.
+	pairs: Vec<Pair>,
+	/// The phantom modes, created once the strike has excited the parents.
+	phantoms: Vec<Mode>,
+	/// Whether the phantoms have been seeded from this note's parents.
+	seeded: bool,
 	config: StringConfig,
 }
 
@@ -432,7 +487,7 @@ impl ModalString {
 		// its shape it carries, how fast it decays and how far that decay
 		// relaxes after the prompt sound. The harmonic series comes first; the
 		// pair and the winding layer are added beside the partials they colour.
-		let mut built: Vec<(f64, f64, f64, f64, f32)> = Vec::new();
+		let mut built: Vec<(f64, f64, f64, f64, f32, bool)> = Vec::new();
 		for index in 1..=MAX_MODES {
 			let n = index as f64;
 			let mut frequency = n * f0 * (1.0 + b * n * n).sqrt();
@@ -452,7 +507,7 @@ impl ModalString {
 				frequency += detune(f0 as f32, impedance as f32, frequency as f32) as f64
 					* config.bridge as f64;
 			}
-			built.push((n, frequency, 1.0, sigma, voicing.late_decay));
+			built.push((n, frequency, 1.0, sigma, voicing.late_decay, false));
 
 			// The pair. One partial is two polarisations that are not quite the
 			// same length, and the few cents between them are what make a note
@@ -467,6 +522,7 @@ impl ModalString {
 						voicing.doublet as f64,
 						sigma * 1.1,
 						voicing.late_decay,
+						false,
 					));
 				}
 			}
@@ -478,16 +534,31 @@ impl ModalString {
 				let wound = f0 * (n + 0.34 + 0.011 * n * n);
 				if wound < nyquist {
 					let level = voicing.winding as f64 * WINDING_LEVEL / n.sqrt();
-					built.push((n, wound, level, WINDING_SIGMA, 1.0));
+					built.push((n, wound, level, WINDING_SIGMA, 1.0, false));
 				}
+			}
+
+			// The second polarization. Same shape, the slow decay: the hammer
+			// hits both planes, the bridge drains one, and the other is left
+			// holding the note after the prompt.
+			if voicing.horizontal > 0.0 && index <= HORIZONTAL_MODES {
+				let level = voicing.horizontal as f64;
+				built.push((
+					n,
+					frequency * (1.0 + 2.5e-6),
+					level,
+					sigma * voicing.horizontal_decay as f64,
+					1.0,
+					true,
+				));
 			}
 		}
 		if built.is_empty() {
-			built.push((1.0, f0, 1.0, config.sigma0 as f64, 1.0));
+			built.push((1.0, f0, 1.0, config.sigma0 as f64, 1.0, false));
 		}
 
 		let mut modes = Vec::with_capacity(built.len());
-		for (order, frequency, level, sigma, tail) in built {
+		for (order, frequency, level, sigma, tail, horizontal) in built {
 			let wave_number = order * std::f64::consts::PI / length;
 			// `T dy/dx` at the bridge is the force the string pulls the bridge
 			// with, and sin(n pi x / L) has slope n pi / L times cos(n pi). The
@@ -518,6 +589,7 @@ impl ModalString {
 				order: order as f32,
 				level: level as f32,
 				tail,
+				horizontal,
 				quiet_q,
 				quiet_v: quiet_q * std::f32::consts::TAU * frequency as f32,
 				sigma: sigma as f32,
@@ -526,6 +598,40 @@ impl ModalString {
 				awake: true,
 				..Default::default()
 			});
+		}
+
+		// The pairs whose products make phantoms. Only harmonics are parents:
+		// a detuned pair or a winding mode is a colour, not a place the
+		// longitudinal coupling is heard from.
+		let mut pairs = Vec::new();
+		if voicing.phantom > 0.0 {
+			let parents: Vec<usize> = modes
+				.iter()
+				.enumerate()
+				.filter(|(_, mode)| {
+					!mode.horizontal
+						&& (mode.level - 1.0).abs() < 1e-6
+						&& mode.order <= PHANTOM_ORDER as f32
+						&& (mode.order - mode.order.round()).abs() < 1e-3
+				})
+				.map(|(index, _)| index)
+				.collect();
+			for (start, &first) in parents.iter().enumerate() {
+				for distance in 0..=PHANTOM_PAIRS {
+					let Some(&second) = parents.get(start + distance) else {
+						break;
+					};
+					let sum = modes[first].frequency as f64 + modes[second].frequency as f64;
+					if sum > PHANTOM_FMAX || sum >= nyquist {
+						break;
+					}
+					pairs.push(Pair {
+						first,
+						second,
+						gain: voicing.phantom * PHANTOM_LEVEL * 0.55_f32.powi(distance as i32),
+					});
+				}
+			}
 		}
 
 		let mut string = Self {
@@ -544,6 +650,9 @@ impl ModalString {
 			age: 0.0,
 			blend: 0.0,
 			blend_applied: f32::NAN,
+			pairs,
+			phantoms: Vec::new(),
+			seeded: false,
 			config,
 		};
 		string.rebuild_modes();
@@ -583,6 +692,8 @@ impl ModalString {
 		self.age = 0.0;
 		self.blend = 0.0;
 		self.blend_applied = f32::NAN;
+		self.phantoms.clear();
+		self.seeded = false;
 		self.rebuild_modes();
 	}
 
@@ -639,6 +750,8 @@ impl ModalString {
 		self.age = 0.0;
 		self.blend = 0.0;
 		self.blend_applied = f32::NAN;
+		self.phantoms.clear();
+		self.seeded = false;
 		let pi = std::f64::consts::PI;
 		let tilt = self.config.voicing.pluck_tilt.max(0.0) as f64;
 		for mode in self.modes.iter_mut() {
@@ -693,6 +806,69 @@ impl ModalString {
 		}
 	}
 
+	/// Create the phantom modes from the partials the strike has excited.
+	///
+	/// The coupling is quadratic, so a soft note has almost none and a hard
+	/// one has a lot. Each phantom is bounded by a fraction of the geometric
+	/// mean of its parents, so a fortissimo sum tone can never outgrow what
+	/// drives it.
+	fn seed_phantoms(&mut self) {
+		self.seeded = true;
+		if self.pairs.is_empty() {
+			return;
+		}
+		let peak = self
+			.pairs
+			.iter()
+			.flat_map(|pair| [pair.first, pair.second])
+			.map(|index| self.modes[index].q.abs())
+			.fold(0.0f32, f32::max);
+		if peak <= 1e-12 {
+			return;
+		}
+		let t = self.dt as f64;
+		let tension = self.config.tension.max(1.0) as f64;
+		let mut phantoms = Vec::with_capacity(self.pairs.len());
+		for pair in &self.pairs {
+			let first = &self.modes[pair.first];
+			let second = &self.modes[pair.second];
+			let a = first.q as f64;
+			let b = second.q as f64;
+			let mut amplitude = pair.gain as f64 * a * b / peak as f64;
+			let limit = 0.65 * (a.abs() * b.abs()).sqrt();
+			amplitude = amplitude.clamp(-limit, limit);
+			if amplitude.abs() < 1e-10 {
+				continue;
+			}
+			let frequency = first.frequency as f64 + second.frequency as f64;
+			let sigma = first.sigma as f64 + second.sigma as f64;
+			let order = frequency / self.config.frequency.max(1.0) as f64;
+			let wave_number = order * std::f64::consts::PI / self.length as f64;
+			let sign = (order * std::f64::consts::PI).cos();
+			let bridge = 0.5 * tension * wave_number * sign;
+			let quiet_q = QUIET_FORCE / bridge.abs().max(1e-30) as f32;
+			let (a11, b1, c1, d1) = transition(frequency, sigma, t);
+			phantoms.push(Mode {
+				order: order as f32,
+				level: 1.0,
+				tail: 1.0,
+				quiet_q,
+				quiet_v: quiet_q * std::f32::consts::TAU * frequency as f32,
+				sigma: sigma as f32,
+				frequency: frequency as f32,
+				bridge: bridge as f32,
+				awake: true,
+				q: amplitude as f32,
+				a: a11,
+				b: b1,
+				c: c1,
+				d: d1,
+				..Default::default()
+			});
+		}
+		self.phantoms = phantoms;
+	}
+
 	/// Tell every port to let go of the string.
 	pub fn release_ports(&mut self, dt: f32) {
 		for port in &mut self.ports {
@@ -710,6 +886,12 @@ impl ModalString {
 		// The note ages even when nothing is touching it: the tail is a
 		// property of the string, not of the contact.
 		self.age += self.dt as f64;
+		// The strike has had time to excite the parents; the phantoms can be
+		// read off them now. Waiting past the contact also keeps the hammer's
+		// own force out of the sum tones, which is the model's job only.
+		if !self.seeded && self.age >= 0.0035 {
+			self.seed_phantoms();
+		}
 		let voicing = &self.config.voicing;
 		self.blend = if voicing.late_decay < 1.0 {
 			(((self.age - voicing.late_delay.max(0.0) as f64) / voicing.late_ramp.max(1e-3) as f64)
@@ -779,6 +961,19 @@ impl ModalString {
 			let v = mode.v;
 			mode.q = mode.a * q + mode.b * v + mode.e * shaped;
 			mode.v = mode.c * q + mode.d * v + mode.f * shaped;
+			bridge += mode.bridge * mode.q;
+			mode.awake = mode.q.abs() > mode.quiet_q || mode.v.abs() > mode.quiet_v;
+		}
+		// The phantoms have no external force; they ring on what they were
+		// given and put their own force on the bridge.
+		for mode in &mut self.phantoms {
+			if !mode.awake {
+				continue;
+			}
+			let q = mode.q;
+			let v = mode.v;
+			mode.q = mode.a * q + mode.b * v;
+			mode.v = mode.c * q + mode.d * v;
 			bridge += mode.bridge * mode.q;
 			mode.awake = mode.q.abs() > mode.quiet_q || mode.v.abs() > mode.quiet_v;
 		}
@@ -894,15 +1089,15 @@ impl ModalString {
 			};
 			let relaxed = mode.sigma as f64 + (late - mode.sigma as f64) * blend;
 			let sigma = (relaxed + felt * frequency).min(0.9 * omega);
+			let (a, b, c, d) = transition(frequency, sigma, t);
+			mode.a = a;
+			mode.b = b;
+			mode.c = c;
+			mode.d = d;
 			let damped = (omega * omega - sigma * sigma).max(1e-12).sqrt();
 			let decay = (-sigma * t).exp();
 			let (sine, cosine) = (damped * t).sin_cos();
 			let sigma_over_damped = sigma / damped;
-
-			mode.a = (decay * (cosine + sigma_over_damped * sine)) as f32;
-			mode.b = (decay * sine / damped) as f32;
-			mode.c = (decay * -omega * omega * sine / damped) as f32;
-			mode.d = (decay * (cosine - sigma_over_damped * sine)) as f32;
 
 			// A force held over the sample moves the mode by this much. It is
 			// deliberately free of the excitation position: the mode shape is
