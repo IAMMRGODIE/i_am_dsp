@@ -215,7 +215,12 @@ impl Preset {
 
 		let (base_b, tension, impedance, t60_low, t60_high, max_partials, sections) = match self {
 			Preset::Piano => (
-				1e-5 * 10f32.powf(3.0 * t),
+				// The stiff-string coefficient, from the reference piano: it rises
+				// with the fundamental from the wound bass to the treble, which is
+				// what stretches the partials by the amount the ear hears as a
+				// piano. The old `1e-5 * 10^(3t)` was 0.6 of that at C4, and a
+				// harmonic series that tidy reads as an organ, not a piano.
+				7e-4 * (f0 / 440.0).powf(1.4) + 1e-4 * (55.0 / f0).clamp(0.0, 2.2),
 				geom(700.0, 420.0, t),
 				geom(14.0, 3.0, t),
 				// The fundamental's T60. The old anchors, 30 s at A0 and 3 s at C8,

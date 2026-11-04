@@ -116,7 +116,12 @@ fn piano_table() -> Vec<Mode> {
 		// The board's envelope: a 70 Hz corner, a 3.8 kHz treble corner with a
 		// 1.8 slope, and a broad bridge hill between two and five kilohertz.
 		let envelope = square / (square + 70.0 * 70.0) / (1.0 + (frequency / 3800.0).powf(1.8))
-			* (1.0 + 0.7 * (-((frequency - 3200.0) / 1200.0).powi(2)).exp());
+			// The bridge hill: +8 dB around 1.7 kHz and a shoulder at 2.6 kHz,
+			// the reference piano's contour, rather than the broad 3.2 kHz lift
+			// the board had before.
+			* (1.0
+				+ 1.5 * (-((frequency - 1700.0) / 700.0).powi(2)).exp()
+				+ 0.4 * (-((frequency - 2600.0) / 500.0).powi(2)).exp());
 		// A quarter of modal ripple is what a board's response keeps above the
 		// smooth curve; the gain carries it at the mode's own frequency.
 		let ripple = 1.0 + 0.25 * ((index * 53) as f32).sin();
