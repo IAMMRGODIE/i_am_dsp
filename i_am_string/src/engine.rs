@@ -134,6 +134,11 @@ pub enum Event {
 struct Attack {
 	low: NoiseBand,
 	high: NoiseBand,
+	/// The keybed and soundboard knock: five fixed low resonances, rung by
+	/// the impact and gone in two thirds of a second.
+	knock: Vec<f32>,
+	knock_index: usize,
+	knock_gain: f32,
 	rng: Rng,
 }
 
@@ -175,7 +180,54 @@ impl Attack {
 		Self {
 			low: NoiseBand::new(1000.0),
 			high: NoiseBand::new(3000.0),
+			knock: Vec::new(),
+			knock_index: 0,
+			knock_gain: 0.0,
 			rng: Rng::new(0x2F9A_1C43),
+		}
+	}
+
+	/// Build the knock waveform for this sample rate.
+	///
+	/// The keybed and the board answer a blow with their own low resonances,
+	/// not with a noise burst: five fixed modes between 89 and 277 Hz, each
+	/// rising over three milliseconds and dying with the board. A piano's
+	/// attack is a knock first and a note second, and a noise burst alone
+	/// never sounds like wood.
+	fn prepare(&mut self, sample_rate: f32) {
+		let frequencies = [89.0, 117.0, 163.0, 231.0, 277.0];
+		let weights = [1.0, 0.65, 0.32, 0.20, 0.28];
+		let length = (0.65 * sample_rate) as usize;
+		let mut knock = vec![0.0; length];
+		for (index, sample) in knock.iter_mut().enumerate() {
+			let t = index as f32 / sample_rate;
+			let rise = 1.0 - (-t / 0.003).exp();
+			let end = ((0.65 - t) / 0.04).clamp(0.0, 1.0);
+			for (frequency, weight) in frequencies.iter().zip(weights.iter()) {
+				let decay = 8.0 + 0.01 * frequency;
+				*sample += weight
+					* rise * rise * (-decay * t).exp()
+					* (std::f32::consts::TAU * frequency * t).sin()
+					* end * end;
+			}
+		}
+		let peak = knock
+			.iter()
+			.fold(0.0f32, |peak, value| peak.max(value.abs()));
+		if peak > 0.0 {
+			for value in &mut knock {
+				*value /= peak;
+			}
+		}
+		self.knock = knock;
+		self.knock_index = self.knock.len();
+	}
+
+	/// Ring the knock once, as the key bottoming out does.
+	fn trigger_knock(&mut self, gain: f32) {
+		if !self.knock.is_empty() && gain > 0.0 {
+			self.knock_index = 0;
+			self.knock_gain = gain;
 		}
 	}
 
@@ -198,7 +250,12 @@ impl Attack {
 	#[inline]
 	fn process(&mut self) -> f32 {
 		let noise = self.rng.bipolar();
-		self.low.process(noise) + self.high.process(noise)
+		let mut value = self.low.process(noise) + self.high.process(noise);
+		if self.knock_index < self.knock.len() {
+			value += self.knock[self.knock_index] * self.knock_gain;
+			self.knock_index += 1;
+		}
+		value
 	}
 }
 
@@ -346,6 +403,7 @@ impl StringEngine {
 			control_counter: 0,
 			attack: Attack::new(),
 		};
+		engine.attack.prepare(sample_rate);
 		engine.rebuild_sympathetic();
 		engine
 	}
@@ -466,6 +524,11 @@ impl StringEngine {
 					0.0018,
 					self.sample_rate,
 				);
+				// The keybed and the board knock. From G#4 upwards it belongs
+				// to the note rather than to the room, and a chord of them is
+				// the sound of the action, so it fades in over an octave.
+				let body = ((note as f32 - 68.0) / 12.0).clamp(0.0, 1.0);
+				self.attack.trigger_knock(scale * 0.20 * velocity * body);
 			}
 			Excitation::Pluck => {
 				self.attack.trigger(
