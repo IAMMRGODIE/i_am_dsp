@@ -32,7 +32,7 @@ def load(p):
 
 def f0_of(x, sr):
     """Coarse pitch from the strongest partial and its spacing."""
-    seg = x[int(0.05 * sr):int(0.35 * sr)] if len(x) > int(0.35 * sr) else x
+    seg = x[int(0.10 * sr):int(0.60 * sr)] if len(x) > int(0.60 * sr) else x
     if len(seg) < 2048:
         return 0.0
     spec = np.abs(np.fft.rfft(seg * np.hanning(len(seg)), 1 << 16))
