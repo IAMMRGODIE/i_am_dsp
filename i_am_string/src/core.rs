@@ -89,6 +89,7 @@ impl StringCore {
 					// only ever sees the round trip time.
 					tension: config.tension,
 					impedance: config.impedance,
+					bridge: config.bridge,
 				},
 			))),
 		}

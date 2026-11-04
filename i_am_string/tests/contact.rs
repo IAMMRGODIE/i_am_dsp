@@ -41,6 +41,7 @@ fn modal(frequency: f32) -> ModalString {
 			sigma1: 3e-6,
 			tension: 80.0,
 			impedance: 1.0,
+			bridge: 0.0,
 		},
 	)
 }
@@ -56,6 +57,7 @@ fn damped(frequency: f32) -> ModalString {
 			sigma1: 1e-4,
 			tension: 80.0,
 			impedance: 1.0,
+			bridge: 0.0,
 		},
 	)
 }

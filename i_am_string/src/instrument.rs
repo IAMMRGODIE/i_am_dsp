@@ -247,6 +247,9 @@ impl Preset {
 		let string = StringConfig {
 			frequency: f0,
 			inharmonicity: base_b * params.inharmonicity,
+			// The board the string is bolted to. See crate::bridge for what it
+			// does to the decay and the tuning of each partial.
+			bridge: BRIDGE_COUPLING,
 			sigma0,
 			sigma1,
 			tension,
@@ -420,6 +423,16 @@ fn saturate_force(force: f32, impedance: f32) -> f32 {
 	}
 }
 
+/// How much of the bridge admittance reaches the string.
+///
+/// A real board is neither rigid nor infinitely soft: it drains a partial that
+/// sits on one of its resonances several times faster than its neighbours, and
+/// moves it off its harmonic position by a few cents. The measured T60 presets
+/// already carry the average decay, so this only has to add the scatter.
+const BRIDGE_COUPLING: f32 = 0.35;
+
+/// Turn two decay time anchors - the fundamental and its tenth partial - into
+/// the loss law that the string expects.
 fn decay_from_t60(f0: f32, t60_low: f32, t60_high: f32) -> (f32, f32) {
 	const LN1000: f32 = 6.907_755;
 	let low = LN1000 / t60_low.max(1e-3);

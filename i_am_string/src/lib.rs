@@ -63,6 +63,7 @@
 #![warn(missing_docs)]
 
 mod body;
+mod bridge;
 mod delay;
 mod dispersion;
 
@@ -76,6 +77,7 @@ pub mod sympathetic;
 
 pub mod prelude {
 	//! Everything that is needed to build and play an engine.
+	pub use crate::bridge::{admittance, damping_ratio, detune};
 	pub use crate::contact::*;
 	pub use crate::core::{Core, StringCore};
 	pub use crate::engine::*;

@@ -47,6 +47,7 @@
 //! bracketed Newton solve handles the contact. The rest of the engine does not
 //! know which of the two it is talking to.
 
+use crate::bridge::{damping_ratio, detune};
 use crate::contact::ContactLaw;
 
 /// The physical parameters of one string.
@@ -64,6 +65,9 @@ pub struct StringConfig {
 	pub tension: f32,
 	/// The string's wave impedance `Z0 = sqrt(T mu)`, in N s/m.
 	pub impedance: f32,
+	/// How strongly the bridge admittance acts on the modes, 0 for a rigid
+	/// termination.
+	pub bridge: f32,
 }
 
 impl Default for StringConfig {
@@ -75,6 +79,7 @@ impl Default for StringConfig {
 			sigma1: 3e-6,
 			tension: 80.0,
 			impedance: 1.0,
+			bridge: 0.0,
 		}
 	}
 }
@@ -374,11 +379,20 @@ impl ModalString {
 		let mut modes = Vec::new();
 		for index in 1..=MAX_MODES {
 			let n = index as f64;
-			let frequency = n * f0 * (1.0 + b * n * n).sqrt();
+			let mut frequency = n * f0 * (1.0 + b * n * n).sqrt();
 			if frequency >= nyquist {
 				break;
 			}
-			let sigma = config.sigma0 as f64 + config.sigma1 as f64 * frequency * frequency;
+			let mut sigma = config.sigma0 as f64 + config.sigma1 as f64 * frequency * frequency;
+			if config.bridge > 0.0 && (frequency as f32) < crate::bridge::F_MAX {
+				// The board drains a partial that sits on one of its resonances
+				// faster than its neighbours, and its reactance pulls the
+				// partial off the harmonic grid.
+				let damping = damping_ratio(frequency as f32).powf(config.bridge);
+				sigma *= damping as f64;
+				frequency += detune(f0 as f32, impedance as f32, frequency as f32) as f64
+					* config.bridge as f64;
+			}
 			let wave_number = n * std::f64::consts::PI / length;
 			// `T dy/dx` at the bridge is the force the string pulls the bridge
 			// with, and sin(n pi x / L) has slope n pi / L times cos(n pi). The

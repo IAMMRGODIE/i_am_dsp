@@ -57,6 +57,13 @@ pub struct StringConfig {
 	/// that falls far too steeply; giving the allpass more of the work makes the
 	/// curve it has to fit flatter and much easier to realise.
 	pub dispersion_delay_fraction: f32,
+	/// How strongly the bridge's admittance acts on the string, 0 for a rigid
+	/// termination.
+	///
+	/// At 1 the partials drain as fast as the board's mobility says, which makes
+	/// the decay of neighbouring partials differ by several times; 0 removes the
+	/// effect entirely and leaves the smooth loss law.
+	pub bridge: f32,
 	/// A pre-fitted set of allpass coefficients.
 	///
 	/// Fitting the dispersion filter takes several milliseconds, which is far
@@ -77,6 +84,7 @@ impl Default for StringConfig {
 			max_partials: 40,
 			dispersion_sections: 8,
 			dispersion_delay_fraction: 1.0,
+			bridge: 0.0,
 			dispersion_coefficients: None,
 		}
 	}
@@ -353,6 +361,16 @@ impl WaveguideString {
 		// inharmonic as it can be *accurately*, and the stretch is deliberately
 		// left short of what was asked for when the two disagree.
 		let mut partials = build(requested);
+		if config.bridge != 0.0 {
+			// The board's reactance pulls every partial off the harmonic grid by
+			// a few cents, unevenly: it is the same admittance that decides how
+			// fast each one decays.
+			for (_, frequency) in partials.iter_mut() {
+				let delta =
+					crate::bridge::detune(config.frequency, config.impedance, *frequency as f32);
+				*frequency += delta as f64 * config.bridge as f64;
+			}
+		}
 		let reach = (partials.len() as f64).powi(2);
 		let affordable = AFFORDABLE_STRETCH / reach.max(1.0);
 		let b = if requested > affordable {
@@ -367,8 +385,13 @@ impl WaveguideString {
 		config.inharmonicity = b as f32;
 
 		let omega_of = |f: f64| std::f64::consts::TAU * f / fs;
-		let (loss_a, loop_gain) =
-			design_loss(&partials, config.sigma0 as f64, config.sigma1 as f64, fs);
+		let (loss_a, loop_gain) = design_loss(
+			&partials,
+			config.sigma0 as f64,
+			config.sigma1 as f64,
+			config.bridge,
+			fs,
+		);
 		let loss_phase = |f: f64| OnePole::phase_delay(loss_a as f64, omega_of(f));
 
 		// The delay lines supply an integer round trip; the allpass cascade has
@@ -743,9 +766,25 @@ impl WaveguideString {
 /// with a gain above one, that was clamped to one, and the string never decayed
 /// at all below the body's own resonances. A plucked cello rang for nine
 /// seconds where the preset asks for one and a half.
-fn design_loss(partials: &[(f64, f64)], sigma0: f64, sigma1: f64, fs: f64) -> (f32, f32) {
+fn design_loss(
+	partials: &[(f64, f64)],
+	sigma0: f64,
+	sigma1: f64,
+	bridge: f32,
+	fs: f64,
+) -> (f32, f32) {
 	let f0 = partials[0].1.max(1.0);
-	let round_trip = |f: f64| (-(sigma0 + sigma1 * f * f) / f0).exp();
+	// The board drains some partials faster than others, which a one pole can
+	// only follow as a smooth trend; the scatter is what the modal core exists
+	// for. The average is unchanged, so the preset's T60 still means what it did.
+	let round_trip = |f: f64| {
+		let damping = if bridge > 0.0 {
+			crate::bridge::damping_ratio(f as f32).powf(bridge) as f64
+		} else {
+			1.0
+		};
+		(-(sigma0 + sigma1 * f * f) * damping / f0).exp()
+	};
 	let fundamental = round_trip(f0);
 	// The loss filter sits where the wave turns round, so it sees each partial
 	// once per round trip, not once per sample.
