@@ -230,7 +230,7 @@ impl Preset {
 				8,
 			),
 			Preset::Violin => (1.4e-4, 60.0, 0.35, 0.9, 0.20, 32, 8),
-			Preset::Cello => (9.0e-5, 110.0, 0.75, 1.2, 0.25, 24, 8),
+			Preset::Cello => (9.0e-5, 110.0, 0.75, 0.85, 0.5, 24, 8),
 		};
 
 		let (mut sigma0, mut sigma1) = decay_from_t60(f0, t60_low, t60_high);
@@ -305,6 +305,13 @@ impl Preset {
 		// The force itself was limited above, before it reached the string.
 		let position = if params.excitation == Excitation::Bow {
 			1.0 - params.position.clamp(0.02, 0.5)
+		} else if params.excitation == Excitation::Pluck {
+			// A player plucks a good deal further along the string than the bow
+			// sits - around a third of the speaking length from the nut, where
+			// the fingerboard ends - so the pluck point follows the control but
+			// sits well inside it. Plucking where the bow sits gave the attack a
+			// centroid of 320 Hz on a cello's C3 against 160 in the recording.
+			(params.position + 0.2).clamp(0.15, 0.45)
 		} else {
 			params.position.clamp(0.01, 0.5)
 		};
@@ -391,7 +398,7 @@ fn geom(a: f32, b: f32, t: f32) -> f32 {
 /// two and a half times the string's impedance in each case -- the same property that
 /// decides how much force the string takes to speak at all.
 fn bow_force_knee(impedance: f32) -> f32 {
-	2.6 * impedance.clamp(0.1, 6.0)
+	2.3 * impedance.clamp(0.1, 6.0)
 }
 
 /// Past the knee the extra pressure only adds a little, and approaches
