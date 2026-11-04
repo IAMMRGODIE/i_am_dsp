@@ -228,7 +228,13 @@ impl Preset {
 				geom(75.0, 65.0, t),
 				geom(1.7, 2.4, t),
 				geom(7.0, 3.0, t),
-				geom(1.6, 0.45, t),
+				// The tenth partial's T60. It used to be 1.6 s at the bottom of
+				// the range, which with the bridge's extra damping left the tenth
+				// partial at 0.75 s against the 1.9 s of a real classical guitar,
+				// so every partial above 700 Hz was gone before the note bloomed
+				// and the sound had no air. Measured against the samples, 3 s puts
+				// the tenth partial where the recording has it.
+				geom(3.0, 0.45, t),
 				32,
 				8,
 			),
