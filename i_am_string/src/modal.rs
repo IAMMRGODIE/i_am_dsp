@@ -49,6 +49,7 @@
 
 use crate::bridge::{damping_ratio, detune};
 use crate::contact::ContactLaw;
+use crate::voicing::Voicing;
 
 /// The physical parameters of one string.
 #[derive(Clone, Debug)]
@@ -68,6 +69,11 @@ pub struct StringConfig {
 	/// How strongly the bridge admittance acts on the modes, 0 for a rigid
 	/// termination.
 	pub bridge: f32,
+	/// How the note is coloured after it has been excited.
+	///
+	/// The harmonic series is only the skeleton: the pairs, the tail and the
+	/// wound layer are what make it a string. See [crate::voicing::Voicing].
+	pub voicing: Voicing,
 }
 
 impl Default for StringConfig {
@@ -80,6 +86,7 @@ impl Default for StringConfig {
 			tension: 80.0,
 			impedance: 1.0,
 			bridge: 0.0,
+			voicing: Voicing::default(),
 		}
 	}
 }
@@ -95,6 +102,33 @@ impl Default for StringConfig {
 /// note further up the range every string is stopped by Nyquist instead; the
 /// partials this gives up are the ones the loss law has already buried.
 const MAX_MODES: usize = 160;
+
+/// The highest partial the detuned pair is added to.
+///
+/// Above this the pair is a roughness rather than a bloom, and it is the
+/// low partials where the few cents between two polarisations are heard as
+/// a slow swell.
+const DOUBLET_MODES: usize = 12;
+
+/// The highest partial the winding layer reaches.
+const WINDING_MODES: usize = 6;
+
+/// The winding layer's share of the partial it sits beside, at the first
+/// order, before the `1/sqrt(n)` taper.
+const WINDING_LEVEL: f64 = 0.12;
+
+/// The winding layer's decay rate, in 1/s. A T60 of 0.6 s.
+const WINDING_SIGMA: f64 = 11.5;
+
+/// The longest T60 the relaxed tail may reach, in seconds.
+///
+/// Without the cap a two-stage decay turns a piano's lowest string, already
+/// thirty seconds, into a minute and a half of drone.
+const LATE_T60_MAX: f64 = 30.0;
+
+/// How far the tail relaxation has to move before the coefficients are
+/// rebuilt.
+const BLEND_RESOLUTION: f32 = 0.02;
 
 /// How far the damper must move before the coefficients are worth rebuilding.
 ///
@@ -181,6 +215,17 @@ struct Mode {
 	sigma: f32,
 	/// The frequency, in hertz.
 	frequency: f32,
+	/// The harmonic order the mode's shape belongs to.
+	///
+	/// Integral for a harmonic or a polarisation pair, fractional for the
+	/// winding layer, which rings off the grid but is driven through, and
+	/// radiates as, the shape of the partial it sits beside.
+	order: f32,
+	/// The mode's share of that shape, 1 for a harmonic.
+	level: f32,
+	/// The fraction of `sigma` the decay rate relaxes to at the end of the
+	/// note. 1 is a single exponential.
+	tail: f32,
 	/// The displacement below which this mode is inaudible at the bridge.
 	quiet_q: f32,
 	/// The matching velocity.
@@ -352,6 +397,12 @@ pub struct ModalString {
 	pitch_ratio: f32,
 	/// The pitch the coefficients were last built for.
 	pitch_applied: f32,
+	/// How long the string has been sounding, in seconds.
+	age: f64,
+	/// How far the decay has relaxed towards its tail, 0..1.
+	blend: f32,
+	/// The blend the coefficients were last built for.
+	blend_applied: f32,
 	config: StringConfig,
 }
 
@@ -376,7 +427,12 @@ impl ModalString {
 		let length = tension / impedance / (2.0 * f0);
 		let modal_mass = mu * length * 0.5;
 
-		let mut modes = Vec::new();
+		let voicing = config.voicing;
+		// What every mode is: its harmonic order, where it rings, how much of
+		// its shape it carries, how fast it decays and how far that decay
+		// relaxes after the prompt sound. The harmonic series comes first; the
+		// pair and the winding layer are added beside the partials they colour.
+		let mut built: Vec<(f64, f64, f64, f64, f32)> = Vec::new();
 		for index in 1..=MAX_MODES {
 			let n = index as f64;
 			let mut frequency = n * f0 * (1.0 + b * n * n).sqrt();
@@ -393,7 +449,43 @@ impl ModalString {
 				frequency += detune(f0 as f32, impedance as f32, frequency as f32) as f64
 					* config.bridge as f64;
 			}
-			let wave_number = n * std::f64::consts::PI / length;
+			built.push((n, frequency, 1.0, sigma, voicing.late_decay));
+
+			// The pair. One partial is two polarisations that are not quite the
+			// same length, and the few cents between them are what make a note
+			// bloom and beat rather than stand still. It carries a few percent
+			// of the partial, so it is colour and not a second note.
+			if voicing.doublet > 0.0 && index <= DOUBLET_MODES {
+				let side = frequency * (1.0 + voicing.doublet_detune as f64);
+				if side < nyquist {
+					built.push((
+						n,
+						side,
+						voicing.doublet as f64,
+						sigma * 1.1,
+						voicing.late_decay,
+					));
+				}
+			}
+
+			// The winding. A wound string's cover wire rings on its own, off
+			// the harmonic grid, and dies inside a second, so at these levels it
+			// is heard as a metallic edge on the attack and not as a pitch.
+			if voicing.winding > 0.0 && (2..=WINDING_MODES).contains(&index) {
+				let wound = f0 * (n + 0.34 + 0.011 * n * n);
+				if wound < nyquist {
+					let level = voicing.winding as f64 * WINDING_LEVEL / n.sqrt();
+					built.push((n, wound, level, WINDING_SIGMA, 1.0));
+				}
+			}
+		}
+		if built.is_empty() {
+			built.push((1.0, f0, 1.0, config.sigma0 as f64, 1.0));
+		}
+
+		let mut modes = Vec::with_capacity(built.len());
+		for (order, frequency, level, sigma, tail) in built {
+			let wave_number = order * std::f64::consts::PI / length;
 			// `T dy/dx` at the bridge is the force the string pulls the bridge
 			// with, and sin(n pi x / L) has slope n pi / L times cos(n pi). The
 			// further halving is the convention the waveguide uses and the
@@ -402,30 +494,32 @@ impl ModalString {
 			// doubles. Both cores return the same quantity so they can be
 			// compared without a level jump, and the reference force in
 			// [crate::instrument] is scaled to match.
-			let bridge = 0.5 * tension * wave_number * if index % 2 == 0 { -1.0 } else { 1.0 };
+			// The sign of the slope at the bridge is `cos(n pi)`: an exact plus
+			// or minus one for a harmonic, and something in between only for the
+			// winding layer's fractional orders. Keeping the harmonic case
+			// exact is what lets a string without colour layers render the same
+			// samples it did before those layers existed.
+			let whole = order.round();
+			let sign = if (order - whole).abs() < 1e-9 {
+				if whole as i64 % 2 == 0 { 1.0 } else { -1.0 }
+			} else {
+				(order * std::f64::consts::PI).cos()
+			};
+			let bridge = 0.5 * tension * wave_number * sign;
 			// A mode falls silent when the force it puts on the bridge drops
 			// under the floor. As a displacement that is the floor divided by
 			// the mode's own coupling, which is why a high mode can be pinned
 			// much sooner than a low one.
 			let quiet_q = QUIET_FORCE / bridge.abs().max(1e-30) as f32;
 			modes.push(Mode {
+				order: order as f32,
+				level: level as f32,
+				tail,
 				quiet_q,
 				quiet_v: quiet_q * std::f32::consts::TAU * frequency as f32,
 				sigma: sigma as f32,
 				frequency: frequency as f32,
 				bridge: bridge as f32,
-				awake: true,
-				..Default::default()
-			});
-		}
-		if modes.is_empty() {
-			let bridge = 0.5 * tension;
-			modes.push(Mode {
-				sigma: config.sigma0,
-				frequency: f0 as f32,
-				bridge: bridge as f32,
-				quiet_q: QUIET_FORCE / bridge.max(1e-30) as f32,
-				quiet_v: QUIET_FORCE,
 				awake: true,
 				..Default::default()
 			});
@@ -444,6 +538,9 @@ impl ModalString {
 			since_rebuild: 0,
 			pitch_ratio: 1.0,
 			pitch_applied: f32::NAN,
+			age: 0.0,
+			blend: 0.0,
+			blend_applied: f32::NAN,
 			config,
 		};
 		string.rebuild_modes();
@@ -458,7 +555,8 @@ impl ModalString {
 	/// The frequencies the string resonates at.
 	///
 	/// For a modal string these are exact rather than fitted, which is the whole
-	/// point of the architecture.
+	/// point of the architecture. The list includes the colour layers - the
+	/// detuned pairs and the winding partials - because those are modes too.
 	pub fn partial_frequencies(&self) -> Vec<f32> {
 		self.modes.iter().map(|mode| mode.frequency).collect()
 	}
@@ -477,13 +575,23 @@ impl ModalString {
 		}
 		self.ports.clear();
 		self.envelope = 0.0;
+		// A silent string starts its life over, tail and all, so that the next
+		// pluck on the same object is not coloured by the last one's age.
+		self.age = 0.0;
+		self.blend = 0.0;
+		self.blend_applied = f32::NAN;
+		self.rebuild_modes();
 	}
 
 	/// Add an excitation port at `position`, measured from the nut.
 	pub fn add_port(&mut self, position: f32, law: Box<dyn ContactLaw>, substeps: u32) {
 		let beta = position.clamp(0.004, 0.996) as f64;
-		let weights: Vec<f32> = (1..=self.modes.len())
-			.map(|index| (index as f64 * std::f64::consts::PI * beta).sin() as f32)
+		let weights: Vec<f32> = self
+			.modes
+			.iter()
+			.map(|mode| {
+				(mode.level as f64 * (mode.order as f64 * std::f64::consts::PI * beta).sin()) as f32
+			})
 			.collect();
 		let conductance = weights
 			.iter()
@@ -520,17 +628,31 @@ impl ModalString {
 		// scaled string is more than a factor of ten.
 		let height = amplitude as f64 * self.length as f64;
 		self.ports.clear();
+		// A fresh pluck starts the note over, tail included, so that the age of
+		// the last note cannot colour this one.
+		self.age = 0.0;
+		self.blend = 0.0;
+		self.blend_applied = f32::NAN;
 		let pi = std::f64::consts::PI;
-		for (index, mode) in self.modes.iter_mut().enumerate() {
-			let n = (index + 1) as f64;
+		let tilt = self.config.voicing.pluck_tilt.max(0.0) as f64;
+		for mode in self.modes.iter_mut() {
+			let n = mode.order as f64;
 			let shape = (n * pi * beta).sin();
-			mode.q = (2.0 * height / (n * n * pi * pi * beta * (1.0 - beta)) * shape) as f32;
+			// The finite width of the finger, plectrum or hammer felt: the top of
+			// a triangle's spectrum falls as 1/n^2, which is brighter than any
+			// real pluck. This is the extra tilt the contact imposes, and it is
+			// written as the exponential the top of a struck spectrum actually
+			// follows rather than as a sinc, because the contact is soft.
+			let contact = (-tilt * (n - 1.0).max(0.0)).exp();
+			mode.q = (mode.level as f64 * 2.0 * height / (n * n * pi * pi * beta * (1.0 - beta))
+				* shape * contact) as f32;
 			mode.v = 0.0;
 			// A plucked mode is awake whatever its amplitude, because the pluck
 			// is what put it there.
 			mode.awake = true;
 		}
 		self.envelope = 0.0;
+		self.rebuild_modes();
 	}
 
 	/// Tell every port to let go of the string.
@@ -547,6 +669,17 @@ impl ModalString {
 
 	/// Advance the string by one sample and return the force at the bridge.
 	pub fn step(&mut self) -> f32 {
+		// The note ages even when nothing is touching it: the tail is a
+		// property of the string, not of the contact.
+		self.age += self.dt as f64;
+		let voicing = &self.config.voicing;
+		self.blend = if voicing.late_decay < 1.0 {
+			(((self.age - voicing.late_delay.max(0.0) as f64) / voicing.late_ramp.max(1e-3) as f64)
+				.clamp(0.0, 1.0)) as f32
+		} else {
+			0.0
+		};
+
 		self.since_rebuild += 1;
 		if self.since_rebuild >= REBUILD_INTERVAL && self.coefficients_stale() {
 			self.rebuild_modes();
@@ -628,6 +761,7 @@ impl ModalString {
 	fn coefficients_stale(&self) -> bool {
 		(self.damper - self.damper_applied).abs() > DAMPER_RESOLUTION
 			|| (self.pitch_ratio - self.pitch_applied).abs() > PITCH_RESOLUTION
+			|| (self.blend - self.blend_applied).abs() > BLEND_RESOLUTION
 	}
 
 	/// Bend the whole string, as a player's hand does.
@@ -698,6 +832,7 @@ impl ModalString {
 		};
 
 		let bend = self.pitch_ratio as f64;
+		let blend = self.blend as f64;
 		for mode in self.modes.iter_mut() {
 			// The bend scales every partial together, which is what a change of
 			// tension does to a string: the tuning stretches but the ratios
@@ -709,7 +844,18 @@ impl ModalString {
 			// rate stays under the frequency. A felt can easily want more than
 			// that near the top of the band, and a mode that rings forever is a
 			// far worse outcome than one that stops in three samples.
-			let sigma = (mode.sigma as f64 + felt * frequency).min(0.9 * omega);
+			// A real partial does not keep one decay rate for the whole note.
+			// The prompt sound loads the board and the aftersound is what the
+			// board gives back, and the two stages are heard as a note that
+			// settles rather than one that fades at a single rate. The tail is
+			// capped so that a long note cannot relax into a drone.
+			let late = if mode.tail >= 1.0 {
+				mode.sigma as f64
+			} else {
+				(mode.sigma as f64 * mode.tail as f64).max(6.907_755 / LATE_T60_MAX)
+			};
+			let relaxed = mode.sigma as f64 + (late - mode.sigma as f64) * blend;
+			let sigma = (relaxed + felt * frequency).min(0.9 * omega);
 			let damped = (omega * omega - sigma * sigma).max(1e-12).sqrt();
 			let decay = (-sigma * t).exp();
 			let (sine, cosine) = (damped * t).sin_cos();
@@ -742,6 +888,7 @@ impl ModalString {
 		}
 		self.damper_applied = self.damper;
 		self.pitch_applied = self.pitch_ratio;
+		self.blend_applied = self.blend;
 		self.since_rebuild = 0;
 	}
 }

@@ -22,6 +22,7 @@
 
 use crate::engine::EngineParams;
 use crate::string::StringConfig;
+use crate::voicing::Voicing;
 
 /// Convert a MIDI note number to a frequency in hertz, with A4 = 69 = 440 Hz.
 pub fn note_to_frequency(note: f32) -> f32 {
@@ -244,6 +245,40 @@ impl Preset {
 			sigma0 *= 1.6;
 		}
 
+		// The colour layers. A bowed string is driven continuously, so the
+		// two stage decay is masked by the bow and the bow locks the partials
+		// together; a plucked or struck one has neither of those things.
+		let plucked = matches!(params.excitation, Excitation::Pluck | Excitation::Hammer);
+		let (late_decay, doublet, winding) = match self {
+			Preset::Piano => (0.78, 0.0, 0.25),
+			Preset::Guitar => (0.70, 0.18, 0.55),
+			Preset::Violin => (0.85, 0.07, 0.30),
+			Preset::Cello => (0.85, 0.10, 0.45),
+		};
+		let mut voicing = Voicing {
+			late_decay: if plucked { late_decay } else { 1.0 },
+			late_delay: 0.35,
+			late_ramp: 1.2,
+			doublet: if plucked { doublet } else { 0.0 },
+			doublet_detune: 0.003,
+			// The winding only exists where the string is wound: the bottom
+			// of the instrument's range. A plain treble string has no cover
+			// wire to ring. A bowed note gets none of it either: the bow
+			// drives a Helmholtz cycle that locks the partials together, and
+			// a layer of off-grid ringers under it is heard as noise.
+			winding: if plucked {
+				winding * ((420.0 - f0) / 260.0).clamp(0.0, 1.0)
+			} else {
+				0.0
+			},
+			pluck_tilt: 0.0,
+		};
+		if params.excitation == Excitation::Pluck {
+			// A soft pluck is flesh and a hard one is a plectrum: the harder
+			// the contact, the less it darkens the top of the attack.
+			voicing.pluck_tilt = 0.035 * (1.0 - 0.7 * velocity);
+		}
+
 		let string = StringConfig {
 			frequency: f0,
 			inharmonicity: base_b * params.inharmonicity,
@@ -257,6 +292,7 @@ impl Preset {
 			max_partials,
 			dispersion_sections: sections,
 			dispersion_delay_fraction: 1.0,
+			voicing,
 			dispersion_coefficients: None,
 		};
 

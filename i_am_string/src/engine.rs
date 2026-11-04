@@ -175,6 +175,14 @@ struct Voice {
 	gain: f32,
 	bowed: bool,
 	released: bool,
+	/// The damper engagement the release settles at, 0..1.
+	///
+	/// This is what makes a stab stop harder than a held note: lifting a
+	/// hand that was already resting on the string is not the same gesture
+	/// as letting a long note go into the board.
+	release_engagement: f32,
+	/// How fast the felt falls, per sample.
+	damper_rate: f32,
 	age: u64,
 	samples: u64,
 	peak: f32,
@@ -212,6 +220,9 @@ pub struct StringEngine {
 
 /// The bridge force a full velocity note is normalised to.
 const TARGET_FORCE: f32 = 0.6;
+
+/// A note held for less than this is released as a stab, in seconds.
+const SHORT_NOTE: f32 = 0.12;
 
 /// How many low partials each sympathetic string contributes.
 const SYMPATHETIC_PARTIALS: usize = 2;
@@ -432,8 +443,13 @@ impl StringEngine {
 	/// Release every note.
 	pub fn all_notes_off(&mut self) {
 		self.keys_held = [false; 128];
+		// A piano's damper is a mechanism: the felt falls the same way however
+		// long the key was held, and how far it falls is the pedal's business.
+		// A hand on a guitar or a bowed string is not a mechanism, so on those
+		// the release follows the gesture.
+		let expressive = self.preset != Preset::Piano;
 		for voice in &mut self.voices {
-			Self::engage_damper(voice, self.sample_rate);
+			Self::engage_damper(voice, self.sample_rate, expressive);
 		}
 	}
 
@@ -454,7 +470,8 @@ impl StringEngine {
 		let mut right = 0.0;
 		let params = &self.params;
 		for voice in &mut self.voices {
-			voice.damper += (voice.damper_target - voice.damper) * 0.004;
+			voice.damper += (voice.damper_target - voice.damper) * voice.damper_rate;
+
 			voice.samples += 1;
 			let cents = Self::bend(voice, params, dt);
 			let ratio = 2f32.powf(cents / 1200.0);
@@ -585,6 +602,8 @@ impl StringEngine {
 			strings,
 			damper: 1.0,
 			damper_target: 1.0,
+			release_engagement: 1.0,
+			damper_rate: 0.004,
 			gain,
 			bowed: spec.excitation == Excitation::Bow,
 			released: false,
@@ -631,19 +650,38 @@ impl StringEngine {
 
 	fn release_voice(&mut self, note: u8) {
 		let sample_rate = self.sample_rate;
+		let expressive = self.preset != Preset::Piano;
 		for voice in &mut self.voices {
 			if voice.note == note && !voice.released {
-				Self::engage_damper(voice, sample_rate);
+				Self::engage_damper(voice, sample_rate, expressive);
 			}
 		}
 	}
 
-	fn engage_damper(voice: &mut Voice, sample_rate: f32) {
+	fn engage_damper(voice: &mut Voice, sample_rate: f32, expressive: bool) {
 		voice.released = true;
 		let dt = 1.0 / sample_rate;
+		// How a player lets go depends on how long the note was held. A note
+		// that was only stabbed is cut with the hand already on the string,
+		// in a couple of milliseconds and all the way down. One that has been
+		// ringing for a while is released into the board: the fade is slower
+		// and it stops short of a mute, which is the difference between a
+		// plucked note that is damped and one that is simply let go.
+		let (engagement, rate) = if voice.bowed {
+			(1.0, 0.004)
+		} else if !expressive {
+			// The mechanised damper: full felt, at the rate the pedal asks for.
+			(1.0, 0.004)
+		} else if voice.age_seconds < SHORT_NOTE {
+			(1.0, 0.012)
+		} else {
+			(0.35, 0.0015)
+		};
+		voice.release_engagement = engagement;
+		voice.damper_rate = rate;
 		// The felt starts falling at once; how far it gets depends on the pedal,
 		// which update_dampers works out every control interval.
-		voice.damper_target = damper_gain(voice.frequency, 1.0, voice.bowed);
+		voice.damper_target = damper_gain(voice.frequency, engagement, voice.bowed);
 		for string in &mut voice.strings {
 			string.release_ports(dt);
 		}
@@ -682,7 +720,11 @@ impl StringEngine {
 	fn update_dampers(&mut self, dt: f32) {
 		let open = (1.0 - self.pedal).clamp(0.0, 1.0);
 		for voice in &mut self.voices {
-			let engagement = if voice.released { open } else { 0.0 };
+			let engagement = if voice.released {
+				voice.release_engagement * open
+			} else {
+				0.0
+			};
 			voice.damper_target = damper_gain(voice.frequency, engagement, voice.bowed);
 		}
 		let held = &self.keys_held;

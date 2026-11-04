@@ -42,6 +42,7 @@ fn modal(frequency: f32) -> ModalString {
 			tension: 80.0,
 			impedance: 1.0,
 			bridge: 0.0,
+			voicing: Voicing::default(),
 		},
 	)
 }
@@ -58,6 +59,7 @@ fn damped(frequency: f32) -> ModalString {
 			tension: 80.0,
 			impedance: 1.0,
 			bridge: 0.0,
+			voicing: Voicing::default(),
 		},
 	)
 }

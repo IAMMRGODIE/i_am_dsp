@@ -90,6 +90,7 @@ impl StringCore {
 					tension: config.tension,
 					impedance: config.impedance,
 					bridge: config.bridge,
+					voicing: config.voicing,
 				},
 			))),
 		}

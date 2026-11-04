@@ -10,6 +10,14 @@ part of the number, and reports the mean absolute difference per band over time.
     python tools/spectro_compare.py target/bow "C:/Samples/Orchestral/Strings/Celli Legato"
 
 The renders must be named preset_note_hertz.wav (what the sweep example writes).
+
+What the number is not is a target. It averages one spectral distance over
+every band and every frame, and an instrument can move a long way towards a
+recording while sounding worse: a duller attack, a chorus on the partials, a
+tail that will not stop, an octave that is now correct but no longer musical
+all lower it. Treat it as a regression guard - run it before and after a
+change, and listen. A lower score with a worse sound is a failed change, not
+a smaller number.
 """
 
 import os, sys, glob, warnings

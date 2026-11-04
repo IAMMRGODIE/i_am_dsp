@@ -33,8 +33,8 @@
 //! it sounds like a detuned saw, and no amount of filtering fixes it.
 //!
 //! The mode bank pays for that. It is about eight times the cost of the
-//! waveguide per string, because it is a hundred and sixty real oscillators
-//! where the waveguide is a filter standing in for them, and it models a bounded
+//! waveguide per string, because it is up to a hundred and eighty real
+//! oscillators where the waveguide is a filter standing in for them, and it models a bounded
 //! number of partials where the delay lines model everything below Nyquist.
 //! Switching between the two is not a quality setting - it is a different
 //! instrument, and the two do not agree about which notes sound best.
@@ -47,6 +47,8 @@
 //!   allpass cascade and a frequency dependent loss filter.
 //! * [core] - the [core::Core] switch between the two, and the [core::StringCore]
 //!   wrapper that hides the choice from everything above it.
+//! * [voicing] - the colour layers of the mode bank: detuned pairs, the two
+//!   stage decay, the wound layer and the pluck contact.
 //! * [contact] - the [contact::ContactLaw] trait and its three implementations.
 //! * [instrument] - string scaling, voice specs and instrument presets.
 //! * [engine] - polyphony, note lifecycle and the render loop.
@@ -74,6 +76,7 @@ pub mod instrument;
 pub mod modal;
 pub mod string;
 pub mod sympathetic;
+pub mod voicing;
 
 pub mod prelude {
 	//! Everything that is needed to build and play an engine.
@@ -84,6 +87,7 @@ pub mod prelude {
 	pub use crate::instrument::*;
 	pub use crate::string::*;
 	pub use crate::sympathetic::SympatheticBank;
+	pub use crate::voicing::Voicing;
 }
 
 /// A tiny deterministic noise source.

@@ -195,7 +195,9 @@ fn a_settled_string_stops_computing() {
 	let spec = Preset::Guitar.spec(60, 1.0, engine.params());
 	let mut string = StringCore::new(Core::Modal, FS, &spec.string);
 	string.pluck(spec.position, spec.pluck_amplitude);
-	for _ in 0..(FS as usize * 8) {
+	// A guitar note now has a slow tail on purpose, so it needs longer than the
+	// bare loss law to fall under the floor.
+	for _ in 0..(FS as usize * 14) {
 		string.step();
 	}
 	assert!(

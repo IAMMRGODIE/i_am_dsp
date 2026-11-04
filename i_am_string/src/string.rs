@@ -30,6 +30,7 @@
 use crate::contact::ContactLaw;
 use crate::delay::DelayLine;
 use crate::dispersion::{DispersionFilter, Target};
+use crate::voicing::Voicing;
 
 /// The physical parameters of one string.
 #[derive(Clone, Debug)]
@@ -64,6 +65,12 @@ pub struct StringConfig {
 	/// the decay of neighbouring partials differ by several times; 0 removes the
 	/// effect entirely and leaves the smooth loss law.
 	pub bridge: f32,
+	/// How the mode bank colours the note; the waveguide ignores it.
+	///
+	/// The waveguide has one loop gain standing in for every partial, so
+	/// there is no per-partial state to shape. The mode bank has the state,
+	/// and [crate::voicing::Voicing] says what to do with it.
+	pub voicing: Voicing,
 	/// A pre-fitted set of allpass coefficients.
 	///
 	/// Fitting the dispersion filter takes several milliseconds, which is far
@@ -85,6 +92,7 @@ impl Default for StringConfig {
 			dispersion_sections: 8,
 			dispersion_delay_fraction: 1.0,
 			bridge: 0.0,
+			voicing: Voicing::default(),
 			dispersion_coefficients: None,
 		}
 	}
