@@ -48,8 +48,10 @@ pub struct Note {
 #[derive(Debug)]
 pub struct Instrument {
 	notes: Vec<Note>,
-	weights: Vec<f32>,
-	profile: Vec<f32>,
+	/// Velocity gain in dB, one row per partial order and one column per layer.
+	gain: Vec<f32>,
+	rows: usize,
+	cols: usize,
 }
 
 impl Instrument {
@@ -58,28 +60,34 @@ impl Instrument {
 		self.notes.iter().find(|entry| entry.note == note)
 	}
 
-	/// How much brightness a velocity asks for, in decibels.
+	/// The gain for one mode at one velocity, as a linear multiplier.
 	///
-	/// `velocity` is 0..1; the measured layers sit at 26, 51, 77, 102 and 127.
-	pub fn brightness(&self, velocity: f32) -> f32 {
-		let last = self.weights.len().saturating_sub(1);
-		if last == 0 {
-			return 0.0;
+	/// Bilinear in partial order and velocity: the table is the measured level
+	/// of every order at every layer, relative to the hardest layer.
+	pub fn mode_gain(&self, mode: &Mode, velocity: f32) -> f32 {
+		if self.rows == 0 || self.cols == 0 {
+			return 1.0;
 		}
-		let step = 127.0 / last as f32;
-		let position = velocity.clamp(0.0, 1.0) * 127.0 / step;
-		let index = (position.floor() as usize).min(last);
-		let fraction = (position - index as f32).clamp(0.0, 1.0);
-		let low = self.weights[index];
-		let high = self.weights[(index + 1).min(last)];
-		low + (high - low) * fraction
-	}
+		let row = (mode.order - 1.0).clamp(0.0, (self.rows - 1) as f32);
+		let row0 = row.floor() as usize;
+		let row1 = (row0 + 1).min(self.rows - 1);
+		let row_fraction = row - row0 as f32;
 
-	/// The gain for one mode at one brightness, as a linear multiplier.
-	pub fn mode_gain(&self, mode: &Mode, brightness: f32) -> f32 {
-		let order = (mode.order - 1.0).max(0.0) as usize;
-		let share = self.profile.get(order).copied().unwrap_or(1.0);
-		10f32.powf(-share * brightness / 20.0)
+		let last = (self.cols - 1) as f32;
+		let position = if last > 0.0 {
+			(velocity.clamp(0.0, 1.0) * 127.0 / (127.0 / last)).clamp(0.0, last)
+		} else {
+			0.0
+		};
+		let col0 = position.floor() as usize;
+		let col1 = (col0 + 1).min(self.cols - 1);
+		let col_fraction = position - col0 as f32;
+
+		let sample = |r: usize, c: usize| self.gain[r * self.cols + c];
+		let top = sample(row0, col0) * (1.0 - col_fraction) + sample(row0, col1) * col_fraction;
+		let bottom = sample(row1, col0) * (1.0 - col_fraction) + sample(row1, col1) * col_fraction;
+		let db = top * (1.0 - row_fraction) + bottom * row_fraction;
+		10f32.powf(db / 20.0)
 	}
 }
 
@@ -132,19 +140,14 @@ fn parse() -> Instrument {
 		}
 		notes.push(Note { note, modes });
 	}
-	let count = take(1)[0] as usize;
-	let mut weights = Vec::with_capacity(count);
-	for _ in 0..count {
+	let rows = take(1)[0] as usize;
+	let cols = take(1)[0] as usize;
+	let mut gain = Vec::with_capacity(rows * cols);
+	for _ in 0..rows * cols {
 		let raw = take(4);
-		weights.push(f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]));
+		gain.push(f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]));
 	}
-	let count = take(1)[0] as usize;
-	let mut profile = Vec::with_capacity(count);
-	for _ in 0..count {
-		let raw = take(4);
-		profile.push(f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]));
-	}
-	Instrument { notes, weights, profile }
+	Instrument { notes, gain, rows, cols }
 }
 /// One decaying sinusoid.
 struct Oscillator {
@@ -185,11 +188,10 @@ impl Voice {
 	/// Start a note. `velocity` is 0..1 and `gain` the note's overall level.
 	pub fn start(note: u8, velocity: f32, gain: f32, rate: f32) -> Self {
 		let instrument = instrument();
-		let brightness = instrument.brightness(velocity);
 		let mut oscillators = Vec::new();
 		if let Some(entry) = instrument.note(note) {
 			for mode in &entry.modes {
-				let level = gain * instrument.mode_gain(mode, brightness);
+				let level = gain * instrument.mode_gain(mode, velocity);
 				let omega = std::f32::consts::TAU * mode.frequency;
 				if mode.prompt > 0.0 {
 					oscillators.push(Oscillator::new(

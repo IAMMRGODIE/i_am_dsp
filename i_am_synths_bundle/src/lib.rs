@@ -18,6 +18,7 @@ use i_am_plugin::export_clap;
 
 export_clap!(
 	StringWeb,
+	FittedWeb,
 	ShapesWeb,
 	AdditiveWeb,
 	SpectrumWeb,

@@ -16,6 +16,7 @@ mod canvas;
 mod script;
 mod shapes;
 mod spectrum;
+mod fitted;
 mod strings;
 
 pub use additive::{AdditiveWeb, additive_faceplate};
@@ -23,6 +24,7 @@ pub use canvas::{CanvasWeb, canvas_faceplate, canvas_shape};
 pub use script::{ScriptWeb, script_faceplate};
 pub use shapes::{ShapesWeb, shapes_faceplate};
 pub use spectrum::{SpectrumWeb, spectrum_faceplate};
+pub use fitted::{FittedWeb, faceplate as fitted_faceplate};
 pub use strings::{StringWeb, faceplate};
 
 use std::sync::atomic::Ordering;

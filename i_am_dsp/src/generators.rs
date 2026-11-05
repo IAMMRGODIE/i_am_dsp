@@ -9,4 +9,6 @@ pub mod string_generator;
 pub mod wavetable;
 
 #[cfg(feature = "string")]
+pub mod fitted_engine;
+#[cfg(feature = "string")]
 pub mod string_engine;
