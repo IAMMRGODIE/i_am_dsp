@@ -29,6 +29,9 @@ fn main() {
 		let rate = 48_000.0;
 		let mut engine = StringEngine::new(rate);
 		engine.set_preset(Preset::Piano);
+		if std::env::var("IAM_CALIBRATED").is_ok() {
+			engine.params_mut().calibrated = true;
+		}
 		engine.note_on(note, 0.8);
 
 		let mut samples = Vec::with_capacity((rate as usize) * seconds);

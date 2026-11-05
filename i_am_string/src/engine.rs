@@ -72,12 +72,18 @@ pub struct EngineParams {
 	pub vibrato_delay: f32,
 	/// How long the vibrato takes to reach full depth, in seconds.
 	pub vibrato_onset: f32,
+	/// Whether the piano's mode bank comes from a measured table.
+	///
+	/// Off by default: the table is a measurement of one library, and a preset
+	/// should sound like itself without it.
+	pub calibrated: bool,
 }
 
 impl Default for EngineParams {
 	fn default() -> Self {
 		Self {
 			core: Core::default(),
+			calibrated: false,
 			excitation: Excitation::Pluck,
 			gain: 0.8,
 			damping: 1.0,
