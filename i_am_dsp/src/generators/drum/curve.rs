@@ -4,12 +4,14 @@
 //! The bend is the one the ADSR already uses, so a curve drawn in an editor and
 //! a curve evaluated on the audio thread agree sample for sample.
 
+use serde::{Deserialize, Serialize};
+
 use crate::generators::adsr::bend;
 
 /// One point: time in seconds, value, and the bend of the segment that starts
 /// here. A negative bend spends the segment early (a fast drop), a positive one
 /// spends it late (a swell).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Point {
 	/// Seconds from the start of the note.
 	pub time: f32,
@@ -20,7 +22,7 @@ pub struct Point {
 }
 
 /// A breakpoint curve, sorted by time.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Curve {
 	points: Vec<Point>,
 }
@@ -35,6 +37,17 @@ impl Curve {
 	/// The points, in time order.
 	pub fn points(&self) -> &[Point] {
 		&self.points
+	}
+
+	/// Build from `(time, value, bend)` triples, which is how the editor sends
+	/// a curve over the wire.
+	pub fn from_triples(points: impl IntoIterator<Item = (f32, f32, f32)>) -> Self {
+		Self::new(
+			points
+				.into_iter()
+				.map(|(time, value, bend)| Point { time, value, bend })
+				.collect(),
+		)
 	}
 
 	/// The time of the last point, or zero for an empty curve.

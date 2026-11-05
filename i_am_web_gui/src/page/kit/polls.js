@@ -349,6 +349,30 @@
       });
   }
 
+  /// The pitch fall the editor keeps, so a reopened window shows the curve the
+  /// voice is actually playing.
+  function pollFall() {
+    if (!wantsFall || document.hidden) {
+      setTimeout(pollFall, 400);
+      return;
+    }
+
+    fetch("/pitch", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state || !state.points || fallDrag) return;
+        if (JSON.stringify(state) === JSON.stringify(fallState)) return;
+        fallState = state;
+        markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollFall, 400);
+      });
+  }
+
   // The goniometer needs L/R before and after the effect; the mono /scope is not
   // enough for it, so it has its own small poll.
   function pollStereo() {

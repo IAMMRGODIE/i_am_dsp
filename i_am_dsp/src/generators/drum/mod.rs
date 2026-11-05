@@ -9,6 +9,8 @@
 pub mod curve;
 pub mod sources;
 
+use std::sync::{Arc, Mutex};
+
 use i_am_dsp_derive::Parameters;
 
 use crate::{Generator, NoteEvent};
@@ -115,19 +117,20 @@ pub struct DrumInstrument {
 	rate: f32,
 	#[skip]
 	rng: Rng,
+	/// The pitch curve, saved with the plug-in state. The voice reads the
+	/// shared copy, which the editor keeps in step while the window is open.
+	#[serde]
+	#[id(display = "Pitch Curve")]
+	pub pitch_curve: Curve,
+	#[skip]
+	shared: Arc<Mutex<Curve>>,
 	/// The fundamental of the kick, in Hz.
 	#[range(min = 30.0, max = 120.0)]
 	#[default(52.0)]
 	#[unit(hertz)]
 	#[id(display = "Tune")]
-	#[layout(group = "Kick", order = 0, widget = knob)]
+	#[layout(group = "Kick", order = 0, widget = knob, hero = "fall")]
 	pub tune: f32,
-	/// How far the pitch falls in the first milliseconds.
-	#[range(min = 1.0, max = 6.0)]
-	#[default(3.2)]
-	#[id(display = "Punch")]
-	#[layout(group = "Kick", order = 1, widget = knob)]
-	pub punch: f32,
 	/// How long the body rings, in seconds.
 	#[range(min = 0.05, max = 2.0)]
 	#[default(0.45)]
@@ -161,14 +164,31 @@ pub struct DrumInstrument {
 	pub gain: f32,
 }
 
+/// The pitch fall a fresh kick starts with: a deep dive in the first 30 ms.
+pub fn default_pitch() -> Curve {
+	Curve::new(vec![
+		Point {
+			time: 0.0,
+			value: 4.5,
+			bend: -2.0,
+		},
+		Point {
+			time: 0.03,
+			value: 1.0,
+			bend: 0.0,
+		},
+	])
+}
+
 impl Default for DrumInstrument {
 	fn default() -> Self {
 		Self {
 			playing: Vec::new(),
 			rate: 48_000.0,
 			rng: Rng::default(),
+			pitch_curve: default_pitch(),
+			shared: Arc::new(Mutex::new(default_pitch())),
 			tune: 52.0,
-			punch: 3.2,
 			decay: 0.45,
 			click: 0.5,
 			click_tone: 1800.0,
@@ -181,17 +201,27 @@ impl Default for DrumInstrument {
 impl DrumInstrument {
 	/// A silent instrument, built for one sample rate.
 	pub fn new(rate: usize) -> Self {
-		Self {
+		let mut instrument = Self {
 			rate: if rate > 0 { rate as f32 } else { 48_000.0 },
 			..Self::default()
+		};
+		instrument.shared = Arc::new(Mutex::new(instrument.pitch_curve.clone()));
+		instrument
+	}
+
+	/// Use a curve the editor also holds, so a drag is heard on the next hit.
+	pub fn with_shared(mut self, shared: Arc<Mutex<Curve>>) -> Self {
+		if let Ok(curve) = shared.lock() {
+			self.pitch_curve = curve.clone();
 		}
+		self.shared = shared;
+		self
 	}
 
 	/// The controls, turned into one hit.
 	fn recipe(&self) -> Recipe {
 		let tune = self.tune.clamp(20.0, 200.0);
 		let decay = self.decay.clamp(0.02, 4.0);
-		let punch = self.punch.clamp(1.0, 8.0);
 
 		// Circular membrane ratios: the body is not a sine, and it is not a
 		// harmonic series either.
@@ -236,18 +266,12 @@ impl DrumInstrument {
 			});
 		}
 
-		let pitch = Curve::new(vec![
-			Point {
-				time: 0.0,
-				value: punch,
-				bend: -2.0,
-			},
-			Point {
-				time: 0.03,
-				value: 1.0,
-				bend: 0.0,
-			},
-		]);
+		// The editor writes the shared copy; the saved parameter is the mirror.
+		let pitch = self
+			.shared
+			.lock()
+			.map(|curve| curve.clone())
+			.unwrap_or_else(|_| self.pitch_curve.clone());
 		let amp = Curve::new(vec![
 			Point {
 				time: 0.0,
@@ -384,5 +408,18 @@ mod tests {
 
 		assert!(kit.recipe().click.is_empty());
 		assert!(kit.recipe().noise.is_empty());
+	}
+
+	#[test]
+	fn the_editor_curve_is_heard() {
+		let kit = DrumInstrument::new(48_000);
+		let shared = Arc::new(Mutex::new(Curve::from_triples([
+			(0.0, 7.0, 0.0),
+			(0.1, 1.0, 0.0),
+		])));
+
+		let kit = kit.with_shared(shared);
+
+		assert!((kit.recipe().pitch.value(0.0) - 7.0).abs() < 1e-5);
 	}
 }

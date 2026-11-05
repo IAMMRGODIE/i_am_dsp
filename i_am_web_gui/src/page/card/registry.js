@@ -41,3 +41,4 @@
   registerHero("modal", modalHero);
   registerHero("envelope", envelopeHero);
   registerHero("additive", additiveHero);
+  registerHero("fall", fallHero);

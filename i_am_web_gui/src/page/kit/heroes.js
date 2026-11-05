@@ -19,7 +19,7 @@
       if (hero.el.dataset.busy === "1") return;
 
       var content = IAmCard.hero(hero.kind, values, {
-        ir: irState, curve: curveState, stereo: stereoScope, scope: scope,
+        ir: irState, curve: curveState, fall: fallState, stereo: stereoScope, scope: scope,
         rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,
         ott: ottState, vocoder: vocoderState, eqSpectrum: eqSpectrum,

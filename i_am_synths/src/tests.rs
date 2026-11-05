@@ -624,20 +624,13 @@ fn an_imported_table_plays_and_survives_the_state() {
 #[test]
 fn the_drummer_plays_the_kick_on_note_36() {
 	let face = i_am_web_gui::face_json(&DrummerWeb::new(), &drummer_faceplate());
-	for id in [
-		"tune",
-		"punch",
-		"decay",
-		"click",
-		"click_tone",
-		"drive",
-		"gain",
-	] {
+	for id in ["tune", "decay", "click", "click_tone", "drive", "gain"] {
 		assert!(
 			face.contains(&format!("\"id\":\"{id}\"")),
 			"missing {id}: {face}"
 		);
 	}
+	assert!(face.contains("\"hero\":\"fall\""), "{face}");
 
 	let tags = <DrummerWeb as Plugin>::DESCRIPTOR.tags;
 	assert!(tags.iter().any(|tag| matches!(tag, Tag::Drum)));
@@ -682,4 +675,29 @@ fn the_drummer_ignores_a_note_it_has_no_voice_for() {
 	}
 
 	assert_eq!(peak, 0.0, "an unmapped note made a sound: {peak}");
+}
+
+#[test]
+fn the_pitch_curve_survives_the_state() {
+	use i_am_dsp::prelude::{Curve, SetValue, Value, to_binary};
+
+	let curve = Curve::from_triples([(0.0, 6.0, -1.0), (0.04, 1.0, 0.0)]);
+	let bytes = to_binary(&curve).expect("serialize the curve");
+
+	let mut plugin = DrummerWeb::new();
+	assert!(Parameters::set_parameter(
+		&mut plugin,
+		"pitch_curve",
+		SetValue::Serialized(bytes.clone())
+	));
+
+	let stored = Parameters::get_parameters(&plugin)
+		.into_iter()
+		.find(|parameter| parameter.identifier == "pitch_curve")
+		.expect("the curve is a parameter");
+
+	match stored.value {
+		Value::Serialized(data) => assert_eq!(data, bytes),
+		other => panic!("unexpected value: {other:?}"),
+	}
 }

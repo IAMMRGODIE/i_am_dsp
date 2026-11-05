@@ -180,6 +180,16 @@
           });
         }
 
+        if (section.hero === "fall") {
+          hero.title = "Drag a point: horizontal time, vertical pitch. Right-click removes one.";
+          hero.style.touchAction = "none";
+          hero.addEventListener("pointerdown", fallPointerDown);
+          hero.addEventListener("pointermove", fallPointerMove);
+          hero.addEventListener("pointerup", fallPointerUp);
+          hero.addEventListener("pointercancel", fallPointerUp);
+          hero.addEventListener("contextmenu", fallContextMenu);
+        }
+
         if (section.hero === "impulse") {
           hero.title = "Load an impulse response";
           hero.addEventListener("click", function () {
@@ -310,6 +320,10 @@
       return hero.kind === "curve" || hero.kind === "mapping";
     });
     if (wantsCurve) setTimeout(pollCurve, 50);
+    wantsFall = heroes.some(function (hero) {
+      return hero.kind === "fall";
+    });
+    if (wantsFall) setTimeout(pollFall, 50);
     wantsOtt = heroes.some(function (hero) {
       return hero.kind === "ott";
     });
