@@ -131,7 +131,10 @@ impl Preset {
 				params.inharmonicity = 1.0;
 				params.body = 0.85;
 				params.gain = 0.8;
-				params.sympathetic = 0.55;
+				// The undamped strings under a single note are a bloom, not a
+				// second instrument: at 0.55 they put 12 dB of low-middle energy
+				// under every partial and the top of the note disappeared.
+				params.sympathetic = 0.35;
 				params.vibrato_depth = 4.0;
 			}
 			Preset::Guitar => {
