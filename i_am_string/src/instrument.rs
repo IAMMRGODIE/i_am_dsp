@@ -217,7 +217,16 @@ impl Preset {
 		let f0 = note_to_frequency(note as f32 + params.transpose);
 
 		let (base_b, tension, impedance, t60_low, t60_high, max_partials, sections) = match self {
-			Preset::Piano => (
+			Preset::Piano => {
+				// Fitted against the reference libraries by tools/fit_t60.py:
+				// the anchors minimise the log distance between this model's
+				// measured per-partial T60 and that of the grand, Keyzone and
+				// Gentleman sets, weighted equally.
+				let low_a0 = 3.55;
+				let low_c8 = 0.85;
+				let high_a0 = 14.3;
+				let high_c8 = 0.23;
+				(
 				// The stiff-string coefficient, from the reference piano: it rises
 				// with the fundamental from the wound bass to the treble, which is
 				// what stretches the partials by the amount the ear hears as a
@@ -226,26 +235,22 @@ impl Preset {
 				7e-4 * (f0 / 440.0).powf(1.4) + 1e-4 * (55.0 / f0).clamp(0.0, 2.2),
 				geom(700.0, 420.0, t),
 				geom(14.0, 3.0, t),
-				// The fundamental's T60. The old anchors, 30 s at A0 and 3 s at C8,
-				// made E1 ring for 19 s where the sample set lets it go in 11, and
-				// fell too fast through the middle: C4 decayed in 7 s against the
-				// recording's 9. Measured envelope by envelope, this set of samples
-				// wants a nearly flat 10-12 s from E1 to C4, so the anchors are 11 s
-				// at A0 and 8 s at C8 - flatter than a geometric curve wants to be,
-				// but the bridge's damping already makes the treble decay faster
-				// than its anchor.
-				// The first polarization is the prompt: 2.5 times faster than the
-				// tail, so these anchors are the sample's 11-8 s divided by that.
-				// The second polarization multiplies by 0.4 and lands on the tail
-				// the samples asked for.
-				geom(4.4, 3.2, t),
+				// The fundamental's T60. These are not hand anchors any more: the
+				// fit minimised the log distance to the measured per-partial T60
+				// of three libraries at eight notes, so they describe the model's
+				// own measurement, tail included. The old hand anchors (4.4 to
+				// 3.2) left the treble ringing about twice as long as any of the
+				// recordings; the fit wants 3.55 at A0 and 0.85 at C8.
+				geom(low_a0, low_c8, t),
 				// The tenth partial's T60. Six seconds at A0 let the top die while the
 				// fundamental was still ringing, which is the clean sine tail;
-				// the recordings keep a 2-8 kHz floor for the whole note.
-				geom(14.0, 0.45, t),
+				// the recordings keep a 2-8 kHz floor for the whole note. The fit
+				// wanted 14.3 at A0 and 0.23 at C8.
+				geom(high_a0, high_c8, t),
 				40,
 				8,
-			),
+				)
+			}
 			Preset::Guitar => (
 				geom(1.5e-4, 4.0e-4, t),
 				geom(75.0, 65.0, t),
@@ -538,6 +543,7 @@ impl Preset {
 fn geom(a: f32, b: f32, t: f32) -> f32 {
 	a * (b / a).powf(t.clamp(0.0, 1.0))
 }
+
 
 /// Turn two decay time anchors - the fundamental and its tenth partial - into
 /// the `sigma0 + sigma1 f^2` law that the string loss expects.

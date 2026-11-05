@@ -16,8 +16,8 @@ import numpy as np
 from scipy.io import wavfile
 from scipy.signal import butter, sosfiltfilt
 
-PICK = [42, 54, 66, 78, 90]
-NAMES = ['F#2', 'F#3', 'F#4', 'F#5', 'F#6']
+PICK = [38, 46, 54, 62, 70, 78, 86, 90]
+NAMES = ['D2', 'A#2', 'F#3', 'D4', 'A#4', 'F#5', 'D6', 'F#6']
 
 T_MAX = 2.0        # seconds of decay used for the rate estimate
 SPAN = 12.0        # dB down from the partial's own peak: the prompt decay
@@ -217,8 +217,9 @@ def plot(paths, out_path):
     data = {label: json.load(open(path)) for label, path in paths.items()}
     available = [(k, c) for k, c in SOURCES if k in data]
 
-    fig, axes = plt.subplots(2, 3, figsize=(14, 7.6))
-    for index in range(5):
+    rows = (len(PICK) + 2) // 3
+    fig, axes = plt.subplots(rows, 3, figsize=(14, 2.9 * rows))
+    for index in range(len(PICK)):
         ax = axes.flat[index]
         for key, color in available:
             entry = data[key][index]
@@ -240,24 +241,24 @@ def plot(paths, out_path):
     axes.flat[3].set_ylabel('T60 of the prompt decay (s)')
     axes.flat[0].legend(loc='lower left', fontsize=8)
 
-    summary = axes.flat[5]
+    summary = axes.flat[len(PICK)]
     keys = [k for k, _ in available if k != 'model']
     width = 0.8 / max(len(keys), 1)
     for offset, key in enumerate(keys):
         ratios = []
-        for index in range(5):
+        for index in range(len(PICK)):
             model = {p['k']: p['t60'] for p in data['model'][index]['partials']}
             other = {p['k']: p['t60'] for p in data[key][index]['partials']
                      if not p['bounded']}
             common = sorted(set(model) & set(other))
             ratios.append(np.exp(np.mean([np.log(model[k] / other[k])
                                           for k in common])) if common else np.nan)
-        x = np.arange(5) + (offset - (len(keys) - 1) / 2.0) * width
+        x = np.arange(len(PICK)) + (offset - (len(keys) - 1) / 2.0) * width
         summary.bar(x, ratios, width, label=key,
                     color=dict(SOURCES).get(key))
     summary.axhline(1.0, color='#666', linewidth=1)
     summary.set_yscale('log')
-    summary.set_xticks(np.arange(5))
+    summary.set_xticks(np.arange(len(PICK)))
     summary.set_xticklabels(NAMES)
     summary.set_ylabel('model / sample (T60)')
     summary.set_title('mean ratio over measured partials')
