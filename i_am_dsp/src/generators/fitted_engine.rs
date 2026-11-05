@@ -24,10 +24,6 @@ struct Playing {
 	releasing: bool,
 	/// Seconds since the note started, for the attack ramp.
 	age: f32,
-	/// A small per-voice gain difference between the ears: the table is mono,
-	/// and two identical channels are heard as a point in the middle.
-	left: f32,
-	right: f32,
 }
 
 /// A polyphonic instrument played from a fitted mode table.
@@ -37,8 +33,6 @@ pub struct FittedInstrument {
 	playing: Vec<Playing>,
 	#[skip]
 	sample_rate: f32,
-	#[skip]
-	random: u32,
 	/// How long the note takes to reach full level, in seconds. Short enough
 	/// to be an attack rather than a swell, long enough to stop the click at
 	/// the start of a note.
@@ -92,7 +86,6 @@ impl Default for FittedInstrument {
 			release: 0.15,
 			attack: 0.004,
 			width: 0.4,
-			random: 0x2545_f491,
 		}
 	}
 }
@@ -116,21 +109,12 @@ impl FittedInstrument {
 		} else {
 			fitted::instrument()
 		};
-		self.random = self.random.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-		let noise = (self.random >> 8) as f32 / 16_777_216.0;
-		// A fifth of a decibel either way, different on every note, so the two
-		// channels are not the same signal.
-		let spread = 0.15 * self.width.clamp(0.0, 1.0);
-		let left = 1.0 - spread * noise;
-		let right = 1.0 - spread * (1.0 - noise);
 		self.playing.push(Playing {
 			voice: fitted::Voice::start_from(table, note, velocity.clamp(0.0, 1.0), shaped, self.sample_rate),
 			note,
 			fade: 1.0,
 			releasing: false,
 			age: 0.0,
-			left,
-			right,
 		});
 	}
 
@@ -174,8 +158,9 @@ impl Generator<2> for FittedInstrument {
 		let step = 1.0 / (self.release.max(0.02) * self.sample_rate);
 		let mut left = 0.0f32;
 		let mut right = 0.0f32;
+		let width = self.width.clamp(0.0, 1.0);
 		for voice in &mut self.playing {
-			let sample = voice.voice.next_sample();
+			let [ear_left, ear_right] = voice.voice.next_frame();
 			let attack = if self.attack > 1e-4 {
 				(voice.age / self.attack).min(1.0)
 			} else {
@@ -186,8 +171,11 @@ impl Generator<2> for FittedInstrument {
 				voice.fade = (voice.fade - step).max(0.0);
 			}
 			let level = attack * voice.fade;
-			left += sample * voice.left * level;
-			right += sample * voice.right * level;
+			// The two channels are fitted separately; Width blends them back
+			// toward the mono sum instead of widening a mono voice.
+			let mono = 0.5 * (ear_left + ear_right);
+			left += (mono + (ear_left - mono) * width) * level;
+			right += (mono + (ear_right - mono) * width) * level;
 		}
 		self.playing.retain(|voice| !voice.releasing || voice.fade > 0.0);
 		[left, right]

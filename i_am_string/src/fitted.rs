@@ -35,13 +35,16 @@ pub struct Mode {
 	pub tail_phase: f32,
 }
 
-/// One note of the table.
+/// One note of the table, with one set of modes per channel.
 #[derive(Clone, Debug, Default)]
 pub struct Note {
 	/// The MIDI note.
 	pub note: u8,
-	/// Its modes, sorted by frequency.
-	pub modes: Vec<Mode>,
+	/// What the left ear hears.
+	pub left: Vec<Mode>,
+	/// What the right ear hears. The two are fitted from the two channels of
+	/// the recording, so the stereo image is the recording's.
+	pub right: Vec<Mode>,
 }
 
 /// A whole fitted instrument.
@@ -111,16 +114,19 @@ fn parse(data: &'static [u8]) -> Instrument {
 		slice
 	};
 	assert_eq!(take(4), b"MODE");
-	assert_eq!(take(1)[0], 2);
+	assert_eq!(take(1)[0], 3);
 	let _reserved = take(1);
 	let note_count = take(1)[0] as usize;
 	let mut notes = Vec::with_capacity(note_count);
 	for _ in 0..note_count {
 		let note = take(1)[0];
-		let count = take(1)[0] as usize;
-		let mut modes = Vec::with_capacity(count);
-		for _ in 0..count {
-			let raw = take(30);
+		let _reserved = take(1);
+		let mut channels = [Vec::new(), Vec::new()];
+		for channel in &mut channels {
+			let count = take(1)[0] as usize;
+			let mut modes = Vec::with_capacity(count);
+			for _ in 0..count {
+				let raw = take(30);
 			let order = u16::from_le_bytes([raw[0], raw[1]]) as f32;
 			let mut values = [0.0f32; 7];
 			for (index, value) in values.iter_mut().enumerate() {
@@ -132,18 +138,24 @@ fn parse(data: &'static [u8]) -> Instrument {
 					raw[start + 3],
 				]);
 			}
-			modes.push(Mode {
-				order,
-				frequency: values[0],
-				prompt: values[1],
-				tail: values[2],
-				prompt_t60: values[3],
-				tail_t60: values[4],
-				prompt_phase: values[5],
-				tail_phase: values[6],
-			});
+				modes.push(Mode {
+					order,
+					frequency: values[0],
+					prompt: values[1],
+					tail: values[2],
+					prompt_t60: values[3],
+					tail_t60: values[4],
+					prompt_phase: values[5],
+					tail_phase: values[6],
+				});
+			}
+			*channel = modes;
 		}
-		notes.push(Note { note, modes });
+		notes.push(Note {
+			note,
+			left: channels[0].clone(),
+			right: channels[1].clone(),
+		});
 	}
 	let rows = take(1)[0] as usize;
 	let cols = take(1)[0] as usize;
@@ -184,9 +196,10 @@ impl Oscillator {
 	}
 }
 
-/// One sounding note.
+/// One sounding note, with one oscillator bank per ear.
 pub struct Voice {
-	oscillators: Vec<Oscillator>,
+	left: Vec<Oscillator>,
+	right: Vec<Oscillator>,
 }
 
 impl Voice {
@@ -198,32 +211,37 @@ impl Voice {
 		gain: f32,
 		rate: f32,
 	) -> Self {
-		let mut oscillators = Vec::new();
+		let mut voice = Self {
+			left: Vec::new(),
+			right: Vec::new(),
+		};
 		if let Some(entry) = instrument.note(note) {
-			for mode in &entry.modes {
-				let level = gain * instrument.mode_gain(mode, velocity);
-				let omega = std::f32::consts::TAU * mode.frequency;
-				if mode.prompt > 0.0 {
-					oscillators.push(Oscillator::new(
-						level * mode.prompt,
-						mode.prompt_phase,
-						omega,
-						6.907_755 / mode.prompt_t60.max(0.02),
-						rate,
-					));
-				}
-				if mode.tail > 0.0 {
-					oscillators.push(Oscillator::new(
-						level * mode.tail,
-						mode.tail_phase,
-						omega,
-						6.907_755 / mode.tail_t60.max(0.03),
-						rate,
-					));
+			for (modes, ear) in [(&entry.left, &mut voice.left), (&entry.right, &mut voice.right)] {
+				for mode in modes {
+					let level = gain * instrument.mode_gain(mode, velocity);
+					let omega = std::f32::consts::TAU * mode.frequency;
+					if mode.prompt > 0.0 {
+						ear.push(Oscillator::new(
+							level * mode.prompt,
+							mode.prompt_phase,
+							omega,
+							6.907_755 / mode.prompt_t60.max(0.02),
+							rate,
+						));
+					}
+					if mode.tail > 0.0 {
+						ear.push(Oscillator::new(
+							level * mode.tail,
+							mode.tail_phase,
+							omega,
+							6.907_755 / mode.tail_t60.max(0.03),
+							rate,
+						));
+					}
 				}
 			}
 		}
-		Self { oscillators }
+		voice
 	}
 
 	/// Start a note from the default table.
@@ -231,11 +249,21 @@ impl Voice {
 		Self::start_from(instrument(), note, velocity, gain, rate)
 	}
 
-	/// One sample of the note.
+	/// One frame, one ear each.
+	pub fn next_frame(&mut self) -> [f32; 2] {
+		let left = self.left.iter_mut().map(|osc| osc.step()).sum();
+		let right = self.right.iter_mut().map(|osc| osc.step()).sum();
+		[left, right]
+	}
+
+	/// One sample, mixed down to mono.
 	pub fn next_sample(&mut self) -> f32 {
-		self.oscillators.iter_mut().map(|osc| osc.step()).sum()
+		let frame = self.next_frame();
+		0.5 * (frame[0] + frame[1])
 	}
 }
+
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -244,7 +272,7 @@ mod tests {
 	fn a_note_has_modes_and_makes_a_sound() {
 		let instrument = instrument();
 		let note = instrument.note(57).expect("note 57 is in the table");
-		assert!(!note.modes.is_empty());
+		assert!(!note.left.is_empty() && !note.right.is_empty());
 		let mut voice = Voice::start(57, 1.0, 0.8, 48_000.0);
 		let mut peak = 0.0f32;
 		for _ in 0..4_800 {
@@ -256,12 +284,24 @@ mod tests {
 	fn the_second_table_plays_too() {
 		let table = peel();
 		let note = table.note(57).expect("the guitar has A4");
-		assert!(!note.modes.is_empty());
+		assert!(!note.left.is_empty() || note.right.is_empty());
 		let mut voice = Voice::start_from(table, 57, 1.0, 0.8, 48_000.0);
 		let mut peak = 0.0f32;
 		for _ in 0..4_800 {
 			peak = peak.max(voice.next_sample().abs());
 		}
 		assert!(peak > 1e-4, "silent: {peak}");
+	}
+	#[test]
+	fn the_two_ears_are_not_the_same() {
+		let mut voice = Voice::start(57, 1.0, 0.8, 48_000.0);
+		let mut difference = 0.0f32;
+		let mut total = 0.0f32;
+		for _ in 0..4_800 {
+			let [left, right] = voice.next_frame();
+			difference += (left - right).abs();
+			total += left.abs() + right.abs();
+		}
+		assert!(difference > 0.002 * total, "the channels are identical");
 	}
 }
