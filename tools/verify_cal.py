@@ -13,7 +13,7 @@ LIBRARY = os.path.abspath(os.path.join(ROOT, '..', 'refer', 'sample', 'The Gentl
 MODES = os.path.join(ROOT, 'target', 'wav', 'gentleman-model', 'modes.json')
 
 library = json.load(open(MODES))
-for tag, directory in (('before', 'engine-cal'), ('after', 'engine-cal2')):
+for tag, directory in (('bank=table', 'cal-test'),):
     gains, t60s = [], []
     for entry in library:
         note = entry['note']

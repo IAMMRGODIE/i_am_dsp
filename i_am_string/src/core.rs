@@ -76,7 +76,8 @@ impl StringCore {
 			Core::Waveguide => {
 				StringCore::Waveguide(Box::new(WaveguideString::new(sample_rate, config.clone())))
 			}
-			Core::Modal => StringCore::Modal(Box::new(ModalString::new(
+			Core::Modal => {
+				let mut string = ModalString::new(
 				sample_rate,
 				ModalConfig {
 					frequency: config.frequency,
@@ -93,7 +94,12 @@ impl StringCore {
 					voicing: config.voicing,
 					calibration: config.calibration,
 				},
-			))),
+				);
+				if !config.calibration.is_empty() {
+					string.recalibrate(config.calibration);
+				}
+				StringCore::Modal(Box::new(string))
+			}
 		}
 	}
 
@@ -174,6 +180,20 @@ impl StringCore {
 		match self {
 			StringCore::Waveguide(string) => string.pluck(position, amplitude),
 			StringCore::Modal(string) => string.pluck_with_release(position, amplitude, seconds),
+		}
+	}
+
+	/// Replace the mode bank with a measured one, where the core has one.
+	pub fn recalibrate(&mut self, rows: &[crate::piano_calibration::Mode]) {
+		if let StringCore::Modal(string) = self {
+			string.recalibrate(rows);
+		}
+	}
+
+	/// Start a calibrated bank from its own levels, skipping the contact.
+	pub fn launch(&mut self, amplitude: f32) {
+		if let StringCore::Modal(string) = self {
+			string.launch(amplitude);
 		}
 	}
 

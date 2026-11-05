@@ -772,6 +772,71 @@ impl ModalString {
 		});
 	}
 
+	/// Replace the mode bank with a measured one.
+	///
+	/// The rows carry a partial's frequency, level and two stage decay. The mode
+	/// shape, the bridge coupling and the silence thresholds are rebuilt here the
+	/// same way the harmonic builder computes them, so a calibrated bank leaves
+	/// through the same bridge force path and can be compared with one that was
+	/// not calibrated.
+	pub fn recalibrate(&mut self, rows: &[crate::piano_calibration::Mode]) {
+		let length = self.length as f64;
+		let tension = self.config.tension.max(1.0) as f64;
+		let f0 = self.config.frequency.max(1.0) as f64;
+		let mut modes = Vec::with_capacity(rows.len());
+		for row in rows {
+			let frequency = (row.frequency.max(20.0)) as f64;
+			// The table does not carry a shape, so the mode borrows the shape of
+			// the harmonic it sits nearest: the sign of the bridge slope is what
+			// that shape contributes to the output.
+			let order = (frequency / f0).round().max(1.0);
+			let wave_number = order * std::f64::consts::PI / length;
+			let sign = if order as i64 % 2 == 0 { 1.0 } else { -1.0 };
+			let bridge = 0.5 * tension * wave_number * sign;
+			let quiet_q = QUIET_FORCE / bridge.abs().max(1e-30) as f32;
+			let sigma = 6.907_755 / row.prompt.clamp(0.03, 20.0) as f64;
+			let tail = (row.prompt / row.tail.clamp(0.03, 60.0)).clamp(0.05, 1.0);
+			modes.push(Mode {
+				order: order as f32,
+				level: row.gain.max(0.0),
+				tail,
+				horizontal: false,
+				quiet_q,
+				quiet_v: quiet_q * std::f32::consts::TAU * frequency as f32,
+				sigma: sigma as f32,
+				frequency: frequency as f32,
+				bridge: bridge as f32,
+				..Default::default()
+			});
+		}
+		self.modes = modes;
+		self.pairs.clear();
+		self.phantoms.clear();
+		self.ports.clear();
+		self.rebuild_modes();
+	}
+
+	/// Start a calibrated bank from its own levels, all in phase.
+	///
+	/// A measured table already says how loud each partial is, so the contact
+	/// solver is skipped and the modes are given their state directly. The
+	/// amplitude is a scale factor the caller picks; the table only knows the
+	/// ratios.
+	pub fn launch(&mut self, amplitude: f32) {
+		self.ports.clear();
+		self.age = 0.0;
+		self.blend = 0.0;
+		self.blend_applied = f32::NAN;
+		self.phantoms.clear();
+		self.seeded = false;
+		for mode in &mut self.modes {
+			mode.q = 0.0;
+			mode.v = amplitude * mode.level * std::f32::consts::TAU * mode.frequency;
+			mode.awake = true;
+		}
+		self.rebuild_modes();
+	}
+
 	/// Release the string from a triangular displacement.
 	///
 	/// `amplitude` is the peak displacement as a fraction of the speaking

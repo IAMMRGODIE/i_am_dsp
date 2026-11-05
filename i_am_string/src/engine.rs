@@ -937,6 +937,14 @@ fn unison_offset(index: usize, count: usize) -> f32 {
 }
 
 fn excite(string: &mut StringCore, spec: &VoiceSpec) {
+	// A calibrated bank already knows how loud each partial is, so there is
+	// nothing for a contact to decide: start it from its own levels.
+	if !spec.string.calibration.is_empty() {
+		// The table gives ratios, not newtons; the scale below puts a full
+		// velocity note about where the hammer leaves it.
+		string.launch(3.0e-4);
+		return;
+	}
 	match spec.excitation {
 		Excitation::Pluck => {
 			string.pluck_with_release(spec.position, spec.pluck_amplitude, spec.pluck_release)
