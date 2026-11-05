@@ -11,7 +11,7 @@ use i_am_string::prelude as strings;
 use crate::{Generator, NoteEvent};
 
 /// The presets, in menu order.
-pub const PRESETS: [strings::Preset; 4] = strings::Preset::ALL;
+pub const PRESETS: [strings::Preset; 2] = strings::Preset::ALL;
 
 /// The contact laws, in menu order.
 pub const EXCITATIONS: [strings::Excitation; 3] = [
@@ -52,8 +52,8 @@ pub struct StringInstrument {
 	#[skip]
 	sample_rate: usize,
 	/// Which instrument is being played.
-	#[range(min = 0, max = 3)]
-	#[choices("Piano", "Guitar", "Violin", "Cello")]
+	#[range(min = 0, max = 1)]
+	#[choices("Violin", "Cello")]
 	#[default(0)]
 	#[id(display = "Preset")]
 	#[layout(group = "String", order = 0, widget = choice, hero = "string")]
@@ -81,7 +81,7 @@ pub struct StringInstrument {
 	#[layout(group = "String", order = 2, widget = choice)]
 	pub core: i32,
 	/// How many strings sound per note.
-	#[range(min = 1, max = 3)]
+	#[range(min = 1, max = 1)]
 	#[default(3)]
 	#[id(display = "Strings")]
 	#[layout(group = "String", order = 3, widget = knob, size = small)]
@@ -302,6 +302,7 @@ impl StringInstrument {
 			vibrato_depth: self.vibrato_depth,
 			vibrato_delay: self.vibrato_delay,
 			vibrato_onset: 0.14,
+			calibrated: false,
 		};
 		if self.engine.params() != &wanted {
 			// This also drops the cached dispersion filters, which is why it is

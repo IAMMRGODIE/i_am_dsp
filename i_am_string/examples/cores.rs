@@ -115,7 +115,7 @@ fn main() {
 		"{:>12} {:>5} {:>7} {:>10} {:>10} {:>10}",
 		"core", "note", "B", "worst ct", "median ct", "on pitch"
 	);
-	for preset in [Preset::Piano, Preset::Guitar] {
+	for preset in [Preset::Violin, Preset::Cello] {
 		for note in [36u8, 60, 84, 96] {
 			let spec = preset.spec(note, 1.0, &preset.defaults());
 			for core in Core::ALL {

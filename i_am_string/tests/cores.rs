@@ -94,7 +94,10 @@ fn the_mode_bank_is_in_tune_where_the_waveguide_is_not() {
 	// C7 on a grand piano, where the stretch is hundreds of cents at the top of
 	// the modelled series and a mistuned partial is plainly audible.
 	let engine = StringEngine::new(FS);
-	let spec = Preset::Piano.spec(96, 1.0, engine.params());
+	let mut spec = Preset::Violin.spec(96, 1.0, engine.params());
+	// A bowed string is not stiff; the test needs one that is, so the stretch
+	// is forced rather than borrowed from a piano that no longer exists here.
+	spec.string.inharmonicity = 4e-3;
 	let config = &spec.string;
 	let b = config.inharmonicity;
 	assert!(b > 2e-3, "this test needs a stiff string, got B = {b}");
@@ -191,8 +194,8 @@ fn the_two_cores_play_at_the_same_level() {
 #[test]
 fn a_settled_string_stops_computing() {
 	let mut engine = StringEngine::new(FS);
-	engine.set_preset(Preset::Guitar);
-	let mut spec = Preset::Guitar.spec(60, 1.0, engine.params());
+	engine.set_preset(Preset::Cello);
+	let mut spec = Preset::Cello.spec(60, 1.0, engine.params());
 	// This test is about the modes going to sleep, not about how long a guitar
 	// rings; the decay law has tests of its own. Damp it so the wait is short.
 	spec.string.sigma0 *= 4.0;

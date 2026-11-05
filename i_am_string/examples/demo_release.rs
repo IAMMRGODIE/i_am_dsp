@@ -15,7 +15,7 @@ fn main() {
 	std::fs::create_dir_all(&directory).expect("create the output directory");
 	for (name, held) in [("stab", 0.10f32), ("held", 0.90)] {
 		let mut engine = StringEngine::new(FS);
-		engine.set_preset(Preset::Guitar);
+		engine.set_preset(Preset::Cello);
 		engine.params_mut().strings = 1;
 		engine.params_mut().sympathetic = 0.0;
 		engine.note_on(40, 0.85);

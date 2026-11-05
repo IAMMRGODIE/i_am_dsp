@@ -71,7 +71,7 @@ fn the_face_offers_the_four_instruments_and_five_sections() {
 	assert!(face.contains("\"hero\":\"partials\""), "{face}");
 	assert!(face.contains("\"hero\":\"vibrato\""), "{face}");
 	assert!(
-		face.contains("\"choices\":[\"Piano\",\"Guitar\",\"Violin\",\"Cello\"]"),
+		face.contains("\"choices\":[\"Violin\",\"Cello\"]"),
 		"{face}"
 	);
 	assert!(
@@ -98,8 +98,8 @@ fn choosing_an_instrument_moves_the_controls() {
 
 	assert!(matches!(value(&map, "preset"), SetValue::Int(1)));
 	assert!(
-		matches!(value(&map, "gain"), SetValue::Float(gain) if (gain - 0.9).abs() < 1e-6),
-		"the guitar's gain did not arrive: {:?}",
+		matches!(value(&map, "gain"), SetValue::Float(gain) if (gain - 0.8).abs() < 1e-6),
+		"the cello's gain did not arrive: {:?}",
 		value(&map, "gain")
 	);
 	assert!(

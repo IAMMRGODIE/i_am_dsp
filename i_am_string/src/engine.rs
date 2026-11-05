@@ -415,7 +415,7 @@ impl StringEngine {
 		} else {
 			48_000.0
 		};
-		let preset = Preset::Piano;
+		let preset = Preset::Violin;
 		let mut engine = Self {
 			sample_rate,
 			preset,
@@ -613,7 +613,7 @@ impl StringEngine {
 		// long the key was held, and how far it falls is the pedal's business.
 		// A hand on a guitar or a bowed string is not a mechanism, so on those
 		// the release follows the gesture.
-		let expressive = self.preset != Preset::Piano;
+		let expressive = true;
 		for voice in &mut self.voices {
 			Self::engage_damper(voice, self.sample_rate, expressive);
 		}
@@ -824,7 +824,7 @@ impl StringEngine {
 
 	fn release_voice(&mut self, note: u8) {
 		let sample_rate = self.sample_rate;
-		let expressive = self.preset != Preset::Piano;
+		let expressive = true;
 		for voice in &mut self.voices {
 			if voice.note == note && !voice.released {
 				Self::engage_damper(voice, sample_rate, expressive);

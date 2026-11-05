@@ -58,7 +58,7 @@
 //!     use i_am_string::prelude::*;
 //!
 //!     let mut engine = StringEngine::new(48_000.0);
-//!     engine.set_preset(Preset::Piano);
+//!     engine.set_preset(Preset::Violin);
 //!     engine.note_on(60, 0.8);
 //!     let sample = engine.next_sample();
 

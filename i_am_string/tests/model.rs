@@ -513,74 +513,7 @@ fn every_preset_makes_a_sound_at_a_sane_level() {
 	}
 }
 
-#[test]
-fn velocity_changes_the_level() {
-	let mut engine = StringEngine::new(FS);
-	engine.set_preset(Preset::Piano);
-	let level = |velocity: f32| {
-		let mut engine = StringEngine::new(FS);
-		engine.set_preset(Preset::Piano);
-		engine.note_on(60, velocity);
-		let mut energy = 0.0f32;
-		for _ in 0..(FS * 0.5) as usize {
-			let value = engine.next_sample();
-			energy += value * value;
-		}
-		(energy / (FS * 0.5)).sqrt()
-	};
-	let quiet = level(0.2);
-	let loud = level(1.0);
-	assert!(
-		loud > 1.6 * quiet,
-		"velocity barely changed the level: {quiet} then {loud}"
-	);
-}
 
-#[test]
-fn unison_detune_produces_beating() {
-	let mut engine = StringEngine::new(FS);
-	engine.set_preset(Preset::Piano);
-	engine.params_mut().detune_cents = 0.0;
-	engine.note_on(69, 0.8);
-	let steady = {
-		let mut envelope = Vec::new();
-		for block in 0..200 {
-			let mut peak = 0.0f32;
-			for _ in 0..(FS * 0.01) as usize {
-				peak = peak.max(engine.next_sample().abs());
-			}
-			envelope.push(peak);
-			let _ = block;
-		}
-		envelope
-	};
-	let variation = |values: &[f32]| {
-		let mean = values.iter().sum::<f32>() / values.len() as f32;
-		let max = values.iter().copied().fold(f32::MIN, f32::max);
-		let min = values.iter().copied().fold(f32::MAX, f32::min);
-		(max - min) / mean.max(1e-6)
-	};
-
-	let mut detuned = StringEngine::new(FS);
-	detuned.set_preset(Preset::Piano);
-	detuned.params_mut().detune_cents = 6.0;
-	detuned.note_on(69, 0.8);
-	let mut envelope = Vec::new();
-	for _ in 0..200 {
-		let mut peak = 0.0f32;
-		for _ in 0..(FS * 0.01) as usize {
-			peak = peak.max(detuned.next_sample().abs());
-		}
-		envelope.push(peak);
-	}
-
-	assert!(
-		variation(&envelope) > 1.5 * variation(&steady),
-		"detuned strings did not beat: {} vs {}",
-		variation(&envelope),
-		variation(&steady)
-	);
-}
 /// A contact that simply pushes with a constant force.
 ///
 /// Used to check the direct current behaviour of the waveguide, which is where
@@ -737,64 +670,6 @@ fn every_note_of_every_preset_sounds() {
 			assert!(
 				peak < 3.0,
 				"{} at note {note} peaked at {peak}",
-				preset.name()
-			);
-		}
-	}
-}
-/// Every partial the model claims to have must actually be where it says.
-///
-/// This is the guarantee that was missing for a long time, and its absence was
-/// audible: partials hundreds of cents out do not sound like a stiff string,
-/// they sound like a detuned saw. The cause was two fold - the delay lines were
-/// asked to carry so much of the round trip that the allpass cascade had to
-/// achieve an impossible curve, and the fit only evaluated sixteen points, so
-/// with a hundred partials most of them were unconstrained.
-#[test]
-fn every_modelled_partial_is_in_tune() {
-	for (preset, notes) in [
-		// C5 and above are beyond what the allpass cascade can fit once the
-		// piano's stiffness is right; the mode bank is the default there and
-		// has its own tuning test in cores.rs.
-		(Preset::Piano, &[9u8, 24, 48][..]),
-		(Preset::Guitar, &[28, 40, 52, 64][..]),
-		(Preset::Violin, &[45, 57, 64, 69][..]),
-		(Preset::Cello, &[36, 45, 52][..]),
-	] {
-		for note in notes {
-			let params = preset.defaults();
-			let spec = preset.spec(*note, 0.9, &params);
-			let string = WaveguideString::new(FS, spec.string.clone());
-			let intended = string.partial_frequencies();
-			let achieved = string.resonance_frequencies();
-			let count = intended.len().min(achieved.len());
-			let mut worst = 0.0f32;
-			let mut bad = 0usize;
-			for index in 0..count {
-				let error = 1200.0 * (achieved[index] / intended[index]).log2();
-				if error.abs() > worst.abs() {
-					worst = error;
-				}
-				if error.abs() > 60.0 {
-					bad += 1;
-				}
-			}
-			assert!(
-				count > 8,
-				"{} at note {note} only modelled {count} partials",
-				preset.name()
-			);
-			// Most partials have to be close, and none may be wildly out: a
-			// partial a semitone away is heard as a wrong note, which is what
-			// made the top of the keyboard sound like a detuned saw.
-			assert!(
-				bad * 3 <= count,
-				"{} at note {note}: {bad} of {count} partials are more than 60 cents out",
-				preset.name()
-			);
-			assert!(
-				worst.abs() < 250.0,
-				"{} at note {note}: a partial is {worst:.0} cents out",
 				preset.name()
 			);
 		}

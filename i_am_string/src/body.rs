@@ -259,8 +259,6 @@ impl Body {
 		// with a partial missing.
 		let (table, direct, highpass, lowpass, mix): (Vec<Mode>, f32, f32, f32, f32) = match preset
 		{
-			Preset::Piano => (piano_table(), 0.35, 32.0, 9000.0, 14.0),
-			Preset::Guitar => (GUITAR.to_vec(), 0.22, 72.0, 7500.0, 12.5),
 			Preset::Violin => (VIOLIN.to_vec(), 0.18, 210.0, 11000.0, 8.58),
 			Preset::Cello => (CELLO.to_vec(), 0.18, 78.0, 9000.0, 8.58),
 		};

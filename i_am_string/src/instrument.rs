@@ -92,10 +92,6 @@ pub struct VoiceSpec {
 /// A family of instruments.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preset {
-	/// A grand piano: felt hammers, three strings, strong inharmonicity.
-	Piano,
-	/// A steel string acoustic guitar.
-	Guitar,
 	/// A bowed violin.
 	Violin,
 	/// A bowed cello.
@@ -104,13 +100,11 @@ pub enum Preset {
 
 impl Preset {
 	/// Every preset, for building a menu.
-	pub const ALL: [Preset; 4] = [Preset::Piano, Preset::Guitar, Preset::Violin, Preset::Cello];
+	pub const ALL: [Preset; 2] = [Preset::Violin, Preset::Cello];
 
 	/// A short human readable name.
 	pub fn name(&self) -> &'static str {
 		match self {
-			Preset::Piano => "Piano",
-			Preset::Guitar => "Guitar",
 			Preset::Violin => "Violin",
 			Preset::Cello => "Cello",
 		}
@@ -120,36 +114,6 @@ impl Preset {
 	pub fn defaults(&self) -> EngineParams {
 		let mut params = EngineParams::default();
 		match self {
-			Preset::Piano => {
-				params.excitation = Excitation::Hammer;
-				params.position = 1.0 / 8.0;
-				params.strings = 3;
-				params.detune_cents = 0.6;
-				params.hardness = 0.5;
-				params.damping = 0.9;
-				params.brightness = 0.85;
-				params.inharmonicity = 1.0;
-				params.body = 0.85;
-				params.gain = 0.8;
-				// The undamped strings under a single note are a bloom, not a
-				// second instrument: at 0.55 they put 12 dB of low-middle energy
-				// under every partial and the top of the note disappeared.
-				params.sympathetic = 0.35;
-				params.vibrato_depth = 4.0;
-			}
-			Preset::Guitar => {
-				params.excitation = Excitation::Pluck;
-				params.position = 1.0 / 5.0;
-				params.strings = 1;
-				params.hardness = 0.5;
-				params.damping = 1.4;
-				params.brightness = 1.2;
-				params.inharmonicity = 1.0;
-				params.body = 0.9;
-				params.gain = 0.9;
-				params.sympathetic = 0.4;
-				params.vibrato_depth = 18.0;
-			}
 			Preset::Violin => {
 				params.excitation = Excitation::Bow;
 				params.position = 0.09;
@@ -217,55 +181,6 @@ impl Preset {
 		let f0 = note_to_frequency(note as f32 + params.transpose);
 
 		let (base_b, tension, impedance, t60_low, t60_high, max_partials, sections) = match self {
-			Preset::Piano => {
-				// Fitted against the reference libraries by tools/fit_t60.py:
-				// the anchors minimise the log distance between this model's
-				// measured per-partial T60 and that of the grand, Keyzone and
-				// Gentleman sets, weighted equally.
-				let low_a0 = 3.55;
-				let low_c8 = 0.85;
-				let high_a0 = 14.3;
-				let high_c8 = 0.23;
-				(
-				// The stiff-string coefficient, from the reference piano: it rises
-				// with the fundamental from the wound bass to the treble, which is
-				// what stretches the partials by the amount the ear hears as a
-				// piano. The old `1e-5 * 10^(3t)` was 0.6 of that at C4, and a
-				// harmonic series that tidy reads as an organ, not a piano.
-				7e-4 * (f0 / 440.0).powf(1.4) + 1e-4 * (55.0 / f0).clamp(0.0, 2.2),
-				geom(700.0, 420.0, t),
-				geom(14.0, 3.0, t),
-				// The fundamental's T60. These are not hand anchors any more: the
-				// fit minimised the log distance to the measured per-partial T60
-				// of three libraries at eight notes, so they describe the model's
-				// own measurement, tail included. The old hand anchors (4.4 to
-				// 3.2) left the treble ringing about twice as long as any of the
-				// recordings; the fit wants 3.55 at A0 and 0.85 at C8.
-				geom(low_a0, low_c8, t),
-				// The tenth partial's T60. Six seconds at A0 let the top die while the
-				// fundamental was still ringing, which is the clean sine tail;
-				// the recordings keep a 2-8 kHz floor for the whole note. The fit
-				// wanted 14.3 at A0 and 0.23 at C8.
-				geom(high_a0, high_c8, t),
-				40,
-				8,
-				)
-			}
-			Preset::Guitar => (
-				geom(1.5e-4, 4.0e-4, t),
-				geom(75.0, 65.0, t),
-				geom(1.7, 2.4, t),
-				geom(7.0, 3.0, t),
-				// The tenth partial's T60. It used to be 1.6 s at the bottom of
-				// the range, which with the bridge's extra damping left the tenth
-				// partial at 0.75 s against the 1.9 s of a real classical guitar,
-				// so every partial above 700 Hz was gone before the note bloomed
-				// and the sound had no air. Measured against the samples, 3 s puts
-				// the tenth partial where the recording has it.
-				geom(3.0, 0.45, t),
-				32,
-				8,
-			),
 			Preset::Violin => (1.4e-4, 60.0, 0.35, 0.9, 0.20, 32, 8),
 			Preset::Cello => (9.0e-5, 110.0, 0.75, 1.2, 0.25, 24, 8),
 		};
@@ -296,8 +211,6 @@ impl Preset {
 			// doubled the T60 of F3 to 15 s against the 8 s of a recorded note,
 			// and a piano whose every note has twice the tail it should is the
 			// sound of the sustain pedal being held down.
-			Preset::Piano => (1.0, 0.0, 0.25),
-			Preset::Guitar => (0.70, 0.18, 0.55),
 			Preset::Violin => (0.85, 0.07, 0.30),
 			Preset::Cello => (0.85, 0.10, 0.45),
 		};
@@ -321,16 +234,8 @@ impl Preset {
 			// The two things a piano has that a guitar does not: a second
 			// polarization that holds the aftersound, and the longitudinal sum
 			// tones the hammer's blow rings out of the string.
-			phantom: if matches!(self, Preset::Piano) {
-				1.0
-			} else {
-				0.0
-			},
-			horizontal: if matches!(self, Preset::Piano) {
-				1.0
-			} else {
-				0.0
-			},
+			phantom: 0.0,
+			horizontal: 0.0,
 			horizontal_decay: 0.4,
 		};
 		if params.excitation == Excitation::Pluck {
@@ -348,11 +253,7 @@ impl Preset {
 			// and that irregularity is a large part of why a real note's
 			// spectrum keeps changing while it rings; a string with one smooth
 			// loss law decays like a filtered saw.
-			bridge: if matches!(self, Preset::Piano) {
-				1.0
-			} else {
-				BRIDGE_COUPLING
-			},
+			bridge: BRIDGE_COUPLING,
 			sigma0,
 			sigma1,
 			tension,
@@ -361,11 +262,7 @@ impl Preset {
 			dispersion_sections: sections,
 			dispersion_delay_fraction: 1.0,
 			voicing,
-			calibration: if matches!(self, Preset::Piano) && params.calibrated {
-				crate::piano_calibration::modes(note)
-			} else {
-				&[]
-			},
+			calibration: &[],
 			dispersion_coefficients: None,
 		};
 
@@ -442,7 +339,7 @@ impl Preset {
 			// the fingerboard. Plucking a guitar at 0.4 put a null on its fifth
 			// partial and left the second twenty decibels under the first,
 			// which is exactly what a thin guitar sounds like.
-			if matches!(self, Preset::Guitar) {
+			if false {
 				(params.position + 0.52).clamp(0.60, 0.85)
 			} else {
 				(params.position + 0.2).clamp(0.15, 0.45)

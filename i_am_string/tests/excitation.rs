@@ -102,7 +102,7 @@ fn find_peak(samples: &[f32], wanted: f32) -> f32 {
 #[test]
 fn a_bend_moves_the_pitch() {
 	for core in Core::ALL {
-		for preset in [Preset::Guitar, Preset::Violin] {
+		for preset in [Preset::Cello, Preset::Violin] {
 			let params = preset.defaults();
 			let spec = preset.spec(60, 1.0, &params);
 			let f0 = spec.string.frequency;

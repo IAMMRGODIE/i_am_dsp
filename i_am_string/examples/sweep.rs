@@ -49,8 +49,8 @@ fn main() {
 		.unwrap_or(1);
 
 	let preset = match preset_name.as_str() {
-		"piano" => Preset::Piano,
-		"guitar" => Preset::Guitar,
+		"piano" => Preset::Violin,
+		"guitar" => Preset::Cello,
 		"cello" => Preset::Cello,
 		_ => Preset::Violin,
 	};

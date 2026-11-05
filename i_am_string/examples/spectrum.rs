@@ -53,7 +53,7 @@ fn main() {
 	let centres: Vec<f32> = (0..26)
 		.map(|index| 62.5 * 2f32.powf(index as f32 / 3.0))
 		.collect();
-	for preset in [Preset::Piano, Preset::Violin, Preset::Guitar] {
+	for preset in [Preset::Violin, Preset::Violin, Preset::Cello] {
 		for note in [72u8, 96] {
 			let waveguide = render(Core::Waveguide, preset, note, 1.0);
 			let modal = render(Core::Modal, preset, note, 1.0);
