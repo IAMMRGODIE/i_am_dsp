@@ -58,8 +58,14 @@ def measured_rows():
             got = measure(target, rate, mode['f'], f0)
             if got is None:
                 continue
-            order = int(round(mode['f'] / f0))
-            if order < 1 or order in rows:
+            ratio = mode['f'] / f0
+            order = int(round(ratio))
+            # A peak that is not near a harmonic is room or a board mode; it
+            # cannot be put on the harmonic grid without inventing a partial
+            # at the wrong frequency.
+            if order < 1 or abs(ratio - order) > 0.05 * order:
+                continue
+            if order in rows and rows[order][1] >= got['amp']:
                 continue
             rows[order] = (mode['f'], got['amp'], got['prompt'], got['tail'])
         if len(rows) < 3:
