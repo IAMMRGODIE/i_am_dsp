@@ -66,6 +66,12 @@ pub struct FittedInstrument {
 	#[id(display = "Width")]
 	#[layout(group = "Voice", order = 4, widget = knob)]
 	pub width: f32,
+	/// Whether a note the table does not hold is derived from its neighbours.
+	#[range(min = 0, max = 1)]
+	#[default(1)]
+	#[id(display = "Derive Notes")]
+	#[layout(group = "Voice", order = 6, widget = toggle)]
+	pub derive: i32,
 	/// How long a released note takes to fade, in seconds.
 	#[range(min = 0.02, max = 2.0)]
 	#[default(0.15)]
@@ -86,6 +92,7 @@ impl Default for FittedInstrument {
 			release: 0.15,
 			attack: 0.004,
 			width: 0.4,
+			derive: 1,
 		}
 	}
 }
@@ -110,7 +117,14 @@ impl FittedInstrument {
 			fitted::instrument()
 		};
 		self.playing.push(Playing {
-			voice: fitted::Voice::start_from(table, note, velocity.clamp(0.0, 1.0), shaped, self.sample_rate),
+			voice: fitted::Voice::start_from(
+				table,
+				note,
+				velocity.clamp(0.0, 1.0),
+				shaped,
+				self.sample_rate,
+				self.derive != 0,
+			),
 			note,
 			fade: 1.0,
 			releasing: false,

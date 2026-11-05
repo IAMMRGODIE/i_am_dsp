@@ -131,9 +131,10 @@
   /// right, so the modes read as a bank of decaying partials rather than a flat
   /// trace. Height is the measured level, length the measured decay.
   function modalHero(values) {
-    var curl = clamp(valueOf(values, "velocity_curve", 0), -4, 4);
+    var curl = clamp(valueOf(values, "velocity_curve", 0), -10, 10);
     var attack = clamp(valueOf(values, "attack", 0.004), 0, 0.08);
     var width = clamp(valueOf(values, "width", 0.4), 0, 1);
+    var preset = Math.round(valueOf(values, "preset", 0));
 
     var curve = "";
     for (var i = 0; i <= 48; i++) {
@@ -144,8 +145,15 @@
       curve += (i ? " L " : "M ") + px.toFixed(1) + " " + py.toFixed(1);
     }
 
-    var levels = [0.62, 0.46, 0.34, 0.26, 0.19, 0.14, 0.1, 0.07];
-    var decays = [0.95, 0.6, 0.4, 0.52, 0.34, 0.28, 0.22, 0.18];
+    // Two tables, two shapes: the piano keeps a long low-lying tail, the guitar
+    // is shorter and more even across the partials.
+    var levels = preset === 1
+      ? [0.5, 0.43, 0.37, 0.31, 0.25, 0.2, 0.16, 0.12]
+      : [0.62, 0.46, 0.34, 0.26, 0.19, 0.14, 0.1, 0.07];
+    var decays = preset === 1
+      ? [0.55, 0.46, 0.38, 0.31, 0.26, 0.21, 0.17, 0.13]
+      : [0.95, 0.6, 0.4, 0.52, 0.34, 0.28, 0.22, 0.18];
+    var names = ["GENTLEMAN", "PEEL"];
     var count = levels.length;
     var depthX = 12, depthY = 8;
     var originX = 250, originY = 134;
@@ -191,8 +199,9 @@
       bases + modes
     ) +
       '<div class="hero-label" style="top:4%">VELOCITY</div>' +
-      '<div class="hero-label" style="top:4%; left:auto; right:14px">MODAL · ' +
-        Math.round(attack * 1000) + ' ms · width ' + Math.round(width * 100) + '%</div>';
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">' +
+        names[preset === 1 ? 1 : 0] + ' · ' + Math.round(attack * 1000) +
+        ' ms · width ' + Math.round(width * 100) + '%</div>';
   }
   function vibratoHero(values) {
     var rate = clamp(valueOf(values, "vibrato_rate", 5.4), 0, 12);

@@ -58,6 +58,11 @@ pub struct Instrument {
 }
 
 impl Instrument {
+	/// The notes the table holds.
+	pub fn notes(&self) -> &[Note] {
+		&self.notes
+	}
+
 	/// Look a note up.
 	pub fn note(&self, note: u8) -> Option<&Note> {
 		self.notes.iter().find(|entry| entry.note == note)
@@ -91,6 +96,52 @@ impl Instrument {
 		let bottom = sample(row1, col0) * (1.0 - col_fraction) + sample(row1, col1) * col_fraction;
 		let db = top * (1.0 - row_fraction) + bottom * row_fraction;
 		10f32.powf(db / 20.0)
+	}
+
+	/// What a note plays: its own table, a derivation from the measured notes
+	/// around it, or nothing.
+	pub fn modes_for(&self, note: u8, derive: bool) -> Option<(Vec<Mode>, Vec<Mode>)> {
+		if let Some(entry) = self.note(note) {
+			return Some((entry.left.clone(), entry.right.clone()));
+		}
+		if !derive {
+			return None;
+		}
+		let target = note_frequency(note);
+		let mut low: Option<&Note> = None;
+		let mut high: Option<&Note> = None;
+		for entry in &self.notes {
+			if entry.note <= note && low.map_or(true, |best| entry.note > best.note) {
+				low = Some(entry);
+			} else if entry.note > note && high.map_or(true, |best| entry.note < best.note) {
+				high = Some(entry);
+			}
+		}
+		let (low, high) = match (low, high) {
+			(Some(low), Some(high)) => (low, high),
+			(Some(single), None) | (None, Some(single)) => {
+				let ratio = target / note_frequency(single.note);
+				let scale = |modes: &[Mode]| {
+					modes
+						.iter()
+						.map(|mode| Mode {
+							frequency: mode.frequency * ratio,
+							..*mode
+						})
+						.collect()
+				};
+				return Some((scale(&single.left), scale(&single.right)));
+			}
+			(None, None) => return None,
+		};
+		let low_f0 = note_frequency(low.note);
+		let high_f0 = note_frequency(high.note);
+		let span = (high_f0 / low_f0).ln().max(1e-6);
+		let t = ((target / low_f0).ln() / span).clamp(0.0, 1.0);
+		Some((
+			couple(&low.left, &high.left, t),
+			couple(&low.right, &high.right, t),
+		))
 	}
 }
 
@@ -196,6 +247,53 @@ impl Oscillator {
 	}
 }
 
+
+fn note_frequency(note: u8) -> f32 {
+	440.0 * 2f32.powf((note as f32 - 69.0) / 12.0)
+}
+
+/// Interpolate two measured channels partial by partial, in log pitch.
+fn couple(low: &[Mode], high: &[Mode], t: f32) -> Vec<Mode> {
+	let lerp = |a: f32, b: f32| ((a.max(1e-9)).ln() * (1.0 - t) + (b.max(1e-9)).ln() * t).exp();
+	let mut out = Vec::with_capacity(low.len().max(high.len()));
+	let mut used = vec![false; high.len()];
+	for left in low {
+		let mut found = None;
+		for (index, right) in high.iter().enumerate() {
+			if used[index] {
+				continue;
+			}
+			if (right.order - left.order).abs() < 0.5 {
+				found = Some(index);
+				break;
+			}
+		}
+		match found {
+			Some(index) => {
+				used[index] = true;
+				let right = &high[index];
+				out.push(Mode {
+					order: left.order,
+					frequency: lerp(left.frequency, right.frequency),
+					prompt: lerp(left.prompt, right.prompt),
+					tail: lerp(left.tail, right.tail),
+					prompt_t60: lerp(left.prompt_t60, right.prompt_t60),
+					tail_t60: lerp(left.tail_t60, right.tail_t60),
+					prompt_phase: left.prompt_phase,
+					tail_phase: left.tail_phase,
+				});
+			}
+			None => out.push(*left),
+		}
+	}
+	for (index, right) in high.iter().enumerate() {
+		if !used[index] {
+			out.push(*right);
+		}
+	}
+	out
+}
+
 /// One sounding note, with one oscillator bank per ear.
 pub struct Voice {
 	left: Vec<Oscillator>,
@@ -210,15 +308,16 @@ impl Voice {
 		velocity: f32,
 		gain: f32,
 		rate: f32,
+		derive: bool,
 	) -> Self {
 		let mut voice = Self {
 			left: Vec::new(),
 			right: Vec::new(),
 		};
-		if let Some(entry) = instrument.note(note) {
-			for (modes, ear) in [(&entry.left, &mut voice.left), (&entry.right, &mut voice.right)] {
+		if let Some((left, right)) = instrument.modes_for(note, derive) {
+			for (modes, ear) in [(left, &mut voice.left), (right, &mut voice.right)] {
 				for mode in modes {
-					let level = gain * instrument.mode_gain(mode, velocity);
+					let level = gain * instrument.mode_gain(&mode, velocity);
 					let omega = std::f32::consts::TAU * mode.frequency;
 					if mode.prompt > 0.0 {
 						ear.push(Oscillator::new(
@@ -246,7 +345,7 @@ impl Voice {
 
 	/// Start a note from the default table.
 	pub fn start(note: u8, velocity: f32, gain: f32, rate: f32) -> Self {
-		Self::start_from(instrument(), note, velocity, gain, rate)
+		Self::start_from(instrument(), note, velocity, gain, rate, true)
 	}
 
 	/// One frame, one ear each.
@@ -269,32 +368,57 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn a_note_has_modes_and_makes_a_sound() {
+	fn a_measured_note_makes_a_sound() {
 		let instrument = instrument();
-		let note = instrument.note(57).expect("note 57 is in the table");
-		assert!(!note.left.is_empty() && !note.right.is_empty());
-		let mut voice = Voice::start(57, 1.0, 0.8, 48_000.0);
+		let note = instrument.notes()[0].note;
+		let mut voice = Voice::start_from(instrument, note, 1.0, 0.8, 48_000.0, false);
 		let mut peak = 0.0f32;
 		for _ in 0..4_800 {
 			peak = peak.max(voice.next_sample().abs());
 		}
 		assert!(peak > 1e-4, "silent: {peak}");
 	}
+
 	#[test]
 	fn the_second_table_plays_too() {
 		let table = peel();
-		let note = table.note(57).expect("the guitar has A4");
-		assert!(!note.left.is_empty() || note.right.is_empty());
-		let mut voice = Voice::start_from(table, 57, 1.0, 0.8, 48_000.0);
+		let note = table.notes()[0].note;
+		let mut voice = Voice::start_from(table, note, 1.0, 0.8, 48_000.0, false);
 		let mut peak = 0.0f32;
 		for _ in 0..4_800 {
 			peak = peak.max(voice.next_sample().abs());
 		}
 		assert!(peak > 1e-4, "silent: {peak}");
 	}
+
+	#[test]
+	fn an_unmeasured_note_is_derived_or_silent() {
+		let instrument = instrument();
+		let held: Vec<u8> = instrument.notes().iter().map(|note| note.note).collect();
+		let missing = (0u8..=127u8)
+			.find(|note| !held.contains(note))
+			.expect("a note the table does not hold");
+		let quiet = Voice::start_from(instrument, missing, 1.0, 0.8, 48_000.0, false);
+		let mut quiet = quiet;
+		let mut peak = 0.0f32;
+		for _ in 0..4_800 {
+			peak = peak.max(quiet.next_sample().abs());
+		}
+		assert!(peak < 1e-6, "silent note was not silent: {peak}");
+
+		let mut derived = Voice::start_from(instrument, missing, 1.0, 0.8, 48_000.0, true);
+		let mut peak = 0.0f32;
+		for _ in 0..4_800 {
+			peak = peak.max(derived.next_sample().abs());
+		}
+		assert!(peak > 1e-4, "derived note was silent: {peak}");
+	}
+
 	#[test]
 	fn the_two_ears_are_not_the_same() {
-		let mut voice = Voice::start(57, 1.0, 0.8, 48_000.0);
+		let instrument = instrument();
+		let note = instrument.notes()[0].note;
+		let mut voice = Voice::start_from(instrument, note, 1.0, 0.8, 48_000.0, false);
 		let mut difference = 0.0f32;
 		let mut total = 0.0f32;
 		for _ in 0..4_800 {
