@@ -111,9 +111,9 @@ impl Instrument {
 		let mut low: Option<&Note> = None;
 		let mut high: Option<&Note> = None;
 		for entry in &self.notes {
-			if entry.note <= note && low.map_or(true, |best| entry.note > best.note) {
+			if entry.note <= note && low.is_none_or(|best| entry.note > best.note) {
 				low = Some(entry);
-			} else if entry.note > note && high.map_or(true, |best| entry.note < best.note) {
+			} else if entry.note > note && high.is_none_or(|best| entry.note < best.note) {
 				high = Some(entry);
 			}
 		}
