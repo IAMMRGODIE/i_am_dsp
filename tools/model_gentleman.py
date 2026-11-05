@@ -1,9 +1,10 @@
 """A modal model of The Gentleman: analysis, resynthesis, and interpolation.
 
-Every sample is decomposed into modes, each a decaying sinusoid whose decay is
-fitted where the note itself lives - roughly the first half second. The clip's
-second half is room tone, and fitting a mode to it was what made the first
-attempts ring for two seconds in a way the samples do not.
+Every sample is decomposed into modes, each with two decays - a prompt one and
+a tail - because a piano partial does not fall at a single rate. Modes are
+picked from the spectrum without asking them to be harmonic: a sample's fine
+partials and its room are not, and throwing them away was what made the first
+version sound empty.
 
     python tools/model_gentleman.py analyse
     python tools/model_gentleman.py self
@@ -28,8 +29,9 @@ OUT = os.path.join(ROOT, 'target', 'wav', 'gentleman-model')
 MODES = os.path.join(OUT, 'modes.json')
 
 F_MAX = 9000.0
-FLOOR = 55.0
-END = 0.55
+FLOOR = 70.0
+MAX_MODES = 90
+PROMPT_END = 0.30
 LN1000 = 6.907755
 
 
@@ -49,6 +51,20 @@ def parse_note(name):
     return named - 12
 
 
+def decay_fit(times, envelope, low, high):
+    keep = (times > low) & (times < high)
+    if keep.sum() < 12:
+        return None
+    slope, intercept = np.polyfit(times[keep],
+                                  20.0 * np.log10(envelope[keep] + 1e-12), 1)
+    if slope >= -0.5:
+        return None
+    t60 = 60.0 / -slope
+    if not (0.05 < t60 < 30.0):
+        return None
+    return t60, float(10.0 ** (intercept / 20.0)), float(slope)
+
+
 def detect_modes(x, rate, f0):
     start = int(0.06 * rate)
     size = int(0.9 * rate)
@@ -57,56 +73,86 @@ def detect_modes(x, rate, f0):
     freqs = np.fft.rfftfreq(8 * size, 1.0 / rate)
     db = 20.0 * np.log10(spectrum + 1e-12)
     peak_db = float(db.max())
-    distance = max(3, int(0.30 * f0 / (freqs[1] - freqs[0])))
-    index, _ = find_peaks(db, height=peak_db - FLOOR, distance=distance)
+    step = freqs[1] - freqs[0]
+    distance = max(4, int(max(8.0, 0.10 * f0) / step))
+    index, _ = find_peaks(db, height=peak_db - FLOOR, prominence=6.0,
+                          distance=distance)
+    order = np.argsort(db[index])[::-1][:MAX_MODES]
+    index = np.sort(index[order])
 
     times = np.arange(len(x)) / rate
-    span = max(3, int(rate * 0.7 / f0))
+    span = max(3, int(rate * 0.5 / f0))
     kernel = np.hanning(span)
     kernel /= kernel.sum()
 
-    raw = {}
+    raw = []
     for i in index:
         if not (25.0 < freqs[i] < F_MAX):
             continue
         left, right = db[i - 1], db[i + 1]
         offset = 0.5 * (left - right) / (left - 2.0 * db[i] + right)
-        f = float(freqs[i] + offset * (freqs[1] - freqs[0]))
-        k = int(round(f / f0))
-        if k < 1 or abs(f / f0 - k) > 0.2 or k in raw:
-            continue
+        f = float(freqs[i] + offset * step)
         envelope = np.abs(np.convolve(x * np.exp(-2j * np.pi * f * times),
                                       kernel, mode='same'))
-        early = (times > 0.05) & (times < END)
-        if early.sum() < 30:
+        floor = float(np.percentile(envelope[times > 1.2], 25)) \
+            if (times > 1.2).any() else 0.0
+        peak_time = float(times[int(np.argmax(envelope))])
+        tail = decay_fit(times, envelope, 0.35, min(1.85, times[-1] - 0.05))
+        if tail is None:
             continue
-        slope, intercept = np.polyfit(times[early],
-                                      20.0 * np.log10(envelope[early] + 1e-12), 1)
-        if slope >= -0.2:
-            continue
-        t60 = 60.0 / -slope
-        if not (0.08 < t60 < 20.0):
-            continue
-        raw[k] = {'k': k, 'f': f, 't60': float(t60)}
+        tail_t60, tail_amp, slope = tail
+        if envelope[times > 1.2].size and tail_amp < floor * 2.0:
+            tail_amp = 0.0
+        prompt = decay_fit(times, envelope, 0.03, PROMPT_END)
+        prompt_t60 = prompt[0] if prompt is not None else 0.10
+        raw.append({'f': f, 'k': int(round(f / f0)),
+                    'prompt_t60': float(min(prompt_t60, 0.25)),
+                    'tail_t60': float(tail_t60),
+                    'tail_amp': float(tail_amp),
+                    'prompt_amp': 0.0, 'prompt_phase': 0.0,
+                    'tail_phase': 0.0, 'peak': float(db[i])})
 
     if not raw:
         return []
-    ordered = [raw[key] for key in sorted(raw)]
     columns = []
-    for mode in ordered:
-        decay = LN1000 / mode['t60']
-        omega = 2.0 * np.pi * mode['f']
-        envelope = np.exp(-decay * times)
-        columns.append(np.cos(omega * times) * envelope)
-        columns.append(np.sin(omega * times) * envelope)
+    for mode in raw:
+        for t60 in (mode['prompt_t60'], mode['tail_t60']):
+            omega = 2.0 * np.pi * mode['f']
+            envelope = np.exp(-LN1000 / t60 * times)
+            columns.append(np.cos(omega * times) * envelope)
+            columns.append(np.sin(omega * times) * envelope)
     design = np.vstack(columns).T
     coef, *_ = np.linalg.lstsq(design, x, rcond=None)
-    for index, mode in enumerate(ordered):
-        a = coef[2 * index]
-        b = coef[2 * index + 1]
-        mode['amp'] = float(np.hypot(a, b))
-        mode['phase'] = float(-np.arctan2(b, a))
-    return ordered
+    for index, mode in enumerate(raw):
+        a, b, c, d = coef[4 * index:4 * index + 4]
+        mode['prompt_amp'] = float(np.hypot(a, b))
+        mode['prompt_phase'] = float(-np.arctan2(b, a))
+        mode['tail_amp'] = float(np.hypot(c, d))
+        mode['tail_phase'] = float(-np.arctan2(d, c))
+    return raw
+
+
+def render(modes, rate, seconds):
+    n = int(seconds * rate)
+    t = np.arange(n) / rate
+    signal = np.zeros(n)
+    for mode in modes:
+        omega = 2.0 * np.pi * mode['f']
+        if mode['prompt_amp'] > 0.0:
+            signal += mode['prompt_amp'] * np.cos(omega * t + mode['prompt_phase']) \
+                * np.exp(-LN1000 / mode['prompt_t60'] * t)
+        if mode['tail_amp'] > 0.0:
+            signal += mode['tail_amp'] * np.cos(omega * t + mode['tail_phase']) \
+                * np.exp(-LN1000 / mode['tail_t60'] * t)
+    peak = np.abs(signal).max()
+    if peak > 0:
+        signal = signal / peak * 0.89
+    return signal
+
+
+def write_wav(path, rate, signal):
+    data = (np.clip(signal, -1.0, 1.0) * 32767.0).astype(np.int16)
+    wavfile.write(path, int(rate), data)
 
 
 def analyse():
@@ -128,25 +174,6 @@ def analyse():
     print('wrote', MODES)
 
 
-def render(modes, rate, seconds):
-    n = int(seconds * rate)
-    t = np.arange(n) / rate
-    signal = np.zeros(n)
-    for mode in modes:
-        decay = LN1000 / max(mode['t60'], 0.05)
-        signal += mode['amp'] * np.cos(2.0 * np.pi * mode['f'] * t + mode['phase']) \
-            * np.exp(-decay * t)
-    peak = np.abs(signal).max()
-    if peak > 0:
-        signal = signal / peak * 0.89
-    return signal
-
-
-def write_wav(path, rate, signal):
-    data = (np.clip(signal, -1.0, 1.0) * 32767.0).astype(np.int16)
-    wavfile.write(path, int(rate), data)
-
-
 def run_self():
     results = json.load(open(MODES))
     directory = os.path.join(OUT, 'self')
@@ -162,6 +189,8 @@ def table(results):
     keys = {}
     for entry in results:
         for mode in entry['modes']:
+            if mode['k'] < 1 or abs(mode['f'] - mode['k'] * entry['f0']) > 0.15 * entry['f0']:
+                continue
             keys.setdefault(mode['k'], []).append((entry['f0'], mode))
     for key in keys:
         keys[key].sort(key=lambda row: row[0])
@@ -176,12 +205,17 @@ def interpolate(keys, f0):
         if x < xs[0] or x > xs[-1]:
             continue
         nearest = rows[int(np.argmin(np.abs(xs - x)))][1]
-        f = float(np.exp(np.interp(x, xs, [np.log(row[1]['f']) for row in rows])))
-        t60 = float(np.exp(np.interp(x, xs, [np.log(row[1]['t60']) for row in rows])))
-        amp = float(np.exp(np.interp(x, xs, [np.log(row[1]['amp'] + 1e-9)
-                                              for row in rows])))
-        modes.append({'f': f, 't60': t60, 'amp': amp,
-                      'phase': nearest['phase']})
+        def lerp(name):
+            return float(np.exp(np.interp(x, xs, [np.log(max(row[1][name], 1e-9))
+                                                    for row in rows])))
+        if min(row[1]['tail_amp'] for row in rows) <= 0.0:
+            continue
+        modes.append({'f': lerp('f'), 'prompt_t60': lerp('prompt_t60'),
+                      'prompt_amp': lerp('prompt_amp'),
+                      'prompt_phase': nearest['prompt_phase'],
+                      'tail_t60': lerp('tail_t60'),
+                      'tail_amp': lerp('tail_amp'),
+                      'tail_phase': nearest['tail_phase']})
     return modes
 
 
