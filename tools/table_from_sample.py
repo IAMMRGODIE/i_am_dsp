@@ -51,7 +51,30 @@ def main():
         peak = max(row[1] for row in rows)
         rows_by_note[entry['note']] = [(row[0], row[1] / peak, row[2], row[3])
                                        for row in rows]
+    # Fill the rest of the keyboard by transposing the nearest measured note:
+
+    # the partials scale with the fundamental, and the shape of the note is
+
+    # carried along. A table with holes in it is worse than a coarse one.
+
+    measured = sorted(rows_by_note)
+
+    full = {}
+
+    for note in range(21, 109):
+
+        source = min(measured, key=lambda other: abs(other - note))
+
+        ratio = 2.0 ** ((note - source) / 12.0)
+
+        full[note] = [(row[0] * ratio, row[1], row[2], row[3])
+
+                      for row in rows_by_note[source]]
+
+    rows_by_note = full
+
     body = []
+
     for note in sorted(rows_by_note):
         cells = ', '.join('Mode { frequency: %.1f, gain: %.3f, prompt: %.3f, tail: %.3f }' % row
                           for row in rows_by_note[note])
