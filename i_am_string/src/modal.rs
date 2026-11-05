@@ -539,14 +539,13 @@ impl ModalString {
 					* config.bridge as f64;
 			}
 			// A measured row, where there is one, replaces the level and the
-			// two stage decay for this order and leaves the frequency alone.
+			// two stage decay for the partial nearest it in frequency, and
+			// leaves the frequency itself alone.
 			let mut level = 1.0f64;
 			let mut tail = voicing.late_decay;
-			if let Some(row) = config
-				.calibration
-				.iter()
-				.find(|row| (row.order as f64 - n).abs() < 0.5)
-			{
+			if let Some(row) = config.calibration.iter().find(|row| {
+				(row.frequency as f64 - frequency).abs() < 0.02 * frequency
+			}) {
 				level = row.gain.max(0.0) as f64;
 				sigma = 6.907_755 / row.prompt.clamp(0.03, 20.0) as f64;
 				tail = (row.prompt / row.tail.clamp(0.03, 60.0)).clamp(0.05, 1.0);
