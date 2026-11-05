@@ -236,7 +236,10 @@ impl Preset {
 				// The second polarization multiplies by 0.4 and lands on the tail
 				// the samples asked for.
 				geom(4.4, 3.2, t),
-				geom(6.0, 0.45, t),
+				// The tenth partial's T60. Six seconds at A0 let the top die while the
+				// fundamental was still ringing, which is the clean sine tail;
+				// the recordings keep a 2-8 kHz floor for the whole note.
+				geom(14.0, 0.45, t),
 				40,
 				8,
 			),
