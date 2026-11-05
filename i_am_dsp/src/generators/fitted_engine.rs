@@ -170,10 +170,10 @@ impl FittedInstrument {
 		for byte in imported.bytes.iter() {
 			hash = (hash ^ *byte as u64).wrapping_mul(1099511628211);
 		}
-		if let Some((cached, table)) = &self.cached {
-			if *cached == hash {
-				return Some(table.clone());
-			}
+		if let Some((cached, table)) = &self.cached
+			&& *cached == hash
+		{
+			return Some(table.clone());
 		}
 		let table = Arc::new(fitted::parse_table(&imported.bytes)?);
 		self.cached = Some((hash, table.clone()));

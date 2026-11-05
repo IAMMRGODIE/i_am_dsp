@@ -621,3 +621,65 @@ fn an_imported_table_plays_and_survives_the_state() {
 	}
 	assert!(peak > 1e-4, "the imported table was silent: {peak}");
 }
+#[test]
+fn the_drummer_plays_the_kick_on_note_36() {
+	let face = i_am_web_gui::face_json(&DrummerWeb::new(), &drummer_faceplate());
+	for id in [
+		"tune",
+		"punch",
+		"decay",
+		"click",
+		"click_tone",
+		"drive",
+		"gain",
+	] {
+		assert!(
+			face.contains(&format!("\"id\":\"{id}\"")),
+			"missing {id}: {face}"
+		);
+	}
+
+	let tags = <DrummerWeb as Plugin>::DESCRIPTOR.tags;
+	assert!(tags.iter().any(|tag| matches!(tag, Tag::Drum)));
+
+	let mut plugin = DrummerWeb::new();
+	Plugin::on_activate(&mut plugin, 48_000);
+	let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+		events: vec![NoteEvent::NoteOn {
+			channel: 0,
+			note: 36,
+			velocity: 1.0,
+		}],
+		infos: TestContext::new().infos,
+	});
+	let mut peak = 0.0f32;
+	for _ in 0..24_000 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+		peak = peak.max(frame[0].abs());
+	}
+	assert!(peak > 1e-3, "the kick was silent: {peak}");
+}
+
+#[test]
+fn the_drummer_ignores_a_note_it_has_no_voice_for() {
+	let mut plugin = DrummerWeb::new();
+	Plugin::on_activate(&mut plugin, 48_000);
+	let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+		events: vec![NoteEvent::NoteOn {
+			channel: 0,
+			note: 38,
+			velocity: 1.0,
+		}],
+		infos: TestContext::new().infos,
+	});
+
+	let mut peak = 0.0f32;
+	for _ in 0..4_800 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+		peak = peak.max(frame[0].abs());
+	}
+
+	assert_eq!(peak, 0.0, "an unmapped note made a sound: {peak}");
+}

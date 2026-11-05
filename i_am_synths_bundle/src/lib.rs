@@ -23,5 +23,6 @@ export_clap!(
 	AdditiveWeb,
 	SpectrumWeb,
 	ScriptWeb,
-	CanvasWeb
+	CanvasWeb,
+	DrummerWeb
 );

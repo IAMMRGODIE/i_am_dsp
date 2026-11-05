@@ -2,6 +2,7 @@
 
 pub mod additive;
 pub mod adsr;
+pub mod drum;
 pub mod prelude;
 pub mod sampler;
 pub mod stereo_generator;
