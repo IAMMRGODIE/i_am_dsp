@@ -106,7 +106,7 @@ fn parse() -> Instrument {
 		slice
 	};
 	assert_eq!(take(4), b"MODE");
-	assert_eq!(take(1)[0], 1);
+	assert_eq!(take(1)[0], 2);
 	let _reserved = take(1);
 	let note_count = take(1)[0] as usize;
 	let mut notes = Vec::with_capacity(note_count);
@@ -219,5 +219,22 @@ impl Voice {
 	/// One sample of the note.
 	pub fn next_sample(&mut self) -> f32 {
 		self.oscillators.iter_mut().map(|osc| osc.step()).sum()
+	}
+}
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_note_has_modes_and_makes_a_sound() {
+		let instrument = instrument();
+		let note = instrument.note(57).expect("note 57 is in the table");
+		assert!(!note.modes.is_empty());
+		let mut voice = Voice::start(57, 1.0, 0.8, 48_000.0);
+		let mut peak = 0.0f32;
+		for _ in 0..4_800 {
+			peak = peak.max(voice.next_sample().abs());
+		}
+		assert!(peak > 1e-4, "silent: {peak}");
 	}
 }

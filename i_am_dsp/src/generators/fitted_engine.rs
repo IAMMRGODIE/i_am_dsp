@@ -10,12 +10,11 @@ use i_am_string::fitted;
 use crate::generators::adsr::bend;
 use crate::{Generator, NoteEvent};
 
-/// The library's note numbering puts A4 at 57, the MIDI standard puts it at 69.
-const NOTE_OFFSET: i32 = 12;
 const MAX_VOICES: usize = 32;
 
-fn to_midi(note: usize) -> u8 {
-	(note as i32 + NOTE_OFFSET).clamp(0, 127) as u8
+/// The table is numbered the way the library numbers notes: A4 is 57.
+fn to_table(note: usize) -> u8 {
+	note.clamp(0, 127) as u8
 }
 
 struct Playing {
@@ -114,9 +113,9 @@ impl Generator<2> for FittedInstrument {
 		process_context.clear_events();
 		for event in &events {
 			match event {
-				NoteEvent::NoteOn { note, velocity, .. } => self.start(to_midi(*note), *velocity),
+				NoteEvent::NoteOn { note, velocity, .. } => self.start(to_table(*note), *velocity),
 				NoteEvent::NoteOff { note, .. } | NoteEvent::Stop { note, .. } => {
-					self.release(to_midi(*note))
+					self.release(to_table(*note))
 				}
 				NoteEvent::ImmediateStop => self.release_all(),
 				_ => {}

@@ -547,3 +547,24 @@ fn a_note_plays_through_the_canvas_plugin() {
 	assert!(peak > 1e-3, "the instrument was silent: {peak}");
 	assert!(peak < 4.0, "the instrument ran away: {peak}");
 }
+#[test]
+fn the_fitted_instrument_plays_through_the_plugin() {
+	let mut plugin = FittedWeb::new();
+	Plugin::on_activate(&mut plugin, 48_000);
+
+	let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+		events: vec![NoteEvent::NoteOn {
+			channel: 0,
+			note: 57,
+			velocity: 1.0,
+		}],
+		infos: TestContext::new().infos,
+	});
+	let mut peak = 0.0f32;
+	for _ in 0..24_000 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+		peak = peak.max(frame[0].abs());
+	}
+	assert!(peak > 1e-3, "the fitted instrument was silent: {peak}");
+}
