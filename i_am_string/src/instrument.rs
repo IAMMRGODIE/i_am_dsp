@@ -378,7 +378,13 @@ impl Preset {
 					// minus one over (p+1), which is about a quarter, so the
 					// stiffness has to span two orders of magnitude for the
 					// treble hammer to be short enough to excite a 2 kHz string.
-					geom(4.0e8, 2.5e10, t) * 10f32.powf(1.2 * (params.hardness - 0.5)),
+					// The felt has to be stiff enough that the contact is over in a
+					// millisecond or so. The old 4e8..2.5e10 reference left a C4
+					// hammer in contact for several milliseconds, which is a low-pass
+					// on the strike: the bridge force arrived with almost nothing
+					// above two kilohertz and the attack was heard as a filtered
+					// square wave. These are the reference piano's stiffnesses.
+					10f32.powf(10.70 + 2.15 * t) * 10f32.powf(1.2 * (params.hardness - 0.5)),
 					0.0,
 					0.0,
 				)
@@ -466,7 +472,13 @@ impl Preset {
 				// contact time is what has to stay sensible, and it goes as the
 				// square root of the mass over the stiffness, so the stiffness
 				// follows the string's impedance.
-				peak * (impedance / 7.0).max(0.05)
+				// The peak-force formula describes a contact that the audio-rate
+				// solver cannot resolve once the felt is stiff: the force arrives
+				// inside a fraction of a sample, so the rendered impulse is only a
+				// third of what the formula expects. The correction is measured
+				// against the level the same preset had with the softer felt.
+				const RESOLUTION_CORRECTION: f32 = 0.31;
+				peak * (impedance / 7.0).max(0.05) * RESOLUTION_CORRECTION
 			}
 			// A bowed string settles into a Helmholtz cycle whose corner carries
 			// roughly twice the bow speed.
