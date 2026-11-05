@@ -145,15 +145,27 @@
       curve += (i ? " L " : "M ") + px.toFixed(1) + " " + py.toFixed(1);
     }
 
-    // Two tables, two shapes: the piano keeps a long low-lying tail, the guitar
-    // is shorter and more even across the partials.
-    var levels = preset === 1
-      ? [0.5, 0.43, 0.37, 0.31, 0.25, 0.2, 0.16, 0.12]
-      : [0.62, 0.46, 0.34, 0.26, 0.19, 0.14, 0.1, 0.07];
-    var decays = preset === 1
-      ? [0.55, 0.46, 0.38, 0.31, 0.26, 0.21, 0.17, 0.13]
-      : [0.95, 0.6, 0.4, 0.52, 0.34, 0.28, 0.22, 0.18];
-    var names = ["GENTLEMAN", "PEEL"];
+    // One shape per fitted table: height is where the partials sit, length is
+    // how long they ring. The bass hangs low and long, the celeste is a short
+    // bright bell, the guitars sit in between.
+    var names = ["GENTLEMAN", "PEEL", "BASS", "CELESTE", "CLEAN GTR", "HARP"];
+    var shapes = [
+      { levels: [0.62, 0.46, 0.34, 0.26, 0.19, 0.14, 0.1, 0.07],
+        decays: [0.95, 0.6, 0.4, 0.52, 0.34, 0.28, 0.22, 0.18] },
+      { levels: [0.5, 0.43, 0.37, 0.31, 0.25, 0.2, 0.16, 0.12],
+        decays: [0.55, 0.46, 0.38, 0.31, 0.26, 0.21, 0.17, 0.13] },
+      { levels: [0.7, 0.52, 0.4, 0.3, 0.22, 0.16, 0.12, 0.09],
+        decays: [1.1, 0.8, 0.6, 0.45, 0.34, 0.26, 0.2, 0.16] },
+      { levels: [0.5, 0.4, 0.32, 0.26, 0.2, 0.15, 0.11, 0.08],
+        decays: [0.45, 0.38, 0.3, 0.24, 0.19, 0.15, 0.12, 0.1] },
+      { levels: [0.55, 0.46, 0.38, 0.3, 0.23, 0.18, 0.14, 0.1],
+        decays: [0.5, 0.42, 0.34, 0.28, 0.22, 0.18, 0.14, 0.11] },
+      { levels: [0.6, 0.48, 0.38, 0.3, 0.23, 0.17, 0.12, 0.09],
+        decays: [0.75, 0.58, 0.46, 0.38, 0.3, 0.24, 0.19, 0.15] }
+    ];
+    var shape = shapes[preset] || shapes[0];
+    var levels = shape.levels;
+    var decays = shape.decays;
     var count = levels.length;
     var depthX = 12, depthY = 8;
     var originX = 250, originY = 134;

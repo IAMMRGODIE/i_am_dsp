@@ -42,8 +42,8 @@ pub struct FittedInstrument {
 	#[layout(group = "Voice", order = 3, widget = knob)]
 	pub attack: f32,
 	/// Which fitted table is playing.
-	#[range(min = 0, max = 1)]
-	#[choices("The Gentleman", "Peel Guitar")]
+	#[range(min = 0, max = 5)]
+	#[choices("The Gentleman", "Peel Guitar", "Bass", "Celeste", "Clean Guitar", "Harp")]
 	#[default(0)]
 	#[id(display = "Instrument")]
 	#[layout(group = "Voice", order = 5, widget = choice, hero = "modal")]
@@ -67,11 +67,10 @@ pub struct FittedInstrument {
 	#[layout(group = "Voice", order = 4, widget = knob)]
 	pub width: f32,
 	/// Whether a note the table does not hold is derived from its neighbours.
-	#[range(min = 0, max = 1)]
-	#[default(1)]
+	#[default(false)]
 	#[id(display = "Derive Notes")]
 	#[layout(group = "Voice", order = 6, widget = toggle)]
-	pub derive: i32,
+	pub derive: bool,
 	/// How long a released note takes to fade, in seconds.
 	#[range(min = 0.02, max = 2.0)]
 	#[default(0.15)]
@@ -92,7 +91,7 @@ impl Default for FittedInstrument {
 			release: 0.15,
 			attack: 0.004,
 			width: 0.4,
-			derive: 1,
+			derive: false,
 		}
 	}
 }
@@ -111,10 +110,13 @@ impl FittedInstrument {
 			self.playing.remove(0);
 		}
 		let shaped = bend(velocity.clamp(0.0, 1.0), self.velocity_curve) * self.gain;
-		let table = if self.preset == 1 {
-			fitted::peel()
-		} else {
-			fitted::instrument()
+		let table = match self.preset {
+			1 => fitted::peel(),
+			2 => fitted::bass(),
+			3 => fitted::celeste(),
+			4 => fitted::clean_guitar(),
+			5 => fitted::harp(),
+			_ => fitted::instrument(),
 		};
 		self.playing.push(Playing {
 			voice: fitted::Voice::start_from(
@@ -123,7 +125,7 @@ impl FittedInstrument {
 				velocity.clamp(0.0, 1.0),
 				shaped,
 				self.sample_rate,
-				self.derive != 0,
+				self.derive,
 			),
 			note,
 			fade: 1.0,

@@ -145,17 +145,22 @@ impl Instrument {
 	}
 }
 
-/// The first instrument that ships with this crate.
-pub fn instrument() -> &'static Instrument {
-	static TABLE: OnceLock<Instrument> = OnceLock::new();
-	TABLE.get_or_init(|| parse(include_bytes!("../assets/gentleman.bin")))
+macro_rules! fitted_table {
+	($name:ident, $path:literal) => {
+		/// One of the fitted instruments.
+		pub fn $name() -> &'static Instrument {
+			static TABLE: OnceLock<Instrument> = OnceLock::new();
+			TABLE.get_or_init(|| parse(include_bytes!($path)))
+		}
+	};
 }
 
-/// The second fitted instrument.
-pub fn peel() -> &'static Instrument {
-	static TABLE: OnceLock<Instrument> = OnceLock::new();
-	TABLE.get_or_init(|| parse(include_bytes!("../assets/peel.bin")))
-}
+fitted_table!(instrument, "../assets/gentleman.bin");
+fitted_table!(peel, "../assets/peel.bin");
+fitted_table!(bass, "../assets/bass.bin");
+fitted_table!(celeste, "../assets/celeste.bin");
+fitted_table!(clean_guitar, "../assets/cleanguitar.bin");
+fitted_table!(harp, "../assets/harp.bin");
 
 fn parse(data: &'static [u8]) -> Instrument {
 	let mut cursor = 0usize;
@@ -389,6 +394,26 @@ mod tests {
 			peak = peak.max(voice.next_sample().abs());
 		}
 		assert!(peak > 1e-4, "silent: {peak}");
+	}
+
+	#[test]
+	fn every_table_plays() {
+		for table in [
+			instrument(),
+			peel(),
+			bass(),
+			celeste(),
+			clean_guitar(),
+			harp(),
+		] {
+			let note = table.notes()[0].note;
+			let mut voice = Voice::start_from(table, note, 1.0, 0.8, 48_000.0, false);
+			let mut peak = 0.0f32;
+			for _ in 0..4_800 {
+				peak = peak.max(voice.next_sample().abs());
+			}
+			assert!(peak > 1e-4, "a table was silent: {peak}");
+		}
 	}
 
 	#[test]
