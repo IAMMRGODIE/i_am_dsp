@@ -43,7 +43,6 @@ fn modal(frequency: f32) -> ModalString {
 			impedance: 1.0,
 			bridge: 0.0,
 			voicing: Voicing::default(),
-		calibration: &[],
 		},
 	)
 }
@@ -61,7 +60,6 @@ fn damped(frequency: f32) -> ModalString {
 			impedance: 1.0,
 			bridge: 0.0,
 			voicing: Voicing::default(),
-		calibration: &[],
 		},
 	)
 }

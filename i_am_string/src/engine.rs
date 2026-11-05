@@ -72,18 +72,12 @@ pub struct EngineParams {
 	pub vibrato_delay: f32,
 	/// How long the vibrato takes to reach full depth, in seconds.
 	pub vibrato_onset: f32,
-	/// Whether the piano's mode bank comes from a measured table.
-	///
-	/// Off by default: the table is a measurement of one library, and a preset
-	/// should sound like itself without it.
-	pub calibrated: bool,
 }
 
 impl Default for EngineParams {
 	fn default() -> Self {
 		Self {
 			core: Core::default(),
-			calibrated: false,
 			excitation: Excitation::Pluck,
 			gain: 0.8,
 			damping: 1.0,
@@ -943,14 +937,6 @@ fn unison_offset(index: usize, count: usize) -> f32 {
 }
 
 fn excite(string: &mut StringCore, spec: &VoiceSpec) {
-	// A calibrated bank already knows how loud each partial is, so there is
-	// nothing for a contact to decide: start it from its own levels.
-	if !spec.string.calibration.is_empty() {
-		// The table gives ratios, not newtons; the scale below puts a full
-		// velocity note about where the hammer leaves it.
-		string.launch(3.0e-4);
-		return;
-	}
 	match spec.excitation {
 		Excitation::Pluck => {
 			string.pluck_with_release(spec.position, spec.pluck_amplitude, spec.pluck_release)

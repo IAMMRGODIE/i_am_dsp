@@ -74,7 +74,6 @@ pub mod core;
 pub mod engine;
 pub mod instrument;
 pub mod modal;
-pub mod piano_calibration;
 pub mod string;
 pub mod sympathetic;
 pub mod voicing;

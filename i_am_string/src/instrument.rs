@@ -262,7 +262,6 @@ impl Preset {
 			dispersion_sections: sections,
 			dispersion_delay_fraction: 1.0,
 			voicing,
-			calibration: &[],
 			dispersion_coefficients: None,
 		};
 

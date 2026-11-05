@@ -302,7 +302,6 @@ impl StringInstrument {
 			vibrato_depth: self.vibrato_depth,
 			vibrato_delay: self.vibrato_delay,
 			vibrato_onset: 0.14,
-			calibrated: false,
 		};
 		if self.engine.params() != &wanted {
 			// This also drops the cached dispersion filters, which is why it is

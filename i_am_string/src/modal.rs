@@ -74,13 +74,6 @@ pub struct StringConfig {
 	/// The harmonic series is only the skeleton: the pairs, the tail and the
 	/// wound layer are what make it a string. See [crate::voicing::Voicing].
 	pub voicing: Voicing,
-	/// Measured levels and decays, one row per harmonic order.
-	///
-	/// Where this is not empty the row overrides the fitted loss law for that
-	/// order: the mode keeps its physical frequency and shape and takes the
-	/// measured level and two stage decay instead. Empty for instruments that
-	/// were never measured.
-	pub calibration: &'static [crate::piano_calibration::Mode],
 }
 
 impl Default for StringConfig {
@@ -94,7 +87,6 @@ impl Default for StringConfig {
 			impedance: 1.0,
 			bridge: 0.0,
 			voicing: Voicing::default(),
-			calibration: &[],
 		}
 	}
 }
@@ -538,19 +530,7 @@ impl ModalString {
 				frequency += detune(f0 as f32, impedance as f32, frequency as f32) as f64
 					* config.bridge as f64;
 			}
-			// A measured row, where there is one, replaces the level and the
-			// two stage decay for the partial nearest it in frequency, and
-			// leaves the frequency itself alone.
-			let mut level = 1.0f64;
-			let mut tail = voicing.late_decay;
-			if let Some(row) = config.calibration.iter().find(|row| {
-				(row.frequency as f64 - frequency).abs() < 0.02 * frequency
-			}) {
-				level = row.gain.max(0.0) as f64;
-				sigma = 6.907_755 / row.prompt.clamp(0.03, 20.0) as f64;
-				tail = (row.prompt / row.tail.clamp(0.03, 60.0)).clamp(0.05, 1.0);
-			}
-			built.push((n, frequency, level, sigma, tail, false));
+			built.push((n, frequency, 1.0, sigma, voicing.late_decay, false));
 
 			// The pair. One partial is two polarisations that are not quite the
 			// same length, and the few cents between them are what make a note
@@ -772,49 +752,6 @@ impl ModalString {
 		});
 	}
 
-	/// Replace the mode bank with a measured one.
-	///
-	/// The rows carry a partial's frequency, level and two stage decay. The mode
-	/// shape, the bridge coupling and the silence thresholds are rebuilt here the
-	/// same way the harmonic builder computes them, so a calibrated bank leaves
-	/// through the same bridge force path and can be compared with one that was
-	/// not calibrated.
-	pub fn recalibrate(&mut self, rows: &[crate::piano_calibration::Mode]) {
-		let length = self.length as f64;
-		let tension = self.config.tension.max(1.0) as f64;
-		let f0 = self.config.frequency.max(1.0) as f64;
-		let mut modes = Vec::with_capacity(rows.len());
-		for row in rows {
-			let frequency = (row.frequency.max(20.0)) as f64;
-			// The table does not carry a shape, so the mode borrows the shape of
-			// the harmonic it sits nearest: the sign of the bridge slope is what
-			// that shape contributes to the output.
-			let order = (frequency / f0).round().max(1.0);
-			let wave_number = order * std::f64::consts::PI / length;
-			let sign = if order as i64 % 2 == 0 { 1.0 } else { -1.0 };
-			let bridge = 0.5 * tension * wave_number * sign;
-			let quiet_q = QUIET_FORCE / bridge.abs().max(1e-30) as f32;
-			let sigma = 6.907_755 / row.prompt.clamp(0.03, 20.0) as f64;
-			let tail = (row.prompt / row.tail.clamp(0.03, 60.0)).clamp(0.05, 1.0);
-			modes.push(Mode {
-				order: order as f32,
-				level: row.gain.max(0.0),
-				tail,
-				horizontal: false,
-				quiet_q,
-				quiet_v: quiet_q * std::f32::consts::TAU * frequency as f32,
-				sigma: sigma as f32,
-				frequency: frequency as f32,
-				bridge: bridge as f32,
-				..Default::default()
-			});
-		}
-		self.modes = modes;
-		self.pairs.clear();
-		self.phantoms.clear();
-		self.ports.clear();
-		self.rebuild_modes();
-	}
 
 	/// Start a calibrated bank from its own levels, all in phase.
 	///

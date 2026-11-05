@@ -92,12 +92,8 @@ impl StringCore {
 					impedance: config.impedance,
 					bridge: config.bridge,
 					voicing: config.voicing,
-					calibration: config.calibration,
 				},
 				);
-				if !config.calibration.is_empty() {
-					string.recalibrate(config.calibration);
-				}
 				StringCore::Modal(Box::new(string))
 			}
 		}
@@ -183,12 +179,6 @@ impl StringCore {
 		}
 	}
 
-	/// Replace the mode bank with a measured one, where the core has one.
-	pub fn recalibrate(&mut self, rows: &[crate::piano_calibration::Mode]) {
-		if let StringCore::Modal(string) = self {
-			string.recalibrate(rows);
-		}
-	}
 
 	/// Start a calibrated bank from its own levels, skipping the contact.
 	pub fn launch(&mut self, amplitude: f32) {
