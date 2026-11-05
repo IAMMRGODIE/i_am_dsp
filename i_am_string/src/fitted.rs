@@ -161,6 +161,132 @@ fitted_table!(bass, "../assets/bass.bin");
 fitted_table!(celeste, "../assets/celeste.bin");
 fitted_table!(harp, "../assets/harp.bin");
 
+/// Read a table from bytes, or nothing if they are not one.
+fn try_parse(data: &[u8]) -> Option<Instrument> {
+	if data.len() < 8 || &data[0..4] != b"MODE" || data[4] != 3 {
+		return None;
+	}
+	let note_count = data[6] as usize;
+	let mut cursor = 7usize;
+	let mut notes = Vec::with_capacity(note_count);
+	for _ in 0..note_count {
+		if cursor + 2 > data.len() {
+			return None;
+		}
+		let note = data[cursor];
+		cursor += 2;
+		let mut channels = [Vec::new(), Vec::new()];
+		for channel in &mut channels {
+			if cursor >= data.len() {
+				return None;
+			}
+			let count = data[cursor] as usize;
+			cursor += 1;
+			if cursor + count * 30 > data.len() {
+				return None;
+			}
+			let mut modes = Vec::with_capacity(count);
+			for _ in 0..count {
+				let raw = &data[cursor..cursor + 30];
+				cursor += 30;
+				let order = u16::from_le_bytes([raw[0], raw[1]]) as f32;
+				let mut values = [0.0f32; 7];
+				for (index, value) in values.iter_mut().enumerate() {
+					let start = 2 + index * 4;
+					*value = f32::from_le_bytes([
+						raw[start],
+						raw[start + 1],
+						raw[start + 2],
+						raw[start + 3],
+					]);
+				}
+				modes.push(Mode {
+					order,
+					frequency: values[0],
+					prompt: values[1],
+					tail: values[2],
+					prompt_t60: values[3],
+					tail_t60: values[4],
+					prompt_phase: values[5],
+					tail_phase: values[6],
+				});
+			}
+			*channel = modes;
+		}
+		notes.push(Note {
+			note,
+			left: channels[0].clone(),
+			right: channels[1].clone(),
+		});
+	}
+	if cursor + 2 > data.len() {
+		return None;
+	}
+	let rows = data[cursor] as usize;
+	cursor += 1;
+	let cols = data[cursor] as usize;
+	cursor += 1;
+	if cursor + rows * cols * 4 > data.len() {
+		return None;
+	}
+	let mut gain = Vec::with_capacity(rows * cols);
+	for _ in 0..rows * cols {
+		let raw = &data[cursor..cursor + 4];
+		cursor += 4;
+		gain.push(f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]));
+	}
+	Some(Instrument {
+		notes,
+		gain,
+		rows,
+		cols,
+	})
+}
+
+/// Install a table the user brought, from bytes. Only one can be installed per
+/// session: the slot is written once and read forever after.
+pub fn install(bytes: &[u8]) -> bool {
+	let Some(instrument) = try_parse(bytes) else {
+		return false;
+	};
+	USER.set(instrument).is_ok()
+}
+
+/// The user's table, if one was installed.
+pub fn installed() -> Option<&'static Instrument> {
+	USER.get()
+}
+
+/// Try to install a table from the usual place.
+pub fn install_from_config() -> bool {
+	if USER.get().is_some() {
+		return true;
+	}
+	for path in config_paths() {
+		if let Ok(bytes) = std::fs::read(&path) && install(&bytes) {
+			return true;
+		}
+	}
+	false
+}
+
+fn config_paths() -> Vec<std::path::PathBuf> {
+	let mut out = Vec::new();
+	if let Ok(path) = std::env::var("IAM_MODAL_TABLE") {
+		out.push(std::path::PathBuf::from(path));
+	}
+	if let Ok(appdata) = std::env::var("APPDATA") {
+		out.push(std::path::PathBuf::from(appdata).join("i_am_dsp").join("modal.bin"));
+	}
+	if let Ok(home) = std::env::var("HOME") {
+		out.push(std::path::PathBuf::from(home).join(".config").join("i_am_dsp").join("modal.bin"));
+	}
+	out
+}
+
+/// The table the user installed, written once per session.
+static USER: OnceLock<Instrument> = OnceLock::new();
+
 fn parse(data: &'static [u8]) -> Instrument {
 	let mut cursor = 0usize;
 	let mut take = |count: usize| {
@@ -412,6 +538,17 @@ mod tests {
 			}
 			assert!(peak > 1e-4, "a table was silent: {peak}");
 		}
+	}
+
+	#[test]
+	fn a_table_can_be_installed_from_bytes() {
+		assert!(!install(b"not a table"), "junk was accepted");
+		let path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/peel.bin");
+		let bytes = std::fs::read(path).expect("read the table");
+		assert!(install(&bytes), "a real table was rejected");
+		let custom = installed().expect("the table is installed");
+		assert!(!custom.notes().is_empty());
+		assert!(!install(&bytes), "the slot was written twice");
 	}
 
 	#[test]

@@ -42,8 +42,8 @@ pub struct FittedInstrument {
 	#[layout(group = "Voice", order = 3, widget = knob)]
 	pub attack: f32,
 	/// Which fitted table is playing.
-	#[range(min = 0, max = 4)]
-	#[choices("The Gentleman", "Peel Guitar", "Bass", "Celeste", "Harp")]
+	#[range(min = 0, max = 5)]
+	#[choices("The Gentleman", "Peel Guitar", "Bass", "Celeste", "Harp", "Custom")]
 	#[default(0)]
 	#[id(display = "Instrument")]
 	#[layout(group = "Voice", order = 5, widget = choice, hero = "modal")]
@@ -99,6 +99,7 @@ impl Default for FittedInstrument {
 impl FittedInstrument {
 	/// A silent instrument, built for one sample rate.
 	pub fn new(rate: usize) -> Self {
+		fitted::install_from_config();
 		Self {
 			sample_rate: if rate > 0 { rate as f32 } else { 48_000.0 },
 			..Self::default()
@@ -115,6 +116,10 @@ impl FittedInstrument {
 			2 => fitted::bass(),
 			3 => fitted::celeste(),
 			4 => fitted::harp(),
+			5 => match fitted::installed() {
+				Some(custom) => custom,
+				None => return,
+			},
 			_ => fitted::instrument(),
 		};
 		self.playing.push(Playing {

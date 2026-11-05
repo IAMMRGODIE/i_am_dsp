@@ -148,7 +148,7 @@
     // One shape per fitted table: height is where the partials sit, length is
     // how long they ring. The bass hangs low and long, the celeste is a short
     // bright bell, the guitars sit in between.
-    var names = ["GENTLEMAN", "PEEL", "BASS", "CELESTE", "HARP"];
+    var names = ["GENTLEMAN", "PEEL", "BASS", "CELESTE", "HARP", "CUSTOM"];
     var shapes = [
       { levels: [0.62, 0.46, 0.34, 0.26, 0.19, 0.14, 0.1, 0.07],
         decays: [0.95, 0.6, 0.4, 0.52, 0.34, 0.28, 0.22, 0.18] },

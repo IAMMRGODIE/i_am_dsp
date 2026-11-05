@@ -576,7 +576,7 @@ fn the_modal_face_has_its_hero() {
 	// The instrument picker lives in the header and offers every table.
 	assert!(face.contains("\"header\":["), "{face}");
 	assert!(face.contains("\"instrument\""), "{face}");
-	for name in ["The Gentleman", "Peel Guitar", "Bass", "Celeste", "Harp"] {
+	for name in ["The Gentleman", "Peel Guitar", "Bass", "Celeste", "Harp", "Custom"] {
 		assert!(face.contains(name), "missing {name}: {face}");
 	}
 }
