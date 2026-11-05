@@ -38,5 +38,6 @@
   registerHero("string", stringHero);
   registerHero("vibrato", vibratoHero);
   registerHero("shape", shapeHero);
+  registerHero("modal", modalHero);
   registerHero("envelope", envelopeHero);
   registerHero("additive", additiveHero);

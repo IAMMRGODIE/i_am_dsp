@@ -568,3 +568,9 @@ fn the_fitted_instrument_plays_through_the_plugin() {
 	}
 	assert!(peak > 1e-3, "the fitted instrument was silent: {peak}");
 }
+#[test]
+fn the_modal_face_has_its_hero() {
+	let face = i_am_web_gui::face_json(&FittedWeb::new(), &fitted_faceplate());
+	assert!(face.contains("\"hero\":\"modal\""), "{face}");
+	assert!(face.contains("\"id\":\"attack\""), "{face}");
+}

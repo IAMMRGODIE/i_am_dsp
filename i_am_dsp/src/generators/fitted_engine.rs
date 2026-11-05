@@ -22,6 +22,12 @@ struct Playing {
 	note: u8,
 	fade: f32,
 	releasing: bool,
+	/// Seconds since the note started, for the attack ramp.
+	age: f32,
+	/// A small per-voice gain difference between the ears: the table is mono,
+	/// and two identical channels are heard as a point in the middle.
+	left: f32,
+	right: f32,
 }
 
 /// A polyphonic instrument played from a fitted mode table.
@@ -31,11 +37,21 @@ pub struct FittedInstrument {
 	playing: Vec<Playing>,
 	#[skip]
 	sample_rate: f32,
+	#[skip]
+	random: u32,
+	/// How long the note takes to reach full level, in seconds. Short enough
+	/// to be an attack rather than a swell, long enough to stop the click at
+	/// the start of a note.
+	#[range(min = 0.0, max = 0.08)]
+	#[default(0.004)]
+	#[id(display = "Attack")]
+	#[layout(group = "Voice", order = 3, widget = knob)]
+	pub attack: f32,
 	/// The overall level.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.8)]
 	#[id(display = "Gain")]
-	#[layout(group = "Voice", order = 0, widget = knob)]
+	#[layout(group = "Voice", order = 0, widget = knob, hero = "modal")]
 	pub gain: f32,
 	/// The velocity curve: negative is a soft keyboard, positive a hard one.
 	#[range(min = -4.0, max = 4.0)]
@@ -60,6 +76,8 @@ impl Default for FittedInstrument {
 			gain: 0.8,
 			velocity_curve: 0.0,
 			release: 0.15,
+			attack: 0.004,
+			random: 0x2545_f491,
 		}
 	}
 }
@@ -78,11 +96,20 @@ impl FittedInstrument {
 			self.playing.remove(0);
 		}
 		let shaped = bend(velocity.clamp(0.0, 1.0), self.velocity_curve) * self.gain;
+		self.random = self.random.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+		let noise = (self.random >> 8) as f32 / 16_777_216.0;
+		// A fifth of a decibel either way, different on every note, so the two
+		// channels are not the same signal.
+		let left = 1.0 - 0.06 * noise;
+		let right = 1.0 - 0.06 * (1.0 - noise);
 		self.playing.push(Playing {
 			voice: fitted::Voice::start(note, velocity.clamp(0.0, 1.0), shaped, self.sample_rate),
 			note,
 			fade: 1.0,
 			releasing: false,
+			age: 0.0,
+			left,
+			right,
 		});
 	}
 
@@ -122,16 +149,26 @@ impl Generator<2> for FittedInstrument {
 			}
 		}
 
+		let dt = 1.0 / self.sample_rate;
 		let step = 1.0 / (self.release.max(0.02) * self.sample_rate);
-		let mut mixed = 0.0f32;
+		let mut left = 0.0f32;
+		let mut right = 0.0f32;
 		for voice in &mut self.playing {
 			let sample = voice.voice.next_sample();
+			let attack = if self.attack > 1e-4 {
+				(voice.age / self.attack).min(1.0)
+			} else {
+				1.0
+			};
+			voice.age += dt;
 			if voice.releasing {
 				voice.fade = (voice.fade - step).max(0.0);
 			}
-			mixed += sample * voice.fade;
+			let level = attack * voice.fade;
+			left += sample * voice.left * level;
+			right += sample * voice.right * level;
 		}
 		self.playing.retain(|voice| !voice.releasing || voice.fade > 0.0);
-		[mixed, mixed]
+		[left, right]
 	}
 }

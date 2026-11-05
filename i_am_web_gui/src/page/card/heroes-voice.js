@@ -125,6 +125,57 @@
 
   /// The hand's vibrato: the pitch stays where it is for the delay, then swings
   /// at the rate and depth the controls ask for.
+
+  /// The fitted instrument: the velocity curve on the left, and the loaded
+  /// mode table on the right - each partial a decaying sinusoid, its height its
+  /// measured level and its length its measured decay.
+  function modalHero(values) {
+    var curl = clamp(valueOf(values, "velocity_curve", 0), -4, 4);
+    var attack = clamp(valueOf(values, "attack", 0.004), 0, 0.08);
+
+    var curve = "";
+    for (var i = 0; i <= 48; i++) {
+      var t = i / 48;
+      var y = curl === 0 ? t : (Math.exp(curl * t) - 1) / (Math.exp(curl) - 1);
+      var px = 24 + t * 196;
+      var py = 132 - y * 100;
+      curve += (i ? " L " : "M ") + px.toFixed(1) + " " + py.toFixed(1);
+    }
+
+    var levels = [0.62, 0.46, 0.34, 0.26, 0.19, 0.14, 0.1, 0.07];
+    var decays = [0.95, 0.6, 0.4, 0.52, 0.34, 0.28, 0.22, 0.18];
+    var modes = "";
+    for (var m = 0; m < levels.length; m++) {
+      var amp = levels[m] * 74;
+      var length = 46 + decays[m] * 190;
+      var path = "";
+      for (var j = 0; j <= 72; j++) {
+        var u = j / 72;
+        var x = 268 + u * length;
+        var envelope = Math.exp(-u * 4.4);
+        var y = 132 - Math.sin(u * Math.PI * 2 * (m + 1) * 1.7) * amp * envelope;
+        path += (j ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+      }
+      var opacity = (0.2 + 0.5 * levels[m]).toFixed(2);
+      modes += '<path d="' + path + '" fill="none" stroke="var(--accent)" ' +
+        'stroke-opacity="' + opacity + '" stroke-width="1.25" ' +
+        'vector-effect="non-scaling-stroke"/>';
+    }
+
+    return heroSvg(
+      '<line x1="24" y1="132" x2="220" y2="132" stroke="#2f2f2f"/>' +
+      '<line x1="24" y1="32" x2="24" y2="132" stroke="#2f2f2f"/>' +
+      '<path d="' + curve + '" fill="none" stroke="var(--accent)" ' +
+        'stroke-width="1.9" vector-effect="non-scaling-stroke"/>' +
+      '<line x1="252" y1="24" x2="252" y2="132" stroke="#2f2f2f" ' +
+        'stroke-dasharray="3 5"/>' +
+      '<line x1="268" y1="132" x2="506" y2="132" stroke="#2f2f2f"/>' +
+      modes
+    ) +
+      '<div class="hero-label" style="top:4%">VELOCITY</div>' +
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">MODAL · ' +
+        Math.round(attack * 1000) + ' ms attack</div>';
+  }
   function vibratoHero(values) {
     var rate = clamp(valueOf(values, "vibrato_rate", 5.4), 0, 12);
     var depth = clamp(valueOf(values, "vibrato_depth", 0), 0, 120);
