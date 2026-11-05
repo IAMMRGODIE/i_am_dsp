@@ -1,5 +1,17 @@
-import json, os, sys
-import numpy as np
+"""Turn The Gentleman's measurements into a table for every note.
+
+A row is a partial: where it sits, how loud it is and how it decays. Notes the
+library does not sample are built by interpolating between the two nearest
+measured notes *partial by partial*, in the log of pitch. That keeps the fine
+structure where the piano puts it: transposing one measured note onto another
+pitch would shift the whole modal pattern along the frequency axis, which
+sounds like a frequency shifter rather than like the next note up.
+"""
+
+import json
+import math
+import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import t60_map as tm
@@ -34,53 +46,72 @@ pub fn modes(note: u8) -> &'static [Mode] {
 	match note {
 '''
 
-def main():
+
+def measured_rows():
     library = json.load(open(MODES))
-    rows_by_note = {}
+    table = {}
     for entry in library:
         rate, target = tm.load(os.path.join(LIBRARY, entry['file']))
         f0 = 440.0 * 2.0 ** ((entry['note'] - 69) / 12.0)
-        rows = []
+        rows = {}
         for mode in entry['modes']:
             got = measure(target, rate, mode['f'], f0)
             if got is None:
                 continue
-            rows.append((mode['f'], got['amp'], got['prompt'], got['tail']))
+            order = int(round(mode['f'] / f0))
+            if order < 1 or order in rows:
+                continue
+            rows[order] = (mode['f'], got['amp'], got['prompt'], got['tail'])
         if len(rows) < 3:
             continue
-        peak = max(row[1] for row in rows)
-        rows_by_note[entry['note']] = [(row[0], row[1] / peak, row[2], row[3])
-                                       for row in rows]
-    # Fill the rest of the keyboard by transposing the nearest measured note:
+        peak = max(row[1] for row in rows.values())
+        table[entry['note']] = {order: (row[0], row[1] / peak, row[2], row[3])
+                                for order, row in rows.items()}
+    return table
 
-    # the partials scale with the fundamental, and the shape of the note is
 
-    # carried along. A table with holes in it is worse than a coarse one.
+def lerp(a, b, t):
+    return math.exp(math.log(a) * (1.0 - t) + math.log(b) * t)
 
-    measured = sorted(rows_by_note)
 
+def fill(table):
+    measured = sorted(table)
     full = {}
-
     for note in range(21, 109):
+        if note <= measured[0]:
+            full[note] = list(table[measured[0]].values())
+            continue
+        if note >= measured[-1]:
+            full[note] = list(table[measured[-1]].values())
+            continue
+        high = min(other for other in measured if other >= note)
+        if high == note:
+            full[note] = list(table[note].values())
+            continue
+        low = max(other for other in measured if other <= note)
+        span = math.log(2.0 ** (high / 12.0)) - math.log(2.0 ** (low / 12.0))
+        t = (math.log(2.0 ** (note / 12.0)) - math.log(2.0 ** (low / 12.0))) / span
+        rows = []
+        for order in sorted(set(table[low]) & set(table[high])):
+            a = table[low][order]
+            b = table[high][order]
+            rows.append((lerp(a[0], b[0], t), lerp(a[1], b[1], t),
+                         lerp(a[2], b[2], t), lerp(a[3], b[3], t)))
+        if rows:
+            full[note] = rows
+    return full
 
-        source = min(measured, key=lambda other: abs(other - note))
 
-        ratio = 2.0 ** ((note - source) / 12.0)
-
-        full[note] = [(row[0] * ratio, row[1], row[2], row[3])
-
-                      for row in rows_by_note[source]]
-
-    rows_by_note = full
-
+def main():
+    table = fill(measured_rows())
     body = []
-
-    for note in sorted(rows_by_note):
+    for note in sorted(table):
         cells = ', '.join('Mode { frequency: %.1f, gain: %.3f, prompt: %.3f, tail: %.3f }' % row
-                          for row in rows_by_note[note])
+                          for row in table[note])
         body.append('\t\t%d => &[%s],' % (note, cells))
     text = HEAD + '\n'.join(body) + '\n\t\t_ => &[],\n\t}\n}\n'
     open(OUT, 'w').write(text)
-    print('wrote', OUT)
+    print('wrote', OUT, 'notes', len(table))
+
 
 main()
