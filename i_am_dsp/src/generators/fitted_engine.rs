@@ -43,10 +43,17 @@ pub struct FittedInstrument {
 	/// to be an attack rather than a swell, long enough to stop the click at
 	/// the start of a note.
 	#[range(min = 0.0, max = 0.08)]
-	#[default(0.004)]
+	#[default(0.001)]
 	#[id(display = "Attack")]
 	#[layout(group = "Voice", order = 3, widget = knob)]
 	pub attack: f32,
+	/// Which fitted table is playing.
+	#[range(min = 0, max = 1)]
+	#[choices("The Gentleman", "Peel Guitar")]
+	#[default(0)]
+	#[id(display = "Instrument")]
+	#[layout(group = "Voice", order = 5, widget = choice, hero = "modal")]
+	pub preset: i32,
 	/// The overall level.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.8)]
@@ -54,11 +61,17 @@ pub struct FittedInstrument {
 	#[layout(group = "Voice", order = 0, widget = knob, hero = "modal")]
 	pub gain: f32,
 	/// The velocity curve: negative is a soft keyboard, positive a hard one.
-	#[range(min = -4.0, max = 4.0)]
+	#[range(min = -10.0, max = 10.0)]
 	#[default(0.0)]
 	#[id(display = "Velocity Curve")]
 	#[layout(group = "Voice", order = 1, widget = knob)]
 	pub velocity_curve: f32,
+	/// How far apart the two channels are placed, 0 for mono.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.4)]
+	#[id(display = "Width")]
+	#[layout(group = "Voice", order = 4, widget = knob)]
+	pub width: f32,
 	/// How long a released note takes to fade, in seconds.
 	#[range(min = 0.02, max = 2.0)]
 	#[default(0.15)]
@@ -73,10 +86,12 @@ impl Default for FittedInstrument {
 		Self {
 			playing: Vec::new(),
 			sample_rate: 48_000.0,
+			preset: 0,
 			gain: 0.8,
 			velocity_curve: 0.0,
 			release: 0.15,
 			attack: 0.004,
+			width: 0.4,
 			random: 0x2545_f491,
 		}
 	}
@@ -96,14 +111,20 @@ impl FittedInstrument {
 			self.playing.remove(0);
 		}
 		let shaped = bend(velocity.clamp(0.0, 1.0), self.velocity_curve) * self.gain;
+		let table = if self.preset == 1 {
+			fitted::peel()
+		} else {
+			fitted::instrument()
+		};
 		self.random = self.random.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
 		let noise = (self.random >> 8) as f32 / 16_777_216.0;
 		// A fifth of a decibel either way, different on every note, so the two
 		// channels are not the same signal.
-		let left = 1.0 - 0.06 * noise;
-		let right = 1.0 - 0.06 * (1.0 - noise);
+		let spread = 0.15 * self.width.clamp(0.0, 1.0);
+		let left = 1.0 - spread * noise;
+		let right = 1.0 - spread * (1.0 - noise);
 		self.playing.push(Playing {
-			voice: fitted::Voice::start(note, velocity.clamp(0.0, 1.0), shaped, self.sample_rate),
+			voice: fitted::Voice::start_from(table, note, velocity.clamp(0.0, 1.0), shaped, self.sample_rate),
 			note,
 			fade: 1.0,
 			releasing: false,

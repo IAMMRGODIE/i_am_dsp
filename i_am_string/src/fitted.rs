@@ -91,14 +91,19 @@ impl Instrument {
 	}
 }
 
-/// The instrument that ships with this crate.
+/// The first instrument that ships with this crate.
 pub fn instrument() -> &'static Instrument {
 	static TABLE: OnceLock<Instrument> = OnceLock::new();
-	TABLE.get_or_init(parse)
+	TABLE.get_or_init(|| parse(include_bytes!("../assets/gentleman.bin")))
 }
 
-fn parse() -> Instrument {
-	let data: &[u8] = include_bytes!("../assets/gentleman.bin");
+/// The second fitted instrument.
+pub fn peel() -> &'static Instrument {
+	static TABLE: OnceLock<Instrument> = OnceLock::new();
+	TABLE.get_or_init(|| parse(include_bytes!("../assets/peel.bin")))
+}
+
+fn parse(data: &'static [u8]) -> Instrument {
 	let mut cursor = 0usize;
 	let mut take = |count: usize| {
 		let slice = &data[cursor..cursor + count];
@@ -185,9 +190,14 @@ pub struct Voice {
 }
 
 impl Voice {
-	/// Start a note. `velocity` is 0..1 and `gain` the note's overall level.
-	pub fn start(note: u8, velocity: f32, gain: f32, rate: f32) -> Self {
-		let instrument = instrument();
+	/// Start a note from one of the fitted tables.
+	pub fn start_from(
+		instrument: &Instrument,
+		note: u8,
+		velocity: f32,
+		gain: f32,
+		rate: f32,
+	) -> Self {
 		let mut oscillators = Vec::new();
 		if let Some(entry) = instrument.note(note) {
 			for mode in &entry.modes {
@@ -216,6 +226,11 @@ impl Voice {
 		Self { oscillators }
 	}
 
+	/// Start a note from the default table.
+	pub fn start(note: u8, velocity: f32, gain: f32, rate: f32) -> Self {
+		Self::start_from(instrument(), note, velocity, gain, rate)
+	}
+
 	/// One sample of the note.
 	pub fn next_sample(&mut self) -> f32 {
 		self.oscillators.iter_mut().map(|osc| osc.step()).sum()
@@ -231,6 +246,18 @@ mod tests {
 		let note = instrument.note(57).expect("note 57 is in the table");
 		assert!(!note.modes.is_empty());
 		let mut voice = Voice::start(57, 1.0, 0.8, 48_000.0);
+		let mut peak = 0.0f32;
+		for _ in 0..4_800 {
+			peak = peak.max(voice.next_sample().abs());
+		}
+		assert!(peak > 1e-4, "silent: {peak}");
+	}
+	#[test]
+	fn the_second_table_plays_too() {
+		let table = peel();
+		let note = table.note(57).expect("the guitar has A4");
+		assert!(!note.modes.is_empty());
+		let mut voice = Voice::start_from(table, 57, 1.0, 0.8, 48_000.0);
 		let mut peak = 0.0f32;
 		for _ in 0..4_800 {
 			peak = peak.max(voice.next_sample().abs());
