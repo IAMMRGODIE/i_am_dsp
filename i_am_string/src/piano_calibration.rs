@@ -1,10 +1,11 @@
 //! The piano, measured against The Gentleman at the same frequencies.
 //!
-//! `tools/build_calibration.py` fills this in. It is empty for now because the
-//! first closed loop did not improve the match: the projection at a frequency
-//! carries the body and the neighbouring modes, so scaling one mode's level
-//! does not scale that projection one for one. The measurement itself is sound
-//! and lives in `tools/calibrate_same.py`.
+//! `tools/loop_calibration.py` fills this in. It is empty because neither an
+//! open-loop correction nor a damped iteration brought the measured partial
+//! levels closer: the level projected at a frequency is carried by the body and
+//! the neighbouring modes as much as by the mode itself, so the map from a
+//! mode's level to the measurement is too flat to invert. Matching the library
+//! would mean building the mode bank from the measurement instead.
 
 /// One measured partial.
 #[derive(Clone, Copy, Debug)]
