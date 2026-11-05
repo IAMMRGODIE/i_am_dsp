@@ -338,8 +338,16 @@ impl Preset {
 			frequency: f0,
 			inharmonicity: base_b * params.inharmonicity,
 			// The board the string is bolted to. See crate::bridge for what it
-			// does to the decay and the tuning of each partial.
-			bridge: BRIDGE_COUPLING,
+			// does to the decay and the tuning of each partial. A piano's board
+			// drains some partials several times faster than their neighbours,
+			// and that irregularity is a large part of why a real note's
+			// spectrum keeps changing while it rings; a string with one smooth
+			// loss law decays like a filtered saw.
+			bridge: if matches!(self, Preset::Piano) {
+				1.0
+			} else {
+				BRIDGE_COUPLING
+			},
 			sigma0,
 			sigma1,
 			tension,

@@ -483,6 +483,12 @@ impl ModalString {
 		let modal_mass = mu * length * 0.5;
 
 		let voicing = config.voicing;
+		// The admittance is normalised by its own value at the fundamental, so
+		// the T60 anchors keep meaning what they say and only the scatter
+		// between partials is added. Without this a partial that sits in a low
+		// admittance region can ring two or three times longer than the note
+		// the preset calibrated.
+		let bridge_reference = damping_ratio(f0 as f32).max(1e-6) as f64;
 		// What every mode is: its harmonic order, where it rings, how much of
 		// its shape it carries, how fast it decays and how far that decay
 		// relaxes after the prompt sound. The harmonic series comes first; the
@@ -501,8 +507,8 @@ impl ModalString {
 				// partial off the harmonic grid.
 				// A linear blend keeps the average where the preset put it; a
 				// power of the ratio stretched every decay by up to half again.
-				let damping =
-					1.0 + config.bridge as f64 * (damping_ratio(frequency as f32) as f64 - 1.0);
+				let ratio = damping_ratio(frequency as f32) as f64 / bridge_reference;
+				let damping = 1.0 + config.bridge as f64 * (ratio - 1.0);
 				sigma *= damping;
 				frequency += detune(f0 as f32, impedance as f32, frequency as f32) as f64
 					* config.bridge as f64;
