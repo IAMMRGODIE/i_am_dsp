@@ -580,3 +580,44 @@ fn the_modal_face_has_its_hero() {
 		assert!(face.contains(name), "missing {name}: {face}");
 	}
 }
+#[test]
+fn an_imported_table_plays_and_survives_the_state() {
+	use i_am_dsp::prelude::{ImportedTable, SetValue, to_binary};
+
+	let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../i_am_string/assets/peel.bin");
+	let bytes = std::fs::read(path).expect("read the table");
+	let binary = to_binary(&Some(ImportedTable {
+		name: "peel".to_string(),
+		bytes,
+	}))
+	.expect("serialize the table");
+
+	let mut plugin = FittedWeb::new();
+	Plugin::on_activate(&mut plugin, 48_000);
+	assert!(Parameters::set_parameter(
+		&mut plugin,
+		"imported",
+		SetValue::Serialized(binary.clone())
+	));
+	assert!(Parameters::set_parameter(
+		&mut plugin,
+		"instrument",
+		SetValue::Int(5)
+	));
+
+	let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+		events: vec![NoteEvent::NoteOn {
+			channel: 0,
+			note: 57,
+			velocity: 1.0,
+		}],
+		infos: TestContext::new().infos,
+	});
+	let mut peak = 0.0f32;
+	for _ in 0..24_000 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+		peak = peak.max(frame[0].abs());
+	}
+	assert!(peak > 1e-4, "the imported table was silent: {peak}");
+}

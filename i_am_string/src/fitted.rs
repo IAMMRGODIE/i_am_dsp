@@ -162,6 +162,10 @@ fitted_table!(celeste, "../assets/celeste.bin");
 fitted_table!(harp, "../assets/harp.bin");
 
 /// Read a table from bytes, or nothing if they are not one.
+pub fn parse_table(data: &[u8]) -> Option<Instrument> {
+	try_parse(data)
+}
+
 fn try_parse(data: &[u8]) -> Option<Instrument> {
 	if data.len() < 8 || &data[0..4] != b"MODE" || data[4] != 3 {
 		return None;

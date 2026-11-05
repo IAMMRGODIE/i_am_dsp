@@ -5,6 +5,9 @@
 
 use i_am_dsp_derive::Parameters;
 
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
 use i_am_string::fitted;
 
 use crate::generators::adsr::bend;
@@ -26,6 +29,15 @@ struct Playing {
 	age: f32,
 }
 
+/// A table the user brought, saved with the plug-in state.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ImportedTable {
+	/// The file name, for the interface.
+	pub name: String,
+	/// The bytes the fitter wrote.
+	pub bytes: Vec<u8>,
+}
+
 /// A polyphonic instrument played from a fitted mode table.
 #[derive(Parameters)]
 pub struct FittedInstrument {
@@ -33,6 +45,12 @@ pub struct FittedInstrument {
 	playing: Vec<Playing>,
 	#[skip]
 	sample_rate: f32,
+	#[skip]
+	cached: Option<(u64, Arc<fitted::Instrument>)>,
+	/// A table the user imported. Saved with the plug-in state.
+	#[serde]
+	#[id(display = "Imported Table")]
+	pub imported: Option<ImportedTable>,
 	/// How long the note takes to reach full level, in seconds. Short enough
 	/// to be an attack rather than a swell, long enough to stop the click at
 	/// the start of a note.
@@ -86,6 +104,8 @@ impl Default for FittedInstrument {
 			playing: Vec::new(),
 			sample_rate: 48_000.0,
 			instrument: 0,
+			cached: None,
+			imported: None,
 			gain: 0.8,
 			velocity_curve: 0.0,
 			release: 0.15,
@@ -111,13 +131,18 @@ impl FittedInstrument {
 			self.playing.remove(0);
 		}
 		let shaped = bend(velocity.clamp(0.0, 1.0), self.velocity_curve) * self.gain;
-		let table = match self.instrument {
+		let custom = if self.instrument == 5 {
+			self.custom()
+		} else {
+			None
+		};
+		let table: &fitted::Instrument = match self.instrument {
 			1 => fitted::peel(),
 			2 => fitted::bass(),
 			3 => fitted::celeste(),
 			4 => fitted::harp(),
-			5 => match fitted::installed() {
-				Some(custom) => custom,
+			5 => match &custom {
+				Some(custom) => custom.as_ref(),
 				None => return,
 			},
 			_ => fitted::instrument(),
@@ -136,6 +161,23 @@ impl FittedInstrument {
 			releasing: false,
 			age: 0.0,
 		});
+	}
+
+	/// The user's table, parsed once per change of bytes.
+	fn custom(&mut self) -> Option<Arc<fitted::Instrument>> {
+		let imported = self.imported.as_ref()?;
+		let mut hash = 1469598103934665603u64;
+		for byte in imported.bytes.iter() {
+			hash = (hash ^ *byte as u64).wrapping_mul(1099511628211);
+		}
+		if let Some((cached, table)) = &self.cached {
+			if *cached == hash {
+				return Some(table.clone());
+			}
+		}
+		let table = Arc::new(fitted::parse_table(&imported.bytes)?);
+		self.cached = Some((hash, table.clone()));
+		Some(table)
 	}
 
 	fn release(&mut self, note: u8) {

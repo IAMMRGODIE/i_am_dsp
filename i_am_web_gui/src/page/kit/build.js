@@ -172,6 +172,14 @@
         var hero = element("div", "hero");
         hero.dataset.hero = section.hero;
 
+        if (section.hero === "modal") {
+          hero.title = "Load a fitted instrument table (.bin)";
+          hero.style.cursor = "pointer";
+          hero.addEventListener("click", function () {
+            if (tableInput) tableInput.click();
+          });
+        }
+
         if (section.hero === "impulse") {
           hero.title = "Load an impulse response";
           hero.addEventListener("click", function () {
@@ -286,6 +294,17 @@
       irInput.addEventListener("change", uploadIr);
       document.body.appendChild(irInput);
       setTimeout(pollIr, 50);
+    }
+    wantsTable = heroes.some(function (hero) {
+      return hero.kind === "modal";
+    });
+    if (wantsTable) {
+      tableInput = document.createElement("input");
+      tableInput.type = "file";
+      tableInput.accept = ".bin";
+      tableInput.style.display = "none";
+      tableInput.addEventListener("change", uploadTable);
+      document.body.appendChild(tableInput);
     }
     wantsCurve = heroes.some(function (hero) {
       return hero.kind === "curve" || hero.kind === "mapping";

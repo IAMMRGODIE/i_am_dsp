@@ -3,13 +3,15 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use i_am_dsp::prelude::{GeneratorEffect, ParamMap, Parameter, Parameters, SetValue, FittedInstrument};
+use i_am_dsp::prelude::{
+	FittedInstrument, GeneratorEffect, ImportedTable, ParamMap, Parameter, Parameters, SetValue,
+};
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
 use i_am_plugin::{
 	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
 };
-use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, editor_with};
+use i_am_web_gui::{Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, editor_with};
 
 use super::play_synth;
 
@@ -127,13 +129,36 @@ impl Plugin for FittedWeb {
 
 	fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
 		let rate = self.processor.sample_rate();
+		let map = self.processor.param_map();
+		let route_map = map.clone();
 		editor_with(
 			self,
 			faceplate(),
 			self.bypass.clone(),
 			self.scope.clone(),
 			rate,
-			|_: &ProtocolRequest<'_>| None,
+			move |request: &ProtocolRequest<'_>| {
+				if request.path != "/table" {
+					return None;
+				}
+				if request.method != "POST" {
+					return Some(ProtocolResponse::json("{\"ok\":false}"));
+				}
+				let table = ImportedTable {
+					name: "imported".to_string(),
+					bytes: request.body.to_vec(),
+				};
+				let Ok(binary) = i_am_dsp::prelude::to_binary(&Some(table)) else {
+					return Some(ProtocolResponse::json("{\"error\":\"serialize\"}"));
+				};
+				route_map.set(
+					"imported",
+					SetValue::Serialized(binary),
+					std::sync::atomic::Ordering::Relaxed,
+				);
+				route_map.set("instrument", 5i32, std::sync::atomic::Ordering::Relaxed);
+				Some(ProtocolResponse::json("{\"ok\":true}"))
+			},
 			move |_: &str| false,
 		)
 	}

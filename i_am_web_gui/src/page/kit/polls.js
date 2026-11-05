@@ -139,6 +139,30 @@
     irInput.value = "";
   }
 
+  /// Hands a picked fitted table to the product's route, which parses it and
+  /// stores it in the plug-in state.
+  function uploadTable() {
+    var file = tableInput && tableInput.files && tableInput.files[0];
+    if (!file) return;
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      fetch("/table", {
+        method: "POST",
+        body: reader.result
+      })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (result) {
+          if (result && result.ok) markDirty();
+        })
+        .catch(function () {});
+    };
+    reader.readAsArrayBuffer(file);
+    tableInput.value = "";
+  }
+
   /// The vocoder bank: the modulator bands above the centre line and the output
   /// bands below it, one pair per band.
   function pollVocoder() {
