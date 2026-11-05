@@ -53,7 +53,7 @@ fn build() -> Admittance {
 	// One mode per roughly 15 Hz, a little irregular, up to above the top of
 	// the table.
 	let mut modes: Vec<(f32, f32)> = Vec::new();
-	let mut f = 55.0f32;
+	let mut f = 28.0f32;
 	while f < F_MAX * 1.2 {
 		let shape = -(rng.next().max(1e-6)).ln(); // Rayleigh power
 		modes.push((f, shape));

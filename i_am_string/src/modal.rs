@@ -130,6 +130,28 @@ const LATE_T60_MAX: f64 = 30.0;
 /// rebuilt.
 const BLEND_RESOLUTION: f32 = 0.02;
 
+/// How much of the board's mode-to-mode scatter applies at one frequency.
+///
+/// Below a couple of hundred hertz the board is a mass, not a set of modes, and
+/// its admittance is smooth: a mode grid that fine is not something a real
+/// soundboard resolves, and letting it modulate a bass string's partials pulled
+/// whole notes off the decay law. The scatter fades in over the octave where a
+/// board really does have modes.
+fn bridge_weight(frequency: f32) -> f32 {
+	let t = ((frequency - 150.0) / 300.0).clamp(0.0, 1.0);
+	t * t * (3.0 - 2.0 * t)
+}
+
+/// The most a board mode may stretch one partial's decay either way.
+///
+/// A real board does not hand a string fifty seconds of sustain, and a partial
+/// whose admittance happens to fall in a gap between board modes should not
+/// outlive the fundamental by an order of magnitude. The clamp keeps the
+/// scatter audible without letting it become the note.
+const BRIDGE_DAMPING_MIN: f64 = 0.45;
+/// See [BRIDGE_DAMPING_MIN].
+const BRIDGE_DAMPING_MAX: f64 = 2.5;
+
 /// The highest harmonic that can be a phantom's parent.
 ///
 /// The sum tones of low partials are where the metallic attack lives; a
@@ -483,12 +505,6 @@ impl ModalString {
 		let modal_mass = mu * length * 0.5;
 
 		let voicing = config.voicing;
-		// The admittance is normalised by its own value at the fundamental, so
-		// the T60 anchors keep meaning what they say and only the scatter
-		// between partials is added. Without this a partial that sits in a low
-		// admittance region can ring two or three times longer than the note
-		// the preset calibrated.
-		let bridge_reference = damping_ratio(f0 as f32).max(1e-6) as f64;
 		// What every mode is: its harmonic order, where it rings, how much of
 		// its shape it carries, how fast it decays and how far that decay
 		// relaxes after the prompt sound. The harmonic series comes first; the
@@ -504,11 +520,12 @@ impl ModalString {
 			if config.bridge > 0.0 && (frequency as f32) < crate::bridge::F_MAX {
 				// The board drains a partial that sits on one of its resonances
 				// faster than its neighbours, and its reactance pulls the
-				// partial off the harmonic grid.
-				// A linear blend keeps the average where the preset put it; a
-				// power of the ratio stretched every decay by up to half again.
-				let ratio = damping_ratio(frequency as f32) as f64 / bridge_reference;
-				let damping = 1.0 + config.bridge as f64 * (ratio - 1.0);
+				// partial off the harmonic grid. The table is already centred on
+				// one, so the blend leaves the fitted decay law where it is.
+				let weight = bridge_weight(frequency as f32) as f64;
+				let ratio = damping_ratio(frequency as f32) as f64;
+				let damping = (1.0 + config.bridge as f64 * weight * (ratio - 1.0))
+					.clamp(BRIDGE_DAMPING_MIN, BRIDGE_DAMPING_MAX);
 				sigma *= damping;
 				frequency += detune(f0 as f32, impedance as f32, frequency as f32) as f64
 					* config.bridge as f64;
