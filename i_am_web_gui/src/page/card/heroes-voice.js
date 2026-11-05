@@ -134,7 +134,7 @@
     var curl = clamp(valueOf(values, "velocity_curve", 0), -10, 10);
     var attack = clamp(valueOf(values, "attack", 0.004), 0, 0.08);
     var width = clamp(valueOf(values, "width", 0.4), 0, 1);
-    var preset = Math.round(valueOf(values, "preset", 0));
+    var preset = Math.round(valueOf(values, "instrument", 0));
 
     var curve = "";
     for (var i = 0; i <= 48; i++) {
@@ -148,7 +148,7 @@
     // One shape per fitted table: height is where the partials sit, length is
     // how long they ring. The bass hangs low and long, the celeste is a short
     // bright bell, the guitars sit in between.
-    var names = ["GENTLEMAN", "PEEL", "BASS", "CELESTE", "CLEAN GTR", "HARP"];
+    var names = ["GENTLEMAN", "PEEL", "BASS", "CELESTE", "HARP"];
     var shapes = [
       { levels: [0.62, 0.46, 0.34, 0.26, 0.19, 0.14, 0.1, 0.07],
         decays: [0.95, 0.6, 0.4, 0.52, 0.34, 0.28, 0.22, 0.18] },
@@ -158,8 +158,6 @@
         decays: [1.1, 0.8, 0.6, 0.45, 0.34, 0.26, 0.2, 0.16] },
       { levels: [0.5, 0.4, 0.32, 0.26, 0.2, 0.15, 0.11, 0.08],
         decays: [0.45, 0.38, 0.3, 0.24, 0.19, 0.15, 0.12, 0.1] },
-      { levels: [0.55, 0.46, 0.38, 0.3, 0.23, 0.18, 0.14, 0.1],
-        decays: [0.5, 0.42, 0.34, 0.28, 0.22, 0.18, 0.14, 0.11] },
       { levels: [0.6, 0.48, 0.38, 0.3, 0.23, 0.17, 0.12, 0.09],
         decays: [0.75, 0.58, 0.46, 0.38, 0.3, 0.24, 0.19, 0.15] }
     ];

@@ -159,7 +159,6 @@ fitted_table!(instrument, "../assets/gentleman.bin");
 fitted_table!(peel, "../assets/peel.bin");
 fitted_table!(bass, "../assets/bass.bin");
 fitted_table!(celeste, "../assets/celeste.bin");
-fitted_table!(clean_guitar, "../assets/cleanguitar.bin");
 fitted_table!(harp, "../assets/harp.bin");
 
 fn parse(data: &'static [u8]) -> Instrument {
@@ -403,7 +402,6 @@ mod tests {
 			peel(),
 			bass(),
 			celeste(),
-			clean_guitar(),
 			harp(),
 		] {
 			let note = table.notes()[0].note;

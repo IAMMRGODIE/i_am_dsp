@@ -573,4 +573,10 @@ fn the_modal_face_has_its_hero() {
 	let face = i_am_web_gui::face_json(&FittedWeb::new(), &fitted_faceplate());
 	assert!(face.contains("\"hero\":\"modal\""), "{face}");
 	assert!(face.contains("\"id\":\"attack\""), "{face}");
+	// The instrument picker lives in the header and offers every table.
+	assert!(face.contains("\"header\":["), "{face}");
+	assert!(face.contains("\"instrument\""), "{face}");
+	for name in ["The Gentleman", "Peel Guitar", "Bass", "Celeste", "Harp"] {
+		assert!(face.contains(name), "missing {name}: {face}");
+	}
 }

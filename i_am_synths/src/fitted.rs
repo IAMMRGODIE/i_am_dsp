@@ -11,7 +11,7 @@ use i_am_plugin::{
 };
 use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, editor_with};
 
-use super::{apply_preset_command, play_synth};
+use super::play_synth;
 
 const SIZE: (f32, f32) = (620.0, 320.0);
 const TITLE: &str = "I Am Modal";
@@ -19,9 +19,14 @@ const ACCENT: &str = "#5a7cd4";
 
 const PAGES: &[Page] = &[Page::new("Voice", &["Voice"])];
 
+/// The instrument picker sits in the header, like the filter's mode.
+const HEADER: &[&str] = &["instrument"];
+
 /// The faceplate of the instrument.
 pub fn faceplate() -> Faceplate {
-	Faceplate::new(TITLE, ACCENT, SIZE).with_pages(PAGES)
+	Faceplate::new(TITLE, ACCENT, SIZE)
+		.with_pages(PAGES)
+		.with_header(HEADER)
 }
 
 /// The fitted instrument, with a web faceplate.
@@ -121,7 +126,6 @@ impl Plugin for FittedWeb {
 	}
 
 	fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
-		let map = self.processor.param_map();
 		let rate = self.processor.sample_rate();
 		editor_with(
 			self,
@@ -130,7 +134,7 @@ impl Plugin for FittedWeb {
 			self.scope.clone(),
 			rate,
 			|_: &ProtocolRequest<'_>| None,
-			move |body: &str| apply_preset_command(&map, rate, body),
+			move |_: &str| false,
 		)
 	}
 }

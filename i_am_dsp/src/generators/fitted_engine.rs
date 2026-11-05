@@ -42,12 +42,12 @@ pub struct FittedInstrument {
 	#[layout(group = "Voice", order = 3, widget = knob)]
 	pub attack: f32,
 	/// Which fitted table is playing.
-	#[range(min = 0, max = 5)]
-	#[choices("The Gentleman", "Peel Guitar", "Bass", "Celeste", "Clean Guitar", "Harp")]
+	#[range(min = 0, max = 4)]
+	#[choices("The Gentleman", "Peel Guitar", "Bass", "Celeste", "Harp")]
 	#[default(0)]
 	#[id(display = "Instrument")]
 	#[layout(group = "Voice", order = 5, widget = choice, hero = "modal")]
-	pub preset: i32,
+	pub instrument: i32,
 	/// The overall level.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.8)]
@@ -85,7 +85,7 @@ impl Default for FittedInstrument {
 		Self {
 			playing: Vec::new(),
 			sample_rate: 48_000.0,
-			preset: 0,
+			instrument: 0,
 			gain: 0.8,
 			velocity_curve: 0.0,
 			release: 0.15,
@@ -110,12 +110,11 @@ impl FittedInstrument {
 			self.playing.remove(0);
 		}
 		let shaped = bend(velocity.clamp(0.0, 1.0), self.velocity_curve) * self.gain;
-		let table = match self.preset {
+		let table = match self.instrument {
 			1 => fitted::peel(),
 			2 => fitted::bass(),
 			3 => fitted::celeste(),
-			4 => fitted::clean_guitar(),
-			5 => fitted::harp(),
+			4 => fitted::harp(),
 			_ => fitted::instrument(),
 		};
 		self.playing.push(Playing {
