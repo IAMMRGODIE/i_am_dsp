@@ -1,7 +1,7 @@
 //! A fitted instrument: a mode table from a recording, with its own faceplate.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use i_am_dsp::prelude::{GeneratorEffect, ParamMap, Parameter, Parameters, SetValue, FittedInstrument};
 use i_am_dsp::{ProcessContext, Processor};

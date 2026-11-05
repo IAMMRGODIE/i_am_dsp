@@ -77,7 +77,7 @@ impl StringCore {
 				StringCore::Waveguide(Box::new(WaveguideString::new(sample_rate, config.clone())))
 			}
 			Core::Modal => {
-				let mut string = ModalString::new(
+				let string = ModalString::new(
 				sample_rate,
 				ModalConfig {
 					frequency: config.frequency,
