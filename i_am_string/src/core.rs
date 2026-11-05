@@ -91,6 +91,7 @@ impl StringCore {
 					impedance: config.impedance,
 					bridge: config.bridge,
 					voicing: config.voicing,
+					calibration: config.calibration,
 				},
 			))),
 		}

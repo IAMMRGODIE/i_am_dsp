@@ -106,7 +106,7 @@ def detect_modes(x, rate, f0):
         prompt = decay_fit(times, envelope, 0.03, PROMPT_END)
         prompt_t60 = prompt[0] if prompt is not None else 0.10
         raw.append({'f': f, 'k': int(round(f / f0)),
-                    'prompt_t60': float(min(prompt_t60, 0.25)),
+                    'prompt_t60': float(np.clip(prompt_t60, 0.04, 0.6)),
                     'tail_t60': float(tail_t60),
                     'tail_amp': float(tail_amp),
                     'prompt_amp': 0.0, 'prompt_phase': 0.0,

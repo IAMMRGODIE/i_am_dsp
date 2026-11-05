@@ -21,6 +21,7 @@ fn config(frequency: f32) -> StringConfig {
 		impedance: 1.5,
 		bridge: 0.0,
 		voicing: Voicing::default(),
+		calibration: &[],
 		max_partials: 40,
 		dispersion_sections: 8,
 		dispersion_delay_fraction: 1.0,

@@ -361,6 +361,11 @@ impl Preset {
 			dispersion_sections: sections,
 			dispersion_delay_fraction: 1.0,
 			voicing,
+			calibration: if matches!(self, Preset::Piano) {
+				crate::piano_calibration::modes(note)
+			} else {
+				&[]
+			},
 			dispersion_coefficients: None,
 		};
 

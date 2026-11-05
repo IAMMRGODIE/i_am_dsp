@@ -71,6 +71,11 @@ pub struct StringConfig {
 	/// there is no per-partial state to shape. The mode bank has the state,
 	/// and [crate::voicing::Voicing] says what to do with it.
 	pub voicing: Voicing,
+	/// Measured levels and decays for the mode bank, one row per harmonic order.
+	///
+	/// Empty for every instrument that was not measured; the waveguide ignores
+	/// it, since it has one loop gain rather than per-partial state.
+	pub calibration: &'static [crate::piano_calibration::Mode],
 	/// A pre-fitted set of allpass coefficients.
 	///
 	/// Fitting the dispersion filter takes several milliseconds, which is far
@@ -93,6 +98,7 @@ impl Default for StringConfig {
 			dispersion_delay_fraction: 1.0,
 			bridge: 0.0,
 			voicing: Voicing::default(),
+			calibration: &[],
 			dispersion_coefficients: None,
 		}
 	}
