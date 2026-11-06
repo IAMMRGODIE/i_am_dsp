@@ -24,13 +24,29 @@
         rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,
         ott: ottState, vocoder: vocoderState, eqSpectrum: eqSpectrum,
-        autotune: autotuneState, canvas: canvasState
+        autotune: autotuneState, canvas: canvasState, spectrum: spectrumState
       });
       if (content) {
         hero.el.innerHTML = content;
-        if (IAmCard.wire) IAmCard.wire(hero.el, hero.kind, values, canvasState);
+        if (IAmCard.wire) {
+          IAmCard.wire(hero.el, hero.kind, values, {
+            canvas: canvasState, spectrum: spectrumState, set: setControl
+          });
+        }
       }
     });
+  }
+
+  /// Lets an editor hero move a control it is coupled to, like the morph that
+  /// decides which page is being drawn.
+  function setControl(id, value) {
+    var control = controls[id];
+
+    // Nothing moved, nothing to repaint: an editor that selects the page the
+    // knob already sits on must not rebuild the hero under the pointer.
+    if (!control || control.value === value) return;
+
+    setValue(control, value, true);
   }
 
   /// Remembers the control being held (or focused), so a hero can draw the part
@@ -68,22 +84,37 @@
         return response.json();
       })
       .then(function (state) {
-        if (typeof state.__bypass !== "undefined") setBypassed(state.__bypass);
+        var changed = false;
+
+        if (typeof state.__bypass !== "undefined" && state.__bypass !== bypassed) {
+          setBypassed(state.__bypass);
+          changed = true;
+        }
 
         Object.keys(state).forEach(function (id) {
           if (id === "__bypass") return;
 
           var control = controls[id];
-          if (control) {
-            control.value = control.spec.kind === "bool"
-              ? state[id]
-              : snap(control.spec, state[id]);
-            control.paint();
-          }
+          if (!control) return;
+
+          var next = control.spec.kind === "bool"
+            ? state[id]
+            : snap(control.spec, state[id]);
+
+          if (control.value === next) return;
+
+          control.value = next;
+          control.paint();
+          changed = true;
         });
-        applySwitches();
-        applyEqType();
-        markDirty();
+
+        // A repaint rebuilds every hero, which replaces the node under a press:
+        // only do it when a value really moved.
+        if (changed) {
+          applySwitches();
+          applyEqType();
+          markDirty();
+        }
       })
       .catch(function (error) {
         console.warn("i_am_web_gui: " + error);

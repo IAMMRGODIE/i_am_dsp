@@ -1,20 +1,23 @@
-//! The additive instrument whose spectrum is a set of drawn bands.
+//! The additive instrument whose spectrum is drawn: 512 partials per page,
+//! pages to morph between, and a band limited table per page.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use i_am_dsp::prelude::{
-	AdditiveOsc, Adsr, EqualTemperament, GeneratorEffect, ParamMap, Parameter, Parameters,
-	SetValue, SpectralGen,
+	Adsr, EqualTemperament, GeneratorEffect, ParamMap, Parameter, Parameters, SetValue,
+	SpectralFeed, SpectralFrame, TableBankOsc,
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
 use i_am_plugin::{
 	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
 };
-use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, Switch, editor_with};
+use i_am_web_gui::{
+	Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, Switch, editor_with,
+};
 
-use super::play_synth;
+use super::{json_escape, play_synth};
 
 /// The spectrum face's design size, in points.
 const SPECTRUM_SIZE: (f32, f32) = (820.0, 420.0);
@@ -23,7 +26,7 @@ const SPECTRUM_TITLE: &str = "I Am Spectrum";
 /// The spectrum identity colour, as #rrggbb.
 const SPECTRUM_ACCENT: &str = "#ffd166";
 
-/// The spectrum face's tabs: the partials, the envelope and the voice.
+/// The spectrum face's tabs: the drawn spectrum, the envelope and the voice.
 const SPECTRUM_PAGES: &[Page] = &[
 	Page::new("Spectrum", &["Shape"]),
 	Page::new("Envelope", &["Envelope"]),
@@ -31,15 +34,12 @@ const SPECTRUM_PAGES: &[Page] = &[
 ];
 
 /// The per-stage sync switches stay the host's: the face has one for the envelope.
-///
-/// The oscillator keeps a level of its own; the envelope's gain is the product's.
 const SPECTRUM_HIDDEN: &[&str] = &[
 	"delay.sync",
 	"attack.sync",
 	"hold.sync",
 	"decay.sync",
 	"release.sync",
-	"oscillator.gain",
 ];
 
 /// The envelope's one Sync switch trades the free lengths for musical ones.
@@ -61,16 +61,17 @@ const SPECTRUM_SWITCHES: &[Switch] = &[Switch::new(
 	],
 )];
 
-/// The spectrum voice: every partial is an integer ratio, so the whole sum is
-/// an inverse-FFT wavetable and playback is one lookup per sample.
-type SpectrumVoice = Adsr<AdditiveOsc<SpectralGen, 128, 2>, EqualTemperament, 2>;
+/// The spectrum voice: 512 drawn partials, rendered into band limited tables on
+/// a worker thread and morphed at playback.
+type SpectrumVoice = Adsr<TableBankOsc, EqualTemperament, 2>;
 
-fn spectrum_voice(rate: usize) -> SpectrumVoice {
-	Adsr::new(
-		AdditiveOsc::new(SpectralGen::default(), 64),
-		EqualTemperament,
-		rate,
-	)
+fn spectrum_voice(rate: usize, feed: Arc<SpectralFeed>) -> SpectrumVoice {
+	Adsr::new(TableBankOsc::new(feed), EqualTemperament, rate)
+}
+
+/// The pages a fresh instrument starts on: a saw and a square to morph between.
+fn default_pages() -> Vec<SpectralFrame> {
+	vec![SpectralFrame::saw(), SpectralFrame::square()]
 }
 
 /// The faceplate of the spectrum instrument.
@@ -82,21 +83,64 @@ pub fn spectrum_faceplate() -> Faceplate {
 		.with_hidden(SPECTRUM_HIDDEN)
 }
 
+/// Answers the editor's pages, and takes the ones it draws.
+///
+/// The pages are not a control in the parameter map, so the page asks for them
+/// over this route the way the canvas product does; the ones it posts reach the
+/// voice through the same feed the oscillator renders from.
+pub(crate) fn spectrum_route(
+	request: &ProtocolRequest<'_>,
+	feed: &Arc<SpectralFeed>,
+) -> Option<ProtocolResponse> {
+	if request.method == "GET" && request.path == "/spectrum" {
+		let frames = feed.frames();
+		let body = format!(
+			"{{\"generation\":{},\"frames\":{}}}",
+			feed.generation(),
+			serde_json::to_string(&*frames).expect("the pages serialize as JSON")
+		);
+
+		return Some(ProtocolResponse::json(body));
+	}
+
+	if request.method == "POST" && request.path == "/spectrum" {
+		let body = String::from_utf8_lossy(request.body);
+
+		return Some(match serde_json::from_str::<Vec<SpectralFrame>>(&body) {
+			Ok(frames) => {
+				feed.set(frames);
+				ProtocolResponse::json("{\"ok\":true}")
+			}
+			Err(error) => ProtocolResponse::json(format!(
+				"{{\"ok\":false,\"error\":\"{}\"}}",
+				json_escape(&error.to_string())
+			)),
+		});
+	}
+
+	None
+}
+
 /// The additive spectrum instrument, with a web faceplate.
 pub struct SpectrumWeb {
 	processor: EffectProcessor<GeneratorEffect<SpectrumVoice>>,
 	bypass: Arc<AtomicBool>,
 	scope: Arc<Scope>,
+	feed: Arc<SpectralFeed>,
 }
 
 impl Default for SpectrumWeb {
 	fn default() -> Self {
+		let feed = SpectralFeed::new(default_pages());
+		let build_feed = feed.clone();
+
 		Self {
-			processor: EffectProcessor::new(|rate: usize| {
-				GeneratorEffect::new(spectrum_voice(rate))
+			processor: EffectProcessor::with_build(move |rate: usize| {
+				GeneratorEffect::new(spectrum_voice(rate, build_feed.clone()))
 			}),
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(Scope::new()),
+			feed,
 		}
 	}
 }
@@ -115,6 +159,11 @@ impl SpectrumWeb {
 	/// Turn the bypass on or off from code, for a test.
 	pub fn set_bypassed(&self, bypassed: bool) {
 		self.bypass.store(bypassed, Ordering::Relaxed);
+	}
+
+	/// The pages, for a test that draws one.
+	pub fn feed(&self) -> &Arc<SpectralFeed> {
+		&self.feed
 	}
 }
 
@@ -161,7 +210,7 @@ impl Plugin for SpectrumWeb {
 		.with_vendor("iamplugins")
 		.with_version(env!("CARGO_PKG_VERSION"))
 		.with_description(
-			"An additive spectrum: a tilt, an odd/even balance and a formant, played from an inverse-FFT wavetable.",
+			"An additive spectrum drawn as partials and phases: 512 partials a page, pages morphed, all played from band limited tables.",
 		)
 		.with_tags(&[Tag::Instrument, Tag::Synthesizer]);
 
@@ -202,13 +251,15 @@ impl Plugin for SpectrumWeb {
 	}
 
 	fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
+		let feed = self.feed.clone();
+
 		editor_with(
 			self,
 			spectrum_faceplate(),
 			self.bypass.clone(),
 			self.scope.clone(),
 			self.processor.sample_rate(),
-			|_: &ProtocolRequest<'_>| None,
+			move |request: &ProtocolRequest<'_>| spectrum_route(request, &feed),
 			|_: &str| false,
 		)
 	}

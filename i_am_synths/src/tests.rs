@@ -1,7 +1,8 @@
 use super::*;
 use crate::canvas::{CanvasFeed, canvas_route, default_canvas_text, parse_canvas};
 use crate::script::{ScriptFeed, script_route};
-use i_am_dsp::prelude::SetValue;
+use crate::spectrum::spectrum_route;
+use i_am_dsp::prelude::{SetValue, SpectralFeed, SpectralFrame};
 use i_am_plugin::{Plugin, Tag};
 use i_am_web_gui::ProtocolRequest;
 
@@ -305,23 +306,18 @@ fn a_spectrum_synth_has_a_note_port_and_no_audio_input() {
 }
 
 #[test]
-fn the_spectrum_face_is_three_pages_with_the_partial_hero() {
+fn the_spectrum_face_draws_the_drawn_pages() {
 	let face = i_am_web_gui::face_json(&SpectrumWeb::new(), &spectrum_faceplate());
 
-	assert!(face.contains("\"hero\":\"additive\""), "{face}");
-	for id in [
-		"oscillator.num_sines",
-		"oscillator.freq_gen.tilt",
-		"oscillator.freq_gen.odd",
-		"oscillator.freq_gen.formant",
-		"oscillator.freq_gen.formant_center",
-		"oscillator.gain",
-	] {
-		assert!(face.contains(&format!("\"id\":\"{id}\"")), "{face}");
-	}
-	for label in ["Tilt", "Odd", "Formant", "Centre", "Partials"] {
-		assert!(face.contains(&format!("\"label\":\"{label}\"")), "{face}");
-	}
+	// The page is the picture, and Morph is the one control the drawing adds.
+	assert!(face.contains("\"hero\":\"spectrum\""), "{face}");
+	assert!(face.contains("\"id\":\"oscillator.morph\""), "{face}");
+	assert!(face.contains("\"label\":\"Morph\""), "{face}");
+
+	// The pages are state, not a control: the host saves them and the face does
+	// not draw them as a knob.
+	assert!(!face.contains("\"id\":\"oscillator.frames\""), "{face}");
+
 	assert!(
 		face.contains(
 			"\"pages\":[{\"name\":\"Spectrum\",\"sections\":[\"Shape\"]},\
@@ -336,14 +332,78 @@ fn the_spectrum_face_is_three_pages_with_the_partial_hero() {
 		face.contains("\"switches\":[{\"control\":\"sync\",\"on\":[\"delay.beats\""),
 		"{face}"
 	);
-	// The per-stage switches stay the host's; the oscillator's own level stays off
-	// the face.
+	// The per-stage switches stay the host's.
 	assert!(
 		face.contains(
-			"\"hidden\":[\"delay.sync\",\"attack.sync\",\"hold.sync\",\"decay.sync\",\"release.sync\",\"oscillator.gain\"]"
+			"\"hidden\":[\"delay.sync\",\"attack.sync\",\"hold.sync\",\"decay.sync\",\"release.sync\"]"
 		),
 		"{face}"
 	);
+}
+
+/// A project save carries the drawn pages: the parameter map only sees the
+/// morph knob, so the pages ride the serialized state and are restored into the
+/// same feed the oscillator renders from.
+#[test]
+fn the_drawn_pages_survive_a_state_round_trip() {
+	use i_am_dsp::prelude::{Value, from_binary, to_binary};
+
+	let source = SpectrumWeb::new();
+	let saved = source.get_parameters();
+	let value = saved
+		.iter()
+		.find(|parameter| parameter.identifier == "oscillator.frames")
+		.expect("the frames parameter")
+		.value
+		.clone();
+	let Value::Serialized(data) = value else {
+		panic!("the pages are not serialized")
+	};
+	let mut pages = from_binary::<Vec<SpectralFrame>>(data).expect("the pages decode");
+	pages[0].levels[0] = 0.25;
+
+	let mut restored = SpectrumWeb::new();
+	assert!(restored.set_parameter(
+		"oscillator.frames",
+		SetValue::Serialized(to_binary(&pages).expect("the pages encode")),
+	));
+	assert_eq!(restored.feed().frames()[0].levels[0], 0.25);
+}
+
+/// The editor asks for the pages and posts new ones; both go through the feed
+/// the voice renders from.
+#[test]
+fn the_spectrum_route_round_trips_the_pages() {
+	let feed = SpectralFeed::new(vec![SpectralFrame::saw()]);
+	let get = ProtocolRequest {
+		method: "GET",
+		path: "/spectrum",
+		query: None,
+		body: &[],
+	};
+	let body = String::from_utf8(
+		spectrum_route(&get, &feed)
+			.expect("the spectrum route")
+			.body,
+	)
+	.expect("utf-8");
+
+	assert!(body.contains("\"generation\""), "{body}");
+	assert!(body.contains("\"levels\""), "{body}");
+
+	let page = SpectralFrame::square();
+	let json = serde_json::to_string(&vec![page.clone()]).expect("the pages serialize");
+	let post = ProtocolRequest {
+		method: "POST",
+		path: "/spectrum",
+		query: None,
+		body: json.as_bytes(),
+	};
+	let body = String::from_utf8(spectrum_route(&post, &feed).expect("the post route").body)
+		.expect("utf-8");
+
+	assert!(body.contains("\"ok\":true"), "{body}");
+	assert_eq!(*feed.frames(), vec![page]);
 }
 
 #[test]
@@ -640,7 +700,14 @@ fn the_modal_face_has_its_hero() {
 	// The instrument picker lives in the header and offers every table.
 	assert!(face.contains("\"header\":["), "{face}");
 	assert!(face.contains("\"instrument\""), "{face}");
-	for name in ["The Gentleman", "Peel Guitar", "Bass", "Celeste", "Harp", "Custom"] {
+	for name in [
+		"The Gentleman",
+		"Peel Guitar",
+		"Bass",
+		"Celeste",
+		"Harp",
+		"Custom",
+	] {
 		assert!(face.contains(name), "missing {name}: {face}");
 	}
 }
@@ -648,7 +715,10 @@ fn the_modal_face_has_its_hero() {
 fn an_imported_table_plays_and_survives_the_state() {
 	use i_am_dsp::prelude::{ImportedTable, SetValue, to_binary};
 
-	let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../i_am_string/assets/peel.bin");
+	let path = concat!(
+		env!("CARGO_MANIFEST_DIR"),
+		"/../i_am_string/assets/peel.bin"
+	);
 	let bytes = std::fs::read(path).expect("read the table");
 	let binary = to_binary(&Some(ImportedTable {
 		name: "peel".to_string(),

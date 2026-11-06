@@ -197,12 +197,38 @@
       .then(function (state) {
         if (!state || !state.shape) return;
         if (document.querySelector(".hero[data-busy='1']")) return;
+        if (canvasState && canvasState.shape === state.shape) return;
+
         canvasState = state;
         markDirty();
       })
       .catch(function () {})
       .then(function () {
         setTimeout(pollCanvas, 1500);
+      });
+  }
+
+  /// The Spectrum product's drawn pages live outside the parameter map, so the
+  /// page asks the product for them, and posts new ones back on an edit.
+  function pollSpectrum() {
+    fetch("/spectrum", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state || !state.frames) return;
+        if (document.querySelector(".hero[data-busy='1']")) return;
+
+        if (!spectrumState) spectrumState = { generation: 0, page: 0, frames: null };
+
+        spectrumState.generation = state.generation;
+        spectrumState.frames = state.frames;
+        spectrumState.page = Math.min(spectrumState.page || 0, state.frames.length - 1);
+        markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollSpectrum, 1500);
       });
   }
 

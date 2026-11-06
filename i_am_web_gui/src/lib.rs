@@ -735,6 +735,43 @@ mod ui_contract_tests {
 		);
 	}
 
+	/// The spectrum page is an editor: the shared card draws the levels and the
+	/// phase strip, and the page fetches and posts the pages it draws.
+	#[test]
+	fn the_spectrum_page_draws_and_edits_the_pages() {
+		assert!(
+			CARD_SCRIPT.contains("registerHero(\"spectrum\", spectrumHero)"),
+			"the shared card never registers the spectrum editor"
+		);
+		assert!(CARD_SCRIPT.contains("wireSpectrum"));
+		assert!(
+			SCRIPT.contains("spectrum: spectrumState"),
+			"the hero never sees the pages"
+		);
+		assert!(
+			SCRIPT.contains("function pollSpectrum"),
+			"the page never asks for the pages"
+		);
+
+		// Both editors' page buttons are HTML: text in a stretched hero SVG
+		// changes shape with the window.
+		assert!(
+			CARD_SCRIPT.contains("data-action=\"spectrum-add\">+ PAGE"),
+			"the spectrum buttons are not html"
+		);
+		assert!(
+			CARD_SCRIPT.contains("data-action=\"page-add\">+ PAGE"),
+			"the canvas buttons are not html"
+		);
+
+		// The canvas is drawn in a centred square, so a circle stays a circle, and
+		// every bezier handle is joined to the point it bends.
+		assert!(CARD_SCRIPT.contains("class=\"canvas-box\""));
+		assert!(STYLE.contains(".canvas-hero"));
+		assert!(CARD_STYLE.contains(".mcard-hero .canvas-box"));
+		assert!(CARD_SCRIPT.contains("guide(previous, control1)"));
+	}
+
 	/// A faceplate knob keeps the footprint it had before the shared-card
 	/// migration: a 56 px dial in a 64 px slot, not the rack's 112 px slot. The
 	/// larger slot changes the row count and squeezes the hero out.

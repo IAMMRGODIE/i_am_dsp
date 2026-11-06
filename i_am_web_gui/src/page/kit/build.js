@@ -354,6 +354,7 @@
     markDirty();
     poll();
     pollCanvas();
+    pollSpectrum();
     if (wantsScope) pollScope();
   }
 

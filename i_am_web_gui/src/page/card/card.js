@@ -415,7 +415,10 @@
     choiceHandle: makeChoiceHandle,
     sliderHandle: makeSliderHandle,
     hero: hero,
-    wire: wireCanvas,
+    wire: function (el, kind, values, state) {
+      if (kind === "canvas") wireCanvas(el, kind, values, state);
+      else if (kind === "spectrum") wireSpectrum(el, kind, values, state);
+    },
     registerHero: registerHero,
     bandsOf: bandsOf,
     smoothBands: smoothBands,
