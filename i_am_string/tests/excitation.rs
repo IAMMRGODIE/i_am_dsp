@@ -150,3 +150,41 @@ fn a_bend_moves_the_pitch() {
 		}
 	}
 }
+
+
+/// A note that starts in silence must not hand the DC blocker a step. The
+/// string's static force used to be heard as a thump at the start of the note,
+/// and the blocker's own step response made it longer than the note's attack.
+#[test]
+fn a_note_from_silence_does_not_start_with_a_dc_step() {
+	let mut engine = StringEngine::new(FS);
+	engine.set_preset(Preset::Violin);
+
+	let mut params = Preset::Violin.defaults();
+	params.excitation = Excitation::Pluck;
+	engine.apply_params(params);
+	engine.note_on(69, 0.8);
+
+	assert_eq!(
+		engine.next_frame(),
+		[0.0, 0.0],
+		"the blocker did not start on the step"
+	);
+
+	let mut sum = 0.0f32;
+	let mut peak = 0.0f32;
+	let count = FS as usize;
+
+	for _ in 0..count {
+		let value = engine.next_sample();
+		sum += value;
+		peak = peak.max(value.abs());
+	}
+
+	assert!(peak > 0.0, "the note stayed silent");
+	assert!(
+		(sum / count as f32).abs() < peak * 0.01,
+		"the note carries a DC offset: {} of {peak}",
+		sum / count as f32
+	);
+}

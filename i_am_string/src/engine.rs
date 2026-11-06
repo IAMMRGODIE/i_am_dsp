@@ -322,6 +322,9 @@ pub struct StringEngine {
 	max_voices: usize,
 	age: u64,
 	dc: [[f32; 2]; 2],
+	/// Start the DC blocker on the first sample of a note that begins in
+	/// silence, so the string's static force is not heard as a thump.
+	prime_dc: bool,
 	body_left: Body,
 	body_right: Body,
 	/// A few milliseconds on one side, to give the sympathetic strings width.
@@ -418,6 +421,7 @@ impl StringEngine {
 			max_voices: 24,
 			age: 0,
 			dc: [[0.0; 2]; 2],
+			prime_dc: false,
 			body_left: Body::for_preset(preset, sample_rate, -1.0),
 			body_right: Body::for_preset(preset, sample_rate, 1.0),
 			spread: crate::delay::DelayLine::new((sample_rate * 0.002).round()),
@@ -522,6 +526,13 @@ impl StringEngine {
 			return;
 		}
 		self.keys_held[note.min(127) as usize] = true;
+
+		// A note that starts in silence carries the string's static force as a
+		// step; starting the blocker on that step keeps it out of the thump.
+		if self.voices.is_empty() {
+			self.prime_dc = true;
+		}
+
 		self.release_voice(note);
 		while self.voices.len() >= self.max_voices {
 			self.steal_voice();
@@ -692,21 +703,29 @@ impl StringEngine {
 		];
 
 		let amount = self.params.body.clamp(0.0, 1.0);
+		let prime = std::mem::take(&mut self.prime_dc);
 		let mut frame = [0.0; 2];
 		for (channel, source) in sources.into_iter().enumerate() {
+			// A DC blocker, because an asymmetric contact law can leave an
+			// offset on the string that would otherwise show up as a thump. It
+			// sits before the body: the board has no DC response either, and
+			// feeding it the step is what turns the offset into a knock.
+			if prime {
+				self.dc[channel] = [source, 0.0];
+			}
+
+			let blocked = source - self.dc[channel][0] + 0.9985 * self.dc[channel][1];
+			self.dc[channel][0] = source;
+			self.dc[channel][1] = blocked;
+
 			let body = if channel == 0 {
 				&mut self.body_left
 			} else {
 				&mut self.body_right
 			};
-			let shaped = body.process(source);
-			let mixed = source + (shaped - source) * amount;
-			// A DC blocker, because an asymmetric contact law can leave an
-			// offset on the string that would otherwise show up as a thump.
-			let blocked = mixed - self.dc[channel][0] + 0.9985 * self.dc[channel][1];
-			self.dc[channel][0] = mixed;
-			self.dc[channel][1] = blocked;
-			frame[channel] = blocked * self.params.gain;
+			let shaped = body.process(blocked);
+			let mixed = blocked + (shaped - blocked) * amount;
+			frame[channel] = mixed * self.params.gain;
 		}
 		frame
 	}
