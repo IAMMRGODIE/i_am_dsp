@@ -572,9 +572,7 @@ impl<const CHANNELS: usize> crate::prelude::Oscillator<CHANNELS> for TableBankOs
 	}
 
 	#[cfg(feature = "real_time_demo")]
-	fn demo_ui(&mut self, _: &mut egui::Ui, _: String) -> bool {
-		false
-	}
+	fn demo_ui(&mut self, _: &mut egui::Ui, _: String) {}
 }
 
 #[cfg(test)]
