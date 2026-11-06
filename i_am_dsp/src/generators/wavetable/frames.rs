@@ -257,6 +257,11 @@ impl WaveBank {
 		self.frames.len()
 	}
 
+	/// Whether the table holds no frames at all.
+	pub fn is_empty(&self) -> bool {
+		self.frames.is_empty()
+	}
+
 	/// The table as the parameter form: the frames and the name.
 	pub fn imported(&self) -> ImportedWave {
 		ImportedWave {
@@ -377,15 +382,10 @@ fn morph_parameter(value: f32) -> Parameter {
 }
 
 /// What the editor and the voice share: the imported table.
+#[derive(Default)]
 pub struct WaveSlot {
 	/// The table, once something has been imported.
 	pub bank: Option<Arc<WaveBank>>,
-}
-
-impl Default for WaveSlot {
-	fn default() -> Self {
-		Self { bank: None }
-	}
 }
 
 fn x_fade_parameter(value: f32) -> Parameter {
@@ -734,7 +734,7 @@ mod tests {
 
 	#[test]
 	fn the_table_is_state_not_a_control() {
-		let mut table = WaveFramesOsc::new();
+		let table = WaveFramesOsc::new();
 		table.set_imported(Some(ImportedWave::new(
 			"saved",
 			vec![vec![0.25; WAVE_FRAME_LEN]],

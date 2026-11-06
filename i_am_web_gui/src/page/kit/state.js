@@ -36,6 +36,10 @@ var wavesState = null;
 var waveMode = "auto";
 // The sample the sampler face imported: its name, rate and picture.
 var sampleState = null;
+// The part of the sample the picture shows: the whole thing until zoomed.
+var sampleView = { from: 0, to: 1 };
+// True while a slice mark is being dragged, so the poll leaves the picture alone.
+var sampleDragging = false;
 var wantsTable = false;
 var tableInput = null;
 var irState = null;

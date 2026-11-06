@@ -25,7 +25,7 @@
         meter: meter, envHistory: envHistory, envWindow: envWindow,
         ott: ottState, vocoder: vocoderState, eqSpectrum: eqSpectrum,
         autotune: autotuneState, canvas: canvasState, spectrum: spectrumState,
-        waves: wavesState, waveMode: waveMode, sample: sampleState
+        waves: wavesState, waveMode: waveMode, sample: sampleState, sampleView: sampleView
       });
       if (content) {
         hero.el.innerHTML = content;

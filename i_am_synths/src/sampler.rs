@@ -50,6 +50,15 @@ const SAMPLER_HIDDEN: &[&str] = &[
 	"gain",
 	"pitch_factor",
 	"pan",
+	// The loop and its ends are drawn and dragged on the picture, and the two
+	// flips are the hero's switches: the knobs would be a second way to do what
+	// the hand already does.
+	"oscillator.loop",
+	"oscillator.loop_start",
+	"oscillator.loop_end",
+	"oscillator.reverse",
+	"oscillator.polarity",
+	"oscillator.pingpong",
 ];
 
 /// The envelope's one Sync switch trades the free lengths for musical ones.
@@ -86,6 +95,8 @@ struct SamplePreview {
 	rate: u32,
 	samples: usize,
 	peaks: Vec<f32>,
+	/// Where each slice starts, as a fraction of the sample.
+	slices: Vec<f32>,
 	error: Option<String>,
 }
 
@@ -112,40 +123,35 @@ fn sample_route(
 
 	match request.method {
 		"GET" => {
-			let sample = slot
-				.lock()
-				.unwrap_or_else(|error| error.into_inner())
-				.sample
-				.clone();
-			let version = sample
-				.as_ref()
-				.map(|sample| Arc::as_ptr(sample) as u64)
-				.unwrap_or(0);
+			let (sample, slices) = {
+				let guard = slot.lock().unwrap_or_else(|error| error.into_inner());
+
+				(guard.sample.clone(), guard.slices.clone())
+			};
 			let mut cache = preview.lock().unwrap_or_else(|error| error.into_inner());
 
-			if cache.version != version {
+			let stale = match &sample {
+				Some(sample) => {
+					cache.version != Arc::as_ptr(sample) as u64 || cache.slices != slices
+				}
+				None => cache.version != 0,
+			};
+
+			if stale {
 				*cache = match &sample {
-					Some(sample) => SamplePreview {
-						version,
-						name: Some(sample.name.clone()),
-						rate: sample.rate,
-						samples: sample.pcm.len(),
-						peaks: peaks(&sample.pcm),
-						error: None,
-					},
-					None => SamplePreview {
-						version: 0,
-						..SamplePreview::default()
-					},
+					Some(sample) => build_preview(sample, &slices),
+					None => SamplePreview::default(),
 				};
 			}
 
 			Some(ProtocolResponse::json(preview_json(&cache)))
 		}
 		"POST" => {
-			let name = request
-				.query
-				.and_then(|query| query.strip_prefix("name="))
+			if let Some(action) = query_value(request.query, "action") {
+				return Some(edit_sample(action, request.query, slot, preview));
+			}
+
+			let name = query_value(request.query, "name")
 				.map(percent_decode)
 				.filter(|name| !name.is_empty())
 				.unwrap_or_else(|| "sample".to_string());
@@ -153,20 +159,15 @@ fn sample_route(
 			match decode_sample(request.body, &name) {
 				Ok(sample) => {
 					let sample = Arc::new(sample);
-					let version = Arc::as_ptr(&sample) as u64;
-					let mut cache = preview.lock().unwrap_or_else(|error| error.into_inner());
+					let mut guard = slot.lock().unwrap_or_else(|error| error.into_inner());
 
-					*cache = SamplePreview {
-						version,
-						name: Some(sample.name.clone()),
-						rate: sample.rate,
-						samples: sample.pcm.len(),
-						peaks: peaks(&sample.pcm),
-						error: None,
-					};
-					slot.lock()
-						.unwrap_or_else(|error| error.into_inner())
-						.sample = Some(sample);
+					guard.sample = Some(sample.clone());
+					guard.slices.clear();
+					drop(guard);
+
+					let cache = build_preview(&sample, &[]);
+
+					*preview.lock().unwrap_or_else(|error| error.into_inner()) = cache.clone();
 
 					Some(ProtocolResponse::json(preview_json(&cache)))
 				}
@@ -187,6 +188,185 @@ fn sample_route(
 	}
 }
 
+/// One value out of a query string like name=a%20b&action=slices.
+fn query_value<'a>(query: Option<&'a str>, key: &str) -> Option<&'a str> {
+	query?.split('&').find_map(|part| {
+		let (name, value) = part.split_once('=')?;
+
+		(name == key).then_some(value)
+	})
+}
+
+fn build_preview(sample: &Arc<SampleData>, slices: &[f32]) -> SamplePreview {
+	SamplePreview {
+		version: Arc::as_ptr(sample) as u64,
+		name: Some(sample.name.clone()),
+		rate: sample.rate,
+		samples: sample.pcm.len(),
+		peaks: peaks(&sample.pcm),
+		slices: slices.to_vec(),
+		error: None,
+	}
+}
+
+/// Edits the sample's slice marks: make a grid, follow the transients, or add
+/// and remove single marks from the picture.
+fn edit_sample(
+	action: &str,
+	query: Option<&str>,
+	slot: &Arc<Mutex<SampleSlot>>,
+	preview: &Arc<Mutex<SamplePreview>>,
+) -> ProtocolResponse {
+	let (sample, mut slices) = {
+		let guard = slot.lock().unwrap_or_else(|error| error.into_inner());
+
+		(guard.sample.clone(), guard.slices.clone())
+	};
+	let Some(sample) = sample else {
+		return ProtocolResponse::json("{\"ok\":false,\"error\":\"no sample\"}");
+	};
+
+	match action {
+		"slices" => {
+			let mode = query_value(query, "mode").unwrap_or("grid");
+
+			slices = if mode == "transient" {
+				onsets(&sample.pcm, sample.rate)
+			} else {
+				let start = query_value(query, "start")
+					.and_then(|value| value.parse::<f32>().ok())
+					.unwrap_or(0.0);
+				let step = query_value(query, "step")
+					.and_then(|value| value.parse::<f32>().ok())
+					.unwrap_or(0.125);
+
+				grid(start, step)
+			};
+		}
+		"slice-add" => {
+			if let Some(position) =
+				query_value(query, "at").and_then(|value| value.parse::<f32>().ok())
+			{
+				slices.push(position.clamp(0.0, 1.0));
+				slices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+				slices.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+			}
+		}
+		"slice-move" => {
+			let from = query_value(query, "from").and_then(|value| value.parse::<f32>().ok());
+			let to = query_value(query, "to").and_then(|value| value.parse::<f32>().ok());
+
+			if let (Some(from), Some(to)) = (from, to)
+				&& let Some(index) = slices
+					.iter()
+					.enumerate()
+					.min_by(|a, b| {
+						(a.1 - from)
+							.abs()
+							.partial_cmp(&(b.1 - from).abs())
+							.unwrap_or(std::cmp::Ordering::Equal)
+					})
+					.map(|(index, _)| index)
+			{
+				slices[index] = to.clamp(0.0, 1.0);
+				slices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+				slices.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+			}
+		}
+		"slice-remove" => {
+			if let Some(position) =
+				query_value(query, "at").and_then(|value| value.parse::<f32>().ok())
+				&& let Some(index) = slices
+					.iter()
+					.enumerate()
+					.min_by(|a, b| {
+						(a.1 - position)
+							.abs()
+							.partial_cmp(&(b.1 - position).abs())
+							.unwrap_or(std::cmp::Ordering::Equal)
+					})
+					.map(|(index, _)| index)
+			{
+				slices.remove(index);
+			}
+		}
+		_ => return ProtocolResponse::json("{\"ok\":false,\"error\":\"unknown action\"}"),
+	}
+
+	slices.truncate(64);
+	slot.lock()
+		.unwrap_or_else(|error| error.into_inner())
+		.slices = slices.clone();
+
+	let cache = build_preview(&sample, &slices);
+
+	*preview.lock().unwrap_or_else(|error| error.into_inner()) = cache.clone();
+
+	ProtocolResponse::json(preview_json(&cache))
+}
+
+/// Evenly spaced marks, from the start, at most 64 of them.
+fn grid(start: f32, step: f32) -> Vec<f32> {
+	let step = step.clamp(0.002, 1.0);
+	let mut marks = Vec::new();
+	let mut at = start.clamp(0.0, 1.0);
+
+	while at < 1.0 && marks.len() < 64 {
+		marks.push(at);
+		at += step;
+	}
+
+	if marks.is_empty() {
+		marks.push(0.0);
+	}
+
+	marks
+}
+
+/// The marks the transients suggest: where the energy jumps above the recent
+/// average, which is where a drum or a pluck starts.
+fn onsets(pcm: &[f32], rate: u32) -> Vec<f32> {
+	let hop = (rate as usize / 200).max(64);
+	let energy: Vec<f32> = pcm
+		.chunks(hop)
+		.map(|chunk| {
+			chunk
+				.iter()
+				.map(|sample| sample * sample)
+				.sum::<f32>()
+				.sqrt()
+		})
+		.collect();
+
+	if energy.is_empty() {
+		return vec![0.0];
+	}
+
+	let loudest = energy.iter().copied().fold(0.0_f32, f32::max);
+	let floor = loudest * 0.02;
+	let mut marks = Vec::new();
+
+	for (index, value) in energy.iter().enumerate() {
+		let from = index.saturating_sub(8);
+		let average = energy[from..index].iter().sum::<f32>() / (index - from).max(1) as f32;
+		let position = (index * hop) as f32 / pcm.len() as f32;
+
+		if *value > floor
+			&& *value > average * 1.8
+			&& position > 0.01
+			&& marks
+				.last()
+				.map(|last| position - last > 0.005)
+				.unwrap_or(true)
+		{
+			marks.push(position);
+		}
+	}
+
+	marks.truncate(64);
+	marks
+}
+
 fn preview_json(preview: &SamplePreview) -> String {
 	let name = match &preview.name {
 		Some(name) => format!("\"{}\"", json_escape(name)),
@@ -201,13 +381,19 @@ fn preview_json(preview: &SamplePreview) -> String {
 		.iter()
 		.map(|peak| format!("{peak:.4}"))
 		.collect();
+	let slices: Vec<String> = preview
+		.slices
+		.iter()
+		.map(|slice| format!("{slice:.4}"))
+		.collect();
 
 	format!(
-		"{{\"version\":{},\"name\":{name},\"rate\":{},\"samples\":{},\"error\":{error},\"peaks\":[{}]}}",
+		"{{\"version\":{},\"name\":{name},\"rate\":{},\"samples\":{},\"error\":{error},\"peaks\":[{}],\"slices\":[{}]}}",
 		preview.version,
 		preview.rate,
 		preview.samples,
-		peaks.join(",")
+		peaks.join(","),
+		slices.join(",")
 	)
 }
 
@@ -527,6 +713,61 @@ mod tests {
 			String::from_utf8(response.body)
 				.unwrap()
 				.contains("\"name\":\"test\"")
+		);
+	}
+
+	/// The route makes a grid of marks, and single marks can be added or removed.
+	#[test]
+	fn the_route_makes_and_edits_slice_marks() {
+		let slot = Arc::new(Mutex::new(SampleSlot::default()));
+		let preview = Arc::new(Mutex::new(SamplePreview::default()));
+		let samples: Vec<f32> = (0..4_800)
+			.map(|index| (index as f32 / 48_000.0 * 440.0 * std::f32::consts::TAU).sin())
+			.collect();
+		let body = wav(&samples, 48_000);
+		let import = ProtocolRequest {
+			method: "POST",
+			path: "/sample",
+			query: Some("name=marks"),
+			body: &body,
+		};
+		sample_route(&import, &slot, &preview).expect("the import");
+
+		let grid = ProtocolRequest {
+			method: "POST",
+			path: "/sample",
+			query: Some("action=slices&mode=grid&start=0&step=0.25"),
+			body: &[],
+		};
+		let response = sample_route(&grid, &slot, &preview).expect("the grid");
+		let text = String::from_utf8(response.body).expect("utf-8");
+
+		assert!(
+			text.contains("\"slices\":[0.0000,0.2500,0.5000,0.7500]"),
+			"{text}"
+		);
+
+		let add = ProtocolRequest {
+			method: "POST",
+			path: "/sample",
+			query: Some("action=slice-add&at=0.3"),
+			body: &[],
+		};
+		sample_route(&add, &slot, &preview).expect("the add");
+		assert_eq!(slot.lock().unwrap().slices, vec![0.0, 0.25, 0.3, 0.5, 0.75]);
+
+		let remove = ProtocolRequest {
+			method: "POST",
+			path: "/sample",
+			query: Some("action=slice-remove&at=0.3"),
+			body: &[],
+		};
+		let response = sample_route(&remove, &slot, &preview).expect("the remove");
+
+		assert!(
+			String::from_utf8(response.body)
+				.unwrap()
+				.contains("\"slices\":[0.0000,0.2500,0.5000,0.7500]")
 		);
 	}
 

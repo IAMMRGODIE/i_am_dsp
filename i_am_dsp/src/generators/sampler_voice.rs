@@ -30,15 +30,12 @@ impl SampleData {
 }
 
 /// The slot the editor and the voice share.
+#[derive(Default)]
 pub struct SampleSlot {
 	/// The sample, once something has been imported.
 	pub sample: Option<Arc<SampleData>>,
-}
-
-impl Default for SampleSlot {
-	fn default() -> Self {
-		Self { sample: None }
-	}
+	/// Where each slice starts, as a fraction of the sample, sorted.
+	pub slices: Vec<f32>,
 }
 
 /// How a voice plays the sample.
@@ -53,6 +50,10 @@ fn knob(
 	order: u16,
 	unit: Unit,
 ) -> Parameter {
+	// Without the layout feature the group and the order have nowhere to go.
+	#[cfg(not(feature = "layout"))]
+	let _ = (group, order);
+
 	let meta = ParameterMeta {
 		default: Some(value as f64),
 		unit,
@@ -76,6 +77,40 @@ fn knob(
 	.with_meta(meta)
 }
 
+fn choice(
+	id: &'static str,
+	display: &'static str,
+	value: i32,
+	choices: &'static [&'static str],
+	group: &'static str,
+	order: u16,
+) -> Parameter {
+	#[cfg(not(feature = "layout"))]
+	let _ = (group, order);
+
+	let meta = ParameterMeta {
+		default: Some(0.0),
+		unit: Unit::None,
+		display_name: Some(display.into()),
+		choices: Some(choices),
+		#[cfg(feature = "layout")]
+		layout: crate::prelude::ParamLayout::new()
+			.group(group)
+			.order(order)
+			.widget(crate::prelude::ParamWidget::Choice),
+	};
+
+	Parameter::new(
+		id,
+		Value::Int {
+			value,
+			range: 0..=(choices.len() as i32 - 1),
+			logarithmic: false,
+		},
+	)
+	.with_meta(meta)
+}
+
 fn toggle(
 	id: &'static str,
 	display: &'static str,
@@ -83,6 +118,9 @@ fn toggle(
 	group: &'static str,
 	order: u16,
 ) -> Parameter {
+	#[cfg(not(feature = "layout"))]
+	let _ = (group, order);
+
 	let meta = ParameterMeta {
 		default: Some(if value { 1.0 } else { 0.0 }),
 		unit: Unit::None,
@@ -110,8 +148,15 @@ pub struct SamplerVoice {
 	loop_start: f32,
 	loop_end: f32,
 	speed: f32,
-	slices: i32,
+	/// How the slice marks are made: 0 for a grid, 1 for the transients.
+	slice_mode: i32,
+	/// Where the grid starts, and how far apart its marks are.
+	slice_start: f32,
+	slice_step: f32,
+	/// Whether the loop walks back when it reaches its end.
+	pingpong: bool,
 	position: f32,
+	start: f32,
 	grain_size: f32,
 	density: f32,
 	spray: f32,
@@ -146,8 +191,12 @@ impl SamplerVoice {
 			loop_start: 0.0,
 			loop_end: 1.0,
 			speed: 1.0,
-			slices: 8,
+			slice_mode: 0,
+			slice_start: 0.0,
+			slice_step: 0.125,
+			pingpong: false,
 			position: 0.0,
+			start: 0.0,
 			grain_size: 0.06,
 			density: 12.0,
 			spray: 0.2,
@@ -172,6 +221,20 @@ impl SamplerVoice {
 			.unwrap_or_else(|error| error.into_inner())
 			.sample
 			.clone()
+	}
+
+	/// Where the slices start, as fractions of the sample.
+	pub fn slices(&self) -> Vec<f32> {
+		self.slot
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.slices
+			.clone()
+	}
+
+	/// How much faster the sample is read to play the note at its own pitch.
+	fn pitch_ratio(&self) -> f32 {
+		2.0_f32.powf((self.note() - self.root) / 12.0)
 	}
 
 	/// Replaces the sample.
@@ -211,17 +274,30 @@ impl SamplerVoice {
 		69.0 + 12.0 * (pitch / 440.0).log2()
 	}
 
-	/// How the sample is played at the current time.
+	/// How the sample is played at the current time: pitched by the note, with a
+	/// forward or a pingpong loop.
 	fn play_sample(&self, data: &SampleData, elapsed: f32) -> f32 {
 		let len = data.pcm.len() as f32;
-		let mut position = elapsed * data.rate as f32 * self.speed;
+		let mut position = self.start.clamp(0.0, 1.0) * (len - 1.0)
+			+ elapsed * data.rate as f32 * self.speed * self.pitch_ratio();
 
 		if self.loop_enabled {
 			let start = self.loop_start.clamp(0.0, 1.0) * (len - 1.0);
 			let end = self.loop_end.clamp(0.0, 1.0) * (len - 1.0);
 
-			if end > start + 1.0 && position > end {
-				position = start + (position - start) % (end - start);
+			if end > start + 1.0 {
+				if self.pingpong {
+					let span = end - start;
+					let offset = (position - start).rem_euclid(span * 2.0);
+
+					position = if offset <= span {
+						start + offset
+					} else {
+						end - (offset - span)
+					};
+				} else if position > end {
+					position = start + (position - start) % (end - start);
+				}
 			}
 		}
 
@@ -232,25 +308,31 @@ impl SamplerVoice {
 		self.read(data, position)
 	}
 
-	/// Plays one slice of the sample, chosen by the note.
+	/// Plays the slice the note picks, at its own speed. The loop options do not
+	/// apply here: a slice ends where the next one starts.
 	fn play_slice(&self, data: &SampleData, elapsed: f32) -> f32 {
-		let slices = self.slices.clamp(2, 64) as usize;
-		let length = data.pcm.len() / slices;
+		let len = data.pcm.len() as f32;
+		let marks = self.slices();
 
-		if length < 2 {
+		if marks.is_empty() {
+			return self.read(data, elapsed * data.rate as f32 * self.speed);
+		}
+
+		let count = marks.len();
+		let index = ((self.note() - self.root).round() as i64).rem_euclid(count as i64) as usize;
+		let start = marks[index] * (len - 1.0);
+		let end = if index + 1 < count {
+			marks[index + 1] * (len - 1.0)
+		} else {
+			len - 1.0
+		};
+		let position = start + elapsed * data.rate as f32 * self.speed;
+
+		if end <= start || position >= end {
 			return 0.0;
 		}
 
-		let index = ((self.note() - self.root).round() as i64).rem_euclid(slices as i64) as usize;
-		let start = index * length;
-		let position = start as f32 + elapsed * data.rate as f32 * self.speed;
-		let end = start + length;
-
-		if position as usize >= end {
-			return self.read(data, position) * 0.0 + 0.0;
-		}
-
-		self.read(data, position.min((end - 1) as f32))
+		self.read(data, position)
 	}
 
 	/// Plays a cloud of overlapping grains, walked forward from the position.
@@ -262,7 +344,7 @@ impl SamplerVoice {
 		let density = self.density.clamp(0.5, 200.0);
 		let base = self.position.clamp(0.0, 1.0) * length;
 		let spray = self.spray.clamp(0.0, 1.0) * length;
-		let ratio = 2.0_f32.powf(self.grain_pitch.clamp(-24.0, 24.0) / 12.0);
+		let ratio = 2.0_f32.powf(self.grain_pitch.clamp(-24.0, 24.0) / 12.0) * self.pitch_ratio();
 		let current = (elapsed * density).floor() as i64;
 		let mut sum = 0.0;
 
@@ -361,15 +443,33 @@ impl Parameters for SamplerVoice {
 				2,
 				Unit::None,
 			),
-			knob(
-				"slices",
-				"Slices",
-				self.slices as f32,
-				2.0..=64.0,
+			choice(
+				"slice_mode",
+				"Slice Marks",
+				self.slice_mode,
+				&["Grid", "Transient"],
 				"Slice",
 				0,
+			),
+			knob(
+				"slice_start",
+				"Slice Start",
+				self.slice_start,
+				0.0..=1.0,
+				"Slice",
+				1,
 				Unit::None,
 			),
+			knob(
+				"slice_step",
+				"Slice Step",
+				self.slice_step,
+				0.005..=1.0,
+				"Slice",
+				2,
+				Unit::None,
+			),
+			toggle("pingpong", "Pingpong", self.pingpong, "Loop", 4),
 			knob(
 				"position",
 				"Position",
@@ -416,19 +516,33 @@ impl Parameters for SamplerVoice {
 				Unit::None,
 			),
 			knob(
+				"start",
+				"Start",
+				self.start,
+				0.0..=1.0,
+				"Sample",
+				3,
+				Unit::None,
+			),
+			knob(
 				"gain",
 				"Gain",
 				self.gain,
 				0.0..=2.0,
 				"Sample",
-				3,
+				4,
 				Unit::None,
 			),
-			knob("pan", "Pan", self.pan, -1.0..=1.0, "Sample", 4, Unit::None),
+			knob("pan", "Pan", self.pan, -1.0..=1.0, "Sample", 5, Unit::None),
+			toggle("polarity", "Invert", self.polarity, "Sample", 6),
 		];
 
 		if let Ok(binary) = to_binary(&self.sample().as_deref()) {
 			parameters.push(Parameter::new("sample", Value::Serialized(binary)));
+		}
+
+		if let Ok(binary) = to_binary(&self.slices()) {
+			parameters.push(Parameter::new("slices", Value::Serialized(binary)));
 		}
 
 		parameters
@@ -481,11 +595,35 @@ impl Parameters for SamplerVoice {
 			"loop_start" => set_float(&mut self.loop_start, value),
 			"loop_end" => set_float(&mut self.loop_end, value),
 			"speed" => set_float(&mut self.speed, value),
-			"slices" => match value {
-				SetValue::Float(value) => {
-					self.slices = value.round().clamp(2.0, 64.0) as i32;
+			"slice_mode" => match value {
+				SetValue::Int(value) => {
+					self.slice_mode = value.clamp(0, 1);
 					true
 				}
+				_ => false,
+			},
+			"slice_start" => set_float(&mut self.slice_start, value),
+			"slice_step" => set_float(&mut self.slice_step, value),
+			"pingpong" => match value {
+				SetValue::Bool(value) => {
+					self.pingpong = value;
+					true
+				}
+				_ => false,
+			},
+			"slices" => match value {
+				SetValue::Serialized(data) => match from_binary::<Vec<f32>>(data) {
+					Ok(mut slices) => {
+						slices
+							.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+						self.slot
+							.lock()
+							.unwrap_or_else(|error| error.into_inner())
+							.slices = slices;
+						true
+					}
+					Err(_) => false,
+				},
 				_ => false,
 			},
 			"position" => set_float(&mut self.position, value),
@@ -493,6 +631,7 @@ impl Parameters for SamplerVoice {
 			"density" => set_float(&mut self.density, value),
 			"spray" => set_float(&mut self.spray, value),
 			"grain_pitch" => set_float(&mut self.grain_pitch, value),
+			"start" => set_float(&mut self.start, value),
 			"gain" => set_float(&mut self.gain, value),
 			"pan" => set_float(&mut self.pan, value),
 			_ => false,
@@ -579,8 +718,10 @@ mod tests {
 		Oscillator::<2>::set_pitch(&mut low, 261.63, 48_000);
 		Oscillator::<2>::set_pitch(&mut high, 523.26, 48_000);
 
-		let low_value = Oscillator::<2>::play_at(&low, 1.0, 0.25, [0.0, 0.0])[0];
-		let high_value = Oscillator::<2>::play_at(&high, 1.0, 0.25, [0.0, 0.0])[0];
+		// The same moment in real time: the driver counts cycles, so each note
+		// gets its own count for the same seconds.
+		let low_value = Oscillator::<2>::play_at(&low, 1.0, 0.02 * 261.63, [0.0, 0.0])[0];
+		let high_value = Oscillator::<2>::play_at(&high, 1.0, 0.02 * 523.26, [0.0, 0.0])[0];
 
 		assert!(low_value.is_finite() && high_value.is_finite());
 		assert!(
@@ -593,8 +734,8 @@ mod tests {
 	#[test]
 	fn the_slices_follow_the_keys() {
 		let mut voice = voice(1);
-		voice.slices = 4;
 		voice.root = 60.0;
+		voice.slot().lock().unwrap().slices = vec![0.0, 0.25, 0.5, 0.75];
 
 		let mut values = Vec::new();
 
@@ -611,6 +752,35 @@ mod tests {
 		}
 
 		assert!(values.iter().any(|value| value.abs() > 1e-4), "{values:?}");
+	}
+
+	/// A ringing loop walks back instead of jumping to its start.
+	#[test]
+	fn the_loop_can_pingpong() {
+		let mut voice = voice(0);
+		let ramp: Vec<f32> = (0..4_800).map(|index| index as f32 / 4_800.0).collect();
+
+		voice.set_sample(Some(SampleData {
+			name: "ramp".into(),
+			rate: 48_000,
+			pcm: ramp,
+		}));
+		voice.loop_enabled = true;
+		voice.loop_start = 0.0;
+		voice.loop_end = 1.0;
+		voice.pingpong = true;
+		voice.start = 0.0;
+
+		let at =
+			|seconds: f32| Oscillator::<2>::play_at(&voice, 1.0, seconds * 261.63, [0.0, 0.0])[0];
+
+		let early = at(0.12);
+		let later = at(0.15);
+
+		assert!(
+			later < early,
+			"the loop did not walk back: {early} -> {later}"
+		);
 	}
 
 	/// Grains make sound, and the position moves what they read.

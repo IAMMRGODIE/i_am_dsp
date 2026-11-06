@@ -371,37 +371,60 @@
       ) + '<div class="hero-label" style="top:4%">SAMPLE</div>';
     }
 
+    // The window of the sample the picture shows: the wheel narrows it, so a
+    // drag lands on the exact place it points at.
+    var view = (context && context.sampleView) || { from: 0, to: 1 };
+    var span = Math.max(1e-6, view.to - view.from);
+    var mapX = function (position) { return 20 + (position - view.from) / span * 480; };
     var peaks = sample.peaks;
     var seconds = sample.rate ? sample.samples / sample.rate : 0;
     var loop = valueOf(values, "oscillator.loop", 0) > 0.5;
     var start = clamp(valueOf(values, "oscillator.loop_start", 0), 0, 1);
     var end = clamp(valueOf(values, "oscillator.loop_end", 1), 0, 1);
-    var slices = Math.round(clamp(valueOf(values, "oscillator.slices", 8), 2, 64));
+    var marks = sample.slices || [];
     var region = "";
     var markers = "";
     var bars = "";
 
     if (loop && end > start) {
-      region = '<rect x="' + (20 + start * 480).toFixed(1) + '" y="14" width="' +
-        ((end - start) * 480).toFixed(1) + '" height="132" fill="var(--accent)" fill-opacity="0.08"/>';
-    }
+      var regionFrom = clamp((start - view.from) / span, 0, 1);
+      var regionTo = clamp((end - view.from) / span, 0, 1);
 
-    if (mode === 1) {
-      for (var slice = 1; slice < slices; slice++) {
-        var cut = 20 + slice / slices * 480;
-
-        markers += '<line x1="' + cut.toFixed(1) + '" y1="14" x2="' + cut.toFixed(1) +
-          '" y2="146" stroke="#333333" vector-effect="non-scaling-stroke"/>';
+      if (regionTo > regionFrom) {
+        region = '<rect x="' + (20 + regionFrom * 480).toFixed(1) + '" y="14" width="' +
+          ((regionTo - regionFrom) * 480).toFixed(1) +
+          '" height="132" fill="var(--accent)" fill-opacity="0.08"/>';
       }
     }
 
-    for (var index = 0; index < peaks.length; index++) {
-      var x = 20 + index / Math.max(1, peaks.length - 1) * 480;
-      var height = Math.abs(clamp(peaks[index], -1, 1)) * 54;
+    if (mode === 1) {
+      for (var index = 0; index < marks.length; index++) {
+        var cut = mapX(clamp(marks[index], 0, 1));
+
+        if (cut < 20 || cut > 500) continue;
+
+        markers += '<line x1="' + cut.toFixed(1) + '" y1="14" x2="' + cut.toFixed(1) +
+          '" y2="146" stroke="#4a4a4a" vector-effect="non-scaling-stroke"/>';
+      }
+    }
+
+    // One bar per column, read from the peaks the route sent: it stays smooth at
+    // every zoom because the columns interpolate between them.
+    var columns = 240;
+
+    for (var column = 0; column < columns; column++) {
+      var at = view.from + (column / (columns - 1)) * span;
+      var index = clamp(at, 0, 1) * (peaks.length - 1);
+      var left = Math.floor(index);
+      var part = index - left;
+      var next = Math.min(left + 1, peaks.length - 1);
+      var value = peaks[left] + (peaks[next] - peaks[left]) * part;
+      var height = Math.abs(clamp(value, -1, 1)) * 54;
+      var x = 20 + column / (columns - 1) * 480;
 
       bars += '<line x1="' + x.toFixed(1) + '" y1="' + (80 - height).toFixed(1) +
         '" x2="' + x.toFixed(1) + '" y2="' + (80 + height).toFixed(1) +
-        '" stroke="var(--accent)" stroke-width="1" vector-effect="non-scaling-stroke"/>';
+        '" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>';
     }
 
     var name = String(sample.name || "SAMPLE").toUpperCase();
@@ -411,18 +434,32 @@
     var caption = name + " \u00b7 " + seconds.toFixed(2) + " s \u00b7 " +
       (Math.round(sample.rate / 100) / 10) + " kHz \u00b7 " + modeName;
 
+    if (span < 0.999) caption += " \u00b7 " + (1 / span).toFixed(1) + "\u00d7";
+
     var reverse = valueOf(values, "oscillator.reverse", 0) > 0.5;
     var polarity = valueOf(values, "oscillator.polarity", 0) > 0.5;
+    var pingpong = valueOf(values, "oscillator.pingpong", 0) > 0.5;
     var on = ' style="color:var(--accent)"';
 
+    var startX = mapX(clamp(valueOf(values, "oscillator.start", 0), 0, 1));
+    var startMark = "";
+
+    if (startX >= 20 && startX <= 500) {
+      startMark = '<line x1="' + startX.toFixed(1) + '" y1="14" x2="' + startX.toFixed(1) +
+        '" y2="146" stroke="var(--accent)" stroke-opacity="0.6" vector-effect="non-scaling-stroke"/>';
+    }
+
     return heroSvg(
-      region + markers + bars +
+      region + markers + startMark + bars +
       '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c" stroke-dasharray="3 5"/>'
     ) +
       '<div class="hero-label" style="top:4%">SAMPLE</div>' +
       '<div class="hero-label" style="top:4%; left:auto; right:14px">' + caption + '</div>' +
       '<div class="hero-actions">' +
+        '<button type="button" class="hero-action" data-action="load">LOAD</button>' +
+        '<button type="button" class="hero-action" data-action="slice">SLICE</button>' +
         '<button type="button" class="hero-action" data-action="loop"' + (loop ? on : '') + '>LOOP</button>' +
+        '<button type="button" class="hero-action" data-action="pingpong"' + (pingpong ? on : '') + '>PINGPONG</button>' +
         '<button type="button" class="hero-action" data-action="reverse"' + (reverse ? on : '') + '>REVERSE</button>' +
         '<button type="button" class="hero-action" data-action="polarity"' + (polarity ? on : '') + '>INVERT</button>' +
       '</div>';

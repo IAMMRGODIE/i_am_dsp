@@ -201,7 +201,7 @@
   /// What the sampler face has imported: the route decodes the WAV and returns
   /// the picture, so the page never parses the file itself.
   function pollSample() {
-    if (document.hidden || !wantsSample) {
+    if (document.hidden || !wantsSample || sampleDragging) {
       setTimeout(pollSample, 1000);
       return;
     }
@@ -241,6 +241,8 @@
             markDirty();
           } else if (result && result.version) {
             sampleState = result;
+            sampleView.from = 0;
+            sampleView.to = 1;
             markDirty();
           }
         })
@@ -249,8 +251,96 @@
     reader.readAsArrayBuffer(file);
   }
 
+  /// Moves one slice mark, once a drag on it ends.
+  function moveSlice(from, to) {
+    fetch("/sample?action=slice-move&from=" + from + "&to=" + to, { method: "POST", body: "move" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (result) {
+        if (result && result.version) {
+          sampleState = result;
+          markDirty();
+        }
+      })
+      .catch(function () {});
+  }
+
+  /// Asks the route for a fresh set of slice marks, from the grid settings or
+  /// from the transients.
+  function generateSlices() {
+    var mode = controls["oscillator.slice_mode"] ? Math.round(controls["oscillator.slice_mode"].value) : 0;
+    var start = controls["oscillator.slice_start"] ? controls["oscillator.slice_start"].value : 0;
+    var step = controls["oscillator.slice_step"] ? controls["oscillator.slice_step"].value : 0.125;
+
+    fetch("/sample?action=slices&mode=" + (mode === 1 ? "transient" : "grid") +
+      "&start=" + start + "&step=" + step, { method: "POST", body: "slices" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (result) {
+        if (result && result.version) {
+          sampleState = result;
+          markDirty();
+        }
+      })
+      .catch(function () {});
+  }
+
+  /// Adds one mark where the picture was double-clicked.
+  function addSlice(position) {
+    fetch("/sample?action=slice-add&at=" + clamp(position, 0, 1), { method: "POST", body: "add" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (result) {
+        if (result && result.version) {
+          sampleState = result;
+          markDirty();
+        }
+      })
+      .catch(function () {});
+  }
+
+  /// Removes the mark under a right-click.
+  function removeSlice(position) {
+    fetch("/sample?action=slice-remove&at=" + clamp(position, 0, 1), { method: "POST", body: "remove" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (result) {
+        if (result && result.version) {
+          sampleState = result;
+          markDirty();
+        }
+      })
+      .catch(function () {});
+  }
+
+  /// Sets where the sample starts playing, from a drag on the picture.
+  function setSampleStart(value) {
+    setControl("oscillator.start", clamp(value, 0, 1));
+  }
+
+  /// Sets the loop region from a right-drag; the ends are ordered here.
+  function setLoopRange(start, end, on) {
+    setControl("oscillator.loop_start", Math.min(start, end));
+    setControl("oscillator.loop_end", Math.max(start, end));
+    setControl("oscillator.loop", on ? 1 : 0);
+  }
+
   /// Flips one of the sampler hero's switches.
   function toggleSample(action) {
+    if (action === "load") {
+      if (sampleInput) sampleInput.click();
+      return;
+    }
+
+    if (action === "slice") {
+      generateSlices();
+      return;
+    }
+
     var id = "oscillator." + action;
     var control = controls[id];
 

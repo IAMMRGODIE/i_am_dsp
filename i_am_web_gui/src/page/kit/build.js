@@ -45,6 +45,10 @@
     var headerSpecs = [];
     // Parameters the face is told not to draw: the host still has them.
     var hiddenIds = face.hidden || [];
+    // Hidden parameters still need a value the page can read: a hero can draw
+    // and switch what its section no longer shows (the sampler's loop, which the
+    // picture owns).
+    var hiddenSpecs = [];
 
     if (face.mode || headerIds.length || hiddenIds.length) {
       face.sections.forEach(function (section) {
@@ -59,7 +63,10 @@
             return false;
           }
 
-          if (hiddenIds.indexOf(spec.id) >= 0) return false;
+          if (hiddenIds.indexOf(spec.id) >= 0) {
+            hiddenSpecs.push(spec);
+            return false;
+          }
 
           return true;
         });
@@ -67,6 +74,15 @@
 
       face.sections = face.sections.filter(function (section) {
         return section.params.length > 0 || section.hero;
+      });
+
+      hiddenSpecs.forEach(function (spec) {
+        controls[spec.id] = {
+          spec: spec,
+          value: spec.default,
+          el: null,
+          paint: function () {}
+        };
       });
     }
 
@@ -196,17 +212,133 @@
         hero.dataset.hero = section.hero;
 
         if (section.hero === "sampler") {
-          hero.title = "Load a sample: click, or drop a .wav";
+          hero.title = "Drop a .wav. Drag: start. Right-drag: loop. Wheel: zoom. Shift-drag: pan.";
           hero.style.cursor = "pointer";
+          hero.style.touchAction = "none";
           acceptDrop(hero, postSample);
 
           // The switches act on release, so a press that drags away cancels.
           var samplePress = "";
+          var samplerDrag = null;
+          var lastSampleClick = { time: 0, x: 0 };
+
+          // The picture leaves a margin at each end of its 520 unit box, so the
+          // sample itself runs from 20 to 500 inside it; the view says which
+          // part of the sample those 480 units show.
+          var sampleX = function (event) {
+            var rect = hero.getBoundingClientRect();
+            var across = (event.clientX - rect.left) / rect.width;
+            var unit = clamp((across * 520 - 20) / 480, 0, 1);
+
+            return sampleView.from + unit * (sampleView.to - sampleView.from);
+          };
+
+          // Six pixels of the picture, measured in sample units, so the hit
+          // test stays the same size however far the picture is zoomed in.
+          var nearMark = function (x, marks) {
+            var reach = (sampleView.to - sampleView.from) * 0.0125;
+
+            return marks.some(function (mark) { return Math.abs(mark - x) < reach; });
+          };
 
           hero.addEventListener("pointerdown", function (event) {
             var button = event.target.closest(".hero-action");
 
             samplePress = button ? button.getAttribute("data-action") || "" : "";
+
+            if (button) return;
+
+            if (!sampleState || !sampleState.peaks || !sampleState.peaks.length) return;
+
+            var x = sampleX(event);
+            var now = Date.now();
+            var marks = sampleState.slices || [];
+            var sliceMode = controls["oscillator.mode"] && Math.round(controls["oscillator.mode"].value) === 1;
+
+            // A double click on the picture drops a slice mark.
+            if (
+              event.button === 0 &&
+              now - lastSampleClick.time < 350 &&
+              Math.abs(x - lastSampleClick.x) < (sampleView.to - sampleView.from) * 0.025
+            ) {
+              lastSampleClick = { time: 0, x: 0 };
+              addSlice(x);
+              event.preventDefault();
+              return;
+            }
+
+            if (event.button === 0) lastSampleClick = { time: now, x: x };
+
+            if (event.button === 2) {
+              // The right button removes the mark it lands on, and elsewhere
+              // draws the loop region, from press to release.
+              if (nearMark(x, marks)) {
+                samplerDrag = { mode: "remove", start: x };
+              } else {
+                samplerDrag = { mode: "loop", start: x };
+                setLoopRange(x, x, true);
+              }
+            } else if (event.shiftKey) {
+              // Shift pans the picture while it is zoomed.
+              var rect = hero.getBoundingClientRect();
+
+              samplerDrag = {
+                mode: "pan",
+                startX: event.clientX,
+                width: rect.width,
+                from: sampleView.from,
+                to: sampleView.to
+              };
+            } else if (sliceMode && nearMark(x, marks)) {
+              // A mark can be dragged to where the slice should start.
+              var mark = marks.reduce(function (best, candidate) {
+                return Math.abs(candidate - x) < Math.abs(best - x) ? candidate : best;
+              }, marks[0]);
+
+              samplerDrag = { mode: "mark", from: mark, to: mark };
+              sampleDragging = true;
+            } else {
+              // The left button sets where playback starts, and drops the loop,
+              // the way the sampler's own editor does.
+              samplerDrag = { mode: "start", start: x };
+              setSampleStart(x);
+            }
+
+            event.preventDefault();
+          });
+
+          hero.addEventListener("pointermove", function (event) {
+            if (!samplerDrag) return;
+
+            if (samplerDrag.mode === "pan") {
+              var span = samplerDrag.to - samplerDrag.from;
+              var delta = (event.clientX - samplerDrag.startX) / samplerDrag.width * span;
+              var from = clamp(samplerDrag.from - delta, 0, 1 - span);
+
+              sampleView.from = from;
+              sampleView.to = from + span;
+              markDirty();
+              return;
+            }
+
+            var x = sampleX(event);
+
+            if (samplerDrag.mode === "mark") {
+              var list = (sampleState.slices || []).filter(function (mark) {
+                return Math.abs(mark - samplerDrag.from) > 1e-6;
+              });
+
+              list.push(x);
+              list.sort(function (a, b) { return a - b; });
+              sampleState.slices = list;
+              samplerDrag.to = x;
+              markDirty();
+            } else if (samplerDrag.mode === "loop") {
+              setLoopRange(Math.min(samplerDrag.start, x), Math.max(samplerDrag.start, x), true);
+            } else if (samplerDrag.mode === "start") {
+              setSampleStart(x);
+              setControl("oscillator.loop", 0);
+            }
           });
 
           hero.addEventListener("pointerup", function (event) {
@@ -215,11 +347,55 @@
 
             samplePress = "";
 
-            if (!button || !action || button.getAttribute("data-action") !== action) return;
+            if (button && action && button.getAttribute("data-action") === action) {
+              event.preventDefault();
+              event.stopPropagation();
+              toggleSample(action);
+              return;
+            }
+
+            if (samplerDrag) {
+              if (samplerDrag.mode === "remove") {
+                removeSlice(samplerDrag.start);
+              } else if (samplerDrag.mode === "mark") {
+                sampleDragging = false;
+                if (Math.abs(samplerDrag.to - samplerDrag.from) > 1e-4) {
+                  moveSlice(samplerDrag.from, samplerDrag.to);
+                }
+              }
+            }
+
+            samplerDrag = null;
+          });
+
+          hero.addEventListener("pointercancel", function () {
+            sampleDragging = false;
+            samplerDrag = null;
+          });
+
+          // The wheel narrows the window around the pointer, so a drag lands on
+          // the exact place it points at.
+          hero.addEventListener("wheel", function (event) {
+            if (!sampleState || !sampleState.peaks || !sampleState.peaks.length) return;
 
             event.preventDefault();
-            event.stopPropagation();
-            toggleSample(action);
+
+            var rect = hero.getBoundingClientRect();
+            var across = clamp((event.clientX - rect.left) / rect.width * 520 - 20, 0, 480) / 480;
+            var span = sampleView.to - sampleView.from;
+            var focus = sampleView.from + across * span;
+            var next = clamp(span * (event.deltaY > 0 ? 1.25 : 0.8), 1 / 32, 1);
+            var from = clamp(focus - across * next, 0, 1 - next);
+
+            sampleView.from = from;
+            sampleView.to = from + next;
+            markDirty();
+          }, { passive: false });
+
+          hero.addEventListener("contextmenu", function (event) {
+            if (sampleState && sampleState.peaks && sampleState.peaks.length) {
+              event.preventDefault();
+            }
           });
 
           hero.addEventListener("click", function (event) {
@@ -230,9 +406,14 @@
               return;
             }
 
-            if (sampleInput) sampleInput.click();
+            // With nothing loaded, a click anywhere asks for a file; with a
+            // sample up, the picture belongs to the gestures.
+            if (!sampleState || !sampleState.peaks || !sampleState.peaks.length) {
+              if (sampleInput) sampleInput.click();
+            }
           });
         }
+
 
         if (section.hero === "shape") {
           hero.title = "Load a wavetable: click, or drop a .wav";

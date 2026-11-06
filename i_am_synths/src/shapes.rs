@@ -468,7 +468,7 @@ fn slice_table(
 					// A file shorter than a frame and a half is one cycle: this is
 					// the Adventure Kid case, which a fixed 2048 cut would ruin.
 					raw.push(samples);
-				} else if samples.len() % WAVE_FRAME_LEN == 0 {
+				} else if samples.len().is_multiple_of(WAVE_FRAME_LEN) {
 					raw = samples.chunks(WAVE_FRAME_LEN).collect();
 				} else if let Some(cycle) = detect_cycle(samples, sample_rate) {
 					// The file is longer than a table and not a whole number of
@@ -903,7 +903,7 @@ mod tests {
 	#[test]
 	fn an_unsteady_recording_falls_back_to_fixed_frames() {
 		let rate = 44_100;
-		let samples: Vec<f32> = (0..rate as usize / 2)
+		let samples: Vec<f32> = (0..rate / 2)
 			.map(|index| {
 				let time = index as f32 / rate as f32;
 				let phase = 2.0 * std::f32::consts::PI * (200.0 * time + 600.0 * time * time);
@@ -924,7 +924,7 @@ mod tests {
 	#[test]
 	fn the_import_modes_cut_differently() {
 		let samples: Vec<f32> = (0..5000)
-			.map(|index| ((index as f32 * 12.9898).sin() * 43758.5453).fract())
+			.map(|index| ((index as f32 * 12.9898).sin() * 43_758.55).fract())
 			.collect();
 
 		let fixed = slice_table(&samples, 44_100, None, SliceMode::Fixed);
@@ -1091,7 +1091,7 @@ mod tests {
 		let slot = Arc::new(Mutex::new(WaveSlot::default()));
 		let preview = Arc::new(Mutex::new(WavePreview::default()));
 		let samples: Vec<f32> = (0..5000)
-			.map(|index| ((index as f32 * 12.9898).sin() * 43758.5453).fract())
+			.map(|index| ((index as f32 * 12.9898).sin() * 43_758.55).fract())
 			.collect();
 		let body = wav(&samples, 44_100);
 		let post = ProtocolRequest {
