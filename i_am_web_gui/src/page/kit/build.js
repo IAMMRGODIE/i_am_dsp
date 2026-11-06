@@ -199,7 +199,37 @@
           hero.title = "Load a sample: click, or drop a .wav";
           hero.style.cursor = "pointer";
           acceptDrop(hero, postSample);
-          hero.addEventListener("click", function () {
+
+          // The switches act on release, so a press that drags away cancels.
+          var samplePress = "";
+
+          hero.addEventListener("pointerdown", function (event) {
+            var button = event.target.closest(".hero-action");
+
+            samplePress = button ? button.getAttribute("data-action") || "" : "";
+          });
+
+          hero.addEventListener("pointerup", function (event) {
+            var button = event.target.closest(".hero-action");
+            var action = samplePress;
+
+            samplePress = "";
+
+            if (!button || !action || button.getAttribute("data-action") !== action) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            toggleSample(action);
+          });
+
+          hero.addEventListener("click", function (event) {
+            var button = event.target.closest(".hero-action");
+
+            if (button) {
+              if (event.detail === 0) toggleSample(button.getAttribute("data-action"));
+              return;
+            }
+
             if (sampleInput) sampleInput.click();
           });
         }

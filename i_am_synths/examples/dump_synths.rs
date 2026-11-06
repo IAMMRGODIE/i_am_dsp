@@ -12,9 +12,9 @@ use std::path::Path;
 
 use i_am_plugin::Plugin;
 use i_am_synths::{
-	AdditiveWeb, CanvasWeb, ScriptWeb, ShapesWeb, SpectrumWeb, StringWeb, additive_faceplate,
-	canvas_faceplate, canvas_shape, faceplate, script_faceplate, shapes_faceplate,
-	spectrum_faceplate,
+	AdditiveWeb, CanvasWeb, SamplerWeb, ScriptWeb, ShapesWeb, SpectrumWeb, StringWeb,
+	additive_faceplate, canvas_faceplate, canvas_shape, faceplate, sampler_faceplate,
+	script_faceplate, shapes_faceplate, spectrum_faceplate,
 };
 
 fn main() {
@@ -25,6 +25,13 @@ fn main() {
 	let product = arguments.next().unwrap_or_else(|| "strings".to_string());
 
 	let (face, state) = match product.as_str() {
+		"sampler" => {
+			let plugin = SamplerWeb::new();
+			(
+				i_am_web_gui::face_json(&plugin, &sampler_faceplate()),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
 		"shapes" => {
 			let plugin = ShapesWeb::new();
 			(

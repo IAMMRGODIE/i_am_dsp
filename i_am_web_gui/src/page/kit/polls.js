@@ -249,6 +249,16 @@
     reader.readAsArrayBuffer(file);
   }
 
+  /// Flips one of the sampler hero's switches.
+  function toggleSample(action) {
+    var id = "oscillator." + action;
+    var control = controls[id];
+
+    if (!control) return;
+
+    setControl(id, control.value > 0.5 ? 0 : 1);
+  }
+
   /// The picker's change handler.
   function uploadSample() {
     postSample(sampleInput && sampleInput.files && sampleInput.files[0]);

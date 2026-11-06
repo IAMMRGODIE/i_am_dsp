@@ -5,6 +5,7 @@ pub mod adsr;
 pub mod drum;
 pub mod prelude;
 pub mod sampler;
+pub mod sampler_voice;
 pub mod stereo_generator;
 pub mod string_generator;
 pub mod wavetable;

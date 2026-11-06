@@ -411,12 +411,21 @@
     var caption = name + " \u00b7 " + seconds.toFixed(2) + " s \u00b7 " +
       (Math.round(sample.rate / 100) / 10) + " kHz \u00b7 " + modeName;
 
+    var reverse = valueOf(values, "oscillator.reverse", 0) > 0.5;
+    var polarity = valueOf(values, "oscillator.polarity", 0) > 0.5;
+    var on = ' style="color:var(--accent)"';
+
     return heroSvg(
       region + markers + bars +
       '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c" stroke-dasharray="3 5"/>'
     ) +
       '<div class="hero-label" style="top:4%">SAMPLE</div>' +
-      '<div class="hero-label" style="top:4%; left:auto; right:14px">' + caption + '</div>';
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">' + caption + '</div>' +
+      '<div class="hero-actions">' +
+        '<button type="button" class="hero-action" data-action="loop"' + (loop ? on : '') + '>LOOP</button>' +
+        '<button type="button" class="hero-action" data-action="reverse"' + (reverse ? on : '') + '>REVERSE</button>' +
+        '<button type="button" class="hero-action" data-action="polarity"' + (polarity ? on : '') + '>INVERT</button>' +
+      '</div>';
   }
 
   /// The envelope the controls describe: delay, attack, hold, decay, the level it

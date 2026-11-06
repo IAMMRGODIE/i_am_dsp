@@ -24,5 +24,6 @@ export_clap!(
 	SpectrumWeb,
 	ScriptWeb,
 	CanvasWeb,
-	DrummerWeb
+	DrummerWeb,
+	SamplerWeb
 );
