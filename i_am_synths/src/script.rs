@@ -81,11 +81,37 @@ let damping = 0.0;
 let phase = 0.0;
 ";
 
+/// The four knobs and the partial count the picture is drawn from.
+#[derive(Clone, Copy)]
+pub(crate) struct ScriptPreview {
+	a: f32,
+	b: f32,
+	c: f32,
+	d: f32,
+	count: usize,
+	rate: usize,
+}
+
+impl Default for ScriptPreview {
+	fn default() -> Self {
+		Self {
+			a: 0.0,
+			b: 0.0,
+			c: 0.0,
+			d: 0.0,
+			count: 32,
+			rate: 44_100,
+		}
+	}
+}
+
 /// The state the page and the audio thread share.
 #[derive(Default)]
 pub(crate) struct ScriptState {
 	source: String,
 	error: Option<String>,
+	/// The last script that compiled, kept so the page can draw its spectrum.
+	script: Option<Arc<RhaiScript>>,
 	applied: u64,
 	pending: Option<RhaiScript>,
 }
@@ -94,12 +120,21 @@ pub(crate) struct ScriptState {
 pub(crate) struct ScriptFeed {
 	generation: AtomicU64,
 	state: Mutex<ScriptState>,
+	preview: Mutex<ScriptPreview>,
+	/// An error the script raised while it ran, which is not a compile error.
+	eval_error: Mutex<Option<String>>,
+	/// Whether there is a runtime error, so the audio thread skips the lock when
+	/// the last block ran cleanly.
+	has_eval_error: AtomicBool,
 }
 
 impl ScriptFeed {
 	pub(crate) fn new() -> Arc<Self> {
 		Arc::new(Self {
 			generation: AtomicU64::new(0),
+			preview: Mutex::new(ScriptPreview::default()),
+			eval_error: Mutex::new(None),
+			has_eval_error: AtomicBool::new(false),
 			state: Mutex::new(ScriptState {
 				source: SCRIPT_DEFAULT.to_string(),
 				..ScriptState::default()
@@ -126,31 +161,110 @@ impl ScriptFeed {
 		script
 	}
 
-	/// The page's view of the script: its text, the compile error and how many
-	/// edits the audio thread has actually taken.
+	/// Records the four knobs and the partial count the picture uses.
+	fn set_preview(&self, update: impl FnOnce(&mut ScriptPreview)) {
+		if let Ok(mut preview) = self.preview.lock() {
+			update(&mut preview);
+		}
+	}
+
+	/// Records an error the script raised while it ran.
+	fn set_eval_error(&self, error: String) {
+		self.has_eval_error.store(true, Ordering::Relaxed);
+
+		if let Ok(mut current) = self.eval_error.lock()
+			&& current.as_deref() != Some(&error)
+		{
+			*current = Some(error);
+		}
+	}
+
+	/// Clears the runtime error after a block that ran cleanly, without locking
+	/// once the error is already gone.
+	fn clear_eval_error(&self) {
+		if !self.has_eval_error.swap(false, Ordering::Relaxed) {
+			return;
+		}
+
+		if let Ok(mut current) = self.eval_error.lock() {
+			*current = None;
+		}
+	}
+
+	/// The page's view of the script: its text, the error, how many edits the
+	/// audio thread has taken and the spectrum the script draws right now.
 	fn state_json(&self) -> String {
-		let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-		let error = match &state.error {
+		let eval_error = self.eval_error.lock().ok().and_then(|error| error.clone());
+		let (state_source, state_error, applied, script) = {
+			let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+
+			(
+				state.source.clone(),
+				state.error.clone(),
+				state.applied,
+				state.script.clone(),
+			)
+		};
+		let error = match eval_error.as_ref().or(state_error.as_ref()) {
 			Some(error) => format!("\"{}\"", json_escape(error)),
 			None => "null".to_string(),
 		};
 
+		let spectrum = match &script {
+			Some(script) if eval_error.is_none() && state_error.is_none() => {
+				let preview = self
+					.preview
+					.lock()
+					.map(|preview| *preview)
+					.unwrap_or_default();
+				let partials = script.partials(
+					preview.a,
+					preview.b,
+					preview.c,
+					preview.d,
+					preview.rate,
+					preview.count.clamp(1, 64),
+				);
+				let mut out = String::from("[");
+
+				for (index, [ratio, amplitude]) in partials.iter().enumerate() {
+					if index > 0 {
+						out.push(',');
+					}
+
+					let _ = std::fmt::Write::write_fmt(
+						&mut out,
+						format_args!("[{ratio:.4},{amplitude:.4}]"),
+					);
+				}
+
+				out.push(']');
+				out
+			}
+			_ => "[]".to_string(),
+		};
+
 		format!(
-			"{{\"source\":\"{}\",\"error\":{},\"applied\":{}}}",
-			json_escape(&state.source),
+			"{{\"source\":\"{}\",\"error\":{},\"applied\":{},\"spectrum\":{}}}",
+			json_escape(&state_source),
 			error,
-			state.applied
+			applied,
+			spectrum
 		)
 	}
 
 	/// Compiles a posted body and queues it for the audio thread.
 	fn apply(&self, source: String) -> String {
+		// A new script starts from a clean slate, whatever the old one raised.
+		self.clear_eval_error();
+
 		match RhaiScript::compile(&source) {
 			Ok(script) => {
 				{
 					let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
 					state.source = source;
 					state.error = None;
+					state.script = Some(Arc::new(script.clone()));
 					state.pending = Some(script);
 				}
 
@@ -196,12 +310,20 @@ struct ScriptedVoice {
 
 impl ScriptedVoice {
 	fn new(rate: usize, feed: Arc<ScriptFeed>) -> Self {
+		feed.set_preview(|preview| preview.rate = rate);
+
+		let mut voice = Adsr::new(
+			AdditiveOsc::new(RhaiFreqGen::new(rate), 32),
+			EqualTemperament,
+			rate,
+		);
+
+		// The four knobs rebuild the wavetable through the script, so a move
+		// crossfades from the table it replaces instead of clicking.
+		voice.oscillator.set_rebuild_fade(0.02);
+
 		Self {
-			voice: Adsr::new(
-				AdditiveOsc::new(RhaiFreqGen::new(rate), 32),
-				EqualTemperament,
-				rate,
-			),
+			voice,
 			feed,
 			generation: 0,
 		}
@@ -214,6 +336,38 @@ impl Parameters for ScriptedVoice {
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		// The picture follows the knobs as they move, so the preview reads them
+		// from the same values the audio thread plays.
+		match identifier {
+			"oscillator.freq_gen.a" => {
+				if let SetValue::Float(value) = &value {
+					self.feed.set_preview(|preview| preview.a = *value);
+				}
+			}
+			"oscillator.freq_gen.b" => {
+				if let SetValue::Float(value) = &value {
+					self.feed.set_preview(|preview| preview.b = *value);
+				}
+			}
+			"oscillator.freq_gen.c" => {
+				if let SetValue::Float(value) = &value {
+					self.feed.set_preview(|preview| preview.c = *value);
+				}
+			}
+			"oscillator.freq_gen.d" => {
+				if let SetValue::Float(value) = &value {
+					self.feed.set_preview(|preview| preview.d = *value);
+				}
+			}
+			"oscillator.num_sines" => {
+				if let SetValue::Int(value) = &value {
+					self.feed
+						.set_preview(|preview| preview.count = (*value).max(1) as usize);
+				}
+			}
+			_ => {}
+		}
+
 		self.voice.set_parameter(identifier, value)
 	}
 }
@@ -226,7 +380,16 @@ impl Generator<2> for ScriptedVoice {
 			oscillator.recaculate_ratio();
 		}
 
-		self.voice.generate(process_context)
+		let output = self.voice.generate(process_context);
+
+		// A script that fails while it runs is reported like one that fails to
+		// compile: the page has one error line either way.
+		match self.voice.oscillator.freq_gen_mut().get_eval_error() {
+			Ok(()) => self.feed.clear_eval_error(),
+			Err(error) => self.feed.set_eval_error(error.to_string()),
+		}
+
+		output
 	}
 }
 

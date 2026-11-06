@@ -189,6 +189,7 @@ impl RhaiFreqGen {
 /// Compiling a script allocates and can take milliseconds; a host must not pay
 /// that inside a process callback, so the page compiles it and the audio thread
 /// only swaps the result in.
+#[derive(Clone)]
 pub struct RhaiScript {
 	code: String,
 	ast: rhai::AST,
@@ -205,6 +206,52 @@ impl RhaiScript {
 			code: code.to_string(),
 			ast,
 		})
+	}
+
+	/// The script's body.
+	pub fn code(&self) -> &str {
+		&self.code
+	}
+
+	/// Runs the script for a picture of the spectrum, away from the audio thread.
+	///
+	/// Each partial is asked for its ratio and amplitude only; the picture on the
+	/// page does not need the damping or the phase.
+	pub fn partials(
+		&self,
+		a: f32,
+		b: f32,
+		c: f32,
+		d: f32,
+		sample_rate: usize,
+		total: usize,
+	) -> Vec<[f32; 2]> {
+		let mut out = Vec::with_capacity(total);
+
+		for index in 0..total {
+			let mut scope = rhai::Scope::new();
+			scope.push("a", a);
+			scope.push("b", b);
+			scope.push("c", c);
+			scope.push("d", d);
+			scope.push("sample_rate", sample_rate as i32);
+			scope.push("index", index as i32);
+			scope.push("total_amount", total as i32);
+
+			if RHAI_ENGINE
+				.run_ast_with_scope(&mut scope, &self.ast)
+				.is_err()
+			{
+				break;
+			}
+
+			let ratio = scope.get_value::<f32>("ratio").unwrap_or(1.0);
+			let amplitude = scope.get_value::<f32>("amplitude").unwrap_or(0.0);
+
+			out.push([ratio, amplitude]);
+		}
+
+		out
 	}
 }
 

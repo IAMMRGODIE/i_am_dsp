@@ -45,6 +45,17 @@ pub struct AdditiveOsc<Freq: GenFreqInfo, const MAX_SINES: usize = 64, const CHA
 	/// Whether any partial decays over time, which rules out the wavetable and the `powf` shortcut.
 	#[skip]
 	has_damping: bool,
+	/// How long a rebuilt table crossfades from the one it replaces, in seconds.
+	///
+	/// Zero keeps the old behaviour: a new table is played from the next sample.
+	#[skip]
+	rebuild_fade: f32,
+	/// The table the current one replaced, while the crossfade lasts.
+	#[skip]
+	previous_table: Option<Wavetable>,
+	/// When the crossfade started, in seconds; NaN until the next sample sets it.
+	#[skip]
+	fade_start: std::sync::atomic::AtomicU32,
 	/// The number of sine waves to add up
 	#[range(min = 1, max = 64)]
 	#[default(32)]
@@ -111,6 +122,9 @@ impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>
 			min_ratio: min_ratio.max(1.0),
 			table: None,
 			has_damping: false,
+			rebuild_fade: 0.0,
+			previous_table: None,
+			fade_start: std::sync::atomic::AtomicU32::new(f32::NAN.to_bits()),
 			max_harmonic: f32::INFINITY,
 			num_sines,
 			gain: 1.0,
@@ -194,13 +208,23 @@ impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>
 		self.rebuild_table();
 	}
 
+	/// Crossfades a rebuilt table from the one it replaces, for the given seconds.
+	///
+	/// The default is zero: a rebuilt table is played from the next sample. A script
+	/// whose four knobs the host automates can set this so a knob move glides
+	/// instead of swapping the waveform between two samples.
+	pub fn set_rebuild_fade(&mut self, seconds: f32) {
+		self.rebuild_fade = seconds.max(0.0);
+	}
+
 	/// Rebuilds the wavetable the fast path plays from.
 	///
 	/// Call it after changing num_sines directly. Until it is called the oscillator sums its
 	/// partials one by one, which is correct but slower.
 	pub fn rebuild_table(&mut self) {
 		self.last_num_sines = self.num_sines;
-		self.table = if self.has_damping {
+		let previous = self.table.take();
+		let table = if self.has_damping {
 			None
 		} else {
 			Wavetable::build(
@@ -210,6 +234,16 @@ impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>
 				self.num_sines.min(MAX_SINES),
 			)
 		};
+
+		self.table = table;
+
+		if self.rebuild_fade > 0.0 && previous.is_some() && self.table.is_some() {
+			self.previous_table = previous;
+			self.fade_start
+				.store(f32::NAN.to_bits(), std::sync::atomic::Ordering::Relaxed);
+		} else {
+			self.previous_table = None;
+		}
 	}
 
 	/// Reads a group of amplitudes, with the partials above the pitch limit set to zero.
@@ -324,6 +358,34 @@ impl<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize> Oscillato
 		if let Some(table) = self.table.as_ref()
 			&& table.num_sines == num_sines
 		{
+			if let Some(previous) = self
+				.previous_table
+				.as_ref()
+				.filter(|previous| previous.num_sines == num_sines)
+			{
+				let start =
+					f32::from_bits(self.fade_start.load(std::sync::atomic::Ordering::Relaxed));
+				let weight = if start.is_nan() {
+					self.fade_start
+						.store(time.to_bits(), std::sync::atomic::Ordering::Relaxed);
+					0.0
+				} else if time < start {
+					// A new note: the table the previous one played is not this note's.
+					1.0
+				} else {
+					((time - start) / self.rebuild_fade).clamp(0.0, 1.0)
+				};
+
+				if weight < 1.0 {
+					let fresh = self.play_table(table, frequency, time, phase);
+					let old = self.play_table(previous, frequency, time, phase);
+
+					return core::array::from_fn(|channel| {
+						old[channel] + (fresh[channel] - old[channel]) * weight
+					});
+				}
+			}
+
 			return self.play_table(table, frequency, time, phase);
 		}
 

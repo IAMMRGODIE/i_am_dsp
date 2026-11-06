@@ -53,6 +53,8 @@ var scriptStatus = null;
 var scriptError = null;
 var scriptDirty = false;
 var scriptEpoch = 0;
+// The last spectrum and error the panel saw, so the picture only redraws on a change.
+var scriptFingerprint = "";
 var wantsCurve = false;
 var curveState = null;
 var wantsFall = false;

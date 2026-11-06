@@ -595,6 +595,14 @@
 
         scriptState = state;
 
+        var fingerprint = String(state.applied) + "|" + (state.error || "") + "|" +
+          JSON.stringify(state.spectrum || []);
+
+        if (fingerprint !== scriptFingerprint) {
+          scriptFingerprint = fingerprint;
+          markDirty();
+        }
+
         if (scriptArea && !scriptDirty && document.activeElement !== scriptArea) {
           scriptArea.value = state.source || "";
         }

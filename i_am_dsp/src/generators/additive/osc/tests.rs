@@ -272,6 +272,32 @@ fn rebuilding_the_table_after_the_ratios_change_keeps_it_usable() {
 	assert!(max_error(&osc, [0.0, 0.25]) < 5e-5);
 }
 
+/// A rebuild can crossfade from the table it replaces, so a knob move does not
+/// swap the waveform between two samples.
+#[test]
+fn a_rebuild_fades_from_the_table_it_replaced() {
+	let mut osc: AdditiveOsc<BendedSawGen, SINES, 2> =
+		AdditiveOsc::new(BendedSawGen::default(), SINES);
+
+	osc.set_rebuild_fade(0.02);
+	let before = osc.play_at(1.0, 0.0, [0.0; 2]);
+
+	osc.freq_gen.bend_amount = 3.0;
+	osc.recaculate_ratio();
+
+	let start = osc.play_at(1.0, 0.0, [0.0; 2]);
+	let later = osc.play_at(1.0, 0.03, [0.0; 2]);
+
+	assert!(
+		(start[0] - before[0]).abs() < 1e-4,
+		"the first sample jumped: {before:?} vs {start:?}"
+	);
+	assert!(
+		(later[0] - before[0]).abs() > 1e-3,
+		"the fade never reached the new table"
+	);
+}
+
 /// A host edit to the bend moves the partials through the sync hook: the
 /// oscillator is otherwise free to keep the table it built.
 #[test]

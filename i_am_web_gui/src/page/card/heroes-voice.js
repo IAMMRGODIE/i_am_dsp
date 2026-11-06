@@ -626,9 +626,46 @@
 
   /// The additive voice's partials: the saw the generator draws, bent by the
   /// controls. Bars are placed by partial ratio and sized by amplitude.
-  function additiveHero(values) {
+  function additiveHero(values, context) {
     if (Object.prototype.hasOwnProperty.call(values, "oscillator.freq_gen.tilt")) {
       return spectrumHero(values);
+    }
+
+    var script = context && context.script;
+
+    if (script && script.error) {
+      return heroSvg("") +
+        '<div class="hero-empty" style="color:#ff7a6b">' +
+        escapeXml(String(script.error).slice(0, 120)) + '</div>';
+    }
+
+    if (script && script.spectrum && script.spectrum.length) {
+      var spectrum = script.spectrum;
+      var lastLog = 1;
+      var loudest = 0;
+
+      spectrum.forEach(function (partial) {
+        lastLog = Math.max(lastLog, Math.log(Math.max(partial[0], 1.0001)));
+        loudest = Math.max(loudest, Math.abs(partial[1]));
+      });
+
+      var floor = 132;
+      var high = floor - 24;
+      var bars = "";
+
+      spectrum.forEach(function (partial) {
+        var x = 20 + (Math.log(Math.max(partial[0], 1.0001)) / lastLog) * 480;
+        var y = floor - (Math.abs(partial[1]) / Math.max(loudest, 1e-6)) * high * 0.9;
+
+        bars += '<line x1="' + x.toFixed(1) + '" y1="' + floor + '" x2="' + x.toFixed(1) +
+          '" y2="' + y.toFixed(1) + '" stroke="var(--accent)" stroke-width="2" ' +
+          'vector-effect="non-scaling-stroke"/>';
+      });
+
+      return heroSvg(
+        '<line x1="20" y1="' + floor + '" x2="500" y2="' + floor + '" stroke="#2c2c2c"/>' + bars
+      ) + '<div class="hero-label" style="top:2%">SCRIPT \u00b7 ' + spectrum.length +
+        ' partials</div>';
     }
 
     var count = Math.round(clamp(valueOf(values, "oscillator.num_sines", 32), 1, 64));
