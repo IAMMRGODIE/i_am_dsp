@@ -112,7 +112,7 @@ impl WavetableLevel {
 	///
 	/// The partials are transformed back from their own spectrum, one entry per partial, which is
 	/// much cheaper than adding every entry of the table once per partial.
-	fn build<const MAX_SINES: usize>(
+	pub(crate) fn build<const MAX_SINES: usize>(
 		ratios: &[f32; MAX_SINES],
 		amplitudes: &[f32; MAX_SINES],
 		phases: &[f32; MAX_SINES],
@@ -180,7 +180,7 @@ impl WavetableLevel {
 /// them is a single interpolated lookup instead of one sine and one powf per partial per sample.
 /// The cosine table exists so that a per channel phase offset can be applied with the angle
 /// addition rule instead of rebuilding the tables for every phase.
-struct Wavetable {
+pub(crate) struct Wavetable {
 	/// The levels, from the one that holds every partial to the one that holds the fundamental.
 	levels: Box<[WavetableLevel]>,
 	/// The number of partials the levels were built from.
@@ -202,7 +202,7 @@ impl Wavetable {
 	/// Returns None when the partials cannot be described by a single period, which happens when a
 	/// ratio is not an integer or when the highest partial does not fit in the largest table. The
 	/// caller then has to fall back to summing sines directly.
-	fn build<const MAX_SINES: usize>(
+	pub(crate) fn build<const MAX_SINES: usize>(
 		ratios: &[f32; MAX_SINES],
 		amplitudes: &[f32; MAX_SINES],
 		phases: &[f32; MAX_SINES],
@@ -298,7 +298,7 @@ impl Wavetable {
 
 	/// Reads the sum of the partials below the given ratio, at the given phase of the fundamental.
 	#[inline]
-	fn play(&self, fundamental_phase: f32, max_harmonic: f32) -> (f32, f32) {
+	pub(crate) fn play(&self, fundamental_phase: f32, max_harmonic: f32) -> (f32, f32) {
 		// A note above the Nyquist frequency has no partial left to play.
 		if max_harmonic < 1.0 {
 			return (0.0, 0.0);
@@ -321,9 +321,14 @@ impl Wavetable {
 }
 
 mod bended;
+mod drawn;
 mod osc;
 mod spectral;
 
 pub use bended::BendedSawGen;
+pub use drawn::{
+	DRAWN_PARTIALS, DrawnSpectrum, PageBank, SpectralFeed, SpectralFrame, SpectrumRenderer,
+	TableBankOsc,
+};
 pub use osc::AdditiveOsc;
 pub use spectral::SpectralGen;
