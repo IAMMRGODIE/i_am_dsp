@@ -12,7 +12,7 @@
 use i_am_dsp::ProcessContext;
 use i_am_dsp::Processor;
 use i_am_dsp::prelude::{Parameter, Parameters, SetValue};
-use i_am_plugin::{Descriptor, Plugin, export_clap};
+use i_am_plugin::{Descriptor, Plugin, export_plugin};
 
 macro_rules! test_plugin {
 	($name:ident, $id:literal, $title:literal) => {
@@ -64,7 +64,7 @@ test_plugin!(First, "dev.i-am-dsp.test.first", "First Test");
 test_plugin!(Second, "dev.i-am-dsp.test.second", "Second Test");
 
 // One call, one library, two plug-ins.
-export_clap!(First, Second);
+export_plugin!(First, Second);
 
 /// A processor is a plug-in without an editor, and the wrapper leaves it that way:
 /// no GUI is a perfectly good plug-in, not a missing half.

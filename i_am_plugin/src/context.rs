@@ -10,7 +10,7 @@ use crate::shared::*;
 
 /// The context for the CLAP plugin.
 ///
-/// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
+/// Public mainly for `export_plugin` macro. At most case, you don't need to use it directly.
 pub struct ClapContext {
 	pub(crate) current_event: usize,
 	/// The note events of the current process block.

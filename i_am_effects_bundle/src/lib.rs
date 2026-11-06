@@ -15,9 +15,9 @@
 
 pub use i_am_effects::*;
 
-use i_am_plugin::export_clap;
+use i_am_plugin::export_plugin;
 
-export_clap!(
+export_plugin!(
 	GainWeb,
 	DistortionWeb,
 	FilterWeb,

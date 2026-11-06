@@ -14,9 +14,9 @@
 
 pub use i_am_synths::*;
 
-use i_am_plugin::export_clap;
+use i_am_plugin::export_plugin;
 
-export_clap!(
+export_plugin!(
 	StringWeb,
 	FittedWeb,
 	ShapesWeb,

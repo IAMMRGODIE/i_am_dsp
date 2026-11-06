@@ -65,7 +65,7 @@ impl SetEntry {
 
 /// The plug-ins a library exports, and how to build them.
 ///
-/// Implemented by the [`export_clap`](crate::export_clap) macro. A crate that has
+/// Implemented by the [`export_plugin`](crate::export_plugin) macro. A crate that has
 /// to assemble its list some other way -- from a registry, or from a feature flag --
 /// implements this instead and points the macro's entry type at it.
 pub trait PluginSetSource: Send + Sync + 'static {

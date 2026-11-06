@@ -13,7 +13,7 @@ use clack_extensions::timer::{HostTimer, PluginTimerImpl, TimerId};
 
 /// The main-thread half of a plug-in.
 ///
-/// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
+/// Public mainly for `export_plugin` macro. At most case, you don't need to use it directly.
 pub struct PluginMain<P: Plugin> {
 	/// The logical size the GUI is laid out for.
 	pub(crate) window_size: WindowSize,

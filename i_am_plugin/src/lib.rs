@@ -14,7 +14,7 @@
 //! # Minimal Example
 //!
 //! ```ignore
-//! use i_am_plugin::{Descriptor, Plugin, WindowOptions, export_clap};
+//! use i_am_plugin::{Descriptor, Plugin, WindowOptions, export_plugin};
 //!
 //! // first, build a processor from `i_am_dsp`
 //! struct MyProcessor;
@@ -51,7 +51,7 @@
 //! }
 //!
 //! // Finally, export the plugin as a CLAP plugin
-//! export_clap!(MyProcessor);
+//! export_plugin!(MyProcessor);
 //!
 //! // Additionaly, you can impl `PluginAuExt` to prepare the plugin for AU support
 //! //
@@ -99,7 +99,7 @@
 //!
 //! # Exporting a VST3 plug-in
 //!
-//! [export_clap] always exports the CLAP entry point (`clap_entry`). It also exports the
+//! [export_plugin] always exports the CLAP entry point (`clap_entry`). It also exports the
 //! VST3 entry points (`GetPluginFactory`, `InitDll`, `ExitDll`) when the `vst3` feature of
 //! this crate is enabled, which links `clap-wrapper` and the VST3 SDK into your library.
 //! Turn it on from your plug-in crate:
@@ -133,13 +133,13 @@
 //! Without the `vst3` feature you can still build with `cargo build --release`, rename the
 //! suffix to `.clap` and load the plugin in a CLAP host.
 
-/// Re-exported so that [`export_clap`] can add the VST3 entry points to the exported
+/// Re-exported so that [`export_plugin`] can add the VST3 entry points to the exported
 /// library without the plug-in crate having to depend on `clap-wrapper` itself.
 #[cfg(feature = "vst3")]
 #[doc(hidden)]
 pub use clap_wrapper::export_vst3 as __export_vst3;
 
-/// Re-exported for the [`export_clap`] macro to name the entry type by.
+/// Re-exported for the [`export_plugin`] macro to name the entry type by.
 #[doc(hidden)]
 pub use clack_plugin::{clack_export_entry, entry::SinglePluginEntry};
 

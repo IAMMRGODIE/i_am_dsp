@@ -4,7 +4,7 @@ use crate::shared::*;
 
 /// A struct to hold a [`Processor`] for the plugin audio thread.
 ///
-/// Public mainly for `export_clap` macro. At most case, you don't need to use it directly.
+/// Public mainly for `export_plugin` macro. At most case, you don't need to use it directly.
 ///
 /// # Threading
 ///

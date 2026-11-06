@@ -7,7 +7,7 @@
 use i_am_dsp::Processor;
 use i_am_dsp::prelude::{Parameter, Parameters, SetValue};
 use i_am_dsp::ProcessContext;
-use i_am_plugin::{Descriptor, Plugin, export_clap};
+use i_am_plugin::{Descriptor, Plugin, export_plugin};
 
 macro_rules! test_plugin {
 	($name:ident, $id:literal, $title:literal) => {
@@ -53,4 +53,4 @@ test_plugin!(Crusher, "dev.i-am-dsp.probe.crusher", "Probe Crusher");
 test_plugin!(Filter, "dev.i-am-dsp.probe.filter", "Probe Filter");
 
 // One call, one library, two plug-ins.
-export_clap!(Crusher, Filter);
+export_plugin!(Crusher, Filter);

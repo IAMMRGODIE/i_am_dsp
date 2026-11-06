@@ -1,6 +1,6 @@
 //! What a host sees when it loads a library.
 //!
-//! This is the other end of [`export_clap`](i_am_plugin::export_clap): it loads a
+//! This is the other end of [`export_plugin`](i_am_plugin::export_plugin): it loads a
 //! built plug-in library through clack's host API and asks its factory what it has.
 //! Nothing here knows what is inside the library -- which is the point, because that
 //! is also true of the host that will load it in the real world.

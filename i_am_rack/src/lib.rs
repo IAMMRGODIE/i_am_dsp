@@ -462,4 +462,4 @@ impl Plugin for Rack {
 	}
 }
 
-i_am_plugin::export_clap!(Rack);
+i_am_plugin::export_plugin!(Rack);
