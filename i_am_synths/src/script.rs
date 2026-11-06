@@ -12,7 +12,9 @@ use i_am_plugin::processor::{EffectMessage, EffectProcessor};
 use i_am_plugin::{
 	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
 };
-use i_am_web_gui::{Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, editor_with};
+use i_am_web_gui::{
+	Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, Switch, editor_with,
+};
 
 use super::{json_escape, play_synth};
 
@@ -30,19 +32,53 @@ const SCRIPT_PAGES: &[Page] = &[
 	Page::new("Voice", &["Voice"]),
 ];
 
+/// The per-stage sync switches stay the host's: the face has one for the envelope.
+///
 /// The oscillator keeps a level of its own, and the host owns the sample rate;
 /// the envelope's gain is the product's level.
-const SCRIPT_HIDDEN: &[&str] = &["oscillator.gain", "oscillator.freq_gen.sample_rate"];
+const SCRIPT_HIDDEN: &[&str] = &[
+	"delay.sync",
+	"attack.sync",
+	"hold.sync",
+	"decay.sync",
+	"release.sync",
+	"oscillator.gain",
+	"oscillator.freq_gen.sample_rate",
+];
+
+/// The envelope's one Sync switch trades the free lengths for musical ones.
+const SCRIPT_SWITCHES: &[Switch] = &[Switch::new(
+	"sync",
+	&[
+		"delay.beats",
+		"attack.beats",
+		"hold.beats",
+		"decay.beats",
+		"release.beats",
+	],
+	&[
+		"delay_time",
+		"attack_time",
+		"hold_time",
+		"decay_time",
+		"release_time",
+	],
+)];
 
 /// The body the page shows before anyone edits it.
-const SCRIPT_DEFAULT: &str = "\
+///
+/// Every output is declared with `let` on purpose: Rhai treats an assignment to
+/// an undeclared name as a runtime error, and the oscillator reads the four
+/// values back from the script's scope. The conversion matters too — an integer
+/// is not read back as an `f32`.
+pub(crate) const SCRIPT_DEFAULT: &str = "\
 // a script decides the spectrum: one ratio, amplitude, damping and phase per
 // partial. index runs from 0 to total_amount - 1; a, b, c and d are the knobs.
-let n = index + 1;
-ratio = n;
-amplitude = 1.0 / n;
-damping = 0.0;
-phase = 0.0;
+let n = to_float(index + 1);
+let ratio = n;
+let amplitude = 1.0 / n;
+let damping = 0.0;
+let phase = 0.0;
 ";
 
 /// The state the page and the audio thread share.
@@ -198,6 +234,8 @@ impl Generator<2> for ScriptedVoice {
 pub fn script_faceplate() -> Faceplate {
 	Faceplate::new(SCRIPT_TITLE, SCRIPT_ACCENT, SCRIPT_SIZE)
 		.with_pages(SCRIPT_PAGES)
+		.with_header(&["sync"])
+		.with_switches(SCRIPT_SWITCHES)
 		.with_hidden(SCRIPT_HIDDEN)
 		.with_script()
 }

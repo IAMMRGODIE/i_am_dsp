@@ -12,7 +12,9 @@ use i_am_plugin::processor::{EffectMessage, EffectProcessor};
 use i_am_plugin::{
 	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
 };
-use i_am_web_gui::{Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, editor_with};
+use i_am_web_gui::{
+	Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, Switch, editor_with,
+};
 
 use super::{json_escape, play_synth};
 
@@ -29,6 +31,34 @@ const CANVAS_PAGES: &[Page] = &[
 	Page::new("Envelope", &["Envelope"]),
 	Page::new("Voice", &["Voice"]),
 ];
+
+/// The per-stage sync switches stay the host's: the face has one for the envelope.
+const CANVAS_HIDDEN: &[&str] = &[
+	"delay.sync",
+	"attack.sync",
+	"hold.sync",
+	"decay.sync",
+	"release.sync",
+];
+
+/// The envelope's one Sync switch trades the free lengths for musical ones.
+const CANVAS_SWITCHES: &[Switch] = &[Switch::new(
+	"sync",
+	&[
+		"delay.beats",
+		"attack.beats",
+		"hold.beats",
+		"decay.beats",
+		"release.beats",
+	],
+	&[
+		"delay_time",
+		"attack_time",
+		"hold_time",
+		"decay_time",
+		"release_time",
+	],
+)];
 
 /// How many points one drawn page is sampled into.
 const CANVAS_CACHE: usize = 1024;
@@ -255,7 +285,11 @@ pub fn canvas_shape() -> String {
 
 /// The faceplate of the canvas instrument.
 pub fn canvas_faceplate() -> Faceplate {
-	Faceplate::new(CANVAS_TITLE, CANVAS_ACCENT, CANVAS_SIZE).with_pages(CANVAS_PAGES)
+	Faceplate::new(CANVAS_TITLE, CANVAS_ACCENT, CANVAS_SIZE)
+		.with_pages(CANVAS_PAGES)
+		.with_header(&["sync"])
+		.with_switches(CANVAS_SWITCHES)
+		.with_hidden(CANVAS_HIDDEN)
 }
 
 /// The drawn stereo instrument, with a web faceplate.

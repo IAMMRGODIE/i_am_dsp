@@ -150,7 +150,7 @@ fn the_shapes_face_is_three_pages_with_one_sync_switch() {
 
 	assert!(face.contains("\"hero\":\"shape\""), "{face}");
 	assert!(face.contains("\"hero\":\"envelope\""), "{face}");
-	assert!(face.contains("\"hero\":\"waveform\""), "{face}");
+	assert!(face.contains("\"hero\":\"unison\""), "{face}");
 	assert!(
 		face.contains("\"id\":\"oscillator.smooth_factor\""),
 		"{face}"
@@ -249,9 +249,19 @@ fn the_additive_face_has_three_pages_and_a_partial_hero() {
 		),
 		"{face}"
 	);
+	// One Sync switch in the header, trading the free lengths for beats.
+	assert!(face.contains("\"header\":[\"sync\"]"), "{face}");
 	assert!(
-		face.contains("\"hidden\":[\"oscillator.gain\"]"),
-		"the oscillator's own level stays off the face: {face}"
+		face.contains("\"switches\":[{\"control\":\"sync\",\"on\":[\"delay.beats\""),
+		"{face}"
+	);
+	// The per-stage switches stay the host's; the oscillator's own level stays off
+	// the face.
+	assert!(
+		face.contains(
+			"\"hidden\":[\"delay.sync\",\"attack.sync\",\"hold.sync\",\"decay.sync\",\"release.sync\",\"oscillator.gain\"]"
+		),
+		"{face}"
 	);
 }
 
@@ -320,9 +330,19 @@ fn the_spectrum_face_is_three_pages_with_the_partial_hero() {
 		),
 		"{face}"
 	);
+	// One Sync switch in the header, trading the free lengths for beats.
+	assert!(face.contains("\"header\":[\"sync\"]"), "{face}");
 	assert!(
-		face.contains("\"hidden\":[\"oscillator.gain\"]"),
-		"the oscillator's own level stays off the face: {face}"
+		face.contains("\"switches\":[{\"control\":\"sync\",\"on\":[\"delay.beats\""),
+		"{face}"
+	);
+	// The per-stage switches stay the host's; the oscillator's own level stays off
+	// the face.
+	assert!(
+		face.contains(
+			"\"hidden\":[\"delay.sync\",\"attack.sync\",\"hold.sync\",\"decay.sync\",\"release.sync\",\"oscillator.gain\"]"
+		),
+		"{face}"
 	);
 }
 
@@ -379,9 +399,19 @@ fn the_script_face_shows_the_script_panel() {
 		),
 		"{face}"
 	);
+	// One Sync switch in the header, trading the free lengths for beats.
+	assert!(face.contains("\"header\":[\"sync\"]"), "{face}");
 	assert!(
-		face.contains("\"hidden\":[\"oscillator.gain\",\"oscillator.freq_gen.sample_rate\"]"),
-		"the oscillator's level and the host's rate stay off the face: {face}"
+		face.contains("\"switches\":[{\"control\":\"sync\",\"on\":[\"delay.beats\""),
+		"{face}"
+	);
+	// The per-stage switches stay the host's; the oscillator's level and the
+	// host's rate stay off the face.
+	assert!(
+		face.contains(
+			"\"hidden\":[\"delay.sync\",\"attack.sync\",\"hold.sync\",\"decay.sync\",\"release.sync\",\"oscillator.gain\",\"oscillator.freq_gen.sample_rate\"]"
+		),
+		"{face}"
 	);
 }
 
@@ -416,6 +446,27 @@ fn the_script_routes_round_trip() {
 		"the audio thread should pick the script up"
 	);
 	assert!(feed.take(&mut seen).is_none(), "and only once");
+}
+
+/// The body the Script page starts with has to run: a script that fails to
+/// evaluate leaves the instrument silent.
+#[test]
+fn the_default_script_evaluates() {
+	use i_am_dsp::prelude::{GenFreqInfo, RhaiFreqGen, RhaiScript};
+
+	let source = crate::script::SCRIPT_DEFAULT;
+	let script = RhaiScript::compile(source).expect("the default script compiles");
+	let mut generator = RhaiFreqGen::new(48_000);
+	generator.load_compiled(script);
+
+	let fundamental = generator.gen_info(0, 2);
+
+	assert_eq!(fundamental.ratio, 1.0);
+	assert!((fundamental.amplitude - 1.0).abs() < 1e-6);
+	assert!(
+		generator.get_eval_error().is_ok(),
+		"the default script must evaluate"
+	);
 }
 
 #[test]
@@ -461,6 +512,19 @@ fn the_canvas_face_is_three_pages_with_the_drawing_hero() {
 			"\"pages\":[{\"name\":\"Canvas\",\"sections\":[\"Shape\"]},\
 			{\"name\":\"Envelope\",\"sections\":[\"Envelope\"]},\
 			{\"name\":\"Voice\",\"sections\":[\"Voice\"]}]"
+		),
+		"{face}"
+	);
+	// One Sync switch in the header, trading the free lengths for beats.
+	assert!(face.contains("\"header\":[\"sync\"]"), "{face}");
+	assert!(
+		face.contains("\"switches\":[{\"control\":\"sync\",\"on\":[\"delay.beats\""),
+		"{face}"
+	);
+	// The per-stage switches stay the host's; the beats lengths are on the face.
+	assert!(
+		face.contains(
+			"\"hidden\":[\"delay.sync\",\"attack.sync\",\"hold.sync\",\"decay.sync\",\"release.sync\"]"
 		),
 		"{face}"
 	);

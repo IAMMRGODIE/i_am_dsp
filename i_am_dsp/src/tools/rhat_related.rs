@@ -14,24 +14,38 @@ lazy_static::lazy_static! {
 	};
 }
 
-/// Rhai frequency generator, can be used in [`crate::prelude::AdditiveOsc`]
+/// Rhai frequency generator, can be used in [`crate::prelude::AdditiveOsc`].
 ///
-/// Note: the rhai script can access the following variables:
-/// - `a: f32`: the first parameter of the script
-/// - `b: f32`: the second parameter of the script
-/// - `c: f32`: the third parameter of the script
-/// - `d: f32`: the fourth parameter of the script
-/// - `sample_rate: f32`: the sample rate of the audio signal
-/// - `index: i32`: the index of the current frequency
-/// - `total_amount: i32`: the total amount of frequencies
+/// The script runs once per partial, with these variables in scope:
 ///
-/// The script should create two values:
-/// - `ratio: f32`: the ratio of the frequency to the sample rate
-/// - `amplitude: f32`: the amplitude of the frequency
+/// - `a`, `b`, `c`, `d`: `f32` in `[-1.0, 1.0]`, the product's four knobs
+/// - `sample_rate`: `i32`, the host's rate in hertz
+/// - `index`: `i32`, which partial is being asked for, from `0` to `total_amount - 1`
+/// - `total_amount`: `i32`, how many partials the oscillator plays
 ///
-/// Otherwise [`RhaiFreqGenError::MissingVariable`] will be returned.
-///  
-/// If the script fails to evaluate, the [`crate::tools::rhat_related::RhaiFreqGenError`] will be set.
+/// It has to leave four variables in scope, each declared with `let`: Rhai
+/// treats an assignment to an undeclared name as a runtime error, and the
+/// values are read back from the script's scope afterwards. All four are
+/// `f32`; an integer is not read back as one, so convert with `to_float`.
+///
+/// - `ratio`: how far above the note's fundamental the partial sits. `1.0` is
+///   the fundamental itself. Only a whole-number ratio can use the wavetable
+///   fast path, and only while nothing in the script is damped.
+/// - `amplitude`: the partial's level, linear.
+/// - `damping`: how fast it decays, as `exp(-damping * cycles)`; `0.0` keeps
+///   the partial ringing.
+/// - `phase`: where the partial starts within its cycle, in `0.0..=1.0`.
+///
+/// A partial whose output is missing (or is not an `f32`) is left silent, and
+/// [`Self::get_eval_error`] reports it as [`RhaiFreqGenError::MissingVariable`].
+///
+/// ```rhai
+/// let n = to_float(index + 1);
+/// let ratio = n;
+/// let amplitude = 1.0 / n;
+/// let damping = 0.0;
+/// let phase = 0.0;
+/// ```
 #[derive(Parameters)]
 #[default_float_range(min = -1.0, max = 1.0)]
 pub struct RhaiFreqGen {

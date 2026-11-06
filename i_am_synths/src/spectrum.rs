@@ -12,7 +12,7 @@ use i_am_plugin::processor::{EffectMessage, EffectProcessor};
 use i_am_plugin::{
 	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
 };
-use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, editor_with};
+use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, Switch, editor_with};
 
 use super::play_synth;
 
@@ -30,8 +30,36 @@ const SPECTRUM_PAGES: &[Page] = &[
 	Page::new("Voice", &["Voice"]),
 ];
 
+/// The per-stage sync switches stay the host's: the face has one for the envelope.
+///
 /// The oscillator keeps a level of its own; the envelope's gain is the product's.
-const SPECTRUM_HIDDEN: &[&str] = &["oscillator.gain"];
+const SPECTRUM_HIDDEN: &[&str] = &[
+	"delay.sync",
+	"attack.sync",
+	"hold.sync",
+	"decay.sync",
+	"release.sync",
+	"oscillator.gain",
+];
+
+/// The envelope's one Sync switch trades the free lengths for musical ones.
+const SPECTRUM_SWITCHES: &[Switch] = &[Switch::new(
+	"sync",
+	&[
+		"delay.beats",
+		"attack.beats",
+		"hold.beats",
+		"decay.beats",
+		"release.beats",
+	],
+	&[
+		"delay_time",
+		"attack_time",
+		"hold_time",
+		"decay_time",
+		"release_time",
+	],
+)];
 
 /// The spectrum voice: every partial is an integer ratio, so the whole sum is
 /// an inverse-FFT wavetable and playback is one lookup per sample.
@@ -49,6 +77,8 @@ fn spectrum_voice(rate: usize) -> SpectrumVoice {
 pub fn spectrum_faceplate() -> Faceplate {
 	Faceplate::new(SPECTRUM_TITLE, SPECTRUM_ACCENT, SPECTRUM_SIZE)
 		.with_pages(SPECTRUM_PAGES)
+		.with_header(&["sync"])
+		.with_switches(SPECTRUM_SWITCHES)
 		.with_hidden(SPECTRUM_HIDDEN)
 }
 

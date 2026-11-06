@@ -12,7 +12,7 @@ use i_am_plugin::processor::{EffectMessage, EffectProcessor};
 use i_am_plugin::{
 	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
 };
-use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, editor_with};
+use i_am_web_gui::{Faceplate, Page, ProtocolRequest, Scope, Switch, editor_with};
 
 use super::play_synth;
 
@@ -30,8 +30,36 @@ const ADDITIVE_PAGES: &[Page] = &[
 	Page::new("Voice", &["Voice"]),
 ];
 
+/// The per-stage sync switches stay the host's: the face has one for the envelope.
+///
 /// The oscillator keeps a level of its own; the envelope's gain is the product's.
-const ADDITIVE_HIDDEN: &[&str] = &["oscillator.gain"];
+const ADDITIVE_HIDDEN: &[&str] = &[
+	"delay.sync",
+	"attack.sync",
+	"hold.sync",
+	"decay.sync",
+	"release.sync",
+	"oscillator.gain",
+];
+
+/// The envelope's one Sync switch trades the free lengths for musical ones.
+const ADDITIVE_SWITCHES: &[Switch] = &[Switch::new(
+	"sync",
+	&[
+		"delay.beats",
+		"attack.beats",
+		"hold.beats",
+		"decay.beats",
+		"release.beats",
+	],
+	&[
+		"delay_time",
+		"attack_time",
+		"hold_time",
+		"decay_time",
+		"release_time",
+	],
+)];
 
 /// The additive voice: a saw drawn as sines, bent into other spectra.
 type AdditiveVoice = Adsr<AdditiveOsc<BendedSawGen, 64, 2>, EqualTemperament, 2>;
@@ -48,6 +76,8 @@ fn additive_voice(rate: usize) -> AdditiveVoice {
 pub fn additive_faceplate() -> Faceplate {
 	Faceplate::new(ADDITIVE_TITLE, ADDITIVE_ACCENT, ADDITIVE_SIZE)
 		.with_pages(ADDITIVE_PAGES)
+		.with_header(&["sync"])
+		.with_switches(ADDITIVE_SWITCHES)
 		.with_hidden(ADDITIVE_HIDDEN)
 }
 
