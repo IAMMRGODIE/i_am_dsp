@@ -26,6 +26,16 @@ var wantsMeter = false;
 var wantsStereo = false;
 var wantsParticles = false;
 var wantsIr = false;
+var wantsWaves = false;
+var waveInput = null;
+var wantsSample = false;
+var sampleInput = null;
+// The table the shapes face imported: its name, frame count and picture.
+var wavesState = null;
+// How the next import cuts the file: auto, fixed, pitch or single.
+var waveMode = "auto";
+// The sample the sampler face imported: its name, rate and picture.
+var sampleState = null;
 var wantsTable = false;
 var tableInput = null;
 var irState = null;

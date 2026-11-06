@@ -24,7 +24,8 @@
         rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,
         ott: ottState, vocoder: vocoderState, eqSpectrum: eqSpectrum,
-        autotune: autotuneState, canvas: canvasState, spectrum: spectrumState
+        autotune: autotuneState, canvas: canvasState, spectrum: spectrumState,
+        waves: wavesState, waveMode: waveMode, sample: sampleState
       });
       if (content) {
         hero.el.innerHTML = content;

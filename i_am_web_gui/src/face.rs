@@ -50,6 +50,10 @@ pub struct Faceplate {
 	/// musical one, and drawing both would double every stage: the product shows
 	/// the free lengths and leaves the synced pair to the host.
 	pub hidden: Option<&'static [&'static str]>,
+	/// Sections whose picture the page leaves out. A product that embeds a
+	/// generator inherits that generator's section, picture and all; this says
+	/// which of those pictures are not the product's to show.
+	pub no_hero: Option<&'static [&'static str]>,
 }
 
 /// One tab of a faceplate: a name, and the sections it shows.
@@ -105,6 +109,7 @@ impl Faceplate {
 			clear: false,
 			pages: None,
 			hidden: None,
+			no_hero: None,
 		}
 	}
 
@@ -156,6 +161,14 @@ impl Faceplate {
 	/// Keep these parameters off the face.
 	pub const fn with_hidden(mut self, hidden: &'static [&'static str]) -> Self {
 		self.hidden = Some(hidden);
+		self
+	}
+
+	/// Sections whose picture the page leaves out. A product that embeds a
+	/// generator brings that generator's section along, hero and all; this says
+	/// which of those pictures are not the product's to show.
+	pub const fn with_no_hero(mut self, sections: &'static [&'static str]) -> Self {
+		self.no_hero = Some(sections);
 		self
 	}
 }
@@ -536,9 +549,15 @@ pub fn face_json_with_rate(
 		}
 
 		out.push_str(",\"hero\":");
+		let suppressed = face.no_hero.is_some_and(|names| {
+			section
+				.name
+				.as_deref()
+				.is_some_and(|name| names.contains(&name))
+		});
 		match &section.hero {
-			Some(hero) => string(&mut out, hero),
-			None => out.push_str("null"),
+			Some(hero) if !suppressed => string(&mut out, hero),
+			_ => out.push_str("null"),
 		}
 
 		out.push_str(",\"params\":[");

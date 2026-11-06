@@ -16,3 +16,5 @@ i_am_plugin = { workspace = true }
 i_am_web_gui = { workspace = true }
 # The drawn spectrum pages cross the editor route as JSON.
 serde_json = "1"
+# The wavetable import reads WAV files, and the tests write them.
+hound = "3.5.1"

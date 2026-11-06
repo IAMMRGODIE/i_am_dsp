@@ -237,10 +237,12 @@
   font:9px/1.2 var(--mono); color:var(--text3); pointer-events:none;
 }
 .mcard-hero .hero-actions{
+  pointer-events:auto; z-index:3;
   position:absolute; left:8px; bottom:4px; z-index:2;
   display:flex; align-items:center; gap:12px;
 }
 .mcard-hero .hero-action{
+  padding:2px 0;
   font:9px/1.2 var(--mono); color:var(--text3); background:none; border:0;
   padding:0; cursor:pointer; letter-spacing:.02em;
 }

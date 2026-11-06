@@ -247,9 +247,83 @@
 
   /// The wavetable morph: the four classic tables, and the one the Shape control
   /// sits between. The caption says which pair and how far into it the blend is.
-  function shapeHero(values) {
+  function shapeHero(values, context) {
+    var waves = context && context.waves;
     var morph = clamp(valueOf(values, "oscillator.smooth_factor", 0), 0, 1);
     var names = ["SINE", "TRIANGLE", "SAW", "SQUARE"];
+
+    // A table the page imported: the curve is the two frames Morph sits between,
+    // blended the way the voice blends them, so the picture follows the knob.
+    if (waves && waves.previews && waves.previews.length > 0) {
+      var count = waves.previews.length;
+      var position = morph * (count - 1);
+      var frameFrom = Math.min(Math.floor(position), count - 1);
+      var frameTo = Math.min(frameFrom + 1, count - 1);
+      var blend = position - frameFrom;
+      var first = waves.previews[frameFrom];
+      var second = waves.previews[frameTo];
+
+      // The table's value at one phase, blended between the two frames the morph
+      // sits on, which is what the voice plays.
+      var curve = function (time) {
+        var at = clamp(time, 0, 1) * (first.length - 1);
+        var left = Math.floor(at);
+        var part = at - left;
+        var next = Math.min(left + 1, first.length - 1);
+        var a = first[left] + (first[next] - first[left]) * part;
+        var b = second[left] + (second[next] - second[left]) * part;
+
+        return a + (b - a) * blend;
+      };
+
+      // The X-Fade knob pulls the end of each frame towards its beginning, so the
+      // picture shows the same loop the voice plays.
+      var width = clamp(valueOf(values, "oscillator.x_fade", 0), 0, 1) * 0.25;
+      var imported = "";
+
+      for (var index = 0; index <= 240; index++) {
+        var phase = index / 240;
+        var value = curve(phase);
+
+        if (width > 0 && phase >= 1 - width) {
+          var over = (phase - (1 - width)) / width;
+
+          value = value * (1 - over) + curve(phase - (1 - width)) * over;
+        }
+
+        var x = 20 + phase * 480;
+        var y = 80 - clamp(value, -1, 1) * 54;
+        imported += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+      }
+
+      var name = String(waves.name || "TABLE").toUpperCase();
+
+      if (name.length > 26) name = name.slice(0, 25) + "\u2026";
+
+      var caption = waves.error
+        ? String(waves.error).slice(0, 40)
+        : name + " \u00b7 " + count + " FRAMES \u00b7 " + Math.round(morph * 100) + "%";
+
+      return heroSvg(
+        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c" stroke-dasharray="3 5"/>' +
+        '<path d="' + imported + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
+          'vector-effect="non-scaling-stroke"/>'
+      ) +
+        '<div class="hero-label" style="top:4%">SHAPE</div>' +
+        '<div class="hero-label" style="top:4%; left:auto; right:14px">' + caption + '</div>' +
+        '<div class="hero-actions">' +
+          '<button type="button" class="hero-action" data-action="prev">\u2039</button>' +
+          '<button type="button" class="hero-action" data-action="next">\u203a</button>' +
+          '<button type="button" class="hero-action" data-action="delete">DEL FRAME</button>' +
+          '<button type="button" class="hero-action" data-action="mode">MODE: ' +
+            String(context && context.waveMode || "auto").toUpperCase() + '</button>' +
+          '<button type="button" class="hero-action" data-action="reverse">REVERSE</button>' +
+          '<button type="button" class="hero-action" data-action="invert">INVERT</button>' +
+          '<button type="button" class="hero-action" data-action="dc">REMOVE DC</button>' +
+          '<button type="button" class="hero-action" data-action="normalize">NORMALIZE</button>' +
+        '</div>';
+    }
+
     var tables = [
       function (x) { return Math.sin(2 * Math.PI * x); },
       function (x) { return 1 - 4 * Math.abs(x - 0.5); },
@@ -259,28 +333,89 @@
     var smooth = morph * (tables.length - 1);
     var from = Math.min(Math.floor(smooth), tables.length - 1);
     var to = Math.min(from + 1, tables.length - 1);
-    var blend = smooth - from;
-    var path = "";
+    var part = smooth - from;
+    var classic = "";
 
-    for (var i = 0; i <= 240; i++) {
-      var t = i / 240;
-      var x = 20 + t * 480;
-      var phase = (t * 2) % 1;
-      var value = tables[from](phase) + (tables[to](phase) - tables[from](phase)) * blend;
-      var y = 80 - value * 54;
-      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    for (var step = 0; step <= 240; step++) {
+      var time = step / 240;
+      var px = 20 + time * 480;
+      var phase = (time * 2) % 1;
+      var classicValue = tables[from](phase) + (tables[to](phase) - tables[from](phase)) * part;
+      var py = 80 - classicValue * 54;
+      classic += (step ? " L " : "M ") + px.toFixed(1) + " " + py.toFixed(1);
     }
 
-    var caption = from === to
+    var classicCaption = from === to
       ? names[from]
-      : names[from] + " → " + names[to] + " " + Math.round(blend * 100) + "%";
+      : names[from] + " \u2192 " + names[to] + " " + Math.round(part * 100) + "%";
 
     return heroSvg(
       '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c" stroke-dasharray="3 5"/>' +
-      '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
+      '<path d="' + classic + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
         'vector-effect="non-scaling-stroke"/>'
     ) +
       '<div class="hero-label" style="top:4%">SHAPE</div>' +
+      '<div class="hero-label" style="top:4%; left:auto; right:14px">' + classicCaption + '</div>';
+  }
+
+  /// The sample: its picture, the loop region, and the slices the mode plays.
+  function samplerHero(values, context) {
+    var sample = context && context.sample;
+    var mode = Math.round(valueOf(values, "oscillator.mode", 0));
+    var modeName = ["SAMPLE", "SLICE", "GRAIN"][Math.min(Math.max(mode, 0), 2)];
+
+    if (!sample || !sample.peaks || !sample.peaks.length) {
+      return heroSvg(
+        '<text x="260" y="84" fill="#6a6a6a" font-size="12" text-anchor="middle">' +
+        (sample && sample.error ? String(sample.error).slice(0, 60) : "drop a sample") + '</text>'
+      ) + '<div class="hero-label" style="top:4%">SAMPLE</div>';
+    }
+
+    var peaks = sample.peaks;
+    var seconds = sample.rate ? sample.samples / sample.rate : 0;
+    var loop = valueOf(values, "oscillator.loop", 0) > 0.5;
+    var start = clamp(valueOf(values, "oscillator.loop_start", 0), 0, 1);
+    var end = clamp(valueOf(values, "oscillator.loop_end", 1), 0, 1);
+    var slices = Math.round(clamp(valueOf(values, "oscillator.slices", 8), 2, 64));
+    var region = "";
+    var markers = "";
+    var bars = "";
+
+    if (loop && end > start) {
+      region = '<rect x="' + (20 + start * 480).toFixed(1) + '" y="14" width="' +
+        ((end - start) * 480).toFixed(1) + '" height="132" fill="var(--accent)" fill-opacity="0.08"/>';
+    }
+
+    if (mode === 1) {
+      for (var slice = 1; slice < slices; slice++) {
+        var cut = 20 + slice / slices * 480;
+
+        markers += '<line x1="' + cut.toFixed(1) + '" y1="14" x2="' + cut.toFixed(1) +
+          '" y2="146" stroke="#333333" vector-effect="non-scaling-stroke"/>';
+      }
+    }
+
+    for (var index = 0; index < peaks.length; index++) {
+      var x = 20 + index / Math.max(1, peaks.length - 1) * 480;
+      var height = Math.abs(clamp(peaks[index], -1, 1)) * 54;
+
+      bars += '<line x1="' + x.toFixed(1) + '" y1="' + (80 - height).toFixed(1) +
+        '" x2="' + x.toFixed(1) + '" y2="' + (80 + height).toFixed(1) +
+        '" stroke="var(--accent)" stroke-width="1" vector-effect="non-scaling-stroke"/>';
+    }
+
+    var name = String(sample.name || "SAMPLE").toUpperCase();
+
+    if (name.length > 22) name = name.slice(0, 21) + "\u2026";
+
+    var caption = name + " \u00b7 " + seconds.toFixed(2) + " s \u00b7 " +
+      (Math.round(sample.rate / 100) / 10) + " kHz \u00b7 " + modeName;
+
+    return heroSvg(
+      region + markers + bars +
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c" stroke-dasharray="3 5"/>'
+    ) +
+      '<div class="hero-label" style="top:4%">SAMPLE</div>' +
       '<div class="hero-label" style="top:4%; left:auto; right:14px">' + caption + '</div>';
   }
 

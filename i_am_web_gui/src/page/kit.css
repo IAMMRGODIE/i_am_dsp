@@ -239,11 +239,13 @@ body.preview #app{
    stretched SVG changes shape with the window. */
 .hero-actions{
   position:absolute; left:calc(14px * var(--scale)); bottom:calc(3px * var(--scale));
-  z-index:2; display:flex; align-items:center; gap:calc(12px * var(--scale));
+  z-index:3; display:flex; align-items:center; gap:calc(12px * var(--scale));
+  pointer-events:auto;
 }
 .hero-action{
   font:calc(9px * var(--scale))/1.2 var(--mono); color:var(--text3);
-  background:none; border:0; padding:0; cursor:pointer; letter-spacing:.02em;
+  background:none; border:0; padding:calc(2px * var(--scale)) 0; cursor:pointer;
+  letter-spacing:.02em;
 }
 .hero-action:hover{color:var(--text1)}
 .hero-empty{
@@ -305,6 +307,9 @@ body.preview #app{
   display:flex; align-items:stretch; cursor:ns-resize;
 }
 .env-box svg{width:100%; height:100%}
+/* A hero taking a file by drop says so while the pointer is over it. */
+.hero.drop{border-color:var(--accent); background:color-mix(in srgb, var(--accent) 8%, var(--hero))}
+
 /* The voice's unison: the copies on the left, the wave they add up to on the
    right. The square plot keeps the scatter's two axes even. */
 .unison-hero{

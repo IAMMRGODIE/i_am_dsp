@@ -112,10 +112,9 @@
       });
   }
 
-  /// Hands the picked file to the product's upload route as it is. The Rust side
+  /// Hands an audio file to the product's upload route as it is. The Rust side
   /// decodes and resamples it, so the page never has to parse an audio format.
-  function uploadIr() {
-    var file = irInput && irInput.files && irInput.files[0];
+  function postIr(file) {
     if (!file) return;
 
     var reader = new FileReader();
@@ -136,7 +135,223 @@
         .catch(function () {});
     };
     reader.readAsArrayBuffer(file);
-    irInput.value = "";
+  }
+
+  /// The picker's change handler: the same upload, and a cleared input so the
+  /// same file can be chosen twice.
+  function uploadIr() {
+    postIr(irInput && irInput.files && irInput.files[0]);
+
+    if (irInput) irInput.value = "";
+  }
+
+  /// What the shapes face has imported: the route decodes the WAV into frames,
+  /// so the page asks it for the frames instead of parsing the file itself.
+  function pollWaves() {
+    if (document.hidden || !wantsWaves) {
+      setTimeout(pollWaves, 1000);
+      return;
+    }
+
+    var since = wavesState && wavesState.version ? "?since=" + wavesState.version : "";
+
+    fetch("/waves" + since, { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        if (!value || value.unchanged) return;
+        var changed = JSON.stringify(value) !== JSON.stringify(wavesState);
+        wavesState = value;
+        if (changed) markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollWaves, 1000);
+      });
+  }
+
+  /// Hands a dropped or picked WAV to the table route.
+  function postWave(file) {
+    if (!file) return;
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      fetch("/waves?name=" + encodeURIComponent(file.name) + "&mode=" + waveMode, {
+        method: "POST",
+        body: reader.result
+      })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (result) {
+          if (result && result.error) {
+            wavesState = { name: null, count: 0, previews: [], error: result.error };
+            markDirty();
+          } else if (result && result.version) {
+            wavesState = result;
+            markDirty();
+          }
+        })
+        .catch(function () {});
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  /// What the sampler face has imported: the route decodes the WAV and returns
+  /// the picture, so the page never parses the file itself.
+  function pollSample() {
+    if (document.hidden || !wantsSample) {
+      setTimeout(pollSample, 1000);
+      return;
+    }
+
+    fetch("/sample", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        if (!value) return;
+        var changed = JSON.stringify(value) !== JSON.stringify(sampleState);
+        sampleState = value;
+        if (changed) markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollSample, 1000);
+      });
+  }
+
+  /// Hands a dropped or picked audio file to the sample route.
+  function postSample(file) {
+    if (!file) return;
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      fetch("/sample?name=" + encodeURIComponent(file.name), {
+        method: "POST",
+        body: reader.result
+      })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (result) {
+          if (result && result.error) {
+            sampleState = { name: null, peaks: [], error: result.error };
+            markDirty();
+          } else if (result && result.version) {
+            sampleState = result;
+            markDirty();
+          }
+        })
+        .catch(function () {});
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  /// The picker's change handler.
+  function uploadSample() {
+    postSample(sampleInput && sampleInput.files && sampleInput.files[0]);
+
+    if (sampleInput) sampleInput.value = "";
+  }
+
+  /// Runs one of the shape hero's buttons.
+  function runWaveAction(action) {
+    if (action === "mode") {
+      cycleWaveMode();
+    } else if (action === "prev" || action === "next") {
+      stepWaveFrame(action === "next" ? 1 : -1);
+    } else if (action === "delete") {
+      deleteWaveFrame();
+    } else {
+      editWave(action);
+    }
+  }
+
+  /// The table's frame count and the frame the morph sits on.
+  function waveCount() {
+    return wavesState && wavesState.previews ? wavesState.previews.length : 0;
+  }
+
+  function waveFrame() {
+    var count = waveCount();
+    var control = controls["oscillator.smooth_factor"];
+    var morph = control ? Math.min(Math.max(control.value, 0), 1) : 0;
+
+    return count > 1 ? Math.round(morph * (count - 1)) : 0;
+  }
+
+  /// Moves the morph to a whole frame, which is how a frame is picked.
+  function setWaveFrame(index) {
+    var count = waveCount();
+
+    if (count <= 1) {
+      setControl("oscillator.smooth_factor", 0);
+      return;
+    }
+
+    var frame = Math.min(Math.max(index, 0), count - 1);
+
+    setControl("oscillator.smooth_factor", frame / (count - 1));
+  }
+
+  function stepWaveFrame(step) {
+    setWaveFrame(waveFrame() + step);
+  }
+
+  /// Removes the frame the morph sits on, then parks the morph on the neighbour.
+  function deleteWaveFrame() {
+    var count = waveCount();
+
+    if (count <= 1) return;
+
+    var frame = waveFrame();
+
+    fetch("/waves?action=delete&frame=" + frame, { method: "POST", body: "delete" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (result) {
+        if (!result || !result.version) return;
+        wavesState = result;
+        setWaveFrame(Math.min(frame, waveCount() - 1));
+        markDirty();
+      })
+      .catch(function () {});
+  }
+
+  /// Cycles how the next import cuts the file.
+  function cycleWaveMode() {
+    var modes = ["auto", "fixed", "pitch", "single"];
+
+    waveMode = modes[(modes.indexOf(waveMode) + 1) % modes.length];
+    markDirty();
+  }
+
+  /// Flips the imported table; the route rebuilds it and describes it back.
+  function editWave(action) {
+    fetch("/waves?action=" + encodeURIComponent(action), {
+      method: "POST",
+      body: action
+    })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (result) {
+        if (result && result.version) {
+          wavesState = result;
+          markDirty();
+        }
+      })
+      .catch(function () {});
+  }
+
+  /// The picker's change handler.
+  function uploadWave() {
+    postWave(waveInput && waveInput.files && waveInput.files[0]);
+
+    if (waveInput) waveInput.value = "";
   }
 
   /// Hands a picked fitted table to the product's route, which parses it and

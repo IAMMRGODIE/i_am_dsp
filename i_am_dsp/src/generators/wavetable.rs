@@ -117,10 +117,12 @@ impl<const CHANNELS: usize, O: Oscillator<CHANNELS> + Send> WaveTable for OscTab
 	}
 }
 
+mod frames;
 mod oscillators;
 mod smoothers;
 mod tables;
 
+pub use frames::*;
 pub use oscillators::*;
 pub use smoothers::*;
 pub use tables::*;

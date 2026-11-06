@@ -1,4 +1,27 @@
 // Part eight: building the face itself.
+  /// Lets a hero take a file by drop as well as by its picker: the browsers a
+  /// plug-in runs in all hand drag-and-drop over to the page, while their file
+  /// pickers are the ones that can end up behind the DAW window.
+  function acceptDrop(el, onFile) {
+    el.addEventListener("dragover", function (event) {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      el.classList.add("drop");
+    });
+
+    el.addEventListener("dragleave", function () {
+      el.classList.remove("drop");
+    });
+
+    el.addEventListener("drop", function (event) {
+      event.preventDefault();
+      el.classList.remove("drop");
+
+      var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) onFile(file);
+    });
+  }
+
   function buildFace() {
     isPreview = !face.hosted;
     app.classList.toggle("hosted", !isPreview);
@@ -172,6 +195,57 @@
         var hero = element("div", "hero");
         hero.dataset.hero = section.hero;
 
+        if (section.hero === "sampler") {
+          hero.title = "Load a sample: click, or drop a .wav";
+          hero.style.cursor = "pointer";
+          acceptDrop(hero, postSample);
+          hero.addEventListener("click", function () {
+            if (sampleInput) sampleInput.click();
+          });
+        }
+
+        if (section.hero === "shape") {
+          hero.title = "Load a wavetable: click, or drop a .wav";
+          hero.style.cursor = "pointer";
+          acceptDrop(hero, postWave);
+
+          // The buttons act on release, not on the press: holding one and
+          // dragging away cancels, the way a click would, while a hero rebuilt
+          // between the two events does not lose the action.
+          var pressedAction = "";
+
+          hero.addEventListener("pointerdown", function (event) {
+            var button = event.target.closest(".hero-action");
+
+            pressedAction = button ? button.getAttribute("data-action") || "" : "";
+          });
+
+          hero.addEventListener("pointerup", function (event) {
+            var button = event.target.closest(".hero-action");
+            var action = pressedAction;
+
+            pressedAction = "";
+
+            if (!button || !action || button.getAttribute("data-action") !== action) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            runWaveAction(action);
+          });
+
+          // A keyboard press has no pointer release of its own.
+          hero.addEventListener("click", function (event) {
+            var button = event.target.closest(".hero-action");
+
+            if (button) {
+              if (event.detail === 0) runWaveAction(button.getAttribute("data-action"));
+              return;
+            }
+
+            if (waveInput) waveInput.click();
+          });
+        }
+
         if (section.hero === "modal") {
           hero.title = "Load a fitted instrument table (.bin)";
           hero.style.cursor = "pointer";
@@ -191,7 +265,8 @@
         }
 
         if (section.hero === "impulse") {
-          hero.title = "Load an impulse response";
+          hero.title = "Load an impulse response: click, or drop an audio file";
+          acceptDrop(hero, postIr);
           hero.addEventListener("click", function () {
             // In a host, ask Rust for a native dialog owned by the DAW. The
             // browser's own file input has no owner there, which is why its
@@ -304,6 +379,30 @@
       irInput.addEventListener("change", uploadIr);
       document.body.appendChild(irInput);
       setTimeout(pollIr, 50);
+    }
+    wantsSample = heroes.some(function (hero) {
+      return hero.kind === "sampler";
+    });
+    if (wantsSample) {
+      sampleInput = document.createElement("input");
+      sampleInput.type = "file";
+      sampleInput.accept = ".wav,audio/*";
+      sampleInput.style.display = "none";
+      sampleInput.addEventListener("change", uploadSample);
+      document.body.appendChild(sampleInput);
+      setTimeout(pollSample, 50);
+    }
+    wantsWaves = heroes.some(function (hero) {
+      return hero.kind === "shape";
+    });
+    if (wantsWaves) {
+      waveInput = document.createElement("input");
+      waveInput.type = "file";
+      waveInput.accept = ".wav";
+      waveInput.style.display = "none";
+      waveInput.addEventListener("change", uploadWave);
+      document.body.appendChild(waveInput);
+      setTimeout(pollWaves, 50);
     }
     wantsTable = heroes.some(function (hero) {
       return hero.kind === "modal";

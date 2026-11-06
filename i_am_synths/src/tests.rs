@@ -156,6 +156,9 @@ fn the_shapes_face_is_three_pages_with_one_sync_switch() {
 		face.contains("\"id\":\"oscillator.smooth_factor\""),
 		"{face}"
 	);
+	// The edge crossfade sits beside the morph, where the imported table is.
+	assert!(face.contains("\"id\":\"oscillator.x_fade\""), "{face}");
+	assert!(face.contains("\"label\":\"X-Fade\""), "{face}");
 	assert!(
 		face.contains(
 			"\"pages\":[{\"name\":\"Shape\",\"sections\":[\"Shape\"]},\
