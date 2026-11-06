@@ -181,7 +181,7 @@
         }
 
         if (section.hero === "fall") {
-          hero.title = "Drag a point: horizontal time, vertical pitch. Right-click removes one.";
+          hero.title = "Drag a point: time and pitch. Drag the ring: segment bend. Right-click a point removes it.";
           hero.style.touchAction = "none";
           hero.addEventListener("pointerdown", fallPointerDown);
           hero.addEventListener("pointermove", fallPointerMove);

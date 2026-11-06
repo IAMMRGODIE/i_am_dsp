@@ -62,6 +62,22 @@
         'stroke="#141414" stroke-width="1.4"/>';
     });
 
+    // A ring on each segment: vertical drag bends the curve without moving the
+    // points. Its centre is the midpoint the bend actually produces, so the
+    // handle sits on the line it controls.
+    var bends = "";
+    for (var segment = 0; segment < sorted.length - 1; segment++) {
+      var left = sorted[segment];
+      var right = sorted[segment + 1];
+      if (right[0] - left[0] < 0.002) continue;
+
+      var middle = (left[0] + right[0]) / 2;
+      var value = left[1] + (right[1] - left[1]) * fallBend(0.5, left[2] || 0);
+      bends += '<circle data-bend="' + segment + '" cx="' + fallX(middle).toFixed(1) +
+        '" cy="' + fallY(value).toFixed(1) + '" r="5" fill="transparent" ' +
+        'stroke="#8fb8ff" stroke-width="1.4" pointer-events="all"/>';
+    }
+
     var label = sorted[0][1].toFixed(1) + "x to " + sorted[sorted.length - 1][1].toFixed(1) +
       "x in " + Math.round(sorted[sorted.length - 1][0] * 1000) + " ms";
 
@@ -70,6 +86,7 @@
       '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
       'vector-effect="non-scaling-stroke"/>' +
       dots +
+      bends +
       '<text x="30" y="13" fill="#8a8a8a" font-size="9">' + label + '</text>'
     );
   }

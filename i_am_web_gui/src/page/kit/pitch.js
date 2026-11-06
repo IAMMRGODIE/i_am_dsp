@@ -30,6 +30,11 @@ function fallPointIndex(event) {
   return node ? parseInt(node.getAttribute("data-point"), 10) : -1;
 }
 
+function fallBendIndex(event) {
+  var node = event.target && event.target.closest ? event.target.closest("[data-bend]") : null;
+  return node ? parseInt(node.getAttribute("data-bend"), 10) : -1;
+}
+
 function fallRender(hero) {
   if (!window.IAmCard || !IAmCard.hero) return;
 
@@ -44,21 +49,42 @@ function fallPointerDown(event) {
   var hero = event.currentTarget;
   if (event.button !== 0 || !fallState || !fallState.points) return;
 
+  var svg = hero.querySelector("svg");
+  if (!svg) return;
+
   var position = fallPosition(hero, event);
   if (!position) return;
 
-  var index = fallPointIndex(event);
+  var pointIndex = fallPointIndex(event);
+  var bendIndex = fallBendIndex(event);
 
-  if (index < 0) {
+  if (pointIndex >= 0) {
+    fallDrag = { kind: "point", hero: hero, index: pointIndex, pointerId: event.pointerId };
+  } else if (bendIndex >= 0) {
+    var rect = svg.getBoundingClientRect();
+    fallDrag = {
+      kind: "bend",
+      hero: hero,
+      index: bendIndex,
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      height: rect.height || 160,
+      startBend: fallState.points[bendIndex][2] || 0
+    };
+  } else {
     if (fallState.points.length >= 10) return;
 
     var point = [position.time, position.ratio, 0];
     fallState.points.push(point);
     fallState.points.sort(function (a, b) { return a[0] - b[0]; });
-    index = fallState.points.indexOf(point);
+    fallDrag = {
+      kind: "point",
+      hero: hero,
+      index: fallState.points.indexOf(point),
+      pointerId: event.pointerId
+    };
   }
 
-  fallDrag = { hero: hero, index: index, pointerId: event.pointerId };
   hero.dataset.busy = "1";
   if (hero.setPointerCapture) hero.setPointerCapture(event.pointerId);
   fallRender(hero);
@@ -69,6 +95,23 @@ function fallPointerMove(event) {
   if (!fallDrag) return;
 
   var hero = fallDrag.hero;
+
+  // A bend handle moves the curve, not the point: up spends the segment late,
+  // down spends it early, exactly the sign of the value the voice reads.
+  if (fallDrag.kind === "bend") {
+    var travel = (fallDrag.startY - event.clientY) / Math.max(fallDrag.height, 1) * 160;
+    // The sign follows the segment's slope, so the handle always follows the
+    // pointer: up bows the line up, whichever way the segment runs.
+    var left = fallDrag.index;
+    var points = fallState.points;
+    var direction = left + 1 < points.length && points[left + 1][1] > points[left][1] ? -1 : 1;
+
+    points[left][2] = clamp(fallDrag.startBend + travel * 0.09 * direction, -10, 10);
+    fallRender(hero);
+    event.preventDefault();
+    return;
+  }
+
   var position = fallPosition(hero, event);
   if (!position) return;
 
