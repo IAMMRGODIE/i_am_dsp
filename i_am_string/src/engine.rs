@@ -322,6 +322,8 @@ pub struct StringEngine {
 	max_voices: usize,
 	age: u64,
 	dc: [[f32; 2]; 2],
+	/// The one pole of the DC blocker, computed for this host rate.
+	dc_coefficient: f32,
 	/// Start the DC blocker on the first sample of a note that begins in
 	/// silence, so the string's static force is not heard as a thump.
 	prime_dc: bool,
@@ -421,6 +423,9 @@ impl StringEngine {
 			max_voices: 24,
 			age: 0,
 			dc: [[0.0; 2]; 2],
+			// Eleven hertz: below every note's fundamental, so only the static
+			// force is removed, and the same corner whatever the host rate.
+			dc_coefficient: (-std::f32::consts::TAU * 11.0 / sample_rate).exp(),
 			prime_dc: false,
 			body_left: Body::for_preset(preset, sample_rate, -1.0),
 			body_right: Body::for_preset(preset, sample_rate, 1.0),
@@ -714,7 +719,8 @@ impl StringEngine {
 				self.dc[channel] = [source, 0.0];
 			}
 
-			let blocked = source - self.dc[channel][0] + 0.9985 * self.dc[channel][1];
+			let blocked =
+				source - self.dc[channel][0] + self.dc_coefficient * self.dc[channel][1];
 			self.dc[channel][0] = source;
 			self.dc[channel][1] = blocked;
 
