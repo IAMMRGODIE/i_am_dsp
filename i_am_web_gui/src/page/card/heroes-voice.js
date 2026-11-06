@@ -365,10 +365,16 @@
     var modeName = ["SAMPLE", "SLICE", "GRAIN"][Math.min(Math.max(mode, 0), 2)];
 
     if (!sample || !sample.peaks || !sample.peaks.length) {
+      // Labels are HTML: text inside the stretched SVG changes shape with the
+      // window.
       return heroSvg(
-        '<text x="260" y="84" fill="#6a6a6a" font-size="12" text-anchor="middle">' +
-        (sample && sample.error ? String(sample.error).slice(0, 60) : "drop a sample") + '</text>'
-      ) + '<div class="hero-label" style="top:4%">SAMPLE</div>';
+        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c"/>'
+      ) +
+        '<div class="hero-empty" style="color:' +
+        (sample && sample.error ? "#ff7a6b" : "#8a8a8a") + '">' +
+        escapeXml(sample && sample.error ? String(sample.error).slice(0, 60) : "drop a sample") +
+        '</div>' +
+        '<div class="hero-label" style="top:4%">SAMPLE</div>';
     }
 
     // The window of the sample the picture shows: the wheel narrows it, so a
@@ -441,6 +447,31 @@
     var pingpong = valueOf(values, "oscillator.pingpong", 0) > 0.5;
     var on = ' style="color:var(--accent)"';
 
+    // The grain mode's picture: the spray the grains are thrown over, and a few
+    // grain windows inside it.
+    if (mode === 2) {
+      var position = clamp(valueOf(values, "oscillator.position", 0), 0, 1);
+      var spray = clamp(valueOf(values, "oscillator.spray", 0), 0, 1);
+      var grainSize = clamp(valueOf(values, "oscillator.grain_size", 0.06), 0.001, 1);
+      var total = sample.rate ? sample.samples / sample.rate : 0;
+      var half = clamp(grainSize / Math.max(total, 0.001), 0.002, 1) * 240 / span;
+      var bandFrom = clamp(position - spray / 2, 0, 1);
+      var bandTo = clamp(position + spray / 2, 0, 1);
+      var offsets = [-0.42, 0.06, 0.38, -0.18, 0.22];
+
+      markers += '<rect x="' + mapX(bandFrom).toFixed(1) + '" y="14" width="' +
+        ((bandTo - bandFrom) * 480 / span).toFixed(1) +
+        '" height="132" fill="var(--accent)" fill-opacity="0.06"/>';
+
+      for (var grain = 0; grain < offsets.length; grain++) {
+        var x = mapX(clamp(position + offsets[grain] * spray, 0, 1));
+
+        markers += '<path d="M ' + (x - half).toFixed(1) + ' 146 Q ' + x.toFixed(1) + ' 46 ' +
+          (x + half).toFixed(1) + ' 146" fill="none" stroke="var(--accent)" ' +
+          'stroke-opacity="0.45" vector-effect="non-scaling-stroke"/>';
+      }
+    }
+
     var startX = mapX(clamp(valueOf(values, "oscillator.start", 0), 0, 1));
     var startMark = "";
 
@@ -450,14 +481,15 @@
     }
 
     return heroSvg(
-      region + markers + startMark + bars +
-      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c" stroke-dasharray="3 5"/>'
+      region + markers + startMark +
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2c2c2c" stroke-dasharray="3 5"/>' +
+      bars
     ) +
       '<div class="hero-label" style="top:4%">SAMPLE</div>' +
       '<div class="hero-label" style="top:4%; left:auto; right:14px">' + caption + '</div>' +
       '<div class="hero-actions">' +
         '<button type="button" class="hero-action" data-action="load">LOAD</button>' +
-        '<button type="button" class="hero-action" data-action="slice">SLICE</button>' +
+        (mode === 1 ? '<button type="button" class="hero-action" data-action="slice">SLICE</button>' : '') +
         '<button type="button" class="hero-action" data-action="loop"' + (loop ? on : '') + '>LOOP</button>' +
         '<button type="button" class="hero-action" data-action="pingpong"' + (pingpong ? on : '') + '>PINGPONG</button>' +
         '<button type="button" class="hero-action" data-action="reverse"' + (reverse ? on : '') + '>REVERSE</button>' +

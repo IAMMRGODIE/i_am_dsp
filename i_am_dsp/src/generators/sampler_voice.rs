@@ -161,6 +161,10 @@ pub struct SamplerVoice {
 	density: f32,
 	spray: f32,
 	grain_pitch: f32,
+	/// How fast the grain cloud walks through the sample, in lengths per second.
+	grain_scan: f32,
+	/// How far the grains spread across the two channels.
+	grain_spread: f32,
 	gain: f32,
 	pan: f32,
 	polarity: bool,
@@ -201,6 +205,8 @@ impl SamplerVoice {
 			density: 12.0,
 			spray: 0.2,
 			grain_pitch: 0.0,
+			grain_scan: 0.0,
+			grain_spread: 0.0,
 			gain: 1.0,
 			pan: 0.0,
 			polarity: false,
@@ -335,18 +341,23 @@ impl SamplerVoice {
 		self.read(data, position)
 	}
 
-	/// Plays a cloud of overlapping grains, walked forward from the position.
-	fn play_grains(&self, data: &SampleData, elapsed: f32) -> f32 {
+	/// Plays a cloud of overlapping grains, walked through the sample and
+	/// spread across the two channels.
+	fn play_grains(&self, data: &SampleData, elapsed: f32) -> [f32; 2] {
 		const GRAINS: i64 = 8;
 
 		let length = data.pcm.len() as f32;
 		let size = self.grain_size.clamp(0.005, 0.5);
 		let density = self.density.clamp(0.5, 200.0);
-		let base = self.position.clamp(0.0, 1.0) * length;
+		let drift = (self.position.clamp(0.0, 1.0) + elapsed * self.grain_scan.clamp(-4.0, 4.0))
+			.rem_euclid(1.0);
+		let base = drift * length;
 		let spray = self.spray.clamp(0.0, 1.0) * length;
 		let ratio = 2.0_f32.powf(self.grain_pitch.clamp(-24.0, 24.0) / 12.0) * self.pitch_ratio();
+		let spread = self.grain_spread.clamp(0.0, 1.0);
 		let current = (elapsed * density).floor() as i64;
-		let mut sum = 0.0;
+		let mut left = 0.0;
+		let mut right = 0.0;
 
 		for offset in 0..GRAINS {
 			let index = current - offset;
@@ -359,11 +370,17 @@ impl SamplerVoice {
 
 			let window = 0.5 - 0.5 * (std::f32::consts::TAU * age / size).cos();
 			let position = base + hash(index) * spray + age * data.rate as f32 * ratio;
+			let value = self.read(data, position) * window;
+			let pan = (hash(index ^ 0x5bd1_e995) * 2.0 - 1.0) * spread;
+			let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
 
-			sum += self.read(data, position) * window;
+			left += value * angle.cos() * std::f32::consts::SQRT_2;
+			right += value * angle.sin() * std::f32::consts::SQRT_2;
 		}
 
-		sum / (GRAINS as f32).sqrt()
+		let norm = (GRAINS as f32).sqrt();
+
+		[left / norm, right / norm]
 	}
 }
 
@@ -448,16 +465,16 @@ impl Parameters for SamplerVoice {
 				"Slice Marks",
 				self.slice_mode,
 				&["Grid", "Transient"],
-				"Slice",
-				0,
+				"Sample",
+				7,
 			),
 			knob(
 				"slice_start",
 				"Slice Start",
 				self.slice_start,
 				0.0..=1.0,
-				"Slice",
-				1,
+				"Sample",
+				8,
 				Unit::None,
 			),
 			knob(
@@ -465,8 +482,8 @@ impl Parameters for SamplerVoice {
 				"Slice Step",
 				self.slice_step,
 				0.005..=1.0,
-				"Slice",
-				2,
+				"Sample",
+				9,
 				Unit::None,
 			),
 			toggle("pingpong", "Pingpong", self.pingpong, "Loop", 4),
@@ -475,8 +492,8 @@ impl Parameters for SamplerVoice {
 				"Position",
 				self.position,
 				0.0..=1.0,
-				"Grain",
-				0,
+				"Sample",
+				10,
 				Unit::None,
 			),
 			knob(
@@ -484,8 +501,8 @@ impl Parameters for SamplerVoice {
 				"Grain",
 				self.grain_size,
 				0.005..=0.5,
-				"Grain",
-				1,
+				"Sample",
+				11,
 				Unit::Seconds,
 			),
 			knob(
@@ -493,8 +510,8 @@ impl Parameters for SamplerVoice {
 				"Density",
 				self.density,
 				0.5..=200.0,
-				"Grain",
-				2,
+				"Sample",
+				12,
 				Unit::None,
 			),
 			knob(
@@ -502,8 +519,8 @@ impl Parameters for SamplerVoice {
 				"Spray",
 				self.spray,
 				0.0..=1.0,
-				"Grain",
-				3,
+				"Sample",
+				13,
 				Unit::None,
 			),
 			knob(
@@ -511,9 +528,27 @@ impl Parameters for SamplerVoice {
 				"Grain Pitch",
 				self.grain_pitch,
 				-24.0..=24.0,
-				"Grain",
-				4,
+				"Sample",
+				14,
 				Unit::None,
+			),
+			knob(
+				"grain_scan",
+				"Scan",
+				self.grain_scan,
+				-1.0..=1.0,
+				"Sample",
+				15,
+				Unit::None,
+			),
+			knob(
+				"grain_spread",
+				"Spread",
+				self.grain_spread,
+				0.0..=1.0,
+				"Sample",
+				16,
+				Unit::Percent,
 			),
 			knob(
 				"start",
@@ -631,6 +666,8 @@ impl Parameters for SamplerVoice {
 			"density" => set_float(&mut self.density, value),
 			"spray" => set_float(&mut self.spray, value),
 			"grain_pitch" => set_float(&mut self.grain_pitch, value),
+			"grain_scan" => set_float(&mut self.grain_scan, value),
+			"grain_spread" => set_float(&mut self.grain_spread, value),
 			"start" => set_float(&mut self.start, value),
 			"gain" => set_float(&mut self.gain, value),
 			"pan" => set_float(&mut self.pan, value),
@@ -663,18 +700,18 @@ impl Oscillator<2> for SamplerVoice {
 		// playing are the cycles divided by the note's frequency.
 		let pitch = if self.pitch > 1.0 { self.pitch } else { 1.0 };
 		let elapsed = time / pitch;
-		let value = match self.mode {
-			1 => self.play_slice(&data, elapsed),
+		let voice = match self.mode {
+			1 => [self.play_slice(&data, elapsed); 2],
 			2 => self.play_grains(&data, elapsed),
-			_ => self.play_sample(&data, elapsed),
+			_ => [self.play_sample(&data, elapsed); 2],
 		};
 		// Equal power panning, normalized so the middle is unity on both sides.
 		let angle = (self.pan.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
-		let gain = value * self.gain * if self.polarity { -1.0 } else { 1.0 };
+		let gain = self.gain * if self.polarity { -1.0 } else { 1.0 };
 
 		[
-			gain * angle.cos() * std::f32::consts::SQRT_2,
-			gain * angle.sin() * std::f32::consts::SQRT_2,
+			voice[0] * gain * angle.cos() * std::f32::consts::SQRT_2,
+			voice[1] * gain * angle.sin() * std::f32::consts::SQRT_2,
 		]
 	}
 
@@ -752,6 +789,29 @@ mod tests {
 		}
 
 		assert!(values.iter().any(|value| value.abs() > 1e-4), "{values:?}");
+	}
+
+	/// The grains can spread across the two channels.
+	#[test]
+	fn the_grains_spread_across_the_channels() {
+		let mut voice = voice(2);
+		voice.density = 40.0;
+		voice.grain_size = 0.05;
+		voice.grain_spread = 1.0;
+
+		let mut different = false;
+
+		for index in 0..4_800 {
+			let [left, right] =
+				Oscillator::<2>::play_at(&voice, 1.0, index as f32 / 48_000.0 * 261.63, [0.0, 0.0]);
+
+			if (left - right).abs() > 1e-3 {
+				different = true;
+				break;
+			}
+		}
+
+		assert!(different, "the grains stayed mono");
 	}
 
 	/// A ringing loop walks back instead of jumping to its start.

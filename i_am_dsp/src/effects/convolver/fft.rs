@@ -635,11 +635,15 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 	/// Panics if `CHANNELS` is 0.
 	pub fn new(ir: [Vec<f32>; CHANNELS], sample_rate: usize) -> Self {
 		assert!(CHANNELS > 0, "CHANNELS must be greater than 0");
+		// The wet path is scaled per channel, so the energy that matters is one
+		// channel's average: summing the channels would make a stereo response
+		// three decibels quieter than the same response in mono.
 		let ir_energy = ir
 			.iter()
 			.flatten()
 			.map(|sample| sample * sample)
-			.sum::<f32>();
+			.sum::<f32>()
+			/ CHANNELS as f32;
 		Self {
 			#[cfg(feature = "real_time_demo")]
 			ir: ir.clone(),
@@ -689,7 +693,8 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 			.iter()
 			.flatten()
 			.map(|sample| sample * sample)
-			.sum::<f32>();
+			.sum::<f32>()
+			/ CHANNELS as f32;
 		self.normalization = 1.0;
 
 		#[cfg(feature = "real_time_demo")]

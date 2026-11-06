@@ -32,10 +32,51 @@ const PEAKS: usize = 512;
 
 /// The sampler face's tabs: the sample, the envelope, and the voice's unisons.
 const SAMPLER_PAGES: &[Page] = &[
-	Page::new("Sample", &["Sample", "Loop"]),
-	Page::new("Modes", &["Slice", "Grain"]),
+	Page::new("Sample", &["Sample"]),
 	Page::new("Envelope", &["Envelope"]),
 	Page::new("Voice", &["Voice"]),
+];
+
+/// The controls each mode needs. Everything else on the face belongs to the
+/// envelope or the voice and stays where it is; the mode only decides which of
+/// the sample controls the page shows.
+const SAMPLER_VISIBLE: &[(i32, &[&str])] = &[
+	(
+		0,
+		&[
+			"oscillator.root",
+			"oscillator.speed",
+			"oscillator.start",
+			"oscillator.gain",
+			"oscillator.pan",
+		],
+	),
+	(
+		1,
+		&[
+			"oscillator.root",
+			"oscillator.speed",
+			"oscillator.gain",
+			"oscillator.pan",
+			"oscillator.slice_mode",
+			"oscillator.slice_start",
+			"oscillator.slice_step",
+		],
+	),
+	(
+		2,
+		&[
+			"oscillator.gain",
+			"oscillator.pan",
+			"oscillator.position",
+			"oscillator.grain_size",
+			"oscillator.density",
+			"oscillator.spray",
+			"oscillator.grain_pitch",
+			"oscillator.grain_scan",
+			"oscillator.grain_spread",
+		],
+	),
 ];
 
 /// The per-stage sync switches stay the host's: the face has one for the envelope.
@@ -104,6 +145,8 @@ struct SamplePreview {
 pub fn sampler_faceplate() -> Faceplate {
 	Faceplate::new(SAMPLER_TITLE, SAMPLER_ACCENT, SAMPLER_SIZE)
 		.with_pages(SAMPLER_PAGES)
+		.with_mode("oscillator.mode")
+		.with_visible(SAMPLER_VISIBLE)
 		.with_header(&["sync"])
 		.with_switches(SAMPLER_SWITCHES)
 		.with_hidden(SAMPLER_HIDDEN)

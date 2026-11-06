@@ -95,11 +95,22 @@ impl IrData {
 	}
 }
 
+/// How much of the response is faded in and out, as fractions of its length.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IrFades {
+	/// The faded-in part of the response.
+	pub fade_in: f32,
+	/// The faded-out part of the response.
+	pub fade_out: f32,
+}
+
 /// What the page and the audio thread share: the current IR, its generation, the
 /// host rate, and the last loading error.
 pub struct IrSlot {
 	current: Mutex<Option<Arc<IrData>>>,
 	error: Mutex<Option<String>>,
+	fades: Mutex<IrFades>,
+	fade_generation: AtomicU64,
 	generation: AtomicU64,
 	rate: AtomicUsize,
 	/// Whether the native picker is open right now.
@@ -118,6 +129,8 @@ impl IrSlot {
 		Self {
 			current: Mutex::new(None),
 			error: Mutex::new(None),
+			fades: Mutex::new(IrFades::default()),
+			fade_generation: AtomicU64::new(0),
 			generation: AtomicU64::new(0),
 			rate: AtomicUsize::new(44_100),
 			pending: AtomicBool::new(false),
@@ -148,6 +161,24 @@ impl IrSlot {
 	/// Marks the native picker as open or finished.
 	pub fn set_pending(&self, pending: bool) {
 		self.pending.store(pending, Ordering::Relaxed);
+	}
+
+	/// The fades the response is played with.
+	pub fn fades(&self) -> IrFades {
+		self.fades.lock().map(|fades| *fades).unwrap_or_default()
+	}
+
+	/// Stores the fades and bumps their generation, so the audio thread rebuilds.
+	pub fn set_fades(&self, fades: IrFades) {
+		if let Ok(mut current) = self.fades.lock() {
+			*current = fades;
+			self.fade_generation.fetch_add(1, Ordering::Release);
+		}
+	}
+
+	/// The generation of the fades.
+	pub fn fade_generation(&self) -> u64 {
+		self.fade_generation.load(Ordering::Acquire)
 	}
 
 	/// The current impulse response, if one is loaded.
@@ -184,7 +215,9 @@ impl IrSlot {
 		let Some(ir) = self.load() else {
 			let error = self.error();
 			return format!(
-				"{{\"name\":null,\"rate\":0,\"samples\":0,\"peaks\":[],\"error\":{},\"pending\":{}}}",
+				"{{\"name\":null,\"rate\":0,\"samples\":0,\"peaks\":[],\"fade_in\":{},\"fade_out\":{},\"error\":{},\"pending\":{}}}",
+				self.fades().fade_in,
+				self.fades().fade_out,
 				match error {
 					Some(error) => format!("\"{}\"", json_escape(&error)),
 					None => "null".to_string(),
@@ -202,11 +235,13 @@ impl IrSlot {
 		}
 
 		format!(
-			"{{\"name\":\"{}\",\"rate\":{},\"samples\":{},\"peaks\":[{}],\"error\":null,\"pending\":{}}}",
+			"{{\"name\":\"{}\",\"rate\":{},\"samples\":{},\"peaks\":[{}],\"fade_in\":{},\"fade_out\":{},\"error\":null,\"pending\":{}}}",
 			json_escape(&ir.name),
 			ir.rate,
 			ir.samples(),
 			peaks,
+			self.fades().fade_in,
+			self.fades().fade_out,
 			self.is_pending(),
 		)
 	}
@@ -231,6 +266,13 @@ pub struct ConvolverEffect {
 	#[layout(group = "Convolver", order = 1, widget = knob, size = large, hero = "impulse")]
 	pub wet_gain: f32,
 
+	/// How much of the response is faded in and out. The picture drags it, and it
+	/// is saved with the state: a fade rebuilds the convolution, so it must not be
+	/// a parameter a host can automate.
+	#[serde]
+	#[id(display = "Fades")]
+	pub fades: IrFades,
+
 	/// The impulse response, saved with the plug-in state.
 	#[serde]
 	#[id(display = "Impulse Response")]
@@ -240,6 +282,8 @@ pub struct ConvolverEffect {
 	slot: Arc<IrSlot>,
 	#[skip]
 	convolver: Option<FftConvolver<2>>,
+	#[skip]
+	seen_fades: u64,
 	#[skip]
 	sample_rate: usize,
 	/// The fingerprint of the IR the convolution was built from.
@@ -256,9 +300,11 @@ impl ConvolverEffect {
 		Self {
 			dry_gain: 0.0,
 			wet_gain: 1.0,
+			fades: IrFades::default(),
 			ir: None,
 			slot,
 			convolver: None,
+			seen_fades: 0,
 			sample_rate,
 			adopted: 0,
 			seen_slot: 0,
@@ -272,22 +318,49 @@ impl ConvolverEffect {
 			return;
 		};
 
-		let left = if ir.left.is_empty() {
+		let mut left = if ir.left.is_empty() {
 			ir.right.clone()
 		} else {
 			ir.left.clone()
 		};
-		let right = if ir.right.is_empty() {
+		let mut right = if ir.right.is_empty() {
 			left.clone()
 		} else {
 			ir.right.clone()
 		};
 
+		fade_edges(&mut left, self.fades.fade_in, self.fades.fade_out);
+		fade_edges(&mut right, self.fades.fade_in, self.fades.fade_out);
+
 		let mut convolver = FftConvolver::<2>::new([left, right], self.sample_rate);
 		// The dry/wet balance is applied around the convolver, so its own gains are neutral.
 		convolver.dry_gain = 0.0;
 		convolver.wet_gain = 1.0;
+		// An IR of peak 1 grows in energy as the room or the tail grows; without
+		// this the same Wet setting would be much louder for a long response.
+		convolver.normalize_energy();
 		self.convolver = Some(convolver);
+	}
+
+	/// Takes the fades from the slot, or publishes the ones a state load brought.
+	fn adopt_fades(&mut self) {
+		let generation = self.slot.fade_generation();
+
+		if generation != self.seen_fades {
+			// The picture moved a fade: adopt it into the saved parameter.
+			self.seen_fades = generation;
+			let fades = self.slot.fades();
+
+			if fades != self.fades {
+				self.fades = fades;
+				self.build();
+			}
+		} else if self.slot.fades() != self.fades {
+			// A state load brought different values: hand them to the picture too.
+			self.slot.set_fades(self.fades);
+			self.seen_fades = self.slot.fade_generation();
+			self.build();
+		}
 	}
 
 	/// Takes a new IR from the slot or from the saved state, whichever changed.
@@ -340,6 +413,8 @@ impl Effect<2> for ConvolverEffect {
 	) {
 		self.adopt();
 
+		self.adopt_fades();
+
 		let Some(convolver) = &mut self.convolver else {
 			// No impulse response: the dry signal passes, which is what a convolver
 			// with nothing to convolve with should sound like.
@@ -355,6 +430,31 @@ impl Effect<2> for ConvolverEffect {
 		for (channel, sample) in samples.iter_mut().enumerate() {
 			*sample = dry[channel] * dry_gain + *sample * wet_gain;
 		}
+	}
+}
+
+/// Fades the ends of a response with a raised cosine, so the curve has no
+/// corner where it meets the untouched part.
+fn fade_edges(samples: &mut [f32], fade_in: f32, fade_out: f32) {
+	let len = samples.len();
+
+	if len < 4 {
+		return;
+	}
+
+	let fade_in = (fade_in.clamp(0.0, 1.0) * len as f32) as usize;
+	let fade_out = (fade_out.clamp(0.0, 1.0) * len as f32) as usize;
+
+	for (index, sample) in samples.iter_mut().enumerate().take(fade_in.min(len)) {
+		let phase = index as f32 / fade_in as f32;
+
+		*sample *= 0.5 - 0.5 * (std::f32::consts::PI * phase).cos();
+	}
+
+	for (index, sample) in samples.iter_mut().rev().enumerate().take(fade_out.min(len)) {
+		let phase = index as f32 / fade_out as f32;
+
+		*sample *= 0.5 - 0.5 * (std::f32::consts::PI * phase).cos();
 	}
 }
 
@@ -592,6 +692,21 @@ fn ir_route(request: &ProtocolRequest<'_>, slot: &IrSlot) -> Option<ProtocolResp
 
 	match request.method {
 		"POST" => {
+			// A fade edit from the picture carries the fades in the query; the
+			// upload path carries no fade names.
+			if let Some(query) = request.query
+				&& let (Some(fade_in), Some(fade_out)) = (
+					query_value(query, "fade_in").and_then(|value| value.parse::<f32>().ok()),
+					query_value(query, "fade_out").and_then(|value| value.parse::<f32>().ok()),
+				) {
+				slot.set_fades(IrFades {
+					fade_in: fade_in.clamp(0.0, 1.0),
+					fade_out: fade_out.clamp(0.0, 1.0),
+				});
+
+				return Some(ProtocolResponse::json("{\"ok\":true}"));
+			}
+
 			let name = request
 				.query
 				.and_then(|query| query.strip_prefix("name="))
@@ -616,6 +731,15 @@ fn ir_route(request: &ProtocolRequest<'_>, slot: &IrSlot) -> Option<ProtocolResp
 		"GET" => Some(ProtocolResponse::json(slot.json())),
 		_ => Some(ProtocolResponse::not_found()),
 	}
+}
+
+/// One value out of a query string like name=a%20b&fade_in=0.1.
+fn query_value<'a>(query: &'a str, key: &str) -> Option<&'a str> {
+	query.split('&').find_map(|part| {
+		let (name, value) = part.split_once('=')?;
+
+		(name == key).then_some(value)
+	})
 }
 
 /// Decodes `%20`-style escapes; the page sends names with `encodeURIComponent`.
@@ -999,6 +1123,76 @@ mod tests {
 
 		assert!((frame[0] - 0.75).abs() < 0.01, "{}", frame[0]);
 		assert!((frame[1] + 0.75).abs() < 0.01, "{}", frame[1]);
+	}
+
+	/// The fades are state, not controls: a host cannot automate them, and a
+	/// project carries them.
+	#[test]
+	fn the_fades_are_state_not_a_control() {
+		let mut effect = ConvolverEffect::new(48_000, Arc::new(IrSlot::new()));
+		effect.fades = IrFades {
+			fade_in: 0.2,
+			fade_out: 0.1,
+		};
+
+		let parameter = effect
+			.get_parameters()
+			.into_iter()
+			.find(|parameter| parameter.identifier == "fades")
+			.expect("the fades are part of the state");
+		let SetValue::Serialized(bytes) = parameter.value.to_set_value() else {
+			panic!("the fades were not serialized");
+		};
+
+		let mut fresh = ConvolverEffect::new(48_000, Arc::new(IrSlot::new()));
+		assert!(fresh.set_parameter("fades", SetValue::Serialized(bytes)));
+		assert_eq!(
+			fresh.fades,
+			IrFades {
+				fade_in: 0.2,
+				fade_out: 0.1
+			}
+		);
+	}
+
+	/// A state load hands the fades back to the picture, which is what the hero
+	/// draws and what a drag starts from.
+	#[test]
+	fn a_state_load_publishes_the_fades_to_the_picture() {
+		let slot = Arc::new(IrSlot::new());
+		let mut effect = ConvolverEffect::new(48_000, slot.clone());
+		effect.fades = IrFades {
+			fade_in: 0.25,
+			fade_out: 0.5,
+		};
+
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut frame = [0.0, 0.0];
+		effect.process(&mut frame, &[], &mut context);
+
+		assert_eq!(
+			slot.fades(),
+			IrFades {
+				fade_in: 0.25,
+				fade_out: 0.5
+			}
+		);
+	}
+
+	#[test]
+	fn the_fades_soften_both_ends_of_the_response() {
+		let mut samples = vec![1.0_f32; 100];
+
+		fade_edges(&mut samples, 0.5, 0.5);
+
+		assert!(samples[0].abs() < 1e-3, "{}", samples[0]);
+		assert!(samples[99].abs() < 1e-3, "{}", samples[99]);
+		assert!(samples[50] > 0.99, "{}", samples[50]);
+		assert!(
+			samples[25] > 0.1 && samples[25] < 0.9,
+			"the inside of the fade is not a curve: {}",
+			samples[25]
+		);
 	}
 
 	#[test]

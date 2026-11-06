@@ -11,9 +11,31 @@
       }
     }
 
+    // A mode list names the controls of the mode's own section; the envelope and
+    // the voice are not part of it and must not be swept away.
+    var touched = [];
+
+    if (ids) {
+      ids.forEach(function (id) {
+        var control = controls[id];
+
+        if (!control || !control.el) return;
+
+        var section = control.el.closest(".section");
+
+        if (section && touched.indexOf(section) < 0) touched.push(section);
+      });
+    }
+
     Object.keys(controls).forEach(function (id) {
       var control = controls[id];
       if (!control.el || id === face.mode) return;
+
+      if (touched.length) {
+        var section = control.el.closest(".section");
+
+        if (!section || touched.indexOf(section) < 0) return;
+      }
 
       var show = !ids || ids.indexOf(id) >= 0;
       control.el.style.display = show ? "" : "none";

@@ -91,7 +91,7 @@
   /// The loaded impulse response, with its picture. The product owns /ir; the
   /// preview server does not, so a failed fetch just leaves the empty hero.
   function pollIr() {
-    if (document.hidden || !wantsIr) {
+    if (document.hidden || !wantsIr || irDragging) {
       setTimeout(pollIr, 500);
       return;
     }

@@ -325,7 +325,7 @@
 
             if (samplerDrag.mode === "mark") {
               var list = (sampleState.slices || []).filter(function (mark) {
-                return Math.abs(mark - samplerDrag.from) > 1e-6;
+                return Math.abs(mark - samplerDrag.to) > 1e-6;
               });
 
               list.push(x);
@@ -476,9 +476,75 @@
         }
 
         if (section.hero === "impulse") {
-          hero.title = "Load an impulse response: click, or drop an audio file";
+          hero.title = "Load an impulse response: click or drop a file; drag the dots to fade its ends";
           acceptDrop(hero, postIr);
-          hero.addEventListener("click", function () {
+
+          var fadeDrag = null;
+          var fadeMoved = false;
+          var suppressIrClick = false;
+
+          var irX = function (event) {
+            var rect = hero.getBoundingClientRect();
+            var across = (event.clientX - rect.left) / rect.width;
+
+            return clamp((across * 520 - 20) / 480, 0, 1);
+          };
+
+          hero.addEventListener("pointerdown", function (event) {
+            if (!irState || !irState.peaks || !irState.peaks.length) return;
+
+            var rect = hero.getBoundingClientRect();
+
+            // The dots ride the envelope's top corners, so only a press up there
+            // starts a fade; a press on the body still asks for the picker.
+            if ((event.clientY - rect.top) / rect.height > 0.4) return;
+
+            var x = irX(event);
+            var fadeIn = clamp(irState.fade_in || 0, 0, 1);
+            var fadeOut = clamp(irState.fade_out || 0, 0, 1);
+
+            if (Math.abs(x - fadeIn) < 0.03) fadeDrag = "in";
+            else if (Math.abs(x - (1 - fadeOut)) < 0.03) fadeDrag = "out";
+            else return;
+
+            fadeMoved = false;
+            irDragging = true;
+            event.preventDefault();
+            event.stopPropagation();
+          });
+
+          hero.addEventListener("pointermove", function (event) {
+            if (!fadeDrag) return;
+
+            var x = irX(event);
+
+            if (fadeDrag === "in") irState.fade_in = clamp(x, 0, 1);
+            else irState.fade_out = clamp(1 - x, 0, 1);
+
+            fadeMoved = true;
+            markDirty();
+          });
+
+          hero.addEventListener("pointerup", function () {
+            if (!fadeDrag) return;
+
+            fadeDrag = null;
+            irDragging = false;
+
+            if (!fadeMoved) return;
+
+            fadeMoved = false;
+            suppressIrClick = true;
+            setTimeout(function () { suppressIrClick = false; }, 250);
+            fetch("/ir?fade_in=" + irState.fade_in + "&fade_out=" + irState.fade_out, {
+              method: "POST",
+              body: "fades"
+            }).catch(function () {});
+          });
+
+          hero.addEventListener("click", function (event) {
+            if (suppressIrClick) return;
+
             // In a host, ask Rust for a native dialog owned by the DAW. The
             // browser's own file input has no owner there, which is why its
             // picker can open behind the window or appear not to open at all.
@@ -540,15 +606,22 @@
       var initialMode = Math.round(controls[modeSpec.id].value);
       applyVisibility(initialMode);
 
-      // applyVisibility also covers the header, but re-apply it directly here so
-      // a header choice built just before the body is hidden on the first paint.
+      // A header control is mode-specific only when some mode lists it; the rest
+      // (an envelope's sync, say) belong to the face and stay put.
       if (face.visible) {
         var initialIds = null;
+        var listed = {};
+
         face.visible.forEach(function (row) {
+          (row[1] || []).forEach(function (id) { listed[id] = true; });
           if (row[0] === initialMode) initialIds = row[1];
         });
+
         headerSpecs.forEach(function (spec) {
           var control = controls[spec.id];
+
+          if (!listed[spec.id]) return;
+
           if (control && control.el && initialIds && initialIds.indexOf(spec.id) < 0) {
             control.el.style.display = "none";
           }

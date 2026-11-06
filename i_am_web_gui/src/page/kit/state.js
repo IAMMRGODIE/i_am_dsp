@@ -40,6 +40,8 @@ var sampleState = null;
 var sampleView = { from: 0, to: 1 };
 // True while a slice mark is being dragged, so the poll leaves the picture alone.
 var sampleDragging = false;
+// True while an IR fade dot is being dragged, for the same reason.
+var irDragging = false;
 var wantsTable = false;
 var tableInput = null;
 var irState = null;

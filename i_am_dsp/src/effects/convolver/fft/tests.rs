@@ -14,7 +14,8 @@ fn the_energy_normalization_scales_the_wet() {
 	let mut context: Box<dyn ProcessContext> = Box::new(());
 	convolver.process(&mut samples, &[], &mut context);
 
-	assert!((samples[0] - 0.5).abs() < 1e-4, "{samples:?}");
+	// One channel's energy is 2, so the wet path is scaled by 1/sqrt(2).
+	assert!((samples[0] - 0.5_f32.sqrt()).abs() < 1e-4, "{samples:?}");
 }
 
 fn direct_conv(x: &[f32], h: &[f32]) -> Vec<f32> {
@@ -27,6 +28,35 @@ fn direct_conv(x: &[f32], h: &[f32]) -> Vec<f32> {
 		}
 	}
 	y
+}
+
+/// A long response carries more energy at the same peak, so the energy scale has
+/// to grow with it: the wet energy stays at the input's for every length.
+#[test]
+fn the_energy_normalization_holds_for_long_responses() {
+	for length in [16usize, 4096] {
+		let ir = [vec![1.0f32; length], vec![1.0f32; length]];
+		let mut convolver = FftConvolver::<2>::new(ir, 48_000);
+
+		convolver.normalize_energy();
+		convolver.dry_gain = 0.0;
+		convolver.wet_gain = 1.0;
+
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut total = 0.0;
+
+		for index in 0..(length + 64) {
+			let mut frame = if index == 0 { [1.0, 1.0] } else { [0.0, 0.0] };
+
+			convolver.process(&mut frame, &[], &mut context);
+			total += frame[0] * frame[0];
+		}
+
+		assert!(
+			(total - 1.0).abs() < 0.02,
+			"length {length} left {total} of energy"
+		);
+	}
 }
 
 /// delta IR: the FFT convolver must reproduce the input sample for sample.

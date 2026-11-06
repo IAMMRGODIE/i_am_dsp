@@ -283,11 +283,67 @@
 
     var seconds = ir.rate ? ir.samples / ir.rate : 0;
     var label = (ir.name || "impulse") + "  -  " + seconds.toFixed(2) + " s";
+    var fadeIn = clamp(ir.fade_in || 0, 0, 1);
+    var fadeOut = clamp(ir.fade_out || 0, 0, 1);
+    var ceiling = 22;
+    var floor = 146;
+
+    // The gain the two fades leave at a position: they multiply, so a fade that
+    // runs into the other one lifts the curve instead of crossing it.
+    var envelope = function (position) {
+      var gain = 1.0;
+
+      if (fadeIn > 0.0001 && position < fadeIn) {
+        gain *= 0.5 - 0.5 * Math.cos(Math.PI * position / fadeIn);
+      }
+
+      if (fadeOut > 0.0001) {
+        var fromEnd = 1 - position;
+
+        if (fromEnd < fadeOut) {
+          gain *= 0.5 - 0.5 * Math.cos(Math.PI * fromEnd / fadeOut);
+        }
+      }
+
+      return gain;
+    };
+
+    var curve = "";
+    var steps = 96;
+
+    for (var step = 0; step <= steps; step++) {
+      var position = step / steps;
+      var x = 20 + position * 480;
+      var y = floor - (floor - ceiling) * envelope(position);
+
+      curve += (step ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    var inX = 20 + fadeIn * 480;
+    var outX = 20 + (1 - fadeOut) * 480;
+    var inY = floor - (floor - ceiling) * envelope(fadeIn);
+    var outY = floor - (floor - ceiling) * envelope(1 - fadeOut);
+
+    // The fill closes along the floor; the outline stops at the two ends, so the
+    // bottom edge has no stroke of its own.
+    var fades =
+      '<path d="' + curve + ' L 500 ' + floor + ' L 20 ' + floor + ' Z" fill="var(--accent)" fill-opacity="0.10"/>' +
+      '<path d="' + curve + '" fill="none" stroke="var(--accent)" stroke-width="1.25" ' +
+        'vector-effect="non-scaling-stroke"/>' +
+      '<circle cx="' + inX.toFixed(1) + '" cy="' + inY.toFixed(1) +
+        '" r="4" fill="var(--accent)" stroke="#0e0e0e" stroke-width="1"/>' +
+      '<circle cx="' + outX.toFixed(1) + '" cy="' + outY.toFixed(1) +
+        '" r="4" fill="var(--accent)" stroke="#0e0e0e" stroke-width="1"/>';
+
+    if (fadeIn > 0.001 || fadeOut > 0.001) {
+      label += "  -  fade " + Math.round(fadeIn * 100) + "% / " + Math.round(fadeOut * 100) + "%";
+    }
 
     return heroSvg(
       '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f"/>' +
       '<path d="' + top + bottom + ' Z" fill="var(--accent)" fill-opacity=".14" stroke="' +
-        'var(--accent)" stroke-width="1" vector-effect="non-scaling-stroke"/>'
+        'var(--accent)" stroke-width="1" vector-effect="non-scaling-stroke"/>' +
+      fades
     ) + '<div class="hero-label" style="top:2%">' + escapeXml(label) + '</div>';
   }
 
