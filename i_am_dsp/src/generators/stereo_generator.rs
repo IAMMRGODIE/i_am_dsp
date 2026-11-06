@@ -74,7 +74,10 @@ impl StereoGenerator {
 		let mut last_node = self.start;
 
 		for node in &self.graph {
-			let len = calc_bezier_len(1.0, last_node, node.ctrl1, node.ctrl2, node.to);
+			let ctrl1 = (last_node.0 + node.ctrl1.0, last_node.1 + node.ctrl1.1);
+			let ctrl2 = (node.to.0 + node.ctrl2.0, node.to.1 + node.ctrl2.1);
+
+			let len = calc_bezier_len(1.0, last_node, ctrl1, ctrl2, node.to);
 			lengths.push(len);
 			last_node = node.to;
 		}
@@ -82,23 +85,28 @@ impl StereoGenerator {
 		let total_len: f32 = lengths.iter().sum();
 		let mut current_len = 0.0;
 		let step = total_len / (cache_length as f32 - 1.0);
+		let last_index = self.graph.len() - 1;
 		let mut current_node = 0;
 		let mut last_node = self.start;
+
 		for i in 0..cache_length {
-			let node = &self.graph[current_node];
-			let t = current_len / lengths[current_node];
-			let value = arc_length_bezier(t, last_node, node.ctrl1, node.ctrl2, node.to);
+			let index = current_node.min(last_index);
+			let node = &self.graph[index];
+			let length = lengths[index].max(f32::EPSILON);
+			// The last sample lands exactly on the last point, so the table ends
+			// where the curve does instead of falling to zero.
+			let t = (current_len / length).clamp(0.0, 1.0);
+			let ctrl1 = (last_node.0 + node.ctrl1.0, last_node.1 + node.ctrl1.1);
+			let ctrl2 = (node.to.0 + node.ctrl2.0, node.to.1 + node.ctrl2.1);
+			let value = arc_length_bezier(t, last_node, ctrl1, ctrl2, node.to);
 			self.cache_l[i] = value.0;
 			self.cache_r[i] = value.1;
 
 			current_len += step;
-			if current_len > lengths[current_node] {
-				current_len -= lengths[current_node];
+			if current_len > length && index < last_index {
+				current_len -= length;
 				current_node += 1;
 				last_node = node.to;
-				if current_node >= self.graph.len() {
-					break;
-				}
 			}
 		}
 	}
@@ -106,12 +114,18 @@ impl StereoGenerator {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 /// A Bezier curve node.
+///
+/// The control points are stored as offsets from the end they pull, not as
+/// absolute points: `ctrl1` is added to the previous point and `ctrl2` to
+/// `to`. Dragging an end point then carries its handles with it, which is what
+/// keeps the curve from kinking, and the offsets stay meaningful when a page is
+/// moved or scaled as a whole.
 pub struct Node {
-	/// the first control point of the node.
+	/// The first control point, as an offset from the segment's start.
 	pub ctrl1: (f32, f32),
-	/// the second control point of the node.
+	/// The second control point, as an offset from the segment's end.
 	pub ctrl2: (f32, f32),
-	/// the end point of the node.
+	/// The end point of the node.
 	pub to: (f32, f32),
 }
 
@@ -267,8 +281,9 @@ impl Oscillator<2> for StereoGenerator {
 
 					for (i, node) in self.graph.iter().enumerate() {
 						let to = Pos2::new(node.to.0, node.to.1);
-						let ctrl1 = to_screen * Pos2::new(node.ctrl1.0, node.ctrl1.1);
-						let ctrl2 = to_screen * Pos2::new(node.ctrl2.0, node.ctrl2.1);
+						let ctrl1 = to_screen
+							* Pos2::new(last_node.x + node.ctrl1.0, last_node.y + node.ctrl1.1);
+						let ctrl2 = to_screen * Pos2::new(to.x + node.ctrl2.0, to.y + node.ctrl2.1);
 
 						paint.push(Shape::line_segment(
 							[to_screen * last_node, ctrl1],
@@ -332,23 +347,15 @@ impl Oscillator<2> for StereoGenerator {
 							self.start.1 = y;
 						} else {
 							let i = i - 1;
-							// let last_node = if i == 0 { self.start } else { self.graph[i - 1].to };
+							let last_node = if i == 0 {
+								self.start
+							} else {
+								self.graph[i - 1].to
+							};
 							let node = &mut self.graph[i];
 							match j {
-								0 => {
-									// let t_x = (x - last_node.0) / (node.to.0 - last_node.0);
-									// let t_y = (y - last_node.1) / (node.to.1 - last_node.1);
-									// let t_x = t_x.clamp(0.0, 1.0);
-									// let t_y = t_y.clamp(0.0, 1.0);
-									node.ctrl1 = (x, y);
-								}
-								1 => {
-									// let t_x = (x - last_node.0) / (node.to.0 - last_node.0);
-									// let t_y = (y - last_node.1) / (node.to.1 - last_node.1);
-									// let t_x = t_x.clamp(0.0, 1.0);
-									// let t_y = t_y.clamp(0.0, 1.0);
-									node.ctrl2 = (x, y);
-								}
+								0 => node.ctrl1 = (x - last_node.0, y - last_node.1),
+								1 => node.ctrl2 = (x - node.to.0, y - node.to.1),
 								2 => node.to = (x, y),
 								_ => {}
 							}
@@ -371,8 +378,8 @@ impl Oscillator<2> for StereoGenerator {
 							self.graph[self.graph.len() - 1].to
 						};
 						self.graph.push(Node {
-							ctrl1: (0.5 * (x + last_node.0), last_node.1),
-							ctrl2: (0.5 * (x + last_node.0), y),
+							ctrl1: (0.5 * (x - last_node.0), 0.0),
+							ctrl2: (0.5 * (last_node.0 - x), 0.0),
 							to: (x, y),
 						});
 						self.update_cache(if self.cache_l.is_empty() {
@@ -508,5 +515,72 @@ impl Oscillator<2> for MultiStereoGenerators {
 					.push(self.generators[self.current_generator].clone());
 			}
 		});
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// A control point is an offset from the end it pulls: two handles on the
+	/// chord make a straight line, the simplest check of the resolution.
+	#[test]
+	fn a_handle_is_an_offset_from_its_end() {
+		let mut generator = StereoGenerator::new();
+		generator.start = (0.0, 0.0);
+		generator.graph = vec![Node {
+			ctrl1: (0.25, 0.0),
+			ctrl2: (-0.25, 0.0),
+			to: (1.0, 0.0),
+		}];
+		generator.update_cache(128);
+
+		assert!(generator.cache_l[0].abs() < 1e-4);
+		// The arc length search stops within its own epsilon, so the end lands
+		// near, not exactly on, the point.
+		assert!((generator.cache_l[127] - 1.0).abs() < 1e-2);
+		assert!(generator.cache_r.iter().all(|value| value.abs() < 1e-4));
+	}
+
+	/// The circle the face starts with: every sample of the cache has to sit on
+	/// the circle of that radius.
+	#[test]
+	fn a_circle_drawn_from_offsets_stays_a_circle() {
+		let radius = 0.8_f32;
+		let k = radius * 0.552_284_8;
+		let mut generator = StereoGenerator::new();
+		generator.start = (radius, 0.0);
+		generator.graph = vec![
+			Node {
+				ctrl1: (0.0, k),
+				ctrl2: (k, 0.0),
+				to: (0.0, radius),
+			},
+			Node {
+				ctrl1: (-k, 0.0),
+				ctrl2: (0.0, k),
+				to: (-radius, 0.0),
+			},
+			Node {
+				ctrl1: (0.0, -k),
+				ctrl2: (-k, 0.0),
+				to: (0.0, -radius),
+			},
+			Node {
+				ctrl1: (k, 0.0),
+				ctrl2: (0.0, -k),
+				to: (radius, 0.0),
+			},
+		];
+		generator.update_cache(512);
+
+		for (left, right) in generator.cache_l.iter().zip(&generator.cache_r) {
+			let distance = (left * left + right * right).sqrt();
+
+			assert!(
+				(distance - radius).abs() < 0.02,
+				"a sample sits at {distance}, not {radius}"
+			);
+		}
 	}
 }

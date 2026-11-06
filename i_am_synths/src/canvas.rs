@@ -64,14 +64,16 @@ const CANVAS_SWITCHES: &[Switch] = &[Switch::new(
 const CANVAS_CACHE: usize = 1024;
 
 /// One circle in the page's token form: start, node count, then six numbers per
-/// node (two controls and the end point).
+/// node (the two control point offsets and the end point).
 fn circle_tokens(radius: f32) -> String {
 	let k = radius * 0.552_284_8;
+	// The handles pull from the end they belong to, so every quarter of the
+	// circle stores the same pair of offsets.
 	let nodes = [
-		[radius, k, k, radius, 0.0, radius],
-		[-k, radius, -radius, k, -radius, 0.0],
-		[-radius, -k, -k, -radius, 0.0, -radius],
-		[k, -radius, radius, -k, radius, 0.0],
+		[0.0, k, k, 0.0, 0.0, radius],
+		[-k, 0.0, 0.0, k, -radius, 0.0],
+		[0.0, -k, -k, 0.0, 0.0, -radius],
+		[k, 0.0, 0.0, -k, radius, 0.0],
 	];
 	let mut text = format!("{radius} 0 4");
 
@@ -128,6 +130,8 @@ pub(crate) fn parse_canvas(text: &str) -> Result<Vec<StereoGenerator>, String> {
 		let mut graph = Vec::new();
 
 		for _ in 0..count {
+			// The two controls are offsets from the ends they pull: the first
+			// from the previous point, the second from this node's end.
 			graph.push(Node {
 				ctrl1: (next("control 1 x")?, next("control 1 y")?),
 				ctrl2: (next("control 2 x")?, next("control 2 y")?),

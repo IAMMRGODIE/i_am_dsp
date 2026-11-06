@@ -519,17 +519,62 @@
   function canvasPath(page) {
     var first = canvasPoint(page.start);
     var d = "M " + first[0].toFixed(1) + " " + first[1].toFixed(1);
+    var previous = page.start;
 
     page.nodes.forEach(function (node) {
-      var c1 = canvasPoint([node[0], node[1]]);
-      var c2 = canvasPoint([node[2], node[3]]);
+      // The six numbers are the two handle offsets and the end point: the
+      // handles are measured from the ends they pull, so they follow them.
+      var c1 = canvasPoint([previous[0] + node[0], previous[1] + node[1]]);
+      var c2 = canvasPoint([node[4] + node[2], node[5] + node[3]]);
       var to = canvasPoint([node[4], node[5]]);
+
       d += " C " + c1[0].toFixed(1) + " " + c1[1].toFixed(1) + " " +
         c2[0].toFixed(1) + " " + c2[1].toFixed(1) + " " +
         to[0].toFixed(1) + " " + to[1].toFixed(1);
+
+      previous = [node[4], node[5]];
     });
 
     return d;
+  }
+
+  /// The handles of one page and the lines that say which end each one pulls.
+  ///
+  /// Kept out of the hero so a drag can redraw this layer in place: the handles
+  /// belong to the ends they pull, and dragging an end has to move them with it.
+  function canvasHandles(page, index) {
+    var handle = function (node, part, point) {
+      var screen = canvasPoint(point);
+
+      return '<circle class="canvas-handle" data-page="' + index + '" data-node="' + node +
+        '" data-part="' + part + '" cx="' + screen[0].toFixed(1) + '" cy="' +
+        screen[1].toFixed(1) + '" r="4" fill="var(--accent)"/>';
+    };
+
+    var guide = function (from, to) {
+      var a = canvasPoint(from);
+      var b = canvasPoint(to);
+
+      return '<line x1="' + a[0].toFixed(1) + '" y1="' + a[1].toFixed(1) + '" x2="' +
+        b[0].toFixed(1) + '" y2="' + b[1].toFixed(1) + '" stroke="#777" ' +
+        'stroke-width="1" vector-effect="non-scaling-stroke"/>';
+    };
+
+    var markup = handle(-1, 0, page.start);
+    var previous = page.start;
+
+    page.nodes.forEach(function (node, nodeIndex) {
+      var control1 = [previous[0] + node[0], previous[1] + node[1]];
+      var control2 = [node[4] + node[2], node[5] + node[3]];
+      var end = [node[4], node[5]];
+
+      markup += handle(nodeIndex, 0, control1) + guide(previous, control1);
+      markup += handle(nodeIndex, 1, control2) + guide(end, control2);
+      markup += handle(nodeIndex, 2, end);
+      previous = end;
+    });
+
+    return markup;
   }
 
   /// The drawn pages. The left and right channels are the curve's x and y, so a
@@ -551,27 +596,7 @@
     var to = Math.min(from + 1, model.pages.length - 1);
     var blend = position - from;
     var selected = Math.min(Math.max(Math.round(position), 0), model.pages.length - 1);
-    var handle = function (page, node, part, point) {
-      var screen = canvasPoint(point);
-      return '<circle class="canvas-handle" data-page="' + page + '" data-node="' + node +
-        '" data-part="' + part + '" cx="' + screen[0].toFixed(1) + '" cy="' +
-        screen[1].toFixed(1) + '" r="4" fill="var(--accent)"/>';
-    };
-
-    // A handle bends the curve by pulling the point between it and its end; the
-    // line says which end that is.
-    var guide = function (from, to) {
-      var a = canvasPoint(from);
-      var b = canvasPoint(to);
-
-      return '<line x1="' + a[0].toFixed(1) + '" y1="' + a[1].toFixed(1) + '" x2="' +
-        b[0].toFixed(1) + '" y2="' + b[1].toFixed(1) + '" stroke="#777" ' +
-        'stroke-width="1" vector-effect="non-scaling-stroke"/>';
-    };
-
     var paths = "";
-    var handles = "";
-    var guides = "";
 
     model.pages.forEach(function (page, index) {
       var active = index === selected;
@@ -581,23 +606,6 @@
         (active ? "var(--accent)" : blended ? "#9a9a9a" : "#555") + '" stroke-width="' +
         (active ? 2 : 1.25) + '" vector-effect="non-scaling-stroke" style="pointer-events:stroke"/>';
 
-      if (!active) return;
-
-      var previous = page.start;
-      handles += handle(index, -1, 0, page.start);
-
-      page.nodes.forEach(function (node, nodeIndex) {
-        var control1 = [node[0], node[1]];
-        var control2 = [node[2], node[3]];
-        var end = [node[4], node[5]];
-
-        guides += guide(previous, control1) + guide(end, control2);
-
-        handles += handle(index, nodeIndex, 0, control1);
-        handles += handle(index, nodeIndex, 1, control2);
-        handles += handle(index, nodeIndex, 2, end);
-        previous = end;
-      });
     });
 
     var pageLabel = blend > 0.001
@@ -609,7 +617,8 @@
           '<rect x="16" y="16" width="128" height="128" fill="none" stroke="#2b2b2b"/>' +
           '<line x1="80" y1="16" x2="80" y2="144" stroke="#242424"/>' +
           '<line x1="16" y1="80" x2="144" y2="80" stroke="#242424"/>' +
-          guides + paths + handles +
+          paths + '<g class="canvas-edit">' + canvasHandles(model.pages[selected], selected) +
+          '</g>' +
         '</svg>' +
       '</div>' +
       '<div class="hero-label" style="top:4%">STEREO CANVAS \u00b7 ' + pageLabel + '</div>' +
@@ -673,9 +682,11 @@
         ? [page.nodes[page.nodes.length - 1][4], page.nodes[page.nodes.length - 1][5]]
         : page.start;
 
+      var pull = 0.5 * (point[0] - last[0]);
+
       page.nodes.push([
-        0.5 * (last[0] + point[0]), last[1],
-        0.5 * (last[0] + point[0]), point[1],
+        pull, 0.0,
+        -pull, 0.0,
         point[0], point[1]
       ]);
 
@@ -687,6 +698,11 @@
     var redraw = function (pageIndex) {
       var path = svg.querySelector('.canvas-path[data-page="' + pageIndex + '"]');
       if (path) path.setAttribute("d", canvasPath(model.pages[pageIndex]));
+
+      // The handles belong to the ends they pull: moving an end moves them, and
+      // the layer has to be rebuilt, not just the dragged dot.
+      var editing = svg.querySelector(".canvas-edit");
+      if (editing) editing.innerHTML = canvasHandles(model.pages[pageIndex], pageIndex);
     };
 
     var post = function () {
@@ -769,8 +785,7 @@
       drag = {
         page: Number(handle.getAttribute("data-page")),
         node: Number(handle.getAttribute("data-node")),
-        part: Number(handle.getAttribute("data-part")),
-        element: handle
+        part: Number(handle.getAttribute("data-part"))
       };
 
       el.dataset.busy = "1";
@@ -791,13 +806,22 @@
         page.start = point;
       } else {
         var node = page.nodes[drag.node];
-        node[drag.part * 2] = point[0];
-        node[drag.part * 2 + 1] = point[1];
+        var previous = drag.node > 0
+          ? [page.nodes[drag.node - 1][4], page.nodes[drag.node - 1][5]]
+          : page.start;
+
+        if (drag.part === 0) {
+          node[0] = point[0] - previous[0];
+          node[1] = point[1] - previous[1];
+        } else if (drag.part === 1) {
+          node[2] = point[0] - node[4];
+          node[3] = point[1] - node[5];
+        } else {
+          node[4] = point[0];
+          node[5] = point[1];
+        }
       }
 
-      var screen = canvasPoint(point);
-      drag.element.setAttribute("cx", screen[0].toFixed(1));
-      drag.element.setAttribute("cy", screen[1].toFixed(1));
       redraw(drag.page);
     });
 
@@ -827,7 +851,21 @@
 
       if (part !== 2 || node < 0 || model.pages[pageIndex].nodes.length <= 1) return;
 
-      model.pages[pageIndex].nodes.splice(node, 1);
+      var page = model.pages[pageIndex];
+      var removed = page.nodes[node];
+      var previous = node > 0
+        ? [page.nodes[node - 1][4], page.nodes[node - 1][5]]
+        : page.start;
+      var next = page.nodes[node + 1];
+
+      if (next) {
+        // The next handle was measured from the removed point; move the offset
+        // so the curve stays where it was drawn.
+        next[0] += removed[4] - previous[0];
+        next[1] += removed[5] - previous[1];
+      }
+
+      page.nodes.splice(node, 1);
       post();
       refresh();
     });
