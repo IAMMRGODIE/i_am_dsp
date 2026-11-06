@@ -19,6 +19,7 @@
       if (hero.el.dataset.busy === "1") return;
 
       var content = IAmCard.hero(hero.kind, values, {
+        active: activeControl,
         ir: irState, curve: curveState, fall: fallState, stereo: stereoScope, scope: scope,
         rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,
@@ -30,6 +31,15 @@
         if (IAmCard.wire) IAmCard.wire(hero.el, hero.kind, values, canvasState);
       }
     });
+  }
+
+  /// Remembers the control being held (or focused), so a hero can draw the part
+  /// of itself that control edits.
+  function setActiveControl(id) {
+    if (activeControl === id) return;
+
+    activeControl = id;
+    markDirty();
   }
 
   function markDirty() {

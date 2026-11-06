@@ -19,6 +19,12 @@
     else el = buildKnob(control);
 
     control.el = el;
+
+    // A held control owns the picture it edits: the unison's random phase, for
+    // one, is only worth drawing while the knob is being moved.
+    el.addEventListener("pointerdown", function () { setActiveControl(spec.id); });
+    el.addEventListener("focusin", function () { setActiveControl(spec.id); });
+    el.addEventListener("focusout", function () { setActiveControl(""); });
     return el;
   }
 

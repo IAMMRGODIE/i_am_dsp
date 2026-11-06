@@ -278,7 +278,7 @@
     // Every hero the page draws is live: a waveform, a transfer with its RMS
     // bands, or a response with the input and output spectra on it.
     wantsScope = heroes.some(function (hero) {
-      return hero.kind === "waveform" || hero.kind === "transfer" ||
+      return hero.kind === "waveform" || hero.kind === "unison" || hero.kind === "transfer" ||
         hero.kind === "spectrum" || hero.kind === "spectra" ||
         hero.kind === "compressor" || hero.kind === "gate" ||
         hero.kind === "expander" || hero.kind === "limiter" || hero.kind === "eq";

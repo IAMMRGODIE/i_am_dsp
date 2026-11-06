@@ -11,6 +11,8 @@
   var accent = "#8a6aff";
   var negative = "#9a8fbf";
   var controls = {};
+  // The control the pointer is on, so a hero can show what that control edits.
+  var activeControl = "";
   var heroes = [];
   var dirty = false;
   var polling = false;

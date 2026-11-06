@@ -31,6 +31,7 @@
   registerHero("phase", phaseHero);
   registerHero("balance", balanceHero);
   registerHero("waveform", waveformHero);
+  registerHero("unison", unisonHero);
   registerHero("resonator", resonatorHero);
   registerHero("formant", formantHero);
   registerHero("autotune", autotuneHero);

@@ -379,7 +379,7 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	#[range(min = 1, max = 32)]
 	#[default(1)]
 	#[id(display = "Unison")]
-	#[layout(group = "Voice", order = 0, widget = knob, hero = "waveform")]
+	#[layout(group = "Voice", order = 0, widget = knob, hero = "unison")]
 	pub unisons: usize,
 	/// Maxium detune of each unison, the unit is note
 	#[range(min = 0.0, max = 2.0)]
@@ -432,13 +432,13 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	/// If true, the phase of each channel will also apply random phase.
 	#[default(false)]
 	#[id(display = "Phase per Channel")]
-	#[layout(group = "Voice", order = 6, widget = toggle)]
+	#[layout(group = "Voice", order = 7, widget = toggle)]
 	pub random_phase_by_channel: bool,
 	/// The start phase postion of the oscillator, 0.0 for no phase shift.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.0)]
 	#[id(display = "Start Phase")]
-	#[layout(group = "Voice", order = 7, widget = knob)]
+	#[layout(group = "Voice", order = 6, widget = knob)]
 	pub phase_start: f32,
 
 	/// The stage lengths in milliseconds this block runs at: the free values, or what the

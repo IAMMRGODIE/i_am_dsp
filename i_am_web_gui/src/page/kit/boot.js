@@ -15,6 +15,11 @@
     requestAnimationFrame(applyScale);
   });
 
+  // A press ends wherever the pointer is lifted, not necessarily on the control
+  // that started it: a knob drags, and its hero has to drop the edit state.
+  window.addEventListener("pointerup", function () { setActiveControl(""); });
+  window.addEventListener("pointercancel", function () { setActiveControl(""); });
+
   // A host resizes the WebView2 child, not the browser window: the window event
   // is not guaranteed there, but the app's own box always changes.
   if (window.ResizeObserver) {

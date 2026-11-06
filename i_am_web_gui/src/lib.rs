@@ -689,6 +689,52 @@ mod ui_contract_tests {
 		assert!(STYLE.contains(".choice .face-choice:hover{"));
 	}
 
+	/// Both script editors — the faceplate drawer and the rack card — scroll like
+	/// the rack's panes, not with the platform's own scrollbar.
+	#[test]
+	fn the_script_editors_have_the_rack_scrollbar() {
+		for (css, editor) in [(STYLE, ".script-area"), (CARD_STYLE, ".mcard-script-text")] {
+			for part in [
+				"::-webkit-scrollbar",
+				"::-webkit-scrollbar-track",
+				"::-webkit-scrollbar-thumb",
+			] {
+				let rule = format!("{editor}{part}");
+
+				assert!(css.contains(&rule), "missing {rule}");
+			}
+
+			assert!(
+				css.contains("background:#3a3a3a; border-radius:4px"),
+				"{editor} does not use the rack's thumb"
+			);
+		}
+	}
+
+	/// The voice page draws the unison the controls describe: one dot per copy in
+	/// the pitch/stereo field, and the wave the copies add up to beside it.
+	#[test]
+	fn the_voice_page_draws_the_unison() {
+		assert!(
+			CARD_SCRIPT.contains("registerHero(\"unison\", unisonHero)"),
+			"the shared card never registers the unison"
+		);
+		assert!(
+			SCRIPT.contains("hero.kind === \"unison\""),
+			"the voice page never asks the host for its output"
+		);
+		assert!(STYLE.contains(".unison-hero"));
+		assert!(CARD_STYLE.contains(".mcard-hero .unison-hero"));
+		assert!(
+			SCRIPT.contains("active: activeControl"),
+			"the held control never reaches the hero"
+		);
+		assert!(
+			SCRIPT.contains("setActiveControl"),
+			"the page never tracks the held control"
+		);
+	}
+
 	/// A faceplate knob keeps the footprint it had before the shared-card
 	/// migration: a 56 px dial in a 64 px slot, not the rack's 112 px slot. The
 	/// larger slot changes the row count and squeezes the hero out.
@@ -730,7 +776,7 @@ mod ui_contract_tests {
 		);
 	}
 
-	/// The string instrument's metadata is what its faceplate will be: five
+	/// The string instrument's metadata is what its faceplate will be: three
 	/// sections, and a preset that is a menu rather than a number.
 	#[test]
 	fn the_string_instrument_describes_a_faceplate() {
@@ -752,7 +798,9 @@ mod ui_contract_tests {
 			.iter()
 			.find(|parameter| parameter.identifier == "preset")
 			.expect("the preset parameter");
-		assert_eq!(preset.meta.choices.expect("preset choices").len(), 4);
+		let choices = preset.meta.choices.expect("preset choices");
+
+		assert_eq!(choices, ["Violin", "Cello"].as_slice());
 		assert!(matches!(preset.meta.layout.widget, ParamWidget::Choice));
 	}
 

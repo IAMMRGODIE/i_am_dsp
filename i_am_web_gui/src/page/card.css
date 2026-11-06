@@ -257,6 +257,13 @@
   font:11px/1.5 var(--mono); padding:6px 8px; tab-size:2;
 }
 .mcard-script-text:focus{outline:1px solid var(--accent); outline-offset:0}
+/* The editor scrolls like the rack's panes: an 8px thumb on a transparent
+   track, rather than the platform's native scrollbar. */
+.mcard-script-text::-webkit-scrollbar{width:8px; height:8px}
+.mcard-script-text::-webkit-scrollbar-track{background:transparent}
+.mcard-script-text::-webkit-scrollbar-thumb{background:#3a3a3a; border-radius:4px}
+.mcard-script-text::-webkit-scrollbar-thumb:hover{background:#555}
+.mcard-script-text::-webkit-scrollbar-corner{background:transparent}
 .mcard-script-actions{display:flex; justify-content:flex-end; gap:6px}
 .mcard-script-apply{
   font:inherit; font-size:10px; padding:3px 10px; border-radius:4px; cursor:pointer;
@@ -339,6 +346,14 @@
   background:rgba(20,20,20,.55); padding:1px 4px; border-radius:3px;
   pointer-events:none; white-space:nowrap;
 }
+.mcard-hero .unison-hero{display:flex; height:100%; gap:8px; padding:4px}
+.mcard-hero .unison-voices{
+  flex:0 0 auto; height:100%; aspect-ratio:1 / 1; position:relative;
+  display:flex; align-items:center; justify-content:flex-start;
+}
+.mcard-hero .unison-voices svg{height:100%; width:auto; max-width:100%}
+.mcard-hero .unison-wave{flex:1 1 auto; min-width:0; height:100%; position:relative}
+.mcard-hero .unison-wave svg{display:block; width:100%; height:100%}
 
 /* The EQ's band nodes: HTML, so the picture's stretch cannot squash them. */
 .hero-dot{
