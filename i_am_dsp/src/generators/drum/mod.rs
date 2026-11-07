@@ -689,6 +689,15 @@ pub struct DrumInstrument {
 	#[id(display = "Humanize")]
 	#[layout(group = "Kit", order = 0, widget = knob)]
 	pub humanize: f32,
+	/// How much a harder hit opens the drum up instead of only getting louder.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.35)]
+	#[id(display = "Velocity Bright")]
+	#[layout(group = "Kit", order = 1, widget = knob)]
+	pub velocity_brightness: f32,
+	/// The brightness this hit was started with: 1 is the nominal material.
+	#[skip]
+	brightness: f32,
 	/// How hard the cymbals' bank is phase modulated.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.7)]
@@ -767,6 +776,8 @@ impl Default for DrumInstrument {
 			cymbal_tail: 0.8,
 			cymbal_fm: 0.7,
 			humanize: 0.15,
+			velocity_brightness: 0.35,
+			brightness: 1.0,
 		}
 	}
 }
@@ -813,7 +824,7 @@ impl DrumInstrument {
 			.collect();
 
 		let tone = self.click_tone.clamp(200.0, 10_000.0);
-		let click_level = self.click.clamp(0.0, 1.0);
+		let click_level = self.click.clamp(0.0, 1.0) * self.brightness;
 		let click = if click_level <= 0.0 {
 			Vec::new()
 		} else {
@@ -834,7 +845,7 @@ impl DrumInstrument {
 			noise.push(NoiseBand {
 				frequency: 6_000.0,
 				q: 0.7,
-				gain: 0.5 * click_level,
+				gain: 0.5 * click_level * self.brightness,
 				t60: 0.0015,
 			});
 		}
@@ -889,8 +900,8 @@ impl DrumInstrument {
 	fn snare_recipe(&self) -> Recipe {
 		let tune = self.snare_tune.clamp(60.0, 600.0);
 		let decay = self.snare_decay.clamp(0.03, 2.0);
-		let wires = self.snare_wires.clamp(0.0, 1.0);
-		let click_level = self.snare_click.clamp(0.0, 1.0);
+		let wires = self.snare_wires.clamp(0.0, 1.0) * self.brightness;
+		let click_level = self.snare_click.clamp(0.0, 1.0) * self.brightness;
 
 		let low: Vec<Partial> = [(1.0, 1.0, 1.0), (1.593, 0.5, 0.7), (2.135, 0.25, 0.5)]
 			.iter()
@@ -1000,7 +1011,7 @@ impl DrumInstrument {
 		} else {
 			self.hat_decay.clamp(0.01, 0.3)
 		};
-		let cutoff = self.hat_cutoff.clamp(1_500.0, 12_000.0);
+		let cutoff = (self.hat_cutoff * self.brightness).clamp(1_500.0, 12_000.0);
 		let level = self.hat_gain.clamp(0.0, 1.0);
 		let base: [f32; 6] = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0];
 		let frequencies = base.map(|frequency| frequency * tune);
@@ -1133,7 +1144,7 @@ impl DrumInstrument {
 					source: Source::Noise(vec![NoiseBand {
 						frequency: (tone * 3.0).min(12_000.0),
 						q: 0.8,
-						gain: 0.3,
+						gain: 0.3 * self.brightness,
 						t60: (decay * 0.4).max(0.03),
 					}]),
 					keytrack: 0.0,
@@ -1234,7 +1245,7 @@ impl DrumInstrument {
 					source: Source::Fm {
 						partials,
 						modulator: 173.0,
-						index: 24.0 * self.cymbal_fm.clamp(0.0, 1.0),
+						index: 24.0 * self.cymbal_fm.clamp(0.0, 1.0) * self.brightness,
 					},
 					keytrack: 0.0,
 					velocity: 1.0,
@@ -1244,7 +1255,7 @@ impl DrumInstrument {
 					source: Source::Noise(vec![NoiseBand {
 						frequency: 9_000.0,
 						q: 0.5,
-						gain: 0.35 * level,
+						gain: 0.35 * level * self.brightness,
 						t60: (decay * 0.12).max(0.05),
 					}]),
 					keytrack: 0.0,
@@ -1262,6 +1273,11 @@ impl DrumInstrument {
 		let Some(drum) = drum_of(note) else {
 			return false;
 		};
+
+		// A harder hit opens the drum up: the material and the FM index follow
+		// the brightness, the body only gets louder.
+		let velocity = velocity.clamp(0.0, 1.0);
+		self.brightness = 1.0 + (velocity - 0.5) * 2.0 * self.velocity_brightness.clamp(0.0, 1.0);
 
 		// A closed or pedal hat chokes the open one: that is the pair.
 		if matches!(drum, Drum::HatClosed | Drum::HatPedal) {
@@ -1318,6 +1334,18 @@ impl DrumInstrument {
 		));
 
 		true
+	}
+
+	/// Renders one hit on its own, without a host.
+	///
+	/// The instrument is left with nothing playing, so this is for exporting a
+	/// one-shot rather than for playing.
+	pub fn render(&mut self, note: u8, velocity: f32, seconds: f32) -> Vec<f32> {
+		self.playing.clear();
+		let _ = self.start(note, velocity);
+		let count = (seconds.max(0.01) * self.rate) as usize;
+
+		(0..count).map(|_| self.next_sample()).collect()
 	}
 
 	/// One sample of the summed voices, driven and levelled.
@@ -1562,6 +1590,26 @@ mod tests {
 			let mut kit = DrumInstrument::new(48_000);
 			assert!(!kit.start(note, 0.9), "note {note} should be silent");
 		}
+	}
+
+	#[test]
+	fn a_harder_hit_opens_the_cymbal_up() {
+		let crossings = |velocity: f32| {
+			let mut kit = DrumInstrument::new(48_000);
+			kit.start(CRASH, velocity);
+			let out = render(&mut kit, 2_400);
+
+			out.windows(2)
+				.filter(|pair| (pair[0] >= 0.0) != (pair[1] >= 0.0))
+				.count()
+		};
+
+		assert!(
+			crossings(1.0) > crossings(0.2) * 11 / 10,
+			"a harder hit did not open the cymbal up: {} vs {}",
+			crossings(1.0),
+			crossings(0.2)
+		);
 	}
 
 	#[test]
