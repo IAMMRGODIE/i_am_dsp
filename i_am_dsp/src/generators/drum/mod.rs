@@ -184,6 +184,13 @@ struct TailSpec {
 	level: f32,
 }
 
+/// The per-hit variation the humaniser adds.
+#[derive(Clone, Copy)]
+struct Humanized {
+	level: f32,
+	detune: f32,
+}
+
 /// One sine phase modulating a bank, which turns each mode into a cluster.
 struct Modulator {
 	phase: f32,
@@ -208,6 +215,39 @@ impl Modulator {
 
 		value
 	}
+}
+
+/// The drum a GM note asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Drum {
+	Kick,
+	Snare,
+	Clap,
+	HatClosed,
+	HatPedal,
+	HatOpen,
+	Tom,
+	Crash,
+	Ride,
+}
+
+/// The General MIDI drum map, as far as this kit can answer it.
+///
+/// 35/36 kick, 37/38/40 snare, 39 clap, 41-50 toms, 42/44/46 hats, and the
+/// cymbals: 49/52/55/57 are crashes, 51/53/59 rides. Every other note is silent.
+fn drum_of(note: u8) -> Option<Drum> {
+	Some(match note {
+		35 | 36 => Drum::Kick,
+		37 | 38 | 40 => Drum::Snare,
+		39 => Drum::Clap,
+		42 => Drum::HatClosed,
+		44 => Drum::HatPedal,
+		46 => Drum::HatOpen,
+		41 | 43 | 45 | 47 | 48 | 50 => Drum::Tom,
+		49 | 52 | 55 | 57 => Drum::Crash,
+		51 | 53 | 59 => Drum::Ride,
+		_ => return None,
+	})
 }
 
 /// What a layer is made of.
@@ -326,17 +366,22 @@ struct Voice {
 	/// 1 while the note rings, ramping to 0 when another hat chokes it.
 	choke: f32,
 	choking: bool,
-	/// The note this voice was started by, so a hat can choke the other one.
-	note: u8,
+	/// The drum it is, for the choke group.
+	drum: Drum,
+	/// The hit's own level, from the humaniser.
+	level: f32,
+	/// The hit's own detune, from the humaniser.
+	detune: f32,
 }
 
 impl Voice {
 	fn start(
 		recipe: &Recipe,
-		note: u8,
+		drum: Drum,
 		rate: f32,
 		velocity: f32,
 		tail: Option<TailSpec>,
+		human: Humanized,
 		rng: &mut Rng,
 	) -> Self {
 		let velocity = velocity.clamp(0.0, 1.0);
@@ -436,7 +481,9 @@ impl Voice {
 			time: 0.0,
 			choke: 1.0,
 			choking: false,
-			note,
+			drum,
+			level: human.level,
+			detune: human.detune,
 		}
 	}
 
@@ -448,7 +495,7 @@ impl Voice {
 			// A layer that does not follow the note keeps its own frequencies;
 			// one that does gets the whole fall, which is how the click stays
 			// material while the body dives.
-			let ratio = (1.0 + (bend - 1.0) * layer.keytrack).clamp(0.05, 8.0);
+			let ratio = ((1.0 + (bend - 1.0) * layer.keytrack).clamp(0.05, 8.0)) * self.detune;
 
 			let modulation = match &mut layer.modulator {
 				Some(modulator) => modulator.next(rate),
@@ -480,7 +527,7 @@ impl Voice {
 			out *= self.choke;
 		}
 
-		out
+		out * self.level
 	}
 
 	fn finished(&self) -> bool {
@@ -636,6 +683,12 @@ pub struct DrumInstrument {
 	#[id(display = "Cymbal Level")]
 	#[layout(group = "Cymbal", order = 1, widget = knob)]
 	pub cymbal_gain: f32,
+	/// How much each hit differs from the last, in level and pitch.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.15)]
+	#[id(display = "Humanize")]
+	#[layout(group = "Kit", order = 0, widget = knob)]
+	pub humanize: f32,
 	/// How hard the cymbals' bank is phase modulated.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.7)]
@@ -713,6 +766,7 @@ impl Default for DrumInstrument {
 			cymbal_gain: 0.5,
 			cymbal_tail: 0.8,
 			cymbal_fm: 0.7,
+			humanize: 0.15,
 		}
 	}
 }
@@ -830,91 +884,6 @@ impl DrumInstrument {
 		}
 	}
 
-	/// The note the kick answers to, and its page.
-	fn is_kick(note: u8) -> bool {
-		note == KICK
-	}
-
-	/// The note the snare answers to.
-	fn is_snare(note: u8) -> bool {
-		note == SNARE
-	}
-
-	/// Whether a note is one of the hat's three.
-	fn is_hat(note: u8) -> bool {
-		matches!(note, HAT_CLOSED | HAT_PEDAL | HAT_OPEN)
-	}
-
-	/// The hi-hat: six square waves through a highpass, with a short noise
-	/// edge. Closed and open differ only in how long the cluster rings.
-	fn hat_recipe(&self, note: u8) -> Recipe {
-		let open = note == HAT_OPEN;
-		let tune = self.hat_tune.clamp(0.4, 2.5);
-		let t60 = if open {
-			self.hat_open.clamp(0.1, 2.0)
-		} else {
-			self.hat_decay.clamp(0.01, 0.3)
-		};
-		let cutoff = self.hat_cutoff.clamp(1_500.0, 12_000.0);
-		let level = self.hat_gain.clamp(0.0, 1.0);
-		// The 808's six, which are not a harmonic series and not a chord.
-		let base: [f32; 6] = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0];
-		let frequencies = base.map(|frequency| frequency * tune);
-
-		let pitch = Curve::new(vec![
-			Point {
-				time: 0.0,
-				value: 1.0,
-				bend: 0.0,
-			},
-			Point {
-				time: t60,
-				value: 1.0,
-				bend: 0.0,
-			},
-		]);
-		let amp = Curve::new(vec![
-			Point {
-				time: 0.0,
-				value: 1.0,
-				bend: 0.0,
-			},
-			Point {
-				time: t60 * 1.3,
-				value: 0.0,
-				bend: 0.0,
-			},
-		]);
-
-		Recipe {
-			layers: vec![
-				Layer {
-					source: Source::Metal {
-						frequencies,
-						t60,
-						cutoff,
-					},
-					keytrack: 0.0,
-					velocity: 1.0,
-					gain: level,
-				},
-				Layer {
-					source: Source::Noise(vec![NoiseBand {
-						frequency: 9_000.0,
-						q: 0.6,
-						gain: 0.25 * level,
-						t60: (t60 * 0.4).max(0.01),
-					}]),
-					keytrack: 0.0,
-					velocity: 1.0,
-					gain: 1.0,
-				},
-			],
-			pitch,
-			amp,
-		}
-	}
-
 	/// The snare: two shell clusters, the air and wire it throws off, and a
 	/// stick click. Same engine as the kick, different layers.
 	fn snare_recipe(&self) -> Recipe {
@@ -923,8 +892,6 @@ impl DrumInstrument {
 		let wires = self.snare_wires.clamp(0.0, 1.0);
 		let click_level = self.snare_click.clamp(0.0, 1.0);
 
-		// Two membrane clusters, the way the 808's two bridged-Ts sit an octave
-		// and a fifth apart. Without the second the shell is a tom.
 		let low: Vec<Partial> = [(1.0, 1.0, 1.0), (1.593, 0.5, 0.7), (2.135, 0.25, 0.5)]
 			.iter()
 			.map(|(ratio, gain, t60)| Partial {
@@ -1023,19 +990,73 @@ impl DrumInstrument {
 		}
 	}
 
-	/// Whether a note is the clap.
-	fn is_clap(note: u8) -> bool {
-		note == CLAP
-	}
+	/// The hi-hat: six square waves through a highpass, with a short noise
+	/// edge. Closed, pedal and open differ only in how long the cluster rings.
+	fn hat_recipe(&self, drum: Drum) -> Recipe {
+		let open = drum == Drum::HatOpen;
+		let tune = self.hat_tune.clamp(0.4, 2.5);
+		let t60 = if open {
+			self.hat_open.clamp(0.1, 2.0)
+		} else {
+			self.hat_decay.clamp(0.01, 0.3)
+		};
+		let cutoff = self.hat_cutoff.clamp(1_500.0, 12_000.0);
+		let level = self.hat_gain.clamp(0.0, 1.0);
+		let base: [f32; 6] = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0];
+		let frequencies = base.map(|frequency| frequency * tune);
 
-	/// Whether a note is one of the toms.
-	fn is_tom(note: u8) -> bool {
-		(TOM_LOW..=TOM_HIGH).contains(&note)
-	}
+		let pitch = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: t60,
+				value: 1.0,
+				bend: 0.0,
+			},
+		]);
+		let amp = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: t60 * 1.3,
+				value: 0.0,
+				bend: 0.0,
+			},
+		]);
 
-	/// Whether a note is one of the cymbals.
-	fn is_cymbal(note: u8) -> bool {
-		note == CRASH || note == RIDE
+		Recipe {
+			layers: vec![
+				Layer {
+					source: Source::Metal {
+						frequencies,
+						t60,
+						cutoff,
+					},
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: level,
+				},
+				Layer {
+					source: Source::Noise(vec![NoiseBand {
+						frequency: 9_000.0,
+						q: 0.6,
+						gain: 0.25 * level,
+						t60: (t60 * 0.4).max(0.01),
+					}]),
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: 1.0,
+				},
+			],
+			pitch,
+			amp,
+		}
 	}
 
 	/// The clap: one noise source, retriggered four times and then let go.
@@ -1172,8 +1193,8 @@ impl DrumInstrument {
 	}
 
 	/// The cymbals: a dense, inharmonic bank, excited by a noise burst.
-	fn cymbal_recipe(&self, note: u8) -> Recipe {
-		let ride = note == RIDE;
+	fn cymbal_recipe(&self, drum: Drum) -> Recipe {
+		let ride = drum == Drum::Ride;
 		let decay = self.cymbal_decay.clamp(0.3, 8.0) * if ride { 0.45 } else { 1.0 };
 		let level = self.cymbal_gain.clamp(0.0, 1.0);
 		let count = 56usize;
@@ -1238,22 +1259,14 @@ impl DrumInstrument {
 
 	/// Start one hit, if the note is the kick's.
 	pub fn start(&mut self, note: u8, velocity: f32) -> bool {
-		let hat = Self::is_hat(note);
-
-		if !Self::is_kick(note)
-			&& !Self::is_snare(note)
-			&& !hat
-			&& !Self::is_clap(note)
-			&& !Self::is_tom(note)
-			&& !Self::is_cymbal(note)
-		{
+		let Some(drum) = drum_of(note) else {
 			return false;
-		}
+		};
 
 		// A closed or pedal hat chokes the open one: that is the pair.
-		if hat && note != HAT_OPEN {
+		if matches!(drum, Drum::HatClosed | Drum::HatPedal) {
 			for voice in &mut self.playing {
-				if voice.note == HAT_OPEN {
+				if voice.drum == Drum::HatOpen {
 					voice.choking = true;
 				}
 			}
@@ -1263,40 +1276,44 @@ impl DrumInstrument {
 			self.playing.remove(0);
 		}
 
-		let recipe = if hat {
-			self.hat_recipe(note)
-		} else if Self::is_snare(note) {
-			self.snare_recipe()
-		} else if Self::is_clap(note) {
-			self.clap_recipe()
-		} else if Self::is_tom(note) {
-			self.tom_recipe(note)
-		} else if Self::is_cymbal(note) {
-			self.cymbal_recipe(note)
-		} else {
-			self.kick_recipe()
+		let recipe = match drum {
+			Drum::Kick => self.kick_recipe(),
+			Drum::Snare => self.snare_recipe(),
+			Drum::Clap => self.clap_recipe(),
+			Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => self.hat_recipe(drum),
+			Drum::Tom => self.tom_recipe(note),
+			Drum::Crash | Drum::Ride => self.cymbal_recipe(drum),
 		};
-		let tail = if Self::is_cymbal(note) {
-			let ride = note == RIDE;
-			let decay = self.cymbal_decay.clamp(0.3, 8.0) * if ride { 0.45 } else { 1.0 };
+		let tail = match drum {
+			Drum::Crash | Drum::Ride => {
+				let ride = drum == Drum::Ride;
+				let decay = self.cymbal_decay.clamp(0.3, 8.0) * if ride { 0.45 } else { 1.0 };
+				let level = self.cymbal_tail.clamp(0.0, 1.0);
 
-			let level = self.cymbal_tail.clamp(0.0, 1.0);
-
-			(level > 0.0).then_some(TailSpec {
-				t60: decay,
-				shift: if ride { 5.0 } else { 8.0 },
-				level,
-			})
-		} else {
-			None
+				(level > 0.0).then_some(TailSpec {
+					t60: decay,
+					shift: if ride { 5.0 } else { 8.0 },
+					level,
+				})
+			}
+			_ => None,
 		};
+
+		// A drummer never hits twice the same: the humaniser moves the level and
+		// the pitch of each hit, and zero leaves the kit exact.
+		let humanize = self.humanize.clamp(0.0, 1.0);
+		let level = 1.0 + self.rng.bipolar() * 0.3 * humanize;
+		let cents = self.rng.bipolar() * 20.0 * humanize;
+		let detune = 2f32.powf(cents / 1_200.0);
+		let human = Humanized { level, detune };
 
 		self.playing.push(Voice::start(
 			&recipe,
-			note,
+			drum,
 			self.rate,
 			velocity,
 			tail,
+			human,
 			&mut self.rng,
 		));
 
@@ -1525,6 +1542,26 @@ mod tests {
 			"the crash rang like a hat: {crash} vs {closed}"
 		);
 		assert!(ride < crash, "the ride outlasts the crash");
+	}
+
+	#[test]
+	fn the_kit_answers_the_general_midi_map() {
+		for note in [
+			35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 55, 57, 59,
+		] {
+			let mut kit = DrumInstrument::new(48_000);
+			assert!(kit.start(note, 0.9), "note {note} is not mapped");
+			let peak = render(&mut kit, 480)
+				.iter()
+				.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+
+			assert!(peak > 0.0, "note {note} made no sound");
+		}
+
+		for note in [34u8, 54, 56, 60, 127] {
+			let mut kit = DrumInstrument::new(48_000);
+			assert!(!kit.start(note, 0.9), "note {note} should be silent");
+		}
 	}
 
 	#[test]

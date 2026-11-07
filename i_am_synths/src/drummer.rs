@@ -24,6 +24,7 @@ const TITLE: &str = "I Am Drummer";
 const ACCENT: &str = "#c8793d";
 
 const PAGES: &[Page] = &[
+	Page::new("Kit", &["Kit"]),
 	Page::new("Kick", &["Kick"]),
 	Page::new("Snare", &["Snare"]),
 	Page::new("Hat", &["Hat"]),
