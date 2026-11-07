@@ -695,6 +695,42 @@ pub struct DrumInstrument {
 	#[id(display = "Velocity Bright")]
 	#[layout(group = "Kit", order = 1, widget = knob)]
 	pub velocity_brightness: f32,
+	/// The kick's level in the kit.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Kick Level")]
+	#[layout(group = "Kit Mix", order = 0, widget = knob)]
+	pub level_kick: f32,
+	/// The snare's level in the kit.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Snare Level")]
+	#[layout(group = "Kit Mix", order = 1, widget = knob)]
+	pub level_snare: f32,
+	/// The hat's level in the kit.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Hat Level")]
+	#[layout(group = "Kit Mix", order = 2, widget = knob)]
+	pub level_hat: f32,
+	/// The clap's level in the kit.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Clap Level")]
+	#[layout(group = "Kit Mix", order = 3, widget = knob)]
+	pub level_clap: f32,
+	/// The toms' level in the kit.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Tom Level")]
+	#[layout(group = "Kit Mix", order = 4, widget = knob)]
+	pub level_tom: f32,
+	/// The cymbals' level in the kit.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Cymbal Level")]
+	#[layout(group = "Kit Mix", order = 5, widget = knob)]
+	pub level_cymbal: f32,
 	/// Which kit the instrument starts from. Choosing one writes the knobs.
 	#[range(min = 0, max = 1)]
 	#[choices("Studio", "808")]
@@ -785,6 +821,12 @@ impl Default for DrumInstrument {
 			humanize: 0.15,
 			velocity_brightness: 0.35,
 			kit: 0,
+			level_kick: 1.0,
+			level_snare: 1.0,
+			level_hat: 1.0,
+			level_clap: 1.0,
+			level_tom: 1.0,
+			level_cymbal: 1.0,
 			brightness: 1.0,
 		}
 	}
@@ -842,6 +884,19 @@ fn kit_values(index: i32) -> &'static [(&'static str, f32)] {
 }
 
 impl DrumInstrument {
+	/// The mix level this drum's page sets.
+	fn level_for(&self, drum: Drum) -> f32 {
+		match drum {
+			Drum::Kick => self.level_kick,
+			Drum::Snare => self.level_snare,
+			Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => self.level_hat,
+			Drum::Clap => self.level_clap,
+			Drum::Tom => self.level_tom,
+			Drum::Crash | Drum::Ride => self.level_cymbal,
+		}
+		.clamp(0.0, 2.0)
+	}
+
 	/// Writes a kit preset into the controls.
 	pub fn apply_kit(&mut self, index: i32) {
 		self.kit = index.clamp(0, 1);
@@ -1395,7 +1450,7 @@ impl DrumInstrument {
 		// A drummer never hits twice the same: the humaniser moves the level and
 		// the pitch of each hit, and zero leaves the kit exact.
 		let humanize = self.humanize.clamp(0.0, 1.0);
-		let level = 1.0 + self.rng.bipolar() * 0.3 * humanize;
+		let level = (1.0 + self.rng.bipolar() * 0.3 * humanize) * self.level_for(drum);
 		let cents = self.rng.bipolar() * 20.0 * humanize;
 		let detune = 2f32.powf(cents / 1_200.0);
 		let human = Humanized { level, detune };
@@ -1687,6 +1742,33 @@ mod tests {
 			crossings(1.0),
 			crossings(0.2)
 		);
+	}
+
+	#[test]
+	fn the_mix_can_silence_a_voice() {
+		let mut kit = DrumInstrument::new(48_000);
+		kit.level_snare = 0.0;
+		kit.start(SNARE, 0.9);
+		assert!(render(&mut kit, 4_800).iter().all(|sample| sample.abs() < 1e-9));
+
+		let mut kit = DrumInstrument::new(48_000);
+		kit.start(SNARE, 0.9);
+		assert!(render(&mut kit, 4_800).iter().any(|sample| sample.abs() > 1e-6));
+	}
+
+	#[test]
+	fn the_mix_level_scales_a_voice() {
+		let rms_of = |level: f32| {
+			let mut kit = DrumInstrument::new(48_000);
+			kit.level_kick = level;
+			kit.start(KICK, 0.8);
+			rms(&render(&mut kit, 4_800))
+		};
+
+		let full = rms_of(1.0);
+		let half = rms_of(0.5);
+
+		assert!(half < full * 0.6 && half > full * 0.4, "{full} vs {half}");
 	}
 
 	#[test]
