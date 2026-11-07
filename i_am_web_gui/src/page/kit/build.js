@@ -476,6 +476,15 @@
           hero.addEventListener("dblclick", fallDoubleClick);
         }
 
+        if (section.hero === "amp") {
+          hero.title = "Drag a dot for the level, a ring for the bend; double click to add, right click to remove.";
+          hero.addEventListener("pointerdown", function (event) { ampPointerDown(hero, event); });
+          hero.addEventListener("pointermove", function (event) { ampPointerMove(hero, event); });
+          hero.addEventListener("pointerup", function (event) { ampPointerUp(hero, event); });
+          hero.addEventListener("dblclick", function (event) { ampDoubleClick(hero, event); });
+          hero.addEventListener("contextmenu", function (event) { ampContextMenu(hero, event); });
+        }
+
         if (section.hero === "samples") {
           hero.title = "Load a one-shot into a slot: it replaces that drum.";
           var sampleInputs = {};
@@ -766,6 +775,10 @@
       return hero.kind === "samples";
     });
     if (wantsSamples) setTimeout(pollSamples, 50);
+    wantsAmp = heroes.some(function (hero) {
+      return hero.kind === "amp";
+    });
+    if (wantsAmp) setTimeout(pollAmp, 50);
     if (wantsClick) {
       clickInput = document.createElement("input");
       clickInput.type = "file";

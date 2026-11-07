@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
 	ClickSlot, Curve, DrumInstrument, DrumPreset, FitSlot, GeneratorEffect, Parameter, Parameters,
-	Samples, SetValue, decode_click, from_binary, slot_drum, to_binary,
+	Samples, SetValue, decode_click, default_amp_templates, from_binary, slot_drum, to_binary,
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
@@ -28,6 +28,7 @@ const PAGES: &[Page] = &[
 	Page::new("Kit", &["Kit"]),
 	Page::new("Mix", &["Kit Mix"]),
 	Page::new("Samples", &["Samples"]),
+	Page::new("Amp", &["Amp"]),
 	Page::new("Kick", &["Kick"]),
 	Page::new("Snare", &["Snare"]),
 	Page::new("Hat", &["Hat"]),
@@ -50,6 +51,7 @@ pub struct DrummerWeb {
 	click: Arc<ClickSlot>,
 	samples: Arc<Samples>,
 	fit: Arc<FitSlot>,
+	amps: Arc<Mutex<[Curve; 6]>>,
 	bypass: Arc<AtomicBool>,
 	scope: Arc<Scope>,
 }
@@ -64,6 +66,8 @@ impl Default for DrummerWeb {
 		let factory_samples = samples.clone();
 		let fit = FitSlot::new();
 		let factory_fit = fit.clone();
+		let amps = Arc::new(Mutex::new(default_amp_templates()));
+		let factory_amps = amps.clone();
 
 		Self {
 			processor: EffectProcessor::with_build(move |rate: usize| {
@@ -72,13 +76,15 @@ impl Default for DrummerWeb {
 						.with_shared(factory_curve.clone())
 						.with_click_slot(factory_click.clone())
 						.with_samples(factory_samples.clone())
-						.with_fit_slot(factory_fit.clone()),
+						.with_fit_slot(factory_fit.clone())
+						.with_amps(factory_amps.clone()),
 				)
 			}),
 			curve,
 			click,
 			samples,
 			fit,
+			amps,
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(Scope::new()),
 		}
@@ -99,6 +105,17 @@ impl Parameters for DrummerWeb {
 			&& let Ok(mut shared) = self.curve.lock()
 		{
 			*shared = curve;
+		}
+
+		if identifier == "amp_curves"
+			&& let SetValue::Serialized(bytes) = &value
+			&& let Ok(curves) = from_binary::<Vec<Curve>>(bytes.clone())
+			&& curves.len() == 6
+			&& let Ok(mut shared) = self.amps.lock()
+		{
+			for (index, curve) in curves.into_iter().enumerate() {
+				shared[index] = curve;
+			}
 		}
 
 		// Choosing a kit writes the knobs it describes, so the page and the host
@@ -195,6 +212,13 @@ impl Plugin for DrummerWeb {
 				.set_parameter("pitch_curve", SetValue::Serialized(bytes));
 		}
 
+		if let Ok(amps) = self.amps.lock()
+			&& let Ok(bytes) = to_binary(&amps.to_vec())
+		{
+			self.processor
+				.set_parameter("amp_curves", SetValue::Serialized(bytes));
+		}
+
 		self.processor.sync_params();
 	}
 
@@ -208,6 +232,7 @@ impl Plugin for DrummerWeb {
 		let click = self.click.clone();
 		let samples = self.samples.clone();
 		let fit = self.fit.clone();
+		let amps = self.amps.clone();
 
 		editor_with(
 			self,
@@ -228,6 +253,31 @@ impl Plugin for DrummerWeb {
 								"{{\"error\":\"{}\"}}",
 								error.replace('"', "")
 							)),
+						},
+						_ => ProtocolResponse::json("{\"error\":\"method\"}"),
+					});
+				}
+
+				if request.path == "/amp" {
+					return Some(match request.method {
+						"GET" => ProtocolResponse::json(amp_json(&amps, query_drum(request.query))),
+						"POST" => match std::str::from_utf8(request.body) {
+							Ok(text) => {
+								let drum = query_drum(request.query);
+
+								match parse_amp(text) {
+									Some(curve) => {
+										if drum < 6
+											&& let Ok(mut shared) = amps.lock()
+										{
+											shared[drum] = curve;
+										}
+										ProtocolResponse::json("{\"ok\":true}")
+									}
+									None => ProtocolResponse::json("{\"error\":\"points\"}"),
+								}
+							}
+							Err(_) => ProtocolResponse::json("{\"error\":\"utf8\"}"),
 						},
 						_ => ProtocolResponse::json("{\"error\":\"method\"}"),
 					});
@@ -311,6 +361,64 @@ impl Plugin for DrummerWeb {
 }
 
 /// The curve as the page draws it: `{"points":[[time, ratio, bend], ...]}`.
+fn query_drum(query: Option<&str>) -> usize {
+	query
+		.unwrap_or("")
+		.split('&')
+		.find_map(|part| part.strip_prefix("drum="))
+		.and_then(|value| value.parse().ok())
+		.unwrap_or(0)
+}
+
+fn amp_json(amps: &Arc<Mutex<[Curve; 6]>>, drum: usize) -> String {
+	let Ok(guard) = amps.lock() else {
+		return "{\"points\":[]}".to_string();
+	};
+	let curve = &guard[drum.min(5)];
+	let mut out = String::from("{\"points\":[");
+
+	for (index, point) in curve.points().iter().enumerate() {
+		if index > 0 {
+			out.push(',');
+		}
+		out.push_str(&format!("[{},{},{}]", point.time, point.value, point.bend));
+	}
+
+	out.push_str("]}");
+	out
+}
+
+fn parse_amp(text: &str) -> Option<Curve> {
+	let mut triples = Vec::new();
+
+	for pair in text.trim().split(';') {
+		if pair.trim().is_empty() {
+			continue;
+		}
+
+		let mut parts = pair.split(':');
+		let time: f32 = parts.next()?.trim().parse().ok()?;
+		let value: f32 = parts.next()?.trim().parse().ok()?;
+		let bend: f32 = parts.next().unwrap_or("0").trim().parse().unwrap_or(0.0);
+
+		if !time.is_finite() || !value.is_finite() {
+			return None;
+		}
+
+		triples.push((
+			time.clamp(0.0, 1.0),
+			value.clamp(0.0, 1.0),
+			bend.clamp(-10.0, 10.0),
+		));
+	}
+
+	if triples.len() < 2 {
+		return None;
+	}
+
+	Some(Curve::from_triples(triples))
+}
+
 fn pitch_json(curve: &Arc<Mutex<Curve>>) -> String {
 	let Ok(guard) = curve.lock() else {
 		return "{\"points\":[]}".to_string();

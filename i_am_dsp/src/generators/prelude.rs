@@ -5,7 +5,7 @@ pub use super::adsr::*;
 pub use super::drum::curve::Curve;
 pub use super::drum::{
 	ClickSlot, DrumInstrument, DrumPreset, FitSlot, KICK, PresetNoise, PresetPartial, Samples,
-	decode_click, slot_drum,
+	decode_click, default_amp_templates, slot_drum,
 };
 pub use super::sampler::*;
 pub use super::sampler_voice::*;

@@ -62,6 +62,7 @@ const SCRIPT: &str = concat!(
 	include_str!("page/kit/heroes.js"),
 	include_str!("page/kit/polls.js"),
 	include_str!("page/kit/pitch.js"),
+	include_str!("page/kit/amp.js"),
 	include_str!("page/kit/face.js"),
 	include_str!("page/kit/build.js"),
 	include_str!("page/kit/boot.js"),

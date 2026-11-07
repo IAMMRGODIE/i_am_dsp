@@ -65,6 +65,11 @@ var clickInput = null;
 // The drummer's six one-shot slots.
 var wantsSamples = false;
 var samplesState = [];
+// The amplitude envelope of the drum the Amp page selects.
+var wantsAmp = false;
+var ampDrum = 0;
+var ampPoints = [];
+var ampDrag = null;
 var fallState = null;
 var canvasState = null;
   // The Spectrum product's drawn pages, fetched from its own route.

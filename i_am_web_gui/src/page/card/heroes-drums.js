@@ -158,5 +158,79 @@
       rows += '<text x="481" y="' + (y - 1) + '" fill="#d8d8d8" font-size="9" text-anchor="middle" pointer-events="none">\u00d7</text>';
     }
 
-    return heroSvg(rows);
+    return heroSvgMeet(rows);
+  }
+
+
+  function ampX(time) {
+    return 26 + Math.max(0, Math.min(1, time)) * 468;
+  }
+
+  function ampLevel(value) {
+    return 132 - Math.max(0, Math.min(1, value)) * 112;
+  }
+
+  /// The amplitude envelope of the selected drum: level against the share of
+  /// its decay. The Decay knob is the length, so the picture is only the shape.
+  function ampHero(values, context) {
+    var amp = context && context.amp;
+    var points = amp && amp.points && amp.points.length ? amp.points : [[0, 1, -2.5], [1, 0, 0]];
+    var drum = Math.round(values.amp_drum || 0);
+    var knobs = ["decay", "snare_decay", "hat_decay", "clap_decay", "tom_decay", "cymbal_decay"];
+    var length = Number(values[knobs[drum]] || 0.3) * 1000;
+    var grid = "";
+    var path = "";
+    var bends = "";
+    var dots = "";
+
+    for (var column = 0; column <= 4; column++) {
+      var x = 26 + column * 117;
+      grid += '<line x1="' + x + '" y1="20" x2="' + x + '" y2="132" stroke="#2a2a2a" stroke-width="1"/>';
+    }
+
+    for (var row = 0; row <= 4; row++) {
+      var y = 132 - row * 28;
+      grid += '<line x1="26" y1="' + y + '" x2="494" y2="' + y + '" stroke="#2a2a2a" stroke-width="1"/>';
+    }
+
+    grid += '<text x="26" y="146" fill="#5f5f5f" font-size="7">0</text>';
+    grid += '<text x="452" y="146" fill="#5f5f5f" font-size="7">' + Math.round(length) + " ms</text>";
+    grid += '<text x="26" y="16" fill="#5f5f5f" font-size="7">LEVEL</text>';
+
+    var move = "M " + ampX(points[0][0]).toFixed(1) + " " + ampLevel(points[0][1]).toFixed(1);
+    path += move;
+
+    for (var index = 0; index < points.length - 1; index++) {
+      var start = points[index];
+      var end = points[index + 1];
+      var from = start[1];
+      var to = end[1];
+
+      for (var sample = 1; sample <= 18; sample++) {
+        var unit = sample / 18;
+        var time = start[0] + (end[0] - start[0]) * unit;
+        var value = from + (to - from) * fallBend(unit, start[2] || 0);
+        path += " L " + ampX(time).toFixed(1) + " " + ampLevel(value).toFixed(1);
+      }
+
+      var middle = (start[0] + end[0]) / 2;
+      var middleValue = from + (to - from) * fallBend(0.5, start[2] || 0);
+      bends += '<circle data-amp-bend="' + index + '" cx="' + ampX(middle).toFixed(1) +
+        '" cy="' + ampLevel(middleValue).toFixed(1) + '" r="5" fill="transparent" ' +
+        'stroke="var(--accent)" stroke-opacity="0.7" stroke-width="1.4" pointer-events="all"/>';
+    }
+
+    points.forEach(function (point, index) {
+      dots += '<circle data-amp-point="' + index + '" cx="' + ampX(point[0]).toFixed(1) +
+        '" cy="' + ampLevel(point[1]).toFixed(1) + '" r="4.4" fill="var(--accent)" ' +
+        'stroke="#0f0f0f" stroke-width="1" pointer-events="all"/>';
+    });
+
+    return heroSvgMeet(
+      grid +
+      '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
+      'vector-effect="non-scaling-stroke"/>' +
+      bends +
+      dots
+    );
   }

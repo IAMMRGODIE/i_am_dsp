@@ -844,6 +844,13 @@ pub struct DrumInstrument {
 	#[id(display = "Cymbal Shot")]
 	#[layout(group = "Samples", order = 5, widget = knob)]
 	pub sample_level_cymbal: f32,
+	/// Which drum's amplitude envelope the Amp page draws.
+	#[range(min = 0, max = 5)]
+	#[choices("Kick", "Snare", "Hat", "Clap", "Tom", "Cymbal")]
+	#[default(0)]
+	#[id(display = "Drum")]
+	#[layout(group = "Amp", order = 0, widget = choice, hero = "amp")]
+	pub amp_drum: i32,
 	/// Which kit the instrument starts from. Choosing one writes the knobs.
 	#[range(min = 0, max = 1)]
 	#[choices("Studio", "808")]
@@ -869,6 +876,12 @@ pub struct DrumInstrument {
 	/// The samples currently adopted, one per drum.
 	#[skip]
 	loaded: [Option<SampleData>; 6],
+	/// The amplitude shapes, saved with the state and hidden from the face.
+	#[serde]
+	pub amp_curves: Vec<Curve>,
+	/// The amplitude shapes the voices read.
+	#[skip]
+	amps: Arc<Mutex<[Curve; 6]>>,
 	/// A fitted bank that replaces the cymbal's synthesis.
 	#[skip]
 	fitted: Option<DrumPreset>,
@@ -958,6 +971,7 @@ impl Default for DrumInstrument {
 			humanize: 0.15,
 			velocity_brightness: 0.35,
 			kit: 0,
+			amp_drum: 0,
 			sample_level_kick: 1.0,
 			sample_level_snare: 1.0,
 			sample_level_hat: 1.0,
@@ -969,6 +983,8 @@ impl Default for DrumInstrument {
 			samples: None,
 			samples_seen: 0,
 			loaded: Default::default(),
+			amp_curves: Vec::new(),
+			amps: Arc::new(Mutex::new(default_amp_templates())),
 			fitted: None,
 			fit_slot: None,
 			fit_seen: 0,
@@ -1029,6 +1045,73 @@ impl ClickSlot {
 			None => "{\"name\":null,\"rate\":0,\"samples\":0}".to_string(),
 		}
 	}
+}
+
+/// The default amplitude shape of each drum, normalised to its length.
+///
+/// The page edits these directly: a point at 0.5 is halfway through the drum's
+/// decay, whatever the decay knob says.
+pub fn default_amp_templates() -> [Curve; 6] {
+	let simple = || {
+		Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: -2.5,
+			},
+			Point {
+				time: 1.0,
+				value: 0.0,
+				bend: 0.0,
+			},
+		])
+	};
+
+	[
+		simple(),
+		simple(),
+		Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: 1.0,
+				value: 0.0,
+				bend: 0.0,
+			},
+		]),
+		Curve::new(
+			[
+				(0.0, 1.0, -3.0),
+				(0.0257, 0.0, 0.0),
+				(0.0343, 0.9, -3.0),
+				(0.0600, 0.0, 0.0),
+				(0.0686, 0.8, -2.5),
+				(0.0943, 0.0, 0.0),
+				(0.1029, 0.7, -1.5),
+				(0.1714, 0.32, 0.0),
+				(1.0, 0.0, 0.0),
+			]
+			.into_iter()
+			.map(|(time, value, bend)| Point { time, value, bend })
+			.collect(),
+		),
+		simple(),
+		Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: 0.95,
+				value: 0.0,
+				bend: 0.0,
+			},
+		]),
+	]
 }
 
 /// A fitted drum: the modal partials and noise bands an analysis produced.
@@ -1359,6 +1442,35 @@ impl DrumInstrument {
 		self
 	}
 
+	/// Shares the amplitude shapes with the editor.
+	pub fn with_amps(mut self, shared: Arc<Mutex<[Curve; 6]>>) -> Self {
+		self.amps = shared;
+		self
+	}
+
+	/// The amplitude shape of one drum, scaled to the hit's length.
+	fn amp_for(&self, drum: Drum, length: f32) -> Curve {
+		let fallback = default_amp_templates();
+		let template = self
+			.amps
+			.lock()
+			.map(|amps| amps[drum.index()].clone())
+			.unwrap_or_else(|_| fallback[drum.index()].clone());
+		let length = length.max(0.002);
+
+		Curve::new(
+			template
+				.points()
+				.iter()
+				.map(|point| Point {
+					time: point.time * length,
+					value: point.value,
+					bend: point.bend,
+				})
+				.collect(),
+		)
+	}
+
 	/// Shares the fitted preset with the editor.
 	pub fn with_fit_slot(mut self, slot: Arc<FitSlot>) -> Self {
 		self.fit_slot = Some(slot.clone());
@@ -1638,18 +1750,7 @@ impl DrumInstrument {
 			.lock()
 			.map(|curve| curve.clone())
 			.unwrap_or_else(|_| self.pitch_curve.clone());
-		let amp = Curve::new(vec![
-			Point {
-				time: 0.0,
-				value: 1.0,
-				bend: -2.5,
-			},
-			Point {
-				time: decay,
-				value: 0.0,
-				bend: 0.0,
-			},
-		]);
+		let amp = self.amp_for(Drum::Kick, decay);
 
 		Recipe {
 			layers: vec![
@@ -1738,18 +1839,7 @@ impl DrumInstrument {
 				bend: 0.0,
 			},
 		]);
-		let amp = Curve::new(vec![
-			Point {
-				time: 0.0,
-				value: 1.0,
-				bend: -2.5,
-			},
-			Point {
-				time: decay,
-				value: 0.0,
-				bend: 0.0,
-			},
-		]);
+		let amp = self.amp_for(Drum::Snare, decay);
 
 		Recipe {
 			layers: vec![
@@ -1810,18 +1900,7 @@ impl DrumInstrument {
 				bend: 0.0,
 			},
 		]);
-		let amp = Curve::new(vec![
-			Point {
-				time: 0.0,
-				value: 1.0,
-				bend: 0.0,
-			},
-			Point {
-				time: t60 * 1.3,
-				value: 0.0,
-				bend: 0.0,
-			},
-		]);
+		let amp = self.amp_for(Drum::HatClosed, t60 * 1.3);
 
 		Recipe {
 			layers: vec![
@@ -1860,53 +1939,7 @@ impl DrumInstrument {
 		let tone = self.clap_tone.clamp(400.0, 8_000.0);
 		let decay = self.clap_decay.clamp(0.05, 2.0);
 
-		let amp = Curve::new(vec![
-			Point {
-				time: 0.0,
-				value: 1.0,
-				bend: -3.0,
-			},
-			Point {
-				time: 0.009,
-				value: 0.0,
-				bend: 0.0,
-			},
-			Point {
-				time: 0.012,
-				value: 0.9,
-				bend: -3.0,
-			},
-			Point {
-				time: 0.021,
-				value: 0.0,
-				bend: 0.0,
-			},
-			Point {
-				time: 0.024,
-				value: 0.8,
-				bend: -2.5,
-			},
-			Point {
-				time: 0.033,
-				value: 0.0,
-				bend: 0.0,
-			},
-			Point {
-				time: 0.036,
-				value: 0.7,
-				bend: -1.5,
-			},
-			Point {
-				time: 0.06,
-				value: 0.32,
-				bend: 0.0,
-			},
-			Point {
-				time: decay,
-				value: 0.0,
-				bend: 0.0,
-			},
-		]);
+		let amp = self.amp_for(Drum::Clap, decay);
 		let pitch = flat_pitch();
 
 		Recipe {
@@ -1960,18 +1993,7 @@ impl DrumInstrument {
 			})
 			.collect();
 
-		let amp = Curve::new(vec![
-			Point {
-				time: 0.0,
-				value: 1.0,
-				bend: -2.5,
-			},
-			Point {
-				time: decay,
-				value: 0.0,
-				bend: 0.0,
-			},
-		]);
+		let amp = self.amp_for(Drum::Tom, decay);
 
 		Recipe {
 			layers: vec![Layer {
@@ -2012,18 +2034,7 @@ impl DrumInstrument {
 			});
 		}
 
-		let amp = Curve::new(vec![
-			Point {
-				time: 0.0,
-				value: 1.0,
-				bend: 0.0,
-			},
-			Point {
-				time: decay * 0.95,
-				value: 0.0,
-				bend: 0.0,
-			},
-		]);
+		let amp = self.amp_for(Drum::Crash, decay);
 
 		Recipe {
 			layers: vec![
@@ -2557,6 +2568,32 @@ mod tests {
 		let half = rms_of(0.5);
 
 		assert!(half < full * 0.6 && half > full * 0.4, "{full} vs {half}");
+	}
+
+	#[test]
+	fn the_amp_templates_are_normalised() {
+		for template in default_amp_templates() {
+			let first = template.points().first().expect("a template has points");
+
+			assert!(first.time <= 1e-4);
+			assert!(template.end() <= 1.0 + 1e-4);
+		}
+	}
+
+	#[test]
+	fn the_amp_curve_bounds_the_voice() {
+		let mut amplitudes = default_amp_templates();
+		amplitudes[0] = Curve::from_triples([(0.0, 1.0, 0.0), (0.05, 0.0, 0.0)]);
+		let mut kit = DrumInstrument::new(48_000).with_amps(Arc::new(Mutex::new(amplitudes)));
+		kit.decay = 1.0;
+
+		assert!(kit.start(KICK, 1.0));
+		let out = render(&mut kit, 4_800);
+		let tail = out[3_600..]
+			.iter()
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+
+		assert!(tail < 1e-3, "the voice outlived its amp curve: {tail}");
 	}
 
 	#[test]
