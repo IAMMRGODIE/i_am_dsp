@@ -330,6 +330,11 @@ pub struct StringEngine {
 	dc: [[f32; 2]; 2],
 	/// The one pole of the DC blocker, computed for this host rate.
 	dc_coefficient: f32,
+	/// A last DC blocker on the output, after the body and the gain.
+	output_dc: [[f32; 2]; 2],
+	/// Its pole, lower than the one before the body, so it only removes an
+	/// offset and leaves the bottom of the tail alone.
+	output_dc_coefficient: f32,
 	/// Start the DC blocker on the first sample of a note that begins in
 	/// silence, so the string's static force is not heard as a thump.
 	prime_dc: bool,
@@ -439,6 +444,8 @@ impl StringEngine {
 			// Eleven hertz: below every note's fundamental, so only the static
 			// force is removed, and the same corner whatever the host rate.
 			dc_coefficient: (-std::f32::consts::TAU * 11.0 / sample_rate).exp(),
+			output_dc: [[0.0; 2]; 2],
+			output_dc_coefficient: (-std::f32::consts::TAU * 4.0 / sample_rate).exp(),
 			prime_dc: false,
 			body_left: Body::for_preset(preset, sample_rate, -1.0),
 			body_right: Body::for_preset(preset, sample_rate, 1.0),
@@ -776,7 +783,14 @@ impl StringEngine {
 			};
 			let shaped = body.process(blocked);
 			let mixed = blocked + (shaped - blocked) * amount;
-			frame[channel] = mixed * self.params.gain;
+			let output = mixed * self.params.gain;
+			// Nothing downstream should see an offset either: the gain, the body
+			// mix and a quiet tail can all leave a little, and it is free to
+			// remove it once more at the very end.
+			let final_blocked = output - self.output_dc[channel][0]
+				+ self.output_dc_coefficient * self.output_dc[channel][1];
+			self.output_dc[channel] = [output, final_blocked];
+			frame[channel] = final_blocked;
 		}
 		frame
 	}

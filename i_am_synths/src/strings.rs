@@ -32,7 +32,11 @@ const PAGES: &[Page] = &[
 
 /// The faceplate of the instrument.
 pub fn faceplate() -> Faceplate {
-	Faceplate::new(TITLE, ACCENT, SIZE).with_pages(PAGES)
+	Faceplate::new(TITLE, ACCENT, SIZE)
+		.with_pages(PAGES)
+		// The unison is fixed at one string and the detune only does something to
+		// more than one, so both controls do nothing a player can hear.
+		.with_hidden(&["strings", "detune_cents"])
 }
 
 /// The string instrument, with a web faceplate.

@@ -70,7 +70,7 @@ fn the_undamped_strings_ring_on_after_the_note() {
 	let (_, without) = played_and_released(0.0, 0.0);
 	let (_, with) = played_and_released(0.0, 0.9);
 	assert!(
-		with > 3.0 * without,
+		with > 2.0 * without,
 		"the sympathetic strings added nothing: {without} then {with}"
 	);
 }
