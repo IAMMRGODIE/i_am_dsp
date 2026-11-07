@@ -647,13 +647,13 @@ pub struct DrumInstrument {
 	#[range(min = 1.0, max = 8.0)]
 	#[default(1.5)]
 	#[id(display = "Drive")]
-	#[layout(group = "Kick", order = 5, widget = knob)]
+	#[layout(group = "Kit", order = 4, widget = knob)]
 	pub drive: f32,
 	/// The output level.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.8)]
 	#[id(display = "Gain")]
-	#[layout(group = "Kick", order = 6, widget = knob)]
+	#[layout(group = "Kit", order = 5, widget = knob)]
 	pub gain: f32,
 	/// The fundamental of the snare's shell, in Hz.
 	#[range(min = 120.0, max = 400.0)]
@@ -702,10 +702,8 @@ pub struct DrumInstrument {
 	#[layout(group = "Hat", order = 3, widget = knob)]
 	pub hat_cutoff: f32,
 	/// The hat's level.
-	#[range(min = 0.0, max = 1.0)]
-	#[default(0.6)]
 	#[id(display = "Hat Level")]
-	#[layout(group = "Hat", order = 4, widget = knob)]
+	#[serde]
 	pub hat_gain: f32,
 	/// Where the clap's noise sits, in Hz.
 	#[range(min = 600.0, max = 5_000.0)]
@@ -726,17 +724,15 @@ pub struct DrumInstrument {
 	#[range(min = 0.5, max = 2.0)]
 	#[default(1.0)]
 	#[id(display = "Tom Tune")]
-	#[layout(group = "Tom", order = 1, widget = knob)]
+	#[layout(group = "Tom", order = 1, widget = knob, hero = "amp_tom")]
 	pub tom_tune: f32,
 	/// How long the cymbals ring, in seconds.
 	#[id(display = "Cymbal Decay")]
 	#[serde]
 	pub cymbal_decay: f32,
 	/// The cymbals' level.
-	#[range(min = 0.0, max = 1.0)]
-	#[default(0.5)]
 	#[id(display = "Cymbal Level")]
-	#[layout(group = "Cymbal", order = 1, widget = knob)]
+	#[serde]
 	pub cymbal_gain: f32,
 	/// How much each hit differs from the last, in level and pitch.
 	#[range(min = 0.0, max = 1.0)]
@@ -882,7 +878,7 @@ pub struct DrumInstrument {
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.8)]
 	#[id(display = "Cymbal Tail")]
-	#[layout(group = "Cymbal", order = 2, widget = knob)]
+	#[layout(group = "Cymbal", order = 2, widget = knob, hero = "amp_cymbal")]
 	pub cymbal_tail: f32,
 }
 
@@ -1879,7 +1875,7 @@ impl DrumInstrument {
 			self.amp_end(Drum::HatClosed) / 1.3
 		};
 		let cutoff = (self.hat_cutoff * self.brightness).clamp(1_500.0, 12_000.0);
-		let level = self.hat_gain.clamp(0.0, 1.0);
+		let level = 1.0;
 		let base: [f32; 6] = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0];
 		let frequencies = base.map(|frequency| frequency * tune);
 
@@ -2010,7 +2006,7 @@ impl DrumInstrument {
 
 		let ride = drum == Drum::Ride;
 		let decay = self.amp_end(Drum::Crash) / 0.95 * if ride { 0.45 } else { 1.0 };
-		let level = self.cymbal_gain.clamp(0.0, 1.0);
+		let level = 1.0;
 		let count = 56usize;
 		let mut partials = Vec::with_capacity(count);
 

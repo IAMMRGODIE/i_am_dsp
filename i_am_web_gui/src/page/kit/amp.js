@@ -46,6 +46,8 @@
     };
   }
 
+  var ampSentAt = 0;
+
   function sendAmp(hero) {
     var points = ampCurveOf(hero);
     var body = points
@@ -53,6 +55,8 @@
         return point[0].toFixed(4) + ":" + point[1].toFixed(4) + ":" + (point[2] || 0).toFixed(3);
       })
       .join(";");
+
+    ampSentAt = Date.now();
 
     fetch("/amp?drum=" + ampDrumOf(hero), { method: "POST", body: body })
       .then(function (response) {
