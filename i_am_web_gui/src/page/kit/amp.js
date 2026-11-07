@@ -38,8 +38,11 @@
 
   function ampSpanOf(hero) {
     var points = ampCurveOf(hero);
+    var last = points.length ? points[points.length - 1][0] : 1;
 
-    return points.length ? Math.max(0.02, points[points.length - 1][0]) : 1;
+    // A short snare wires envelope still gets a real second of room to grow
+    // into; the pitch keeps its own, much shorter, axis.
+    return ampDrumOf(hero) === 8 ? Math.max(0.03, last * 1.1) : Math.max(1.0, last * 1.1);
   }
 
   function ampPointAt(hero, event) {
@@ -159,7 +162,8 @@
     if (!position) return;
 
     var points = ampCurveOf(hero);
-    if (points.some(function (point) { return Math.abs(point[0] - position.time) < 0.02; })) return;
+    var span = ampSpanOf(hero);
+    if (points.some(function (point) { return Math.abs(point[0] - position.time) < span * 0.03; })) return;
 
     points.push([position.time, position.value, 0]);
     points.sort(function (a, b) { return a[0] - b[0]; });
@@ -174,7 +178,7 @@
 
     var index = Number(node.getAttribute("data-amp-point"));
     var points = ampCurveOf(hero);
-    if (points.length <= 2 || index === 0) return;
+    if (points.length <= 2) return;
 
     points.splice(index, 1);
     markDirty();

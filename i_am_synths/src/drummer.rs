@@ -456,8 +456,8 @@ fn parse_amp(text: &str) -> Option<Curve> {
 		}
 
 		triples.push((
-			time.clamp(0.0, 1.0),
-			value.clamp(0.0, 1.0),
+			time.clamp(0.0, 10.0),
+			value.clamp(0.0, 10.0),
 			bend.clamp(-10.0, 10.0),
 		));
 	}

@@ -227,7 +227,9 @@ body.preview #app{
 .hero[data-hero="spectrum"] svg{pointer-events:auto}
 /* The curve editor drags its points and rings, so it needs the pointer too. */
 .hero[data-hero="fall"] svg,
-.hero[data-hero="kick"] svg{pointer-events:auto}
+.hero[data-hero="kick"] svg,
+.hero[data-hero="snare"] svg,
+.hero[data-hero^="amp_"] svg{pointer-events:auto}
 .hero[data-hero="impulse"]{cursor:pointer;user-select:none}
 /* Labels sit outside the SVG: the hero is stretched to the window, and text
    inside an SVG with preserveAspectRatio="none" would stretch with it. */

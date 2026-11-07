@@ -174,7 +174,7 @@
     drum = drum || 0;
     var amp = context && context.ampCurves && context.ampCurves[drum];
     var points = amp && amp.length ? amp : [[0, 1, -2.5], [0.45, 0, 0]];
-    var span = Math.max(0.02, points[points.length - 1][0]);
+    var span = Math.max(1.0, points[points.length - 1][0] * 1.1);
 
     return ampFigure(points, false, span);
   }
@@ -273,7 +273,9 @@
     var mode = context && context.snareMode ? context.snareMode : "base";
     var drum = { base: 6, noise: 7, pitch: 8 }[mode] || 6;
     var points = (context && context.ampCurves && context.ampCurves[drum]) || [[0, 1, 0], [0.18, 0, 0]];
-    var span = Math.max(0.02, points[points.length - 1][0]);
+    var span = mode === "pitch"
+      ? Math.max(0.03, points[points.length - 1][0] * 1.1)
+      : Math.max(1.0, points[points.length - 1][0] * 1.1);
     var next = { base: "noise", noise: "pitch", pitch: "base" }[mode];
 
     return ampFigure(points, mode === "pitch", span) +
