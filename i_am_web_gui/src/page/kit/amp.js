@@ -140,7 +140,11 @@
       if (!point) return;
 
       var lower = ampDrag.index === 0 ? 0 : points[ampDrag.index - 1][0] + 0.001;
-      var upper = ampDrag.index === points.length - 1 ? 1 : points[ampDrag.index + 1][0] - 0.001;
+      // The last point may run to the end of the axis: a crash's envelope is
+      // seconds long, not a share of one.
+      var upper = ampDrag.index === points.length - 1
+        ? ampSpanOf(ampDrag.hero)
+        : points[ampDrag.index + 1][0] - 0.001;
 
       point[0] = clamp(position.time, lower, Math.max(lower, upper));
       point[1] = clamp(position.value, 0, 1) * (ampDrumOf(hero) === 8 ? 10 : 1);
