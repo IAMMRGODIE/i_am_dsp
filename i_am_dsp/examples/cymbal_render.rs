@@ -13,12 +13,10 @@ fn main() {
 	let output = arguments
 		.next()
 		.unwrap_or_else(|| "target/wav/cymbal.wav".to_string());
-	let tail: f32 = arguments.next().and_then(|value| value.parse().ok()).unwrap_or(0.8);
-	let fm: f32 = arguments.next().and_then(|value| value.parse().ok()).unwrap_or(0.7);
+	let fm: f32 = arguments.next().and_then(|value| value.parse().ok()).unwrap_or(0.8);
 	let ride = arguments.next().is_some();
 
 	let mut kit = DrumInstrument::new(48_000);
-	kit.cymbal_tail = tail;
 	kit.cymbal_fm = fm;
 	let note = if ride { 51 } else { 49 };
 	let samples = kit.render(note, 1.0, 4.0);

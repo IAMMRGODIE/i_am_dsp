@@ -174,7 +174,8 @@
     drum = drum || 0;
     var amp = context && context.ampCurves && context.ampCurves[drum];
     var points = amp && amp.length ? amp : [[0, 1, -2.5], [0.45, 0, 0]];
-    var span = Math.max(1.0, points[points.length - 1][0] * 1.1);
+    var last = points[points.length - 1][0];
+    var span = drum === 5 ? Math.max(10.0, last * 1.1) : Math.max(1.0, last * 1.1);
 
     return ampFigure(points, false, span);
   }

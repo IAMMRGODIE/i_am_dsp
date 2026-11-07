@@ -41,8 +41,14 @@
     var last = points.length ? points[points.length - 1][0] : 1;
 
     // A short snare wires envelope still gets a real second of room to grow
-    // into; the pitch keeps its own, much shorter, axis.
-    return ampDrumOf(hero) === 8 ? Math.max(0.03, last * 1.1) : Math.max(1.0, last * 1.1);
+    // into, the cymbal gets ten (a real crash rings that long), and the pitch
+    // keeps its own, much shorter, axis.
+    var drum = ampDrumOf(hero);
+
+    if (drum === 8) return Math.max(0.03, last * 1.1);
+    if (drum === 5) return Math.max(10.0, last * 1.1);
+
+    return Math.max(1.0, last * 1.1);
   }
 
   function ampPointAt(hero, event) {

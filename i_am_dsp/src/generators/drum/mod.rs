@@ -439,14 +439,14 @@ impl Voice {
 		}
 
 		let out = out * self.level;
-		// A cymbal's dry signal is also the excitation of the kit's tail.
-		let send = if matches!(self.drum, Drum::Crash | Drum::Ride) {
-			out
-		} else {
-			0.0
-		};
 
-		(out, send)
+		// A cymbal is its tail: the dry bank only excites the convolver, and
+		// what comes out of it is the cymbal.
+		if matches!(self.drum, Drum::Crash | Drum::Ride) {
+			(0.0, out)
+		} else {
+			(out, 0.0)
+		}
 	}
 
 	fn finished(&self) -> bool {
@@ -739,14 +739,9 @@ pub struct DrumInstrument {
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.8)]
 	#[id(display = "Cymbal FM")]
-	#[layout(group = "Cymbal", order = 3, widget = knob)]
+	#[layout(group = "Cymbal", order = 3, widget = knob, hero = "amp_cymbal")]
 	pub cymbal_fm: f32,
-	/// How much of the diffuse, shifted tail the cymbals have.
-	#[range(min = 0.0, max = 1.0)]
-	#[default(0.8)]
-	#[id(display = "Cymbal Tail")]
-	#[layout(group = "Cymbal", order = 2, widget = knob, hero = "amp_cymbal")]
-	pub cymbal_tail: f32,
+
 }
 
 /// A pitch curve that stays at one, for the drums whose note is their pitch.
@@ -810,7 +805,6 @@ impl Default for DrumInstrument {
 			tom_tune: 1.0,
 			cymbal_decay: 2.5,
 			cymbal_gain: 0.5,
-			cymbal_tail: 0.8,
 			cymbal_fm: 0.8,
 			humanize: 0.15,
 			velocity_brightness: 0.35,
@@ -954,7 +948,7 @@ pub fn default_amp_templates() -> [Curve; 6] {
 				bend: 0.0,
 			},
 			Point {
-				time: 2.375,
+				time: 6.0,
 				value: 0.0,
 				bend: 0.0,
 			},
@@ -1255,7 +1249,6 @@ fn kit_values(index: i32) -> &'static [(&'static str, f32)] {
 		("tom_decay", 0.5),
 		("cymbal_decay", 2.5),
 		("cymbal_fm", 0.7),
-		("cymbal_tail", 0.8),
 		("humanize", 0.15),
 		("velocity_brightness", 0.35),
 	];
@@ -1276,7 +1269,6 @@ fn kit_values(index: i32) -> &'static [(&'static str, f32)] {
 		("tom_decay", 0.4),
 		("cymbal_decay", 3.5),
 		("cymbal_fm", 0.45),
-		("cymbal_tail", 0.6),
 		("humanize", 0.1),
 		("velocity_brightness", 0.5),
 	];
@@ -2104,11 +2096,6 @@ impl DrumInstrument {
 			});
 		}
 
-		if matches!(drum, Drum::Crash | Drum::Ride) {
-			// The convolver keeps ringing for an IR-length after the send stops.
-			self.tail_remaining = (self.rate * 0.35) as usize;
-		}
-
 		// A drummer never hits twice the same: the humaniser moves the level and
 		// the pitch of each hit, and zero leaves the kit exact.
 		let humanize = self.humanize.clamp(0.0, 1.0);
@@ -2165,18 +2152,26 @@ impl DrumInstrument {
 
 		self.tail_send = send;
 
-		let mut sum = dry;
-		let tail = self.cymbal_tail.clamp(0.0, 1.0);
+		// The tail runs while a cymbal voice is alive, and a little longer so
+		// the IR's own ring can finish after the send stops.
+		if self
+			.playing
+			.iter()
+			.any(|voice| matches!(voice.drum, Drum::Crash | Drum::Ride))
+		{
+			self.tail_remaining = (rate * 0.3) as usize;
+		}
 
-		if tail > 0.0
-			&& self.tail_remaining > 0
+		let mut sum = dry;
+
+		if self.tail_remaining > 0
 			&& let Some(convolver) = &mut self.tail_convolver
 		{
 			self.tail_remaining -= 1;
 			// The IR keeps ringing after the voices have gone; feeding it a
 			// silent send is what lets the tail finish.
 			let wet = convolver.frame([send, send]);
-			sum += wet[0] * tail;
+			sum += wet[0];
 		}
 
 		(sum * self.drive.clamp(1.0, 8.0)).tanh() * self.gain.clamp(0.0, 1.0)
@@ -2418,23 +2413,21 @@ mod tests {
 	}
 
 	#[test]
-	fn a_harder_hit_opens_the_cymbal_up() {
-		let crossings = |velocity: f32| {
+	fn a_harder_hit_hits_harder() {
+		// The cymbal is the convolver's output now; the IR owns the timbre, and
+		// what velocity still moves in the wet is the level.
+		let rms_of = |velocity: f32| {
 			let mut kit = DrumInstrument::new(48_000);
-			kit.cymbal_tail = 0.0;
 			kit.start(CRASH, velocity);
-			let out = render(&mut kit, 2_400);
-
-			out.windows(2)
-				.filter(|pair| (pair[0] >= 0.0) != (pair[1] >= 0.0))
-				.count()
+			rms(&render(&mut kit, 2_400))
 		};
 
+		let soft = rms_of(0.2);
+		let hard = rms_of(1.0);
+
 		assert!(
-			crossings(1.0) > crossings(0.2) * 11 / 10,
-			"a harder hit did not open the cymbal up: {} vs {}",
-			crossings(1.0),
-			crossings(0.2)
+			hard > soft * 1.5,
+			"a harder hit was not louder: {soft} then {hard}"
 		);
 	}
 

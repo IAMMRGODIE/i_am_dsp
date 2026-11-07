@@ -16,20 +16,13 @@ fn main() {
 
 	let mut kit = DrumInstrument::new(RATE);
 
-	// An optional cymbal tail amount, so the two tails can be compared.
 	if let Some(amount) = std::env::args().nth(2)
-		&& let Ok(value) = amount.parse::<f32>()
-	{
-		kit.cymbal_tail = value.clamp(0.0, 1.0);
-	}
-
-	if let Some(amount) = std::env::args().nth(3)
 		&& let Ok(value) = amount.parse::<f32>()
 	{
 		kit.cymbal_fm = value.clamp(0.0, 1.0);
 	}
 
-	if let Some(kit_index) = std::env::args().nth(4)
+	if let Some(kit_index) = std::env::args().nth(3)
 		&& let Ok(index) = kit_index.parse::<i32>()
 	{
 		kit.apply_kit(index);
