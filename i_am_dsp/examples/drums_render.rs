@@ -16,7 +16,7 @@ fn main() {
 
 	let mut kit = DrumInstrument::new(RATE);
 	// (time, note, velocity)
-	let hits: [(f32, u8, f32); 9] = [
+	let mut hits: Vec<(f32, u8, f32)> = vec![
 		(0.00, 36, 1.0),
 		(0.45, 38, 0.9),
 		(0.90, 36, 0.85),
@@ -27,6 +27,16 @@ fn main() {
 		(2.50, 38, 1.0),
 		(2.95, 36, 0.8),
 	];
+
+	// A hat on every eighth, and an open one where the pattern needs air.
+	for step in 0..14 {
+		let time = 0.225 * step as f32;
+		let velocity = if step % 2 == 0 { 0.5 } else { 0.32 };
+		hits.push((time, 42, velocity));
+	}
+	hits.push((1.80, 46, 0.7));
+
+	hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
 	let total = (RATE as f32 * 3.6) as usize;
 	let mut samples = Vec::with_capacity(total);

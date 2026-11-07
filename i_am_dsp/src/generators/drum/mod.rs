@@ -21,6 +21,12 @@ use sources::{Band, NoiseBand, Partial, Rng, Running};
 pub const KICK: u8 = 36;
 /// The note the snare answers to.
 pub const SNARE: u8 = 38;
+/// The closed hi-hat's note.
+pub const HAT_CLOSED: u8 = 42;
+/// The pedal hi-hat's note.
+pub const HAT_PEDAL: u8 = 44;
+/// The open hi-hat's note.
+pub const HAT_OPEN: u8 = 46;
 
 /// How many hits may ring at once.
 const MAX_VOICES: usize = 16;
@@ -31,6 +37,12 @@ enum Source {
 	Partials(Vec<Partial>),
 	/// Bands of filtered noise.
 	Noise(Vec<NoiseBand>),
+	/// The 808's six square waves through a highpass: the metal of a cymbal.
+	Metal {
+		frequencies: [f32; 6],
+		t60: f32,
+		cutoff: f32,
+	},
 }
 
 /// One layer of a hit: a source, how far it follows the note, and its level.
@@ -60,7 +72,57 @@ struct Recipe {
 struct VoiceLayer {
 	partials: Vec<Running>,
 	noise: Vec<Band>,
+	metal: Option<MetalVoice>,
 	keytrack: f32,
+}
+
+/// One running metal cluster: six square waves and the highpass after them.
+struct MetalVoice {
+	frequencies: [f32; 6],
+	phases: [f32; 6],
+	level: f32,
+	decay: f32,
+	highpass: f32,
+	previous_in: f32,
+	previous_out: f32,
+}
+
+impl MetalVoice {
+	fn new(frequencies: [f32; 6], t60: f32, gain: f32, cutoff: f32, rate: f32) -> Self {
+		Self {
+			frequencies,
+			phases: [0.0; 6],
+			level: gain,
+			// A T60 in a per sample multiplier: -60 dB over the time.
+			decay: 10f32.powf(-3.0 / (t60.max(0.005) * rate)),
+			highpass: (-std::f32::consts::TAU * cutoff.clamp(200.0, rate * 0.45) / rate).exp(),
+			previous_in: 0.0,
+			previous_out: 0.0,
+		}
+	}
+
+	#[inline]
+	fn next(&mut self, rate: f32) -> f32 {
+		let mut sum = 0.0;
+
+		for (phase, frequency) in self.phases.iter_mut().zip(self.frequencies) {
+			*phase += frequency / rate;
+			if *phase >= 1.0 {
+				*phase -= 1.0;
+			}
+			sum += if *phase < 0.5 { 1.0 } else { -1.0 };
+		}
+
+		// One pole highpass: the six squares are the metal, the filter is the
+		// hat. Without it the cluster is a low chord, not a cymbal.
+		let out = sum - self.previous_in + self.highpass * self.previous_out;
+		self.previous_in = sum;
+		self.previous_out = out;
+
+		let value = out * self.level * 0.15;
+		self.level *= self.decay;
+		value
+	}
 }
 
 /// One hit: the running layers, and its place on the curves.
@@ -69,10 +131,15 @@ struct Voice {
 	pitch: Curve,
 	amp: Curve,
 	time: f32,
+	/// 1 while the note rings, ramping to 0 when another hat chokes it.
+	choke: f32,
+	choking: bool,
+	/// The note this voice was started by, so a hat can choke the other one.
+	note: u8,
 }
 
 impl Voice {
-	fn start(recipe: &Recipe, rate: f32, velocity: f32, rng: &mut Rng) -> Self {
+	fn start(recipe: &Recipe, note: u8, rate: f32, velocity: f32, rng: &mut Rng) -> Self {
 		let velocity = velocity.clamp(0.0, 1.0);
 		let mut layers = Vec::with_capacity(recipe.layers.len());
 
@@ -95,6 +162,7 @@ impl Voice {
 						})
 						.collect(),
 					noise: Vec::new(),
+					metal: None,
 					keytrack: layer.keytrack,
 				}),
 				Source::Noise(bands) => layers.push(VoiceLayer {
@@ -111,6 +179,23 @@ impl Voice {
 							)
 						})
 						.collect(),
+					metal: None,
+					keytrack: layer.keytrack,
+				}),
+				Source::Metal {
+					frequencies,
+					t60,
+					cutoff,
+				} => layers.push(VoiceLayer {
+					partials: Vec::new(),
+					noise: Vec::new(),
+					metal: Some(MetalVoice::new(
+						*frequencies,
+						*t60,
+						level,
+						*cutoff,
+						rate,
+					)),
 					keytrack: layer.keytrack,
 				}),
 			}
@@ -121,6 +206,9 @@ impl Voice {
 			pitch: recipe.pitch.clone(),
 			amp: recipe.amp.clone(),
 			time: 0.0,
+			choke: 1.0,
+			choking: false,
+			note,
 		}
 	}
 
@@ -140,16 +228,26 @@ impl Voice {
 			for band in &mut layer.noise {
 				sum += band.next(rng);
 			}
+			if let Some(metal) = &mut layer.metal {
+				sum += metal.next(rate);
+			}
 		}
 
 		let level = self.amp.value(self.time).max(0.0);
 		self.time += 1.0 / rate;
 
-		sum * level
+		let mut out = sum * level;
+
+		if self.choking {
+			self.choke = (self.choke - 1.0 / (0.004 * rate)).max(0.0);
+			out *= self.choke;
+		}
+
+		out
 	}
 
 	fn finished(&self) -> bool {
-		self.time > self.amp.end() + 0.02
+		self.time > self.amp.end() + 0.02 || (self.choking && self.choke <= 0.0)
 	}
 }
 
@@ -232,6 +330,37 @@ pub struct DrumInstrument {
 	#[id(display = "Snare Click")]
 	#[layout(group = "Snare", order = 3, widget = knob)]
 	pub snare_click: f32,
+	/// The metal cluster's tone, as a multiplier on the six frequencies.
+	#[range(min = 0.4, max = 2.5)]
+	#[default(1.0)]
+	#[id(display = "Hat Tone")]
+	#[layout(group = "Hat", order = 0, widget = knob)]
+	pub hat_tune: f32,
+	/// How long a closed hat rings, in seconds.
+	#[range(min = 0.01, max = 0.3)]
+	#[default(0.05)]
+	#[id(display = "Closed")]
+	#[layout(group = "Hat", order = 1, widget = knob)]
+	pub hat_decay: f32,
+	/// How long an open hat rings, in seconds.
+	#[range(min = 0.1, max = 2.0)]
+	#[default(0.45)]
+	#[id(display = "Open")]
+	#[layout(group = "Hat", order = 2, widget = knob)]
+	pub hat_open: f32,
+	/// The highpass that makes the cluster metal rather than a chord.
+	#[range(min = 1_500.0, max = 12_000.0)]
+	#[default(6_500.0)]
+	#[unit(hertz)]
+	#[id(display = "Hat Cutoff")]
+	#[layout(group = "Hat", order = 3, widget = knob)]
+	pub hat_cutoff: f32,
+	/// The hat's level.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.6)]
+	#[id(display = "Hat Level")]
+	#[layout(group = "Hat", order = 4, widget = knob)]
+	pub hat_gain: f32,
 }
 
 /// The pitch fall a fresh kick starts with: a deep dive in the first 30 ms.
@@ -268,6 +397,11 @@ impl Default for DrumInstrument {
 			snare_decay: 0.18,
 			snare_wires: 0.5,
 			snare_click: 0.4,
+			hat_tune: 1.0,
+			hat_decay: 0.05,
+			hat_open: 0.45,
+			hat_cutoff: 6_500.0,
+			hat_gain: 0.6,
 		}
 	}
 }
@@ -395,6 +529,81 @@ impl DrumInstrument {
 		note == SNARE
 	}
 
+	/// Whether a note is one of the hat's three.
+	fn is_hat(note: u8) -> bool {
+		matches!(note, HAT_CLOSED | HAT_PEDAL | HAT_OPEN)
+	}
+
+	/// The hi-hat: six square waves through a highpass, with a short noise
+	/// edge. Closed and open differ only in how long the cluster rings.
+	fn hat_recipe(&self, note: u8) -> Recipe {
+		let open = note == HAT_OPEN;
+		let tune = self.hat_tune.clamp(0.4, 2.5);
+		let t60 = if open {
+			self.hat_open.clamp(0.1, 2.0)
+		} else {
+			self.hat_decay.clamp(0.01, 0.3)
+		};
+		let cutoff = self.hat_cutoff.clamp(1_500.0, 12_000.0);
+		let level = self.hat_gain.clamp(0.0, 1.0);
+		// The 808's six, which are not a harmonic series and not a chord.
+		let base: [f32; 6] = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0];
+		let frequencies = base.map(|frequency| frequency * tune);
+
+		let pitch = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: t60,
+				value: 1.0,
+				bend: 0.0,
+			},
+		]);
+		let amp = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: t60 * 1.3,
+				value: 0.0,
+				bend: 0.0,
+			},
+		]);
+
+		Recipe {
+			layers: vec![
+				Layer {
+					source: Source::Metal {
+						frequencies,
+						t60,
+						cutoff,
+					},
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: level,
+				},
+				Layer {
+					source: Source::Noise(vec![NoiseBand {
+						frequency: 9_000.0,
+						q: 0.6,
+						gain: 0.25 * level,
+						t60: (t60 * 0.4).max(0.01),
+					}]),
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: 1.0,
+				},
+			],
+			pitch,
+			amp,
+		}
+	}
+
 	/// The snare: two shell clusters, the air and wire it throws off, and a
 	/// stick click. Same engine as the kick, different layers.
 	fn snare_recipe(&self) -> Recipe {
@@ -505,21 +714,39 @@ impl DrumInstrument {
 
 	/// Start one hit, if the note is the kick's.
 	pub fn start(&mut self, note: u8, velocity: f32) -> bool {
-		if !Self::is_kick(note) && !Self::is_snare(note) {
+		let hat = Self::is_hat(note);
+
+		if !Self::is_kick(note) && !Self::is_snare(note) && !hat {
 			return false;
+		}
+
+		// A closed or pedal hat chokes the open one: that is the pair.
+		if hat && note != HAT_OPEN {
+			for voice in &mut self.playing {
+				if voice.note == HAT_OPEN {
+					voice.choking = true;
+				}
+			}
 		}
 
 		if self.playing.len() >= MAX_VOICES {
 			self.playing.remove(0);
 		}
 
-		let recipe = if Self::is_snare(note) {
+		let recipe = if hat {
+			self.hat_recipe(note)
+		} else if Self::is_snare(note) {
 			self.snare_recipe()
 		} else {
 			self.kick_recipe()
 		};
-		self.playing
-			.push(Voice::start(&recipe, self.rate, velocity, &mut self.rng));
+		self.playing.push(Voice::start(
+			&recipe,
+			note,
+			self.rate,
+			velocity,
+			&mut self.rng,
+		));
 
 		true
 	}
@@ -623,6 +850,52 @@ mod tests {
 	}
 
 	#[test]
+	fn the_hats_sound_and_the_open_one_rings_longer() {
+		let mut closed = DrumInstrument::new(48_000);
+		assert!(closed.start(HAT_CLOSED, 1.0));
+		let closed = render(&mut closed, 24_000);
+
+		let mut open = DrumInstrument::new(48_000);
+		assert!(open.start(HAT_OPEN, 1.0));
+		let open = render(&mut open, 24_000);
+
+		let peak = closed
+			.iter()
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+		assert!(peak > 0.02, "the closed hat was silent: {peak}");
+		assert!(
+			rms(&open[12_000..]) > rms(&closed[12_000..]) * 5.0,
+			"the open hat died like a closed one: {} vs {}",
+			rms(&open[12_000..]),
+			rms(&closed[12_000..])
+		);
+	}
+
+	#[test]
+	fn a_closed_hat_chokes_an_open_one() {
+		let mut free = DrumInstrument::new(48_000);
+		free.start(HAT_OPEN, 1.0);
+		let free = render(&mut free, 24_000);
+
+		let mut choked = DrumInstrument::new(48_000);
+		choked.start(HAT_OPEN, 1.0);
+		render(&mut choked, 4_800);
+		// The choke is the closed hat's gesture, not its sound: a silent one
+		// still stops the open hat, and then the tail is the only thing left.
+		choked.hat_gain = 0.0;
+		choked.start(HAT_CLOSED, 1.0);
+		let after = render(&mut choked, 4_800);
+
+		let open_tail = rms(&free[4_800..6_240]);
+		let choked_tail = rms(&after[0..1_440]);
+
+		assert!(
+			choked_tail < open_tail * 0.6,
+			"the closed hat did not choke the open one: {choked_tail} vs {open_tail}"
+		);
+	}
+
+	#[test]
 	fn a_note_the_kick_does_not_answer_is_silent() {
 		let mut kit = DrumInstrument::new(48_000);
 
@@ -656,6 +929,7 @@ mod tests {
 			match &layer.source {
 				Source::Partials(partials) => any |= !partials.is_empty(),
 				Source::Noise(bands) => any |= !bands.is_empty(),
+				Source::Metal { .. } => any = true,
 			}
 		}
 

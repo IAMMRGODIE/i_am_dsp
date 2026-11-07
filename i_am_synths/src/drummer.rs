@@ -26,6 +26,7 @@ const ACCENT: &str = "#c8793d";
 const PAGES: &[Page] = &[
 	Page::new("Kick", &["Kick"]),
 	Page::new("Snare", &["Snare"]),
+	Page::new("Hat", &["Hat"]),
 ];
 
 /// The faceplate of the first drum.
