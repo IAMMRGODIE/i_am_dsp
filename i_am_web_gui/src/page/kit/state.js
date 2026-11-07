@@ -62,6 +62,9 @@ var wantsFall = false;
 var wantsClick = false;
 var clickState = null;
 var clickInput = null;
+// The drummer's six one-shot slots.
+var wantsSamples = false;
+var samplesState = [];
 var fallState = null;
 var canvasState = null;
   // The Spectrum product's drawn pages, fetched from its own route.

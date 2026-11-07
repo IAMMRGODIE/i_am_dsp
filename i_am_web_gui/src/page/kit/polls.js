@@ -700,6 +700,49 @@
 
   /// The pitch fall the editor keeps, so a reopened window shows the curve the
   /// voice is actually playing.
+  /// The six one-shot slots: what each drum is playing.
+  function pollSamples() {
+    if (document.hidden || !wantsSamples) {
+      setTimeout(pollSamples, 800);
+      return;
+    }
+
+    fetch("/samples", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state) return;
+        if (JSON.stringify(state) === JSON.stringify(samplesState)) return;
+        samplesState = state;
+        markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollSamples, 800);
+      });
+  }
+
+  function uploadSampleSlot(slot, file) {
+    if (!file) return;
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      fetch("/samples?slot=" + encodeURIComponent(slot), {
+        method: "POST",
+        body: reader.result
+      })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (result) {
+          if (result && result.ok) pollSamples();
+        })
+        .catch(function () {});
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
   /// The kit's click: which one the voices are using, and loading a new one.
   function pollClick() {
     if (document.hidden || !wantsClick) {

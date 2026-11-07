@@ -476,6 +476,37 @@
           hero.addEventListener("dblclick", fallDoubleClick);
         }
 
+        if (section.hero === "samples") {
+          hero.title = "Load a one-shot into a slot: it replaces that drum.";
+          var sampleInputs = {};
+          var slots = ["kick", "snare", "hat", "clap", "tom", "cymbal"];
+
+          slots.forEach(function (slot) {
+            var input = element("input", "");
+
+            input.type = "file";
+            input.accept = ".wav,audio/*";
+            input.style.display = "none";
+            input.addEventListener("change", function () {
+              if (input.files && input.files[0]) uploadSampleSlot(slot, input.files[0]);
+              input.value = "";
+            });
+            document.body.appendChild(input);
+            sampleInputs[slot] = input;
+          });
+
+          hero.addEventListener("pointerup", function (event) {
+            var target = event.target.closest("[data-load]");
+            if (!target) return;
+
+            var slot = target.getAttribute("data-load");
+            if (sampleInputs[slot]) {
+              sampleInputs[slot].click();
+              event.preventDefault();
+            }
+          });
+        }
+
         if (section.hero === "kit") {
           hero.title = "Load a one-shot click: it plays under every hit.";
           hero.addEventListener("pointerup", function (event) {
@@ -723,6 +754,10 @@
     wantsClick = heroes.some(function (hero) {
       return hero.kind === "kit";
     });
+    wantsSamples = heroes.some(function (hero) {
+      return hero.kind === "samples";
+    });
+    if (wantsSamples) setTimeout(pollSamples, 50);
     if (wantsClick) {
       clickInput = document.createElement("input");
       clickInput.type = "file";

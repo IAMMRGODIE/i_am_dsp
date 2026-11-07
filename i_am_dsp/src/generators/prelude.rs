@@ -3,7 +3,7 @@
 pub use super::additive::*;
 pub use super::adsr::*;
 pub use super::drum::curve::Curve;
-pub use super::drum::{ClickSlot, DrumInstrument, KICK, decode_click};
+pub use super::drum::{ClickSlot, DrumInstrument, KICK, Samples, decode_click, slot_drum};
 pub use super::sampler::*;
 pub use super::sampler_voice::*;
 pub use super::stereo_generator::*;

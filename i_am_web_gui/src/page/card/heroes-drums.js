@@ -111,3 +111,29 @@
         '<button type="button" class="hero-action" data-action="load">LOAD CLICK</button>' +
       '</div>';
   }
+
+
+  /// The six one-shot slots: what each drum plays, and a way to load one.
+  function samplesHero(values, context) {
+    var slots = (context && context.samples) || [];
+    var names = ["Kick", "Snare", "Hat", "Clap", "Tom", "Cymbal"];
+    var keys = ["kick", "snare", "hat", "clap", "tom", "cymbal"];
+    var rows = "";
+
+    for (var index = 0; index < keys.length; index++) {
+      var slot = slots[index];
+      var y = 22 + index * 22;
+      var detail = slot
+        ? slot.name + "  " + (slot.samples / Math.max(slot.rate, 1)).toFixed(2) + " s"
+        : "synthesised";
+
+      rows += '<text x="26" y="' + y + '" fill="#8a8a8a" font-size="9">' + names[index] + '</text>';
+      rows += '<text x="88" y="' + y + '" fill="' + (slot ? "var(--accent)" : "#5f5f5f") +
+        '" font-size="9">' + escapeXml(detail) + '</text>';
+      rows += '<rect data-load="' + keys[index] + '" x="428" y="' + (y - 11) +
+        '" width="58" height="15" rx="3" fill="#262626" stroke="#3a3a3a" pointer-events="all" style="cursor:pointer"/>';
+      rows += '<text x="457" y="' + (y - 1) + '" fill="#d8d8d8" font-size="8" text-anchor="middle" pointer-events="none">LOAD</text>';
+    }
+
+    return heroSvg(rows);
+  }

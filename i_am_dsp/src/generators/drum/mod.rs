@@ -220,15 +220,24 @@ impl Modulator {
 
 /// The drum a GM note asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Drum {
+pub enum Drum {
+	/// The kick.
 	Kick,
+	/// The snare.
 	Snare,
+	/// The clap.
 	Clap,
+	/// A closed hi-hat.
 	HatClosed,
+	/// The pedal hi-hat.
 	HatPedal,
+	/// An open hi-hat.
 	HatOpen,
+	/// One of the toms.
 	Tom,
+	/// The crash.
 	Crash,
+	/// The ride.
 	Ride,
 }
 
@@ -799,6 +808,42 @@ pub struct DrumInstrument {
 	#[id(display = "Cymbal Level")]
 	#[layout(group = "Kit Mix", order = 5, widget = knob)]
 	pub level_cymbal: f32,
+	/// The kick's one-shot level, when a sample replaces the synthesis.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Kick Shot")]
+	#[layout(group = "Samples", order = 0, widget = knob, hero = "samples")]
+	pub sample_level_kick: f32,
+	/// The snare's one-shot level.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Snare Shot")]
+	#[layout(group = "Samples", order = 1, widget = knob)]
+	pub sample_level_snare: f32,
+	/// The hat's one-shot level.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Hat Shot")]
+	#[layout(group = "Samples", order = 2, widget = knob)]
+	pub sample_level_hat: f32,
+	/// The clap's one-shot level.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Clap Shot")]
+	#[layout(group = "Samples", order = 3, widget = knob)]
+	pub sample_level_clap: f32,
+	/// The toms' one-shot level.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Tom Shot")]
+	#[layout(group = "Samples", order = 4, widget = knob)]
+	pub sample_level_tom: f32,
+	/// The cymbals' one-shot level.
+	#[range(min = 0.0, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Cymbal Shot")]
+	#[layout(group = "Samples", order = 5, widget = knob)]
+	pub sample_level_cymbal: f32,
 	/// Which kit the instrument starts from. Choosing one writes the knobs.
 	#[range(min = 0, max = 1)]
 	#[choices("Studio", "808")]
@@ -815,6 +860,15 @@ pub struct DrumInstrument {
 	/// The slot generation the instrument last took.
 	#[skip]
 	click_seen: u64,
+	/// The six one-shot slots, when the page shares them.
+	#[skip]
+	samples: Option<Arc<Samples>>,
+	/// The generation last taken from those slots.
+	#[skip]
+	samples_seen: u64,
+	/// The samples currently adopted, one per drum.
+	#[skip]
+	loaded: [Option<SampleData>; 6],
 	/// How hard the cymbals' bank is phase modulated.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.7)]
@@ -895,8 +949,17 @@ impl Default for DrumInstrument {
 			humanize: 0.15,
 			velocity_brightness: 0.35,
 			kit: 0,
+			sample_level_kick: 1.0,
+			sample_level_snare: 1.0,
+			sample_level_hat: 1.0,
+			sample_level_clap: 1.0,
+			sample_level_tom: 1.0,
+			sample_level_cymbal: 1.0,
 			click_slot: None,
 			click_seen: 0,
+			samples: None,
+			samples_seen: 0,
+			loaded: Default::default(),
 			click_sample: None,
 			click_sample_level: 0.7,
 			level_kick: 1.0,
@@ -954,6 +1017,102 @@ impl ClickSlot {
 			None => "{\"name\":null,\"rate\":0,\"samples\":0}".to_string(),
 		}
 	}
+}
+
+/// The six one-shot slots, one per drum: a sample replaces the synthesis for
+/// that drum until it is cleared.
+#[derive(Default)]
+pub struct Samples {
+	slots: std::sync::Mutex<[Option<SampleData>; 6]>,
+	generation: std::sync::atomic::AtomicU64,
+}
+
+impl Samples {
+	/// An empty set of slots.
+	pub fn new() -> Arc<Self> {
+		Arc::new(Self::default())
+	}
+
+	/// The sample in one slot.
+	pub fn get(&self, drum: Drum) -> Option<SampleData> {
+		self.slots.lock().ok().and_then(|slots| slots[drum.index()].clone())
+	}
+
+	/// Installs a sample and bumps the generation.
+	pub fn set(&self, drum: Drum, data: Option<SampleData>) {
+		if let Ok(mut slots) = self.slots.lock() {
+			slots[drum.index()] = data;
+			self.generation
+				.fetch_add(1, std::sync::atomic::Ordering::Release);
+		}
+	}
+
+	/// How many times the slots have changed.
+	pub fn generation(&self) -> u64 {
+		self.generation.load(std::sync::atomic::Ordering::Acquire)
+	}
+
+	/// What the page draws: one entry per drum, in GM order.
+	pub fn json(&self) -> String {
+		let slots = self.slots.lock().map(|slots| slots.clone()).unwrap_or_default();
+		let mut out = String::from("[");
+
+		for (index, slot) in slots.iter().enumerate() {
+			if index > 0 {
+				out.push(',');
+			}
+
+			match slot {
+				Some(data) => {
+					let _ = std::fmt::Write::write_fmt(
+						&mut out,
+						format_args!(
+							"{{\"name\":\"{}\",\"rate\":{},\"samples\":{}}}",
+							escape_name(&data.name),
+							data.rate,
+							data.pcm.len()
+						),
+					);
+				}
+				None => out.push_str("null"),
+			}
+		}
+
+		out.push(']');
+		out
+	}
+}
+
+/// One slot index per drum: the order the page and the mixer use.
+impl Drum {
+	fn index(self) -> usize {
+		match self {
+			Drum::Kick => 0,
+			Drum::Snare => 1,
+			Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => 2,
+			Drum::Clap => 3,
+			Drum::Tom => 4,
+			Drum::Crash | Drum::Ride => 5,
+		}
+	}
+}
+
+/// The slot name the page posts, mapped to the drum it fills.
+pub fn slot_drum(name: &str) -> Option<Drum> {
+	Some(match name {
+		"kick" => Drum::Kick,
+		"snare" => Drum::Snare,
+		"hat" => Drum::HatClosed,
+		"clap" => Drum::Clap,
+		"tom" => Drum::Tom,
+		"cymbal" => Drum::Crash,
+		_ => return None,
+	})
+}
+
+/// A name with the characters JSON cannot carry removed.
+fn escape_name(name: &str) -> String {
+	name.replace(['"', '\\'], "")
 }
 
 /// Decodes a WAV into a mono one-shot, at the rate it was recorded at.
@@ -1046,6 +1205,88 @@ impl DrumInstrument {
 		self
 	}
 
+	/// Shares the six one-shot slots with the editor.
+	pub fn with_samples(mut self, slots: Arc<Samples>) -> Self {
+		self.samples = Some(slots.clone());
+		self.samples_seen = slots.generation();
+		self.adopt_samples();
+
+		self
+	}
+
+	/// The level of one slot's one-shot.
+	fn sample_level(&self, drum: Drum) -> f32 {
+		match drum {
+			Drum::Kick => self.sample_level_kick,
+			Drum::Snare => self.sample_level_snare,
+			Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => self.sample_level_hat,
+			Drum::Clap => self.sample_level_clap,
+			Drum::Tom => self.sample_level_tom,
+			Drum::Crash | Drum::Ride => self.sample_level_cymbal,
+		}
+		.clamp(0.0, 2.0)
+	}
+
+	/// Copies the shared slots in when the page has changed them.
+	fn adopt_samples(&mut self) {
+		let Some(slots) = &self.samples else {
+			return;
+		};
+
+		let generation = slots.generation();
+
+		if generation == self.samples_seen {
+			return;
+		}
+
+		self.samples_seen = generation;
+
+		for (index, drum) in [
+			Drum::Kick,
+			Drum::Snare,
+			Drum::HatClosed,
+			Drum::Clap,
+			Drum::Tom,
+			Drum::Crash,
+		]
+		.iter()
+		.enumerate()
+		{
+			self.loaded[index] = slots.get(*drum);
+		}
+	}
+
+	/// A recipe that plays an imported one-shot instead of the synthesis.
+	fn sample_recipe(&self, data: &SampleData, level: f32) -> Recipe {
+		let duration = data.seconds().max(0.01) * 1.05;
+		let amp = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: duration,
+				value: 1.0,
+				bend: 0.0,
+			},
+		]);
+
+		Recipe {
+			layers: vec![Layer {
+				source: Source::Sample {
+					data: Arc::new(data.clone()),
+					level: level.clamp(0.0, 2.0),
+				},
+				keytrack: 0.0,
+				velocity: 1.0,
+				gain: 1.0,
+			}],
+			pitch: flat_pitch(),
+			amp,
+		}
+	}
+
 	/// Takes a click the page imported since the last block.
 	fn adopt_click(&mut self) {
 		let Some(slot) = &self.click_slot else {
@@ -1063,7 +1304,7 @@ impl DrumInstrument {
 		}
 	}
 
-	/// The mix level this drum's page sets.
+
 	fn level_for(&self, drum: Drum) -> f32 {
 		match drum {
 			Drum::Kick => self.level_kick,
@@ -1581,6 +1822,8 @@ impl DrumInstrument {
 
 	/// Start one hit, if the note is the kick's.
 	pub fn start(&mut self, note: u8, velocity: f32) -> bool {
+		self.adopt_samples();
+
 		let Some(drum) = drum_of(note) else {
 			return false;
 		};
@@ -1603,18 +1846,25 @@ impl DrumInstrument {
 			self.playing.remove(0);
 		}
 
-		let mut recipe = match drum {
-			Drum::Kick => self.kick_recipe(),
-			Drum::Snare => self.snare_recipe(),
-			Drum::Clap => self.clap_recipe(),
-			Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => self.hat_recipe(drum),
-			Drum::Tom => self.tom_recipe(note),
-			Drum::Crash | Drum::Ride => self.cymbal_recipe(drum),
+		// A loaded one-shot replaces this drum's synthesis; the click is only
+		// layered under a synthesised drum.
+		let loaded = self.loaded[drum.index()].clone();
+		let mut recipe = match &loaded {
+			Some(data) => self.sample_recipe(data, self.sample_level(drum)),
+			None => match drum {
+				Drum::Kick => self.kick_recipe(),
+				Drum::Snare => self.snare_recipe(),
+				Drum::Clap => self.clap_recipe(),
+				Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => self.hat_recipe(drum),
+				Drum::Tom => self.tom_recipe(note),
+				Drum::Crash | Drum::Ride => self.cymbal_recipe(drum),
+			},
 		};
 
-		// An imported click is layered under every drum: the synthetic click is
-		// the fallback, not the only answer.
-		if let Some(sample) = &self.click_sample
+		// An imported click is layered under every synthesised drum: the
+		// synthetic click is the fallback, not the only answer.
+		if loaded.is_none()
+			&& let Some(sample) = &self.click_sample
 			&& self.click_sample_level > 0.0
 		{
 			recipe.layers.push(Layer {
@@ -1700,6 +1950,7 @@ impl Generator<2> for DrumInstrument {
 			self.playing.clear();
 		}
 
+		self.adopt_samples();
 		self.adopt_click();
 
 		let events = context.events().to_vec();
@@ -1970,6 +2221,31 @@ mod tests {
 		assert!(
 			layered > plain + 0.02,
 			"the imported click was not heard: {layered} vs {plain}"
+		);
+	}
+
+	#[test]
+	fn a_loaded_slot_replaces_the_drum() {
+		let slots = Samples::new();
+		let mut kit = DrumInstrument::new(48_000).with_samples(slots.clone());
+
+		slots.set(
+			slot_drum("snare").expect("the snare's slot"),
+			Some(SampleData {
+				name: "snare".to_string(),
+				rate: 48_000,
+				pcm: vec![0.5; 2_400],
+			}),
+		);
+
+		assert!(kit.start(SNARE, 0.5));
+
+		let out = render(&mut kit, 2_400);
+		let mean = out.iter().sum::<f32>() / out.len() as f32;
+
+		assert!(
+			mean > 0.1,
+			"the sample slot did not replace the snare: {mean}"
 		);
 	}
 

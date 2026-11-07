@@ -8,8 +8,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
-	ClickSlot, Curve, DrumInstrument, GeneratorEffect, Parameter, Parameters, SetValue, decode_click,
-	from_binary, to_binary,
+	ClickSlot, Curve, DrumInstrument, GeneratorEffect, Parameter, Parameters, Samples, SetValue,
+	decode_click, from_binary, slot_drum, to_binary,
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
@@ -27,6 +27,7 @@ const ACCENT: &str = "#c8793d";
 const PAGES: &[Page] = &[
 	Page::new("Kit", &["Kit"]),
 	Page::new("Mix", &["Kit Mix"]),
+	Page::new("Samples", &["Samples"]),
 	Page::new("Kick", &["Kick"]),
 	Page::new("Snare", &["Snare"]),
 	Page::new("Hat", &["Hat"]),
@@ -47,6 +48,7 @@ pub struct DrummerWeb {
 	processor: EffectProcessor<GeneratorEffect<DrumInstrument>>,
 	curve: Arc<Mutex<Curve>>,
 	click: Arc<ClickSlot>,
+	samples: Arc<Samples>,
 	bypass: Arc<AtomicBool>,
 	scope: Arc<Scope>,
 }
@@ -57,17 +59,21 @@ impl Default for DrummerWeb {
 		let factory_curve = curve.clone();
 		let click = ClickSlot::new();
 		let factory_click = click.clone();
+		let samples = Samples::new();
+		let factory_samples = samples.clone();
 
 		Self {
 			processor: EffectProcessor::with_build(move |rate: usize| {
 				GeneratorEffect::new(
 					DrumInstrument::new(rate)
 						.with_shared(factory_curve.clone())
-						.with_click_slot(factory_click.clone()),
+						.with_click_slot(factory_click.clone())
+						.with_samples(factory_samples.clone()),
 				)
 			}),
 			curve,
 			click,
+			samples,
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(Scope::new()),
 		}
@@ -195,6 +201,7 @@ impl Plugin for DrummerWeb {
 		let rate = self.processor.sample_rate();
 		let curve = self.curve.clone();
 		let click = self.click.clone();
+		let samples = self.samples.clone();
 
 		editor_with(
 			self,
@@ -216,6 +223,33 @@ impl Plugin for DrummerWeb {
 								error.replace('"', "")
 							)),
 						},
+						_ => ProtocolResponse::json("{\"error\":\"method\"}"),
+					});
+				}
+
+				if request.path == "/samples" {
+					return Some(match request.method {
+						"GET" => ProtocolResponse::json(samples.json()),
+						"POST" => {
+							let slot = request
+								.query
+								.and_then(|query| query.split('&').find_map(|part| part.strip_prefix("slot=")))
+								.unwrap_or("");
+							let Some(drum) = slot_drum(slot) else {
+								return Some(ProtocolResponse::json("{\"error\":\"slot\"}"));
+							};
+
+							match decode_click(request.body) {
+								Ok(data) => {
+									samples.set(drum, Some(data));
+									ProtocolResponse::json("{\"ok\":true}")
+								}
+								Err(error) => ProtocolResponse::json(format!(
+									"{{\"error\":\"{}\"}}",
+									error.replace('"', "")
+								)),
+							}
+						}
 						_ => ProtocolResponse::json("{\"error\":\"method\"}"),
 					});
 				}
