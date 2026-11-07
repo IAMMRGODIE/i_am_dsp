@@ -181,7 +181,13 @@ mod tests {
 			.duration_since(std::time::UNIX_EPOCH)
 			.unwrap()
 			.as_nanos();
-		let path = std::env::temp_dir().join(format!(
+		// The crate's own target directory rather than the system temp: a
+		// sandboxed test run cannot always write there, and a test that writes
+		// next to the build is easier to clean up.
+		let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+			.join("target")
+			.join("test-temp");
+		let path = root.join(format!(
 			"i_am_plugin_wry_{name}_{}_{}",
 			std::process::id(),
 			stamp
