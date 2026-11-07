@@ -798,7 +798,7 @@ fn the_drummer_ignores_a_note_it_has_no_voice_for() {
 	let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
 		events: vec![NoteEvent::NoteOn {
 			channel: 0,
-			note: 38,
+			note: 60,
 			velocity: 1.0,
 		}],
 		infos: TestContext::new().infos,

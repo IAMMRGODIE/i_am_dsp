@@ -19,24 +19,53 @@ use sources::{Band, NoiseBand, Partial, Rng, Running};
 
 /// The note the kick answers to, in the host's numbering.
 pub const KICK: u8 = 36;
+/// The note the snare answers to.
+pub const SNARE: u8 = 38;
 
 /// How many hits may ring at once.
 const MAX_VOICES: usize = 16;
 
+/// What a layer is made of.
+enum Source {
+	/// A bank of decaying partials.
+	Partials(Vec<Partial>),
+	/// Bands of filtered noise.
+	Noise(Vec<NoiseBand>),
+}
+
+/// One layer of a hit: a source, how far it follows the note, and its level.
+///
+/// The kick is the first drum written this way: the body, the click and the
+/// noise edge are three layers of one voice, which is what lets a snare be a
+/// body plus air plus wires without a second engine.
+struct Layer {
+	source: Source,
+	/// 1 follows the pitch curve, 0 stays where the source sits.
+	keytrack: f32,
+	/// How the layer grows with velocity: the body answers a hard hit faster
+	/// than the click does.
+	velocity: f32,
+	/// The layer's own level, applied before the master amp curve.
+	gain: f32,
+}
+
 /// Everything one hit needs, built from the controls.
 struct Recipe {
-	body: Vec<Partial>,
-	click: Vec<Partial>,
-	noise: Vec<NoiseBand>,
+	layers: Vec<Layer>,
 	pitch: Curve,
 	amp: Curve,
 }
 
-/// One hit: the running partials, the noise, and its place on the curves.
-struct Voice {
-	body: Vec<Running>,
-	click: Vec<Running>,
+/// One running layer of a hit.
+struct VoiceLayer {
+	partials: Vec<Running>,
 	noise: Vec<Band>,
+	keytrack: f32,
+}
+
+/// One hit: the running layers, and its place on the curves.
+struct Voice {
+	layers: Vec<VoiceLayer>,
 	pitch: Curve,
 	amp: Curve,
 	time: f32,
@@ -45,36 +74,50 @@ struct Voice {
 impl Voice {
 	fn start(recipe: &Recipe, rate: f32, velocity: f32, rng: &mut Rng) -> Self {
 		let velocity = velocity.clamp(0.0, 1.0);
-		let body_gain = velocity.powf(1.5) * 0.9;
-		let click_gain = velocity.powf(0.7);
+		let mut layers = Vec::with_capacity(recipe.layers.len());
 
-		let scaled = |partials: &[Partial], gain: f32| {
-			partials
-				.iter()
-				.map(|partial| Partial {
-					amplitude: partial.amplitude * gain,
-					..*partial
-				})
-				.collect::<Vec<_>>()
-		};
+		for layer in &recipe.layers {
+			let level = velocity.powf(layer.velocity) * layer.gain;
 
-		let body = scaled(&recipe.body, body_gain);
-		let click = scaled(&recipe.click, click_gain);
+			match &layer.source {
+				Source::Partials(partials) => layers.push(VoiceLayer {
+					partials: partials
+						.iter()
+						.map(|partial| {
+							Running::new(
+								Partial {
+									amplitude: partial.amplitude * level,
+									..*partial
+								},
+								rate,
+								rng,
+							)
+						})
+						.collect(),
+					noise: Vec::new(),
+					keytrack: layer.keytrack,
+				}),
+				Source::Noise(bands) => layers.push(VoiceLayer {
+					partials: Vec::new(),
+					noise: bands
+						.iter()
+						.map(|band| {
+							Band::new(
+								NoiseBand {
+									gain: band.gain * level,
+									..*band
+								},
+								rate,
+							)
+						})
+						.collect(),
+					keytrack: layer.keytrack,
+				}),
+			}
+		}
 
 		Self {
-			body: body
-				.iter()
-				.map(|partial| Running::new(*partial, rate, rng))
-				.collect(),
-			click: click
-				.iter()
-				.map(|partial| Running::new(*partial, rate, rng))
-				.collect(),
-			noise: recipe
-				.noise
-				.iter()
-				.map(|band| Band::new(*band, rate))
-				.collect(),
+			layers,
 			pitch: recipe.pitch.clone(),
 			amp: recipe.amp.clone(),
 			time: 0.0,
@@ -82,19 +125,21 @@ impl Voice {
 	}
 
 	fn next(&mut self, rng: &mut Rng, rate: f32) -> f32 {
-		let ratio = self.pitch.value(self.time).clamp(0.05, 8.0);
+		let bend = self.pitch.value(self.time);
 		let mut sum = 0.0;
 
-		// The body follows the pitch curve; the click is material, so it keeps
-		// its own frequencies.
-		for partial in &mut self.body {
-			sum += partial.next(ratio, rate);
-		}
-		for partial in &mut self.click {
-			sum += partial.next(1.0, rate);
-		}
-		for band in &mut self.noise {
-			sum += band.next(rng);
+		for layer in &mut self.layers {
+			// A layer that does not follow the note keeps its own frequencies;
+			// one that does gets the whole fall, which is how the click stays
+			// material while the body dives.
+			let ratio = (1.0 + (bend - 1.0) * layer.keytrack).clamp(0.05, 8.0);
+
+			for partial in &mut layer.partials {
+				sum += partial.next(ratio, rate);
+			}
+			for band in &mut layer.noise {
+				sum += band.next(rng);
+			}
 		}
 
 		let level = self.amp.value(self.time).max(0.0);
@@ -162,6 +207,31 @@ pub struct DrumInstrument {
 	#[id(display = "Gain")]
 	#[layout(group = "Kick", order = 6, widget = knob)]
 	pub gain: f32,
+	/// The fundamental of the snare's shell, in Hz.
+	#[range(min = 120.0, max = 400.0)]
+	#[default(180.0)]
+	#[unit(hertz)]
+	#[id(display = "Snare Tune")]
+	#[layout(group = "Snare", order = 0, widget = knob)]
+	pub snare_tune: f32,
+	/// How long the shell rings, in seconds.
+	#[range(min = 0.05, max = 1.0)]
+	#[default(0.18)]
+	#[id(display = "Snare Decay")]
+	#[layout(group = "Snare", order = 1, widget = knob)]
+	pub snare_decay: f32,
+	/// How much air and wire the hit throws off.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.5)]
+	#[id(display = "Wires")]
+	#[layout(group = "Snare", order = 2, widget = knob)]
+	pub snare_wires: f32,
+	/// The snare's stick click.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.4)]
+	#[id(display = "Snare Click")]
+	#[layout(group = "Snare", order = 3, widget = knob)]
+	pub snare_click: f32,
 }
 
 /// The pitch fall a fresh kick starts with: a deep dive in the first 30 ms.
@@ -194,6 +264,10 @@ impl Default for DrumInstrument {
 			click_tone: 1800.0,
 			drive: 1.5,
 			gain: 0.8,
+			snare_tune: 180.0,
+			snare_decay: 0.18,
+			snare_wires: 0.5,
+			snare_click: 0.4,
 		}
 	}
 }
@@ -219,7 +293,7 @@ impl DrumInstrument {
 	}
 
 	/// The controls, turned into one hit.
-	fn recipe(&self) -> Recipe {
+	fn kick_recipe(&self) -> Recipe {
 		let tune = self.tune.clamp(20.0, 200.0);
 		let decay = self.decay.clamp(0.02, 4.0);
 
@@ -286,9 +360,144 @@ impl DrumInstrument {
 		]);
 
 		Recipe {
-			body,
-			click,
-			noise,
+			layers: vec![
+				Layer {
+					source: Source::Partials(body),
+					keytrack: 1.0,
+					velocity: 1.5,
+					gain: 0.9,
+				},
+				Layer {
+					source: Source::Partials(click),
+					keytrack: 0.0,
+					velocity: 0.7,
+					gain: 1.0,
+				},
+				Layer {
+					source: Source::Noise(noise),
+					keytrack: 0.0,
+					velocity: 0.7,
+					gain: 1.0,
+				},
+			],
+			pitch,
+			amp,
+		}
+	}
+
+	/// The note the kick answers to, and its page.
+	fn is_kick(note: u8) -> bool {
+		note == KICK
+	}
+
+	/// The note the snare answers to.
+	fn is_snare(note: u8) -> bool {
+		note == SNARE
+	}
+
+	/// The snare: two shell clusters, the air and wire it throws off, and a
+	/// stick click. Same engine as the kick, different layers.
+	fn snare_recipe(&self) -> Recipe {
+		let tune = self.snare_tune.clamp(60.0, 600.0);
+		let decay = self.snare_decay.clamp(0.03, 2.0);
+		let wires = self.snare_wires.clamp(0.0, 1.0);
+		let click_level = self.snare_click.clamp(0.0, 1.0);
+
+		// Two membrane clusters, the way the 808's two bridged-Ts sit an octave
+		// and a fifth apart. Without the second the shell is a tom.
+		let low: Vec<Partial> = [(1.0, 1.0, 1.0), (1.593, 0.5, 0.7), (2.135, 0.25, 0.5)]
+			.iter()
+			.map(|(ratio, gain, t60)| Partial {
+				frequency: tune * ratio,
+				amplitude: *gain,
+				t60: decay * t60,
+			})
+			.collect();
+		let high: Vec<Partial> = [(1.83, 0.5, 0.6), (2.4, 0.25, 0.4)]
+			.iter()
+			.map(|(ratio, gain, t60)| Partial {
+				frequency: tune * ratio,
+				amplitude: *gain,
+				t60: decay * t60,
+			})
+			.collect();
+		let click: Vec<Partial> = if click_level <= 0.0 {
+			Vec::new()
+		} else {
+			[(2_600.0, 0.5, 0.008), (4_200.0, 0.3, 0.005)]
+				.iter()
+				.map(|(frequency, gain, t60)| Partial {
+					frequency: *frequency,
+					amplitude: gain * click_level,
+					t60: *t60,
+				})
+				.collect()
+		};
+		let air = NoiseBand {
+			frequency: 4_200.0,
+			q: 0.7,
+			gain: 0.45 * wires,
+			t60: 0.12,
+		};
+		let wire = NoiseBand {
+			frequency: 6_800.0,
+			q: 1.4,
+			gain: 0.35 * wires,
+			t60: 0.16,
+		};
+
+		let pitch = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.6,
+				bend: -1.0,
+			},
+			Point {
+				time: 0.015,
+				value: 1.0,
+				bend: 0.0,
+			},
+		]);
+		let amp = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: -2.5,
+			},
+			Point {
+				time: decay,
+				value: 0.0,
+				bend: 0.0,
+			},
+		]);
+
+		Recipe {
+			layers: vec![
+				Layer {
+					source: Source::Partials(low),
+					keytrack: 1.0,
+					velocity: 1.4,
+					gain: 0.7,
+				},
+				Layer {
+					source: Source::Partials(high),
+					keytrack: 1.0,
+					velocity: 1.4,
+					gain: 0.35,
+				},
+				Layer {
+					source: Source::Partials(click),
+					keytrack: 0.0,
+					velocity: 0.8,
+					gain: 1.0,
+				},
+				Layer {
+					source: Source::Noise(vec![air, wire]),
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: 1.0,
+				},
+			],
 			pitch,
 			amp,
 		}
@@ -296,7 +505,7 @@ impl DrumInstrument {
 
 	/// Start one hit, if the note is the kick's.
 	pub fn start(&mut self, note: u8, velocity: f32) -> bool {
-		if note != KICK {
+		if !Self::is_kick(note) && !Self::is_snare(note) {
 			return false;
 		}
 
@@ -304,7 +513,11 @@ impl DrumInstrument {
 			self.playing.remove(0);
 		}
 
-		let recipe = self.recipe();
+		let recipe = if Self::is_snare(note) {
+			self.snare_recipe()
+		} else {
+			self.kick_recipe()
+		};
 		self.playing
 			.push(Voice::start(&recipe, self.rate, velocity, &mut self.rng));
 
@@ -381,6 +594,35 @@ mod tests {
 	}
 
 	#[test]
+	fn the_snare_sounds_and_is_not_the_kick() {
+		let mut snare = DrumInstrument::new(48_000);
+		assert!(snare.start(SNARE, 1.0));
+		let snare = render(&mut snare, 9_600);
+
+		let mut kick = DrumInstrument::new(48_000);
+		kick.start(KICK, 1.0);
+		let kick = render(&mut kick, 9_600);
+
+		let peak = snare.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+		assert!(peak > 0.05, "the snare was silent: {peak}");
+
+		// The wires make the snare cross zero far more often than a 52 Hz shell.
+		let crossings = |samples: &[f32]| {
+			samples
+				.windows(2)
+				.filter(|pair| (pair[0] >= 0.0) != (pair[1] >= 0.0))
+				.count()
+		};
+
+		assert!(
+			crossings(&snare) > crossings(&kick) * 3,
+			"the snare sounds like a kick: {} vs {}",
+			crossings(&snare),
+			crossings(&kick)
+		);
+	}
+
+	#[test]
 	fn a_note_the_kick_does_not_answer_is_silent() {
 		let mut kit = DrumInstrument::new(48_000);
 
@@ -406,8 +648,18 @@ mod tests {
 		let mut kit = DrumInstrument::new(48_000);
 		kit.click = 0.0;
 
-		assert!(kit.recipe().click.is_empty());
-		assert!(kit.recipe().noise.is_empty());
+		let recipe = kit.kick_recipe();
+		let material = recipe.layers.iter().filter(|layer| layer.keytrack == 0.0);
+		let mut any = false;
+
+		for layer in material {
+			match &layer.source {
+				Source::Partials(partials) => any |= !partials.is_empty(),
+				Source::Noise(bands) => any |= !bands.is_empty(),
+			}
+		}
+
+		assert!(!any, "a clickless kick still has material layers");
 	}
 
 	#[test]
@@ -420,6 +672,6 @@ mod tests {
 
 		let kit = kit.with_shared(shared);
 
-		assert!((kit.recipe().pitch.value(0.0) - 7.0).abs() < 1e-5);
+		assert!((kit.kick_recipe().pitch.value(0.0) - 7.0).abs() < 1e-5);
 	}
 }

@@ -23,7 +23,10 @@ const SIZE: (f32, f32) = (620.0, 320.0);
 const TITLE: &str = "I Am Drummer";
 const ACCENT: &str = "#c8793d";
 
-const PAGES: &[Page] = &[Page::new("Kick", &["Kick"])];
+const PAGES: &[Page] = &[
+	Page::new("Kick", &["Kick"]),
+	Page::new("Snare", &["Snare"]),
+];
 
 /// The faceplate of the first drum.
 pub fn faceplate() -> Faceplate {
