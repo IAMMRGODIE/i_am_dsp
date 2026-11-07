@@ -18,6 +18,7 @@ fn main() {
 	// (time, note, velocity)
 	let mut hits: Vec<(f32, u8, f32)> = vec![
 		(0.00, 36, 1.0),
+		(0.00, 49, 0.8),
 		(0.45, 38, 0.9),
 		(0.90, 36, 0.85),
 		(1.10, 38, 0.8),
@@ -25,7 +26,11 @@ fn main() {
 		(1.68, 38, 0.35),
 		(2.05, 36, 0.95),
 		(2.50, 38, 1.0),
+		(2.55, 39, 0.7),
 		(2.95, 36, 0.8),
+		(3.10, 45, 0.8),
+		(3.25, 48, 0.85),
+		(3.60, 51, 0.6),
 	];
 
 	// A hat on every eighth, and an open one where the pattern needs air.
@@ -38,7 +43,7 @@ fn main() {
 
 	hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
-	let total = (RATE as f32 * 3.6) as usize;
+	let total = (RATE as f32 * 4.6) as usize;
 	let mut samples = Vec::with_capacity(total);
 	let mut next = 0usize;
 

@@ -27,6 +27,16 @@ pub const HAT_CLOSED: u8 = 42;
 pub const HAT_PEDAL: u8 = 44;
 /// The open hi-hat's note.
 pub const HAT_OPEN: u8 = 46;
+/// The clap's note.
+pub const CLAP: u8 = 39;
+/// The lowest tom's note.
+pub const TOM_LOW: u8 = 41;
+/// The highest tom's note.
+pub const TOM_HIGH: u8 = 48;
+/// The crash's note.
+pub const CRASH: u8 = 49;
+/// The ride's note.
+pub const RIDE: u8 = 51;
 
 /// How many hits may ring at once.
 const MAX_VOICES: usize = 16;
@@ -361,6 +371,59 @@ pub struct DrumInstrument {
 	#[id(display = "Hat Level")]
 	#[layout(group = "Hat", order = 4, widget = knob)]
 	pub hat_gain: f32,
+	/// Where the clap's noise sits, in Hz.
+	#[range(min = 600.0, max = 5_000.0)]
+	#[default(1_600.0)]
+	#[unit(hertz)]
+	#[id(display = "Clap Tone")]
+	#[layout(group = "Clap", order = 0, widget = knob)]
+	pub clap_tone: f32,
+	/// How long the clap's tail lasts, in seconds.
+	#[range(min = 0.08, max = 1.0)]
+	#[default(0.35)]
+	#[id(display = "Clap Decay")]
+	#[layout(group = "Clap", order = 1, widget = knob)]
+	pub clap_decay: f32,
+	/// How long the toms ring, in seconds.
+	#[range(min = 0.1, max = 1.5)]
+	#[default(0.5)]
+	#[id(display = "Tom Decay")]
+	#[layout(group = "Tom", order = 0, widget = knob)]
+	pub tom_decay: f32,
+	/// A multiplier on the toms' shell pitch.
+	#[range(min = 0.5, max = 2.0)]
+	#[default(1.0)]
+	#[id(display = "Tom Tune")]
+	#[layout(group = "Tom", order = 1, widget = knob)]
+	pub tom_tune: f32,
+	/// How long the cymbals ring, in seconds.
+	#[range(min = 0.5, max = 6.0)]
+	#[default(2.5)]
+	#[id(display = "Cymbal Decay")]
+	#[layout(group = "Cymbal", order = 0, widget = knob)]
+	pub cymbal_decay: f32,
+	/// The cymbals' level.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.5)]
+	#[id(display = "Cymbal Level")]
+	#[layout(group = "Cymbal", order = 1, widget = knob)]
+	pub cymbal_gain: f32,
+}
+
+/// A pitch curve that stays at one, for the drums whose note is their pitch.
+fn flat_pitch() -> Curve {
+	Curve::new(vec![
+		Point {
+			time: 0.0,
+			value: 1.0,
+			bend: 0.0,
+		},
+		Point {
+			time: 4.0,
+			value: 1.0,
+			bend: 0.0,
+		},
+	])
 }
 
 /// The pitch fall a fresh kick starts with: a deep dive in the first 30 ms.
@@ -402,6 +465,12 @@ impl Default for DrumInstrument {
 			hat_open: 0.45,
 			hat_cutoff: 6_500.0,
 			hat_gain: 0.6,
+			clap_tone: 1_600.0,
+			clap_decay: 0.35,
+			tom_decay: 0.5,
+			tom_tune: 1.0,
+			cymbal_decay: 2.5,
+			cymbal_gain: 0.5,
 		}
 	}
 }
@@ -712,11 +781,226 @@ impl DrumInstrument {
 		}
 	}
 
+	/// Whether a note is the clap.
+	fn is_clap(note: u8) -> bool {
+		note == CLAP
+	}
+
+	/// Whether a note is one of the toms.
+	fn is_tom(note: u8) -> bool {
+		(TOM_LOW..=TOM_HIGH).contains(&note)
+	}
+
+	/// Whether a note is one of the cymbals.
+	fn is_cymbal(note: u8) -> bool {
+		note == CRASH || note == RIDE
+	}
+
+	/// The clap: one noise source, retriggered four times and then let go.
+	///
+	/// The bursts are the amp curve, not four voices: a clap is a hand, four
+	/// hands close together, and the tail they leave on the room.
+	fn clap_recipe(&self) -> Recipe {
+		let tone = self.clap_tone.clamp(400.0, 8_000.0);
+		let decay = self.clap_decay.clamp(0.05, 2.0);
+
+		let amp = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: -3.0,
+			},
+			Point {
+				time: 0.009,
+				value: 0.0,
+				bend: 0.0,
+			},
+			Point {
+				time: 0.012,
+				value: 0.9,
+				bend: -3.0,
+			},
+			Point {
+				time: 0.021,
+				value: 0.0,
+				bend: 0.0,
+			},
+			Point {
+				time: 0.024,
+				value: 0.8,
+				bend: -2.5,
+			},
+			Point {
+				time: 0.033,
+				value: 0.0,
+				bend: 0.0,
+			},
+			Point {
+				time: 0.036,
+				value: 0.7,
+				bend: -1.5,
+			},
+			Point {
+				time: 0.06,
+				value: 0.32,
+				bend: 0.0,
+			},
+			Point {
+				time: decay,
+				value: 0.0,
+				bend: 0.0,
+			},
+		]);
+		let pitch = flat_pitch();
+
+		Recipe {
+			layers: vec![
+				Layer {
+					source: Source::Noise(vec![NoiseBand {
+						frequency: tone,
+						q: 1.1,
+						gain: 0.55,
+						t60: (decay * 0.6).max(0.05),
+					}]),
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: 1.0,
+				},
+				Layer {
+					source: Source::Noise(vec![NoiseBand {
+						frequency: (tone * 3.0).min(12_000.0),
+						q: 0.8,
+						gain: 0.3,
+						t60: (decay * 0.4).max(0.03),
+					}]),
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: 1.0,
+				},
+			],
+			pitch,
+			amp,
+		}
+	}
+
+	/// The toms: one membrane, tuned by the note.
+	fn tom_recipe(&self, note: u8) -> Recipe {
+		let frequency = 440.0
+			* 2f32.powf((note as f32 - 69.0) / 12.0)
+			* self.tom_tune.clamp(0.4, 2.5);
+		let decay = self.tom_decay.clamp(0.05, 2.0);
+		let ratios = [1.0, 1.593, 2.135, 2.296, 2.653];
+		let gains = [1.0, 0.55, 0.3, 0.18, 0.1];
+		let t60 = [1.0, 0.7, 0.5, 0.4, 0.3];
+
+		let partials: Vec<Partial> = ratios
+			.iter()
+			.zip(gains.iter())
+			.zip(t60.iter())
+			.map(|((ratio, gain), t60)| Partial {
+				frequency: frequency * ratio,
+				amplitude: *gain,
+				t60: decay * t60,
+			})
+			.collect();
+
+		let amp = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: -2.5,
+			},
+			Point {
+				time: decay,
+				value: 0.0,
+				bend: 0.0,
+			},
+		]);
+
+		Recipe {
+			layers: vec![Layer {
+				source: Source::Partials(partials),
+				keytrack: 1.0,
+				velocity: 1.4,
+				gain: 0.9,
+			}],
+			pitch: flat_pitch(),
+			amp,
+		}
+	}
+
+	/// The cymbals: a dense, inharmonic bank, excited by a noise burst.
+	fn cymbal_recipe(&self, note: u8) -> Recipe {
+		let ride = note == RIDE;
+		let decay = self.cymbal_decay.clamp(0.3, 8.0) * if ride { 0.45 } else { 1.0 };
+		let level = self.cymbal_gain.clamp(0.0, 1.0);
+		let count = 56usize;
+		let mut partials = Vec::with_capacity(count);
+
+		for index in 0..count {
+			let step = index as f32;
+			// A plate's modes are dense and irregular: log spaced, then jittered.
+			let scatter = ((step * 12.9898).sin() * 43_758.545).fract().abs();
+			let frequency = 220.0 * 1.105f32.powf(step) * (0.94 + 0.12 * scatter);
+			let amplitude = (1.0 / (1.0 + step).powf(0.9)) * (0.6 + 0.4 * scatter);
+			let t60 = decay * (1.0 - 0.55 * (step / count as f32));
+
+			partials.push(Partial {
+				frequency: frequency.min(16_000.0),
+				amplitude,
+				t60: t60.max(0.05),
+			});
+		}
+
+		let amp = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: decay * 0.95,
+				value: 0.0,
+				bend: 0.0,
+			},
+		]);
+
+		Recipe {
+			layers: vec![
+				Layer {
+					source: Source::Partials(partials),
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: 0.5 * level,
+				},
+				Layer {
+					source: Source::Noise(vec![NoiseBand {
+						frequency: 9_000.0,
+						q: 0.5,
+						gain: 0.35 * level,
+						t60: (decay * 0.12).max(0.05),
+					}]),
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: 1.0,
+				},
+			],
+			pitch: flat_pitch(),
+			amp,
+		}
+	}
+
 	/// Start one hit, if the note is the kick's.
 	pub fn start(&mut self, note: u8, velocity: f32) -> bool {
 		let hat = Self::is_hat(note);
 
-		if !Self::is_kick(note) && !Self::is_snare(note) && !hat {
+		if !Self::is_kick(note)
+			&& !Self::is_snare(note)
+			&& !hat
+			&& !Self::is_clap(note)
+			&& !Self::is_tom(note)
+			&& !Self::is_cymbal(note)
+		{
 			return false;
 		}
 
@@ -737,6 +1021,12 @@ impl DrumInstrument {
 			self.hat_recipe(note)
 		} else if Self::is_snare(note) {
 			self.snare_recipe()
+		} else if Self::is_clap(note) {
+			self.clap_recipe()
+		} else if Self::is_tom(note) {
+			self.tom_recipe(note)
+		} else if Self::is_cymbal(note) {
+			self.cymbal_recipe(note)
 		} else {
 			self.kick_recipe()
 		};
@@ -893,6 +1183,65 @@ mod tests {
 			choked_tail < open_tail * 0.6,
 			"the closed hat did not choke the open one: {choked_tail} vs {open_tail}"
 		);
+	}
+
+	#[test]
+	fn the_clap_retriggers() {
+		let mut kit = DrumInstrument::new(48_000);
+		assert!(kit.start(CLAP, 1.0));
+		let out = render(&mut kit, 12_000);
+
+		// A burst, a near silent gap, another burst: the four hands.
+		let early = rms(&out[0..240]);
+		let gap = rms(&out[432..480]);
+
+		assert!(early > 0.01, "the clap was silent: {early}");
+		assert!(
+			gap < early * 0.25,
+			"the clap did not retrigger: {early} then {gap}"
+		);
+	}
+
+	#[test]
+	fn the_toms_follow_the_note() {
+		let crossings = |note: u8| {
+			let mut kit = DrumInstrument::new(48_000);
+			assert!(kit.start(note, 1.0));
+			let out = render(&mut kit, 4_800);
+
+			out.windows(2)
+				.filter(|pair| (pair[0] >= 0.0) != (pair[1] >= 0.0))
+				.count()
+		};
+
+		assert!(
+			crossings(TOM_HIGH) > crossings(TOM_LOW) * 13 / 10,
+			"the toms do not follow the note: {} vs {}",
+			crossings(TOM_HIGH),
+			crossings(TOM_LOW)
+		);
+	}
+
+	#[test]
+	fn the_cymbals_ring_longer_than_a_hat() {
+		let tail = |note: u8| {
+			let mut kit = DrumInstrument::new(48_000);
+			kit.start(note, 1.0);
+			let out = render(&mut kit, 96_000);
+
+			rms(&out[48_000..])
+		};
+
+		let crash = tail(CRASH);
+		let closed = tail(HAT_CLOSED);
+		let ride = tail(RIDE);
+
+		assert!(crash > 0.001, "the crash died: {crash}");
+		assert!(
+			crash > closed * 20.0,
+			"the crash rang like a hat: {crash} vs {closed}"
+		);
+		assert!(ride < crash, "the ride outlasts the crash");
 	}
 
 	#[test]

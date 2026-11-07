@@ -27,6 +27,9 @@ const PAGES: &[Page] = &[
 	Page::new("Kick", &["Kick"]),
 	Page::new("Snare", &["Snare"]),
 	Page::new("Hat", &["Hat"]),
+	Page::new("Clap", &["Clap"]),
+	Page::new("Tom", &["Tom"]),
+	Page::new("Cymbal", &["Cymbal"]),
 ];
 
 /// The faceplate of the first drum.
