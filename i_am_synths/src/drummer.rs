@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
 	ClickSlot, Curve, DrumInstrument, DrumPreset, FitSlot, GeneratorEffect, Parameter, Parameters,
-	Samples, SetValue, decode_click, default_amp_templates, from_binary, slot_drum, to_binary,
+	Samples, SetValue, SnareCurves, decode_click, default_amp_templates, from_binary, slot_drum,
+	to_binary,
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
@@ -52,6 +53,7 @@ pub struct DrummerWeb {
 	samples: Arc<Samples>,
 	fit: Arc<FitSlot>,
 	amps: Arc<Mutex<[Curve; 6]>>,
+	snare: Arc<Mutex<SnareCurves>>,
 	bypass: Arc<AtomicBool>,
 	scope: Arc<Scope>,
 }
@@ -68,6 +70,8 @@ impl Default for DrummerWeb {
 		let factory_fit = fit.clone();
 		let amps = Arc::new(Mutex::new(default_amp_templates()));
 		let factory_amps = amps.clone();
+		let snare = Arc::new(Mutex::new(SnareCurves::default()));
+		let factory_snare = snare.clone();
 
 		Self {
 			processor: EffectProcessor::with_build(move |rate: usize| {
@@ -77,7 +81,8 @@ impl Default for DrummerWeb {
 						.with_click_slot(factory_click.clone())
 						.with_samples(factory_samples.clone())
 						.with_fit_slot(factory_fit.clone())
-						.with_amps(factory_amps.clone()),
+						.with_amps(factory_amps.clone())
+						.with_snare(factory_snare.clone()),
 				)
 			}),
 			curve,
@@ -85,6 +90,7 @@ impl Default for DrummerWeb {
 			samples,
 			fit,
 			amps,
+			snare,
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(Scope::new()),
 		}
@@ -105,6 +111,14 @@ impl Parameters for DrummerWeb {
 			&& let Ok(mut shared) = self.curve.lock()
 		{
 			*shared = curve;
+		}
+
+		if identifier == "snare_curves"
+			&& let SetValue::Serialized(bytes) = &value
+			&& let Ok(curves) = from_binary::<SnareCurves>(bytes.clone())
+			&& let Ok(mut shared) = self.snare.lock()
+		{
+			*shared = curves;
 		}
 
 		if identifier == "amp_curves"
@@ -219,6 +233,13 @@ impl Plugin for DrummerWeb {
 				.set_parameter("amp_curves", SetValue::Serialized(bytes));
 		}
 
+		if let Ok(snare) = self.snare.lock()
+			&& let Ok(bytes) = to_binary(&*snare)
+		{
+			self.processor
+				.set_parameter("snare_curves", SetValue::Serialized(bytes));
+		}
+
 		self.processor.sync_params();
 	}
 
@@ -233,6 +254,7 @@ impl Plugin for DrummerWeb {
 		let samples = self.samples.clone();
 		let fit = self.fit.clone();
 		let amps = self.amps.clone();
+		let snare = self.snare.clone();
 
 		editor_with(
 			self,
@@ -260,17 +282,24 @@ impl Plugin for DrummerWeb {
 
 				if request.path == "/amp" {
 					return Some(match request.method {
-						"GET" => ProtocolResponse::json(amp_json(&amps)),
+						"GET" => ProtocolResponse::json(amp_json(&amps, &snare)),
 						"POST" => match std::str::from_utf8(request.body) {
 							Ok(text) => {
 								let drum = query_drum(request.query);
 
 								match parse_amp(text) {
 									Some(curve) => {
-										if drum < 6
-											&& let Ok(mut shared) = amps.lock()
-										{
-											shared[drum] = curve;
+										if drum < 6 {
+											if let Ok(mut shared) = amps.lock() {
+												shared[drum] = curve;
+											}
+										} else if let Ok(mut shared) = snare.lock() {
+											match drum {
+												6 => shared.base = curve,
+												7 => shared.noise = curve,
+												8 => shared.pitch = curve,
+												_ => {}
+											}
 										}
 										ProtocolResponse::json("{\"ok\":true}")
 									}
@@ -370,8 +399,24 @@ fn query_drum(query: Option<&str>) -> usize {
 		.unwrap_or(0)
 }
 
-fn amp_json(amps: &Arc<Mutex<[Curve; 6]>>) -> String {
+fn curve_json(curve: &Curve, out: &mut String) {
+	out.push('[');
+
+	for (index, point) in curve.points().iter().enumerate() {
+		if index > 0 {
+			out.push(',');
+		}
+		out.push_str(&format!("[{},{},{}]", point.time, point.value, point.bend));
+	}
+
+	out.push(']');
+}
+
+fn amp_json(amps: &Arc<Mutex<[Curve; 6]>>, snare: &Arc<Mutex<SnareCurves>>) -> String {
 	let Ok(guard) = amps.lock() else {
+		return "{\"curves\":[]}".to_string();
+	};
+	let Ok(snare) = snare.lock() else {
 		return "{\"curves\":[]}".to_string();
 	};
 	let mut out = String::from("{\"curves\":[");
@@ -380,16 +425,13 @@ fn amp_json(amps: &Arc<Mutex<[Curve; 6]>>) -> String {
 		if drum > 0 {
 			out.push(',');
 		}
-		out.push('[');
+		curve_json(curve, &mut out);
+	}
 
-		for (index, point) in curve.points().iter().enumerate() {
-			if index > 0 {
-				out.push(',');
-			}
-			out.push_str(&format!("[{},{},{}]", point.time, point.value, point.bend));
-		}
-
-		out.push(']');
+	// The snare's shell, wires and pitch follow the six drums.
+	for curve in [&snare.base, &snare.noise, &snare.pitch] {
+		out.push(',');
+		curve_json(curve, &mut out);
 	}
 
 	out.push_str("]}");

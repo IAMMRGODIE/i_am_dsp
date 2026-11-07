@@ -506,6 +506,34 @@
           hero.addEventListener("contextmenu", function (event) {
             if (kickMode === "amp") ampContextMenu(hero, event); else fallContextMenu(event);
           });
+        } else if (section.hero === "snare") {
+          var snareSlots = { base: 6, noise: 7, pitch: 8 };
+          var snareSetMode = function () {
+            hero.dataset.ampDrum = String(snareSlots[snareMode] || 6);
+          };
+
+          snareSetMode();
+          hero.title = "Drag a dot, a ring for the bend; double click to add, right click to remove. The button switches shell, wires and pitch.";
+          hero.addEventListener("pointerdown", function (event) {
+            if (event.target.closest && event.target.closest("[data-snare-mode]")) return;
+            ampPointerDown(hero, event);
+          });
+          hero.addEventListener("pointermove", function (event) { ampPointerMove(hero, event); });
+          hero.addEventListener("pointerup", function (event) {
+            var button = event.target.closest ? event.target.closest("[data-snare-mode]") : null;
+
+            if (button) {
+              snareMode = button.getAttribute("data-snare-mode");
+              snareSetMode();
+              markDirty();
+              event.preventDefault();
+              return;
+            }
+
+            ampPointerUp(hero, event);
+          });
+          hero.addEventListener("dblclick", function (event) { ampDoubleClick(hero, event); });
+          hero.addEventListener("contextmenu", function (event) { ampContextMenu(hero, event); });
         } else if (section.hero && section.hero.indexOf("amp_") === 0) {
           var drums = { amp_snare: 1, amp_hat: 2, amp_clap: 3, amp_tom: 4, amp_cymbal: 5 };
           hero.dataset.ampDrum = String(drums[section.hero] || 0);
@@ -808,7 +836,7 @@
     });
     if (wantsSamples) setTimeout(pollSamples, 50);
     wantsAmp = heroes.some(function (hero) {
-      return hero.kind === "kick" || hero.kind.indexOf("amp") === 0;
+      return hero.kind === "kick" || hero.kind === "snare" || hero.kind.indexOf("amp") === 0;
     });
     if (wantsAmp) setTimeout(pollAmp, 50);
     if (wantsClick) {

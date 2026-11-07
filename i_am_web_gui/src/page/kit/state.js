@@ -68,6 +68,7 @@ var samplesState = [];
 // The amplitude envelope of the drum the Amp page selects.
 var wantsAmp = false;
 var kickMode = "pitch";
+var snareMode = "base";
 var ampCurves = [[], [], [], [], [], []];
 var ampDrag = null;
 var fallState = null;

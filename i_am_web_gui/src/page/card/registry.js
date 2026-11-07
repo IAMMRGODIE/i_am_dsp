@@ -48,6 +48,7 @@
   registerHero("samples", samplesHero);
   registerHero("kick", kickHero);
   registerHero("amp_snare", function (values, context) { return ampHero(values, context, 1); });
+  registerHero("snare", snareHero);
   registerHero("amp_hat", function (values, context) { return ampHero(values, context, 2); });
   registerHero("amp_clap", function (values, context) { return ampHero(values, context, 3); });
   registerHero("amp_tom", function (values, context) { return ampHero(values, context, 4); });

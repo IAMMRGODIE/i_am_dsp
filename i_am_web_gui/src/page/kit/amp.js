@@ -36,12 +36,20 @@
     return 132 - clamp(value, 0, 1) * 112;
   }
 
+  function ampSpanOf(hero) {
+    var points = ampCurveOf(hero);
+
+    return points.length ? Math.max(0.02, points[points.length - 1][0]) : 1;
+  }
+
   function ampPointAt(hero, event) {
     var map = ampMap(hero);
     if (!map) return null;
 
+    var span = ampSpanOf(hero);
+
     return {
-      time: clamp(((event.clientX - map.left) / map.scale - 26) / 468, 0, 1),
+      time: clamp(((event.clientX - map.left) / map.scale - 26) / 468, 0, 1) * span,
       value: clamp((132 - (event.clientY - map.top) / map.scale) / 112, 0, 1)
     };
   }
@@ -126,7 +134,7 @@
       var upper = ampDrag.index === points.length - 1 ? 1 : points[ampDrag.index + 1][0] - 0.001;
 
       point[0] = clamp(position.time, lower, Math.max(lower, upper));
-      point[1] = clamp(position.value, 0, 1);
+      point[1] = clamp(position.value, 0, 1) * (ampDrumOf(hero) === 8 ? 10 : 1);
       markDirty();
       event.preventDefault();
       return;

@@ -660,7 +660,7 @@ pub struct DrumInstrument {
 	#[default(180.0)]
 	#[unit(hertz)]
 	#[id(display = "Snare Tune")]
-	#[layout(group = "Snare", order = 0, widget = knob, hero = "amp_snare")]
+	#[layout(group = "Snare", order = 0, widget = knob, hero = "snare")]
 	pub snare_tune: f32,
 	/// How long the shell rings, in seconds.
 	#[id(display = "Snare Decay")]
@@ -856,6 +856,12 @@ pub struct DrumInstrument {
 	/// The amplitude shapes, saved with the state and hidden from the face.
 	#[serde]
 	pub amp_curves: Vec<Curve>,
+	/// The snare's shell, wires and pitch, saved and hidden.
+	#[serde]
+	pub snare_curves: SnareCurves,
+	/// The snare's shapes the voices read.
+	#[skip]
+	snare_shared: Arc<Mutex<SnareCurves>>,
 	/// The amplitude shapes the voices read.
 	#[skip]
 	amps: Arc<Mutex<[Curve; 6]>>,
@@ -961,6 +967,8 @@ impl Default for DrumInstrument {
 			loaded: Default::default(),
 			amp_curves: Vec::new(),
 			amps: Arc::new(Mutex::new(default_amp_templates())),
+			snare_curves: SnareCurves::default(),
+			snare_shared: Arc::new(Mutex::new(SnareCurves::default())),
 			fitted: None,
 			fit_slot: None,
 			fit_seen: 0,
@@ -1391,6 +1399,28 @@ fn kit_values(index: i32) -> &'static [(&'static str, f32)] {
 	if index == 1 { EIGHTY_EIGHT } else { STUDIO }
 }
 
+/// The snare's three shapes: the shell's level, the wires' level, and the
+/// shell's pitch in octaves (0 is 1x, 1 is 2x, ...).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SnareCurves {
+	/// The shell's amplitude, in seconds.
+	pub base: Curve,
+	/// The wires' amplitude, in seconds.
+	pub noise: Curve,
+	/// The shell's pitch, in octaves.
+	pub pitch: Curve,
+}
+
+impl Default for SnareCurves {
+	fn default() -> Self {
+		Self {
+			base: Curve::from_triples([(0.0, 1.0, -2.5), (0.18, 0.0, 0.0)]),
+			noise: Curve::from_triples([(0.0, 1.0, -2.5), (0.16, 0.0, 0.0)]),
+			pitch: Curve::from_triples([(0.0, 0.678, -1.0), (0.015, 0.0, 0.0)]),
+		}
+	}
+}
+
 impl DrumInstrument {
 	/// Imports a one-shot that every hit layers under it, from WAV bytes.
 	pub fn set_click_sample(&mut self, bytes: &[u8]) -> Result<(), String> {
@@ -1416,6 +1446,49 @@ impl DrumInstrument {
 		self.adopt_samples();
 
 		self
+	}
+
+	/// Shares the snare's shapes with the editor.
+	pub fn with_snare(mut self, shared: Arc<Mutex<SnareCurves>>) -> Self {
+		self.snare_shared = shared;
+		self
+	}
+
+	/// The shell's envelope.
+	fn snare_base(&self) -> Curve {
+		self.snare_shared
+			.lock()
+			.map(|curves| curves.base.clone())
+			.unwrap_or_default()
+	}
+
+	/// The wires' envelope.
+	fn snare_noise(&self) -> Curve {
+		self.snare_shared
+			.lock()
+			.map(|curves| curves.noise.clone())
+			.unwrap_or_default()
+	}
+
+	/// The shell's pitch: octaves to a ratio.
+	fn snare_pitch(&self) -> Curve {
+		let octaves = self
+			.snare_shared
+			.lock()
+			.map(|curves| curves.pitch.clone())
+			.unwrap_or_default();
+
+		Curve::new(
+			octaves
+				.points()
+				.iter()
+				.map(|point| Point {
+					time: point.time,
+					value: 2f32.powf(point.value.clamp(-4.0, 10.0)),
+					bend: point.bend,
+				})
+				.collect(),
+		)
 	}
 
 	/// Shares the amplitude shapes with the editor.
@@ -1769,14 +1842,12 @@ impl DrumInstrument {
 		}
 	}
 
-	/// The snare: two shell clusters, the air and wire it throws off, and a
-	/// stick click. Same engine as the kick, different layers.
-	fn snare_recipe(&self) -> Recipe {
+	/// The snare's shell: two mode clusters and the stick's click, with their
+	/// own envelope and pitch.
+	fn snare_base_recipe(&self) -> Recipe {
 		let tune = self.snare_tune.clamp(60.0, 600.0);
-		let decay = self.amp_end(Drum::Snare);
-		let wires = self.snare_wires.clamp(0.0, 1.0) * self.brightness;
+		let decay = self.snare_base().end().max(0.02);
 		let click_level = self.snare_click.clamp(0.0, 1.0) * self.brightness;
-
 		let low: Vec<Partial> = [(1.0, 1.0, 1.0), (1.593, 0.5, 0.7), (2.135, 0.25, 0.5)]
 			.iter()
 			.map(|(ratio, gain, t60)| Partial {
@@ -1805,32 +1876,6 @@ impl DrumInstrument {
 				})
 				.collect()
 		};
-		let air = NoiseBand {
-			frequency: 4_200.0,
-			q: 0.7,
-			gain: 0.45 * wires,
-			t60: 0.12,
-		};
-		let wire = NoiseBand {
-			frequency: 6_800.0,
-			q: 1.4,
-			gain: 0.35 * wires,
-			t60: 0.16,
-		};
-
-		let pitch = Curve::new(vec![
-			Point {
-				time: 0.0,
-				value: 1.6,
-				bend: -1.0,
-			},
-			Point {
-				time: 0.015,
-				value: 1.0,
-				bend: 0.0,
-			},
-		]);
-		let amp = self.amp_for(Drum::Snare);
 
 		Recipe {
 			layers: vec![
@@ -1852,14 +1897,39 @@ impl DrumInstrument {
 					velocity: 0.8,
 					gain: 1.0,
 				},
-				Layer {
-					source: Source::Noise(vec![air, wire]),
-					keytrack: 0.0,
-					velocity: 1.0,
-					gain: 1.0,
-				},
 			],
-			pitch,
+			pitch: self.snare_pitch(),
+			amp: self.snare_base(),
+		}
+	}
+
+	/// The snare's wires: the air and the wire it throws off, with their own
+	/// envelope and no pitch.
+	fn snare_noise_recipe(&self) -> Recipe {
+		let wires = self.snare_wires.clamp(0.0, 1.0) * self.brightness;
+		let amp = self.snare_noise();
+		let decay = amp.end().max(0.02);
+		let air = NoiseBand {
+			frequency: 4_200.0,
+			q: 0.7,
+			gain: 0.45 * wires,
+			t60: decay * 0.75,
+		};
+		let wire = NoiseBand {
+			frequency: 6_800.0,
+			q: 1.4,
+			gain: 0.35 * wires,
+			t60: decay,
+		};
+
+		Recipe {
+			layers: vec![Layer {
+				source: Source::Noise(vec![air, wire]),
+				keytrack: 0.0,
+				velocity: 1.0,
+				gain: 1.0,
+			}],
+			pitch: flat_pitch(),
 			amp,
 		}
 	}
@@ -2086,25 +2156,29 @@ impl DrumInstrument {
 		// A loaded one-shot replaces this drum's synthesis; the click is only
 		// layered under a synthesised drum.
 		let loaded = self.loaded[drum.index()].clone();
-		let mut recipe = match &loaded {
-			Some(data) => self.sample_recipe(data, self.sample_level(drum)),
-			None => match drum {
+		let mut recipes: Vec<Recipe> = if let Some(data) = &loaded {
+			vec![self.sample_recipe(data, self.sample_level(drum))]
+		} else if drum == Drum::Snare {
+			// The shell and the wires are separate voices, so their envelopes
+			// and the shell's pitch are their own.
+			vec![self.snare_base_recipe(), self.snare_noise_recipe()]
+		} else {
+			vec![match drum {
 				Drum::Kick => self.kick_recipe(),
-				Drum::Snare => self.snare_recipe(),
 				Drum::Clap => self.clap_recipe(),
 				Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => self.hat_recipe(drum),
 				Drum::Tom => self.tom_recipe(note),
 				Drum::Crash | Drum::Ride => self.cymbal_recipe(drum),
-			},
+				Drum::Snare => self.snare_base_recipe(),
+			}]
 		};
 
-		// An imported click is layered under every synthesised drum: the
-		// synthetic click is the fallback, not the only answer.
 		if loaded.is_none()
+			&& drum != Drum::Snare
 			&& let Some(sample) = &self.click_sample
 			&& self.click_sample_level > 0.0
 		{
-			recipe.layers.push(Layer {
+			recipes[0].layers.push(Layer {
 				source: Source::Sample {
 					data: Arc::new(sample.clone()),
 					level: self.click_sample_level.clamp(0.0, 1.0),
@@ -2114,11 +2188,12 @@ impl DrumInstrument {
 				gain: 1.0,
 			});
 		}
+
 		let tail = match drum {
 			Drum::Crash | Drum::Ride => {
 				let ride = drum == Drum::Ride;
 				let decay =
-				self.amp_end(Drum::Crash) / 0.95 * if ride { 0.45 } else { 1.0 };
+					self.amp_end(Drum::Crash) / 0.95 * if ride { 0.45 } else { 1.0 };
 				let level = self.cymbal_tail.clamp(0.0, 1.0);
 
 				(level > 0.0).then_some(TailSpec {
@@ -2138,15 +2213,21 @@ impl DrumInstrument {
 		let detune = 2f32.powf(cents / 1_200.0);
 		let human = Humanized { level, detune };
 
-		self.playing.push(Voice::start(
-			&recipe,
-			drum,
-			self.rate,
-			velocity,
-			tail,
-			human,
-			&mut self.rng,
-		));
+		for recipe in &recipes {
+			if self.playing.len() >= MAX_VOICES {
+				self.playing.remove(0);
+			}
+
+			self.playing.push(Voice::start(
+				recipe,
+				drum,
+				self.rate,
+				velocity,
+				tail,
+				human,
+				&mut self.rng,
+			));
+		}
 
 		true
 	}
@@ -2298,7 +2379,7 @@ mod tests {
 		render(&mut choked, 4_800);
 		// The choke is the closed hat's gesture, not its sound: a silent one
 		// still stops the open hat, and then the tail is the only thing left.
-		choked.hat_gain = 0.0;
+		choked.level_hat = 0.0;
 		choked.start(HAT_CLOSED, 1.0);
 		let after = render(&mut choked, 4_800);
 
@@ -2532,6 +2613,31 @@ mod tests {
 		assert!(
 			crossings > 40 && crossings < 200,
 			"the fitted bank is not one 500 Hz partial: {crossings} crossings"
+		);
+	}
+
+	#[test]
+	fn the_snare_splits_its_shell_and_wires() {
+		let rms_of = |noise: f32| {
+			let curves = SnareCurves {
+				base: Curve::from_triples([(0.0, 1.0, 0.0), (0.15, 0.0, 0.0)]),
+				noise: Curve::from_triples([(0.0, noise, 0.0), (0.15, 0.0, 0.0)]),
+				pitch: Curve::from_triples([(0.0, 0.0, 0.0), (0.01, 0.0, 0.0)]),
+			};
+			let mut kit = DrumInstrument::new(48_000).with_snare(Arc::new(Mutex::new(curves)));
+			kit.snare_wires = 1.0;
+
+			assert!(kit.start(SNARE, 1.0));
+			rms(&render(&mut kit, 4_800))
+		};
+
+		let shell = rms_of(0.0);
+		let both = rms_of(1.0);
+
+		assert!(shell > 1e-4, "the shell was silent: {shell}");
+		assert!(
+			(both - shell).abs() > shell * 0.02,
+			"the wires changed nothing: {both} vs {shell}"
 		);
 	}
 

@@ -170,70 +170,14 @@
     return 132 - Math.max(0, Math.min(1, value)) * 112;
   }
 
-  /// The amplitude envelope of the selected drum: level against the share of
-  /// its decay. The Decay knob is the length, so the picture is only the shape.
   function ampHero(values, context, drum) {
     drum = drum || 0;
     var amp = context && context.ampCurves && context.ampCurves[drum];
-    var points = amp && amp.length ? amp : [[0, 1, -2.5], [1, 0, 0]];
-    var length = Number(points[points.length - 1][0] || 0) * 1000;
-    var grid = "";
-    var path = "";
-    var bends = "";
-    var dots = "";
+    var points = amp && amp.length ? amp : [[0, 1, -2.5], [0.45, 0, 0]];
+    var span = Math.max(0.02, points[points.length - 1][0]);
 
-    for (var column = 0; column <= 4; column++) {
-      var x = 26 + column * 117;
-      grid += '<line x1="' + x + '" y1="20" x2="' + x + '" y2="132" stroke="#2a2a2a" stroke-width="1"/>';
-    }
-
-    for (var row = 0; row <= 4; row++) {
-      var y = 132 - row * 28;
-      grid += '<line x1="26" y1="' + y + '" x2="494" y2="' + y + '" stroke="#2a2a2a" stroke-width="1"/>';
-    }
-
-    grid += '<text x="26" y="146" fill="#5f5f5f" font-size="7">0</text>';
-    grid += '<text x="452" y="146" fill="#5f5f5f" font-size="7">' + Math.round(length) + " ms</text>";
-    grid += '<text x="26" y="16" fill="#5f5f5f" font-size="7">LEVEL</text>';
-
-    var move = "M " + ampX(points[0][0]).toFixed(1) + " " + ampLevel(points[0][1]).toFixed(1);
-    path += move;
-
-    for (var index = 0; index < points.length - 1; index++) {
-      var start = points[index];
-      var end = points[index + 1];
-      var from = start[1];
-      var to = end[1];
-
-      for (var sample = 1; sample <= 18; sample++) {
-        var unit = sample / 18;
-        var time = start[0] + (end[0] - start[0]) * unit;
-        var value = from + (to - from) * fallBend(unit, start[2] || 0);
-        path += " L " + ampX(time).toFixed(1) + " " + ampLevel(value).toFixed(1);
-      }
-
-      var middle = (start[0] + end[0]) / 2;
-      var middleValue = from + (to - from) * fallBend(0.5, start[2] || 0);
-      bends += '<circle data-amp-bend="' + index + '" cx="' + ampX(middle).toFixed(1) +
-        '" cy="' + ampLevel(middleValue).toFixed(1) + '" r="5" fill="transparent" ' +
-        'stroke="var(--accent)" stroke-opacity="0.7" stroke-width="1.4" pointer-events="all"/>';
-    }
-
-    points.forEach(function (point, index) {
-      dots += '<circle data-amp-point="' + index + '" cx="' + ampX(point[0]).toFixed(1) +
-        '" cy="' + ampLevel(point[1]).toFixed(1) + '" r="4.4" fill="var(--accent)" ' +
-        'stroke="#0f0f0f" stroke-width="1" pointer-events="all"/>';
-    });
-
-    return heroSvgMeet(
-      grid +
-      '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
-      'vector-effect="non-scaling-stroke"/>' +
-      bends +
-      dots
-    );
+    return ampFigure(points, false, span);
   }
-
 
   /// The kick's hero: the pitch fall or its amplitude envelope, whichever the
   /// button last chose.
@@ -246,6 +190,96 @@
       '<div class="hero-actions">' +
         '<button type="button" class="hero-action" data-kick-mode="' + next + '">' +
           (mode === "amp" ? "PITCH" : "AMP") +
+        '</button>' +
+      '</div>';
+  }
+
+
+  /// The envelope picture: points in seconds, level on a linear axis, or the
+  /// snare's pitch on an octave axis when `pitch` is set.
+  function ampFigure(points, pitch, span) {
+    var grid = "";
+    var path = "";
+    var bends = "";
+    var dots = "";
+    var level = function (value) {
+      return 132 - Math.max(0, Math.min(1, pitch ? value / 10 : value)) * 112;
+    };
+    var x = function (time) {
+      return 26 + Math.max(0, Math.min(1, time / Math.max(span, 1e-4))) * 468;
+    };
+
+    for (var column = 0; column <= 4; column++) {
+      var gx = 26 + column * 117;
+      grid += '<line x1="' + gx + '" y1="20" x2="' + gx + '" y2="132" stroke="#2a2a2a" stroke-width="1"/>';
+    }
+
+    for (var row = 0; row <= 4; row++) {
+      var gy = 132 - row * 28;
+      grid += '<line x1="26" y1="' + gy + '" x2="494" y2="' + gy + '" stroke="#2a2a2a" stroke-width="1"/>';
+    }
+
+    grid += '<text x="26" y="146" fill="#5f5f5f" font-size="7">0</text>';
+    grid += '<text x="446" y="146" fill="#5f5f5f" font-size="7">' + Math.round(span * 1000) + " ms</text>";
+
+    if (pitch) {
+      [1, 4, 16, 64, 256, 1024].forEach(function (ratio, index) {
+        var y = 132 - index * 22.4;
+        grid += '<text x="2" y="' + (y + 3).toFixed(1) + '" fill="#5f5f5f" font-size="7">' + ratio + "x</text>";
+      });
+    } else {
+      grid += '<text x="2" y="16" fill="#5f5f5f" font-size="7">LEVEL</text>';
+    }
+
+    path += "M " + x(points[0][0]).toFixed(1) + " " + level(points[0][1]).toFixed(1);
+
+    for (var index = 0; index < points.length - 1; index++) {
+      var start = points[index];
+      var end = points[index + 1];
+      var from = start[1];
+      var to = end[1];
+
+      for (var sample = 1; sample <= 18; sample++) {
+        var unit = sample / 18;
+        var time = start[0] + (end[0] - start[0]) * unit;
+        var value = from + (to - from) * fallBend(unit, start[2] || 0);
+        path += " L " + x(time).toFixed(1) + " " + level(value).toFixed(1);
+      }
+
+      var middle = (start[0] + end[0]) / 2;
+      var middleValue = from + (to - from) * fallBend(0.5, start[2] || 0);
+      bends += '<circle data-amp-bend="' + index + '" cx="' + x(middle).toFixed(1) +
+        '" cy="' + level(middleValue).toFixed(1) + '" r="5" fill="transparent" ' +
+        'stroke="var(--accent)" stroke-opacity="0.7" stroke-width="1.4" pointer-events="all"/>';
+    }
+
+    points.forEach(function (point, index) {
+      dots += '<circle data-amp-point="' + index + '" cx="' + x(point[0]).toFixed(1) +
+        '" cy="' + level(point[1]).toFixed(1) + '" r="4.4" fill="var(--accent)" ' +
+        'stroke="#0f0f0f" stroke-width="1" pointer-events="all"/>';
+    });
+
+    return heroSvgMeet(
+      grid +
+      '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
+      'vector-effect="non-scaling-stroke"/>' +
+      bends +
+      dots
+    );
+  }
+
+  /// The snare: shell, wires and pitch, switched under the picture.
+  function snareHero(values, context) {
+    var mode = context && context.snareMode ? context.snareMode : "base";
+    var drum = { base: 6, noise: 7, pitch: 8 }[mode] || 6;
+    var points = (context && context.ampCurves && context.ampCurves[drum]) || [[0, 1, 0], [0.18, 0, 0]];
+    var span = Math.max(0.02, points[points.length - 1][0]);
+    var next = { base: "noise", noise: "pitch", pitch: "base" }[mode];
+
+    return ampFigure(points, mode === "pitch", span) +
+      '<div class="hero-actions">' +
+        '<button type="button" class="hero-action" data-snare-mode="' + next + '">' +
+          mode.toUpperCase() +
         '</button>' +
       '</div>';
   }
