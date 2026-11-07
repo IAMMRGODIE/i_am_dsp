@@ -7,7 +7,7 @@ function fallTimeOf(x) {
 }
 
 function fallRatioOf(y) {
-  return Math.pow(2, clamp((132 - y) / 112, 0, 1) * 4);
+  return Math.pow(2, clamp((132 - y) / 112, 0, 1) * 10);
 }
 
 /// The picture keeps its shape (meet), so a click is mapped through the

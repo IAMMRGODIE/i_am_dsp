@@ -7,7 +7,7 @@
 
   function fallY(ratio) {
     var octaves = Math.log(Math.max(ratio, 1)) / Math.LN2;
-    return 132 - Math.min(octaves, 4) / 4 * 112;
+    return 132 - Math.min(octaves, 10) / 10 * 112;
   }
 
   function fallBend(unit, bend) {
@@ -19,11 +19,11 @@
     var points = context && context.fall && context.fall.points;
     var grid = '<rect x="26" y="20" width="468" height="112" fill="none" stroke="#2a2a2a"/>';
 
-    for (var octave = 0; octave <= 4; octave++) {
-      var y = 132 - octave * (112 / 4);
+    for (var octave = 0; octave <= 10; octave += 2) {
+      var y = 132 - octave * (112 / 10);
       grid += '<line x1="26" y1="' + y.toFixed(1) + '" x2="494" y2="' + y.toFixed(1) +
         '" stroke="#232323"/>' +
-        '<text x="6" y="' + (y + 3).toFixed(1) + '" fill="#5f5f5f" font-size="8">' +
+        '<text x="2" y="' + (y + 3).toFixed(1) + '" fill="#5f5f5f" font-size="7">' +
         Math.pow(2, octave).toFixed(0) + 'x</text>';
     }
 

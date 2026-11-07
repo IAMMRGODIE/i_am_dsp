@@ -559,7 +559,7 @@ impl Voice {
 			// A layer that does not follow the note keeps its own frequencies;
 			// one that does gets the whole fall, which is how the click stays
 			// material while the body dives.
-			let ratio = ((1.0 + (bend - 1.0) * layer.keytrack).clamp(0.05, 16.0)) * self.detune;
+			let ratio = ((1.0 + (bend - 1.0) * layer.keytrack).clamp(0.05, 1024.0)) * self.detune;
 
 			let modulation = match &mut layer.modulator {
 				Some(modulator) => modulator.next(rate),
@@ -2557,6 +2557,20 @@ mod tests {
 		let half = rms_of(0.5);
 
 		assert!(half < full * 0.6 && half > full * 0.4, "{full} vs {half}");
+	}
+
+	#[test]
+	fn a_ten_octave_start_stays_finite() {
+		let curve = Curve::from_triples([(0.0, 1_000.0, 0.0), (0.02, 1.0, 0.0)]);
+		let mut kit = DrumInstrument::new(48_000).with_shared(Arc::new(Mutex::new(curve)));
+
+		assert!(kit.start(KICK, 1.0));
+		let out = render(&mut kit, 4_800);
+
+		assert!(
+			out.iter().all(|sample| sample.is_finite() && sample.abs() < 4.0),
+			"a ten octave start left the rails"
+		);
 	}
 
 	#[test]

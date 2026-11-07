@@ -86,9 +86,18 @@ impl Running {
 	/// A bank of sines is a comb; phase modulation turns every sine into a
 	/// cluster of sidebands, which is how a cymbal stops being a chord.
 	pub fn next_fm(&mut self, pitch_ratio: f32, rate: f32, modulation: f32) -> f32 {
-		let sample = (self.phase * TAU + modulation).sin() * self.gain * self.envelope;
+		let step = self.frequency * pitch_ratio / rate;
 
-		self.phase = (self.phase + self.frequency * pitch_ratio / rate).fract();
+		// A kick can start ten octaves up, where a low shell partial would fold
+		// back down the spectrum. Fade it out as it reaches Nyquist instead.
+		let ceiling = if step > 0.45 {
+			((0.5 - step) / 0.05).clamp(0.0, 1.0)
+		} else {
+			1.0
+		};
+		let sample = (self.phase * TAU + modulation).sin() * self.gain * self.envelope * ceiling;
+
+		self.phase = (self.phase + step).fract();
 		self.envelope *= self.step;
 
 		sample
