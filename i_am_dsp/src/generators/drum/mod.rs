@@ -2077,7 +2077,7 @@ impl DrumInstrument {
 		let ride = drum == Drum::Ride;
 		let decay = self.amp_end(Drum::Crash) / 0.95 * if ride { 0.45 } else { 1.0 };
 		let level = 1.0;
-		let count = 56usize;
+		let count = 64usize;
 		let mut partials = Vec::with_capacity(count);
 
 		for index in 0..count {
@@ -2085,11 +2085,13 @@ impl DrumInstrument {
 			// A plate's modes are dense and irregular: log spaced, then jittered.
 			let scatter = ((step * 12.9898).sin() * 43_758.545).fract().abs();
 			let frequency = 220.0 * 1.105f32.powf(step) * (0.94 + 0.12 * scatter);
-			let amplitude = (1.0 / (1.0 + step).powf(0.9)) * (0.6 + 0.4 * scatter);
+			let amplitude = (1.0 / (1.0 + step).powf(0.55)) * (0.6 + 0.4 * scatter);
 			let t60 = decay * (1.0 - 0.55 * (step / count as f32));
 
 			partials.push(Partial {
-				frequency: frequency.min(16_000.0),
+				// The bank reaches the top of the band; the voice fades a partial
+				// out as it approaches Nyquist instead of folding it back.
+				frequency: frequency.min(self.rate * 0.45),
 				amplitude,
 				t60: t60.max(0.05),
 			});
@@ -2110,12 +2112,27 @@ impl DrumInstrument {
 					gain: 0.5 * level,
 				},
 				Layer {
-					source: Source::Noise(vec![NoiseBand {
-						frequency: 9_000.0,
-						q: 0.5,
-						gain: 0.35 * level * self.brightness,
-						t60: (decay * 0.12).max(0.05),
-					}]),
+					source: Source::Noise(vec![
+						NoiseBand {
+							frequency: 8_000.0,
+							q: 0.5,
+							gain: 0.55 * level * self.brightness,
+							t60: (decay * 0.12).max(0.05),
+						},
+						// Air: the top octave the plate throws off first.
+						NoiseBand {
+							frequency: 14_000.0,
+							q: 0.6,
+							gain: 0.42 * level * self.brightness,
+							t60: (decay * 0.06).max(0.03),
+						},
+						NoiseBand {
+							frequency: 19_000.0,
+							q: 0.8,
+							gain: 0.2 * level * self.brightness,
+							t60: (decay * 0.04).max(0.02),
+						},
+					]),
 					keytrack: 0.0,
 					velocity: 1.0,
 					gain: 1.0,
@@ -2444,8 +2461,11 @@ mod tests {
 
 		let plain = crossings(0.0);
 		let fm = crossings(1.0);
+
+		// The bank itself is dense already (and now reaches the top octave), so
+		// the sidebands show as a smaller jump in zero crossings than before.
 		assert!(
-			fm > plain * 2,
+			fm as f32 > plain as f32 * 1.2,
 			"the FM did not thicken the cymbal: {plain} then {fm}"
 		);
 	}
