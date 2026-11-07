@@ -714,7 +714,14 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 	///
 	/// [process]: Effect::process
 	pub fn frame(&mut self, samples: [f32; CHANNELS]) -> [f32; CHANNELS] {
-		self.buffer.frame(samples)
+		let wet = self.buffer.frame(samples);
+		let mut out = [0.0; CHANNELS];
+
+		for (index, sample) in out.iter_mut().enumerate() {
+			*sample = wet[index] * self.wet_gain * self.normalization;
+		}
+
+		out
 	}
 }
 

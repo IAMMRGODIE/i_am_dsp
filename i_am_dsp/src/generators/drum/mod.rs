@@ -1641,6 +1641,9 @@ impl DrumInstrument {
 
 		convolver.dry_gain = 0.0;
 		convolver.wet_gain = 1.0;
+		// Scale the wet by the IR's energy, so a longer or denser IR does not
+		// come out louder than a short one at the same mix.
+		convolver.normalize_energy();
 		instrument.tail_convolver = Some(Box::new(convolver));
 
 		instrument
