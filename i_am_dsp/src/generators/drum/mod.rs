@@ -559,7 +559,7 @@ impl Voice {
 			// A layer that does not follow the note keeps its own frequencies;
 			// one that does gets the whole fall, which is how the click stays
 			// material while the body dives.
-			let ratio = ((1.0 + (bend - 1.0) * layer.keytrack).clamp(0.05, 8.0)) * self.detune;
+			let ratio = ((1.0 + (bend - 1.0) * layer.keytrack).clamp(0.05, 16.0)) * self.detune;
 
 			let modulation = match &mut layer.modulator {
 				Some(modulator) => modulator.next(rate),

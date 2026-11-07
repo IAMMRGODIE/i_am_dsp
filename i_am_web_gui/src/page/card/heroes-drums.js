@@ -7,7 +7,7 @@
 
   function fallY(ratio) {
     var octaves = Math.log(Math.max(ratio, 1)) / Math.LN2;
-    return 132 - Math.min(octaves, 3) / 3 * 112;
+    return 132 - Math.min(octaves, 4) / 4 * 112;
   }
 
   function fallBend(unit, bend) {
@@ -19,8 +19,8 @@
     var points = context && context.fall && context.fall.points;
     var grid = '<rect x="26" y="20" width="468" height="112" fill="none" stroke="#2a2a2a"/>';
 
-    for (var octave = 0; octave <= 3; octave++) {
-      var y = 132 - octave * (112 / 3);
+    for (var octave = 0; octave <= 4; octave++) {
+      var y = 132 - octave * (112 / 4);
       grid += '<line x1="26" y1="' + y.toFixed(1) + '" x2="494" y2="' + y.toFixed(1) +
         '" stroke="#232323"/>' +
         '<text x="6" y="' + (y + 3).toFixed(1) + '" fill="#5f5f5f" font-size="8">' +
@@ -75,13 +75,13 @@
       var value = left[1] + (right[1] - left[1]) * fallBend(0.5, left[2] || 0);
       bends += '<circle data-bend="' + segment + '" cx="' + fallX(middle).toFixed(1) +
         '" cy="' + fallY(value).toFixed(1) + '" r="5" fill="transparent" ' +
-        'stroke="#8fb8ff" stroke-width="1.4" pointer-events="all"/>';
+        'stroke="var(--accent)" stroke-opacity="0.7" stroke-width="1.4" pointer-events="all"/>';
     }
 
     var label = sorted[0][1].toFixed(1) + "x to " + sorted[sorted.length - 1][1].toFixed(1) +
       "x in " + Math.round(sorted[sorted.length - 1][0] * 1000) + " ms";
 
-    return heroSvg(
+    return heroSvgMeet(
       grid +
       '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
       'vector-effect="non-scaling-stroke"/>' +

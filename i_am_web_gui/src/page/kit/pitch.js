@@ -2,27 +2,38 @@
 // breakpoint curve the voice evaluates, so the picture and the sound agree.
 var fallDrag = null;
 
-function fallTimeOf(pixelX, width) {
-  var x = clamp(pixelX / Math.max(width, 1), 0, 1) * 520;
+function fallTimeOf(x) {
   return clamp((x - 26) / 468, 0, 1) * 0.25;
 }
 
-function fallRatioOf(pixelY, height) {
-  var y = clamp(pixelY / Math.max(height, 1), 0, 1) * 160;
-  return Math.pow(2, clamp((132 - y) / 112, 0, 1) * 3);
+function fallRatioOf(y) {
+  return Math.pow(2, clamp((132 - y) / 112, 0, 1) * 4);
 }
 
-function fallPosition(hero, event) {
+/// The picture keeps its shape (meet), so a click is mapped through the
+/// letterboxing rather than through the element's raw width and height.
+function fallPoint(hero, event) {
   var svg = hero.querySelector("svg");
   if (!svg) return null;
 
   var rect = svg.getBoundingClientRect();
   if (!rect.width || !rect.height) return null;
 
+  var scale = Math.min(rect.width / 520, rect.height / 160);
+  var left = rect.left + (rect.width - 520 * scale) / 2;
+  var top = rect.top + (rect.height - 160 * scale) / 2;
+
   return {
-    time: fallTimeOf(event.clientX - rect.left, rect.width),
-    ratio: fallRatioOf(event.clientY - rect.top, rect.height)
+    x: (event.clientX - left) / scale,
+    y: (event.clientY - top) / scale
   };
+}
+
+function fallPosition(hero, event) {
+  var point = fallPoint(hero, event);
+  if (!point) return null;
+
+  return { time: fallTimeOf(point.x), ratio: fallRatioOf(point.y) };
 }
 
 function fallPointIndex(event) {
@@ -62,13 +73,14 @@ function fallPointerDown(event) {
     fallDrag = { kind: "point", hero: hero, index: pointIndex, pointerId: event.pointerId };
   } else if (bendIndex >= 0) {
     var rect = svg.getBoundingClientRect();
+    var scale = Math.min(rect.width / 520, rect.height / 160) || 1;
     fallDrag = {
       kind: "bend",
       hero: hero,
       index: bendIndex,
       pointerId: event.pointerId,
       startY: event.clientY,
-      height: rect.height || 160,
+      scale: scale,
       startBend: fallState.points[bendIndex][2] || 0
     };
   } else {
@@ -99,7 +111,7 @@ function fallPointerMove(event) {
   // A bend handle moves the curve, not the point: up spends the segment late,
   // down spends it early, exactly the sign of the value the voice reads.
   if (fallDrag.kind === "bend") {
-    var travel = (fallDrag.startY - event.clientY) / Math.max(fallDrag.height, 1) * 160;
+    var travel = (fallDrag.startY - event.clientY) / Math.max(fallDrag.scale, 1e-6);
     // The sign follows the segment's slope, so the handle always follows the
     // pointer: up bows the line up, whichever way the segment runs.
     var left = fallDrag.index;

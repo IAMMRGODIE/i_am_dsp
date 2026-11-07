@@ -214,6 +214,12 @@
       '</svg>';
   }
 
+  function heroSvgMeet(inner) {
+    return '<svg class="mcard-graph" viewBox="0 0 520 160" preserveAspectRatio="xMidYMid meet">' +
+      inner +
+      '</svg>';
+  }
+
   function heroSvgMeter(inner) {
     return '<svg class="mcard-graph" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid meet">' +
       inner +
