@@ -311,6 +311,8 @@ struct Voice {
 	age_seconds: f32,
 	/// Where the left hand is in its shake.
 	vibrato_phase: f32,
+	/// How many samples the note fades in over; zero leaves it alone.
+	fade_in: u64,
 	/// Per channel DC blocker state, so every note loses its own static force.
 	dc: [[f32; 2]; 2],
 	/// Whether the blocker has been started on this voice's first sample.
@@ -351,6 +353,13 @@ const TARGET_FORCE: f32 = 0.6;
 
 /// A note held for less than this is released as a stab, in seconds.
 const SHORT_NOTE: f32 = 0.12;
+
+/// The fade a bowed note starts with, in seconds.
+///
+/// The bow's first slip is a step in the force, and a bowed string has no
+/// transient to hide it behind: the fade gives the note a start instead of a
+/// click, short enough that the bow still bites.
+const BOW_FADE_SECONDS: f32 = 0.08;
 
 /// How many low partials each sympathetic string contributes.
 const SYMPATHETIC_PARTIALS: usize = 2;
@@ -674,6 +683,16 @@ impl StringEngine {
 			for string in &voice.strings {
 				voice.peak = voice.peak.max(string.envelope());
 			}
+			// A bow bites the string; its first slip is a step too, and a short
+			// fade in takes the edge off without slowing the bow's own attack.
+			if voice.fade_in > 0 && voice.samples < voice.fade_in {
+				let phase = voice.samples as f32 / voice.fade_in as f32;
+				let fade = 0.5 - 0.5 * (std::f32::consts::PI * phase).cos();
+
+				value_left *= fade;
+				value_right *= fade;
+			}
+
 			// The string's static force is a step at the start of every note.
 			// Blocking it per voice means a note played over a ringing tail is
 			// cleaned up too, and starting the blocker on the step keeps its own
@@ -834,6 +853,11 @@ impl StringEngine {
 			// Deliberately not zero. Every note of a chord starting its shake
 			// from the same place sounds like one hand playing all of them.
 			vibrato_phase: (note as f32 * 0.37).fract() * std::f32::consts::TAU,
+			fade_in: if spec.excitation == Excitation::Bow {
+				(self.sample_rate * BOW_FADE_SECONDS) as u64
+			} else {
+				0
+			},
 			dc: [[0.0; 2]; 2],
 			dc_primed: false,
 		}
