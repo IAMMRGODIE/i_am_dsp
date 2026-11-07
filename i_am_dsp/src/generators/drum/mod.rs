@@ -318,6 +318,9 @@ struct Voice {
 	pan_r: f32,
 	/// How wide the decorrelated noise sits.
 	width: f32,
+	/// The allpass that widens the mono body on the right channel.
+	spread_x: f32,
+	spread_y: f32,
 }
 
 impl Voice {
@@ -469,10 +472,12 @@ impl Voice {
 			pan_l: stereo.pan_l,
 			pan_r: stereo.pan_r,
 			width: stereo.width,
+			spread_x: 0.0,
+			spread_y: 0.0,
 		}
 	}
 
-	fn next(&mut self, rng: &mut Rng, rate: f32) -> ([f32; 2], f32, [f32; 2]) {
+	fn next(&mut self, rng: &mut Rng, rate: f32) -> ([f32; 2], [f32; 2], [f32; 2]) {
 		let bend = 2f32.powf(self.pitch.octaves(self.time));
 		let mut mono = 0.0;
 		let mut wide_l = 0.0;
@@ -513,8 +518,22 @@ impl Voice {
 		let level = self.amp.value(self.time).max(0.0);
 		self.time += 1.0 / rate;
 
+		// A short allpass on the right channel gives the mono body a stereo
+		// phase difference, so Width is audible even on the metal and the FM
+		// bank, not only on the noise layers.
+		let body_r = if self.width > 0.0 {
+			let a = 0.6;
+			let y = -a * mono + self.spread_x + a * self.spread_y;
+
+			self.spread_x = mono;
+			self.spread_y = y;
+			mono * (1.0 - self.width) + y * self.width
+		} else {
+			mono
+		};
+
 		let mut left = (mono + wide_l) * level * self.pan_l;
-		let mut right = (mono + wide_r) * level * self.pan_r;
+		let mut right = (body_r + wide_r) * level * self.pan_r;
 
 		if self.choking {
 			self.choke = (self.choke - 1.0 / (0.004 * rate)).max(0.0);
@@ -528,9 +547,9 @@ impl Voice {
 		// A cymbal is its tail and a hat is its own dry until the IR takes
 		// over; both feed a bus, and neither is heard directly.
 		match self.drum {
-			Drum::Crash | Drum::Ride => ([0.0, 0.0], left, [0.0, 0.0]),
-			Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => ([0.0, 0.0], 0.0, [left, right]),
-			_ => ([left, right], 0.0, [0.0, 0.0]),
+			Drum::Crash | Drum::Ride => ([0.0, 0.0], [left, right], [0.0, 0.0]),
+			Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => ([0.0, 0.0], [0.0, 0.0], [left, right]),
+			_ => ([left, right], [0.0, 0.0], [0.0, 0.0]),
 		}
 	}
 
@@ -2196,7 +2215,7 @@ impl DrumInstrument {
 					gain: 0.5 * level,
 				},
 				Layer {
-					source: Source::Noise(vec![
+					source: Source::NoiseWide(vec![
 						NoiseBand {
 							frequency: 8_000.0,
 							q: 0.5,
@@ -2366,20 +2385,21 @@ impl DrumInstrument {
 		let rate = self.rate;
 		let rng = &mut self.rng;
 		let mut dry = [0.0f32; 2];
-		let mut cymbal_send = 0.0;
+		let mut cymbal_send = [0.0f32; 2];
 		let mut hat_send = [0.0f32; 2];
 
 		for voice in &mut self.playing {
 			let (frame, cymbal, hat) = voice.next(rng, rate);
 			dry[0] += frame[0];
 			dry[1] += frame[1];
-			cymbal_send += cymbal;
+			cymbal_send[0] += cymbal[0];
+			cymbal_send[1] += cymbal[1];
 			hat_send[0] += hat[0];
 			hat_send[1] += hat[1];
 		}
 		self.playing.retain(|voice| !voice.finished());
 
-		self.tail_send = cymbal_send;
+		self.tail_send = (cymbal_send[0] + cymbal_send[1]) * 0.5;
 
 		// The tails run while a voice of theirs is alive, and a little longer so
 		// the IR's own ring can finish after the send stops.
@@ -2412,10 +2432,9 @@ impl DrumInstrument {
 			&& let Some(convolver) = &mut self.tail_convolver
 		{
 			self.tail_remaining -= 1;
-			let wet = convolver.frame([cymbal_send, cymbal_send]);
-			let angle = (self.pan_cymbal.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
-			out[0] += wet[0] * angle.cos();
-			out[1] += wet[1] * angle.sin();
+			let wet = convolver.frame(cymbal_send);
+			out[0] += wet[0];
+			out[1] += wet[1];
 		}
 
 		if self.hat_remaining > 0
