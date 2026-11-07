@@ -311,6 +311,10 @@ struct Voice {
 	age_seconds: f32,
 	/// Where the left hand is in its shake.
 	vibrato_phase: f32,
+	/// Per channel DC blocker state, so every note loses its own static force.
+	dc: [[f32; 2]; 2],
+	/// Whether the blocker has been started on this voice's first sample.
+	dc_primed: bool,
 }
 
 /// A polyphonic engine over the string cores in [crate::core].
@@ -534,7 +538,9 @@ impl StringEngine {
 
 		// A note that starts in silence carries the string's static force as a
 		// step; starting the blocker on that step keeps it out of the thump.
-		if self.voices.is_empty() {
+		// A tail below a thousandth of full scale is inaudible, so starting the
+		// blocker on this note's step cannot click the one it replaces.
+		if self.voices.iter().all(|voice| voice.peak < 1e-3) {
 			self.prime_dc = true;
 		}
 
@@ -644,6 +650,10 @@ impl StringEngine {
 		let dt = 1.0 / self.sample_rate;
 		let mut left = 0.0;
 		let mut right = 0.0;
+		// The bank is excited by the strings as they are, not by the AC part:
+		// its own resonances are what the undamped strings answer.
+		let mut raw_left = 0.0;
+		let mut raw_right = 0.0;
 		let params = &self.params;
 		for voice in &mut self.voices {
 			voice.damper += (voice.damper_target - voice.damper) * voice.damper_rate;
@@ -664,8 +674,24 @@ impl StringEngine {
 			for string in &voice.strings {
 				voice.peak = voice.peak.max(string.envelope());
 			}
-			left += value_left * voice.gain;
-			right += value_right * voice.gain;
+			// The string's static force is a step at the start of every note.
+			// Blocking it per voice means a note played over a ringing tail is
+			// cleaned up too, and starting the blocker on the step keeps its own
+			// ring out of the attack.
+			if !voice.dc_primed {
+				voice.dc_primed = true;
+				voice.dc = [[value_left, 0.0], [value_right, 0.0]];
+			}
+
+			let blocked_left = value_left - voice.dc[0][0] + self.dc_coefficient * voice.dc[0][1];
+			voice.dc[0] = [value_left, blocked_left];
+			let blocked_right = value_right - voice.dc[1][0] + self.dc_coefficient * voice.dc[1][1];
+			voice.dc[1] = [value_right, blocked_right];
+
+			left += blocked_left * voice.gain;
+			right += blocked_right * voice.gain;
+			raw_left += value_left * voice.gain;
+			raw_right += value_right * voice.gain;
 			if voice.bowed && voice.released {
 				for string in &mut voice.strings {
 					string.release_ports(dt);
@@ -695,7 +721,7 @@ impl StringEngine {
 		// coupling is one way on purpose: nothing is fed back into the voices,
 		// so this can only add a tail, never instability.
 		let sympathetic_amount = self.params.sympathetic;
-		let sympathetic = self.sympathetic.process((left + right) * 0.5) * sympathetic_amount;
+		let sympathetic = self.sympathetic.process((raw_left + raw_right) * 0.5) * sympathetic_amount;
 
 		// The undamped strings are all over the instrument, so they are given
 		// width rather than a position.
@@ -808,6 +834,8 @@ impl StringEngine {
 			// Deliberately not zero. Every note of a chord starting its shake
 			// from the same place sounds like one hand playing all of them.
 			vibrato_phase: (note as f32 * 0.37).fract() * std::f32::consts::TAU,
+			dc: [[0.0; 2]; 2],
+			dc_primed: false,
 		}
 	}
 
