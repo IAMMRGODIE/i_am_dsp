@@ -861,3 +861,34 @@ fn the_drummer_kit_choice_writes_the_knobs() {
 		"the 808 kit did not write the tune: {applied:?}"
 	);
 }
+
+
+#[test]
+fn the_drummer_plays_in_stereo() {
+	// The generator used to hand the host two copies of its mono sum, so a pan
+	// or a width never left the plug-in. This is the host's own path: process a
+	// real frame and check the channels differ.
+	let mut plugin = DrummerWeb::new();
+	Plugin::on_activate(&mut plugin, 48_000);
+
+	let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+		events: vec![NoteEvent::NoteOn {
+			channel: 0,
+			note: 42,
+			velocity: 1.0,
+		}],
+		infos: TestContext::new().infos,
+	});
+	let mut spread = 0.0f32;
+
+	for _ in 0..4_800 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+		spread += (frame[0] - frame[1]).abs();
+	}
+
+	assert!(
+		spread > 0.01,
+		"the host only saw the mono sum: {spread}"
+	);
+}

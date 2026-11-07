@@ -2480,9 +2480,7 @@ impl Generator<2> for DrumInstrument {
 			}
 		}
 
-		let sample = self.next_sample();
-
-		[sample, sample]
+		self.next_frame()
 	}
 }
 
