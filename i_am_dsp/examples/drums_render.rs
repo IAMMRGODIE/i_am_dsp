@@ -56,7 +56,7 @@ fn main() {
 	hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
 	let total = (RATE as f32 * 4.6) as usize;
-	let mut samples = Vec::with_capacity(total);
+	let mut samples: Vec<[f32; 2]> = Vec::with_capacity(total);
 	let mut next = 0usize;
 
 	for index in 0..total {
@@ -68,10 +68,12 @@ fn main() {
 			next += 1;
 		}
 
-		samples.push(kit.next_sample());
+		samples.push(kit.next_frame());
 	}
 
-	let peak = samples.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+	let peak = samples.iter().fold(0.0f32, |peak, frame| {
+		peak.max(frame[0].abs()).max(frame[1].abs())
+	});
 	let scale = if peak > 0.0 { 0.7 / peak } else { 1.0 };
 
 	if let Some(parent) = Path::new(&path).parent() {
@@ -82,9 +84,9 @@ fn main() {
 	println!("{path}: {} samples, peak {peak:.3}", samples.len());
 }
 
-fn write_wav(path: &Path, samples: &[f32], rate: u32, scale: f32) -> std::io::Result<()> {
+fn write_wav(path: &Path, samples: &[[f32; 2]], rate: u32, scale: f32) -> std::io::Result<()> {
 	let mut writer = BufWriter::new(File::create(path)?);
-	let data_len = (samples.len() * 4) as u32;
+	let data_len = (samples.len() * 8) as u32;
 
 	writer.write_all(b"RIFF")?;
 	writer.write_all(&(36 + data_len).to_le_bytes())?;
@@ -93,17 +95,18 @@ fn write_wav(path: &Path, samples: &[f32], rate: u32, scale: f32) -> std::io::Re
 	writer.write_all(&1u16.to_le_bytes())?;
 	writer.write_all(&2u16.to_le_bytes())?;
 	writer.write_all(&rate.to_le_bytes())?;
-	writer.write_all(&(rate * 4).to_le_bytes())?;
-	writer.write_all(&4u16.to_le_bytes())?;
+	writer.write_all(&(rate * 8).to_le_bytes())?;
+	writer.write_all(&8u16.to_le_bytes())?;
 	writer.write_all(&16u16.to_le_bytes())?;
 	writer.write_all(b"data")?;
 	writer.write_all(&data_len.to_le_bytes())?;
 
-	for sample in samples {
-		let value = (sample * scale).clamp(-1.0, 1.0);
-		let bits = (value * 32_767.0) as i16;
-		writer.write_all(&bits.to_le_bytes())?;
-		writer.write_all(&bits.to_le_bytes())?;
+	for frame in samples {
+		for sample in frame {
+			let value = (sample * scale).clamp(-1.0, 1.0);
+			let bits = (value * 32_767.0) as i16;
+			writer.write_all(&bits.to_le_bytes())?;
+		}
 	}
 
 	writer.flush()

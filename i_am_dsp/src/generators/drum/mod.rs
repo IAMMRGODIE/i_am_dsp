@@ -2343,6 +2343,15 @@ impl DrumInstrument {
 		(0..count).map(|_| self.next_sample()).collect()
 	}
 
+	/// Renders one hit as stereo frames, for a host that wants the width.
+	pub fn render_stereo(&mut self, note: u8, velocity: f32, seconds: f32) -> Vec<[f32; 2]> {
+		self.playing.clear();
+		let _ = self.start(note, velocity);
+		let count = (seconds.max(0.01) * self.rate) as usize;
+
+		(0..count).map(|_| self.next_frame()).collect()
+	}
+
 	/// One sample of the summed voices, driven and levelled.
 	///
 	/// Public so an offline renderer can pull the instrument without a host.
@@ -2404,8 +2413,9 @@ impl DrumInstrument {
 		{
 			self.tail_remaining -= 1;
 			let wet = convolver.frame([cymbal_send, cymbal_send]);
-			out[0] += wet[0];
-			out[1] += wet[1];
+			let angle = (self.pan_cymbal.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
+			out[0] += wet[0] * angle.cos();
+			out[1] += wet[1] * angle.sin();
 		}
 
 		if self.hat_remaining > 0
