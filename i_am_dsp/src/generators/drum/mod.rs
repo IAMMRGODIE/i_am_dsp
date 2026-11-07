@@ -41,6 +41,149 @@ pub const RIDE: u8 = 51;
 /// How many hits may ring at once.
 const MAX_VOICES: usize = 16;
 
+/// A diffuse, slowly shifting tail for the cymbals.
+///
+/// The bank on its own is a comb: modes that are close to evenly spaced and all
+/// ring for the same time read as points rather than as metal. Four combs and
+/// two allpasses scatter that into a tail, and the frequency shifter inside the
+/// loop moves every pass a few hertz so the tail never settles into a harmonic
+/// series.
+struct CymbalTail {
+	combs: Vec<Comb>,
+	allpasses: Vec<Allpass>,
+	shifter: crate::effects::prelude::HilbertTransform<4, 1>,
+	phase: f32,
+	shift: f32,
+	feedback: f32,
+	loop_state: f32,
+}
+
+/// A damped comb, the classic Schroeder building block.
+struct Comb {
+	buffer: Vec<f32>,
+	index: usize,
+	feedback: f32,
+	damping: f32,
+	state: f32,
+}
+
+impl Comb {
+	fn new(seconds: f32, t60: f32, rate: f32) -> Self {
+		let samples = ((seconds * rate).round() as usize).max(16);
+		let feedback = 10f32.powf(-3.0 * (samples as f32 / rate) / t60.max(0.05));
+
+		Self {
+			buffer: vec![0.0; samples],
+			index: 0,
+			feedback: feedback.clamp(0.05, 0.97),
+			damping: (-std::f32::consts::TAU * 8_000.0 / rate).exp(),
+			state: 0.0,
+		}
+	}
+
+	#[inline]
+	fn process(&mut self, input: f32) -> f32 {
+		let out = self.buffer[self.index];
+
+		self.state += (out - self.state) * self.damping;
+		self.buffer[self.index] = input + self.state * self.feedback;
+		self.index += 1;
+
+		if self.index >= self.buffer.len() {
+			self.index = 0;
+		}
+
+		out
+	}
+}
+
+/// A Schroeder allpass, which turns an echo into a smear.
+struct Allpass {
+	buffer: Vec<f32>,
+	index: usize,
+	gain: f32,
+}
+
+impl Allpass {
+	fn new(seconds: f32, rate: f32) -> Self {
+		Self {
+			buffer: vec![0.0; ((seconds * rate).round() as usize).max(8)],
+			index: 0,
+			gain: 0.5,
+		}
+	}
+
+	#[inline]
+	fn process(&mut self, input: f32) -> f32 {
+		let buffered = self.buffer[self.index];
+		let out = buffered - self.gain * input;
+
+		self.buffer[self.index] = input + self.gain * out;
+		self.index += 1;
+
+		if self.index >= self.buffer.len() {
+			self.index = 0;
+		}
+
+		out
+	}
+}
+
+impl CymbalTail {
+	fn new(rate: f32, t60: f32, shift: f32) -> Self {
+		Self {
+			combs: [0.0297, 0.0371, 0.0411, 0.0437]
+				.iter()
+				.map(|seconds| Comb::new(*seconds, t60, rate))
+				.collect(),
+			allpasses: [0.0050, 0.0017]
+				.iter()
+				.map(|seconds| Allpass::new(*seconds, rate))
+				.collect(),
+			shifter: crate::effects::prelude::HilbertTransform::new(rate as usize),
+			phase: 0.0,
+			shift: shift.max(0.0),
+			feedback: 0.45,
+			loop_state: 0.0,
+		}
+	}
+
+	#[inline]
+	fn process(&mut self, input: f32, rate: f32) -> f32 {
+		let loop_in = input + self.loop_state * self.feedback;
+		let mut wet = 0.0;
+
+		for comb in &mut self.combs {
+			wet += comb.process(loop_in);
+		}
+		wet *= 0.25;
+
+		for allpass in &mut self.allpasses {
+			wet = allpass.process(wet);
+		}
+
+		let analytic = self.shifter.apply_transform_single(wet, 0);
+
+		self.phase += std::f32::consts::TAU * self.shift / rate;
+		if self.phase > std::f32::consts::TAU {
+			self.phase -= std::f32::consts::TAU;
+		}
+
+		let (sin, cosine) = self.phase.sin_cos();
+		self.loop_state = analytic.real * cosine - analytic.imag * sin;
+
+		wet
+	}
+}
+
+/// What the tail of a note needs when it is a cymbal.
+#[derive(Clone, Copy)]
+struct TailSpec {
+	t60: f32,
+	shift: f32,
+	level: f32,
+}
+
 /// What a layer is made of.
 enum Source {
 	/// A bank of decaying partials.
@@ -141,6 +284,12 @@ struct Voice {
 	pitch: Curve,
 	amp: Curve,
 	time: f32,
+	/// The diffuse tail under a cymbal, if this note has one.
+	tail: Option<CymbalTail>,
+	/// How long the tail is allowed to ring after the amp curve ends.
+	tail_grace: f32,
+	/// How loud the tail sits under the bank.
+	tail_level: f32,
 	/// 1 while the note rings, ramping to 0 when another hat chokes it.
 	choke: f32,
 	choking: bool,
@@ -149,7 +298,14 @@ struct Voice {
 }
 
 impl Voice {
-	fn start(recipe: &Recipe, note: u8, rate: f32, velocity: f32, rng: &mut Rng) -> Self {
+	fn start(
+		recipe: &Recipe,
+		note: u8,
+		rate: f32,
+		velocity: f32,
+		tail: Option<TailSpec>,
+		rng: &mut Rng,
+	) -> Self {
 		let velocity = velocity.clamp(0.0, 1.0);
 		let mut layers = Vec::with_capacity(recipe.layers.len());
 
@@ -213,6 +369,9 @@ impl Voice {
 
 		Self {
 			layers,
+			tail: tail.map(|spec| CymbalTail::new(rate, spec.t60, spec.shift)),
+			tail_grace: tail.map(|spec| spec.t60 * 0.8).unwrap_or(0.0),
+			tail_level: tail.map(|spec| spec.level).unwrap_or(0.0),
 			pitch: recipe.pitch.clone(),
 			amp: recipe.amp.clone(),
 			time: 0.0,
@@ -248,6 +407,10 @@ impl Voice {
 
 		let mut out = sum * level;
 
+		if let Some(tail) = &mut self.tail {
+			out += tail.process(sum, rate) * self.tail_level;
+		}
+
 		if self.choking {
 			self.choke = (self.choke - 1.0 / (0.004 * rate)).max(0.0);
 			out *= self.choke;
@@ -257,7 +420,8 @@ impl Voice {
 	}
 
 	fn finished(&self) -> bool {
-		self.time > self.amp.end() + 0.02 || (self.choking && self.choke <= 0.0)
+		self.time > self.amp.end() + self.tail_grace + 0.02
+			|| (self.choking && self.choke <= 0.0)
 	}
 }
 
@@ -408,6 +572,12 @@ pub struct DrumInstrument {
 	#[id(display = "Cymbal Level")]
 	#[layout(group = "Cymbal", order = 1, widget = knob)]
 	pub cymbal_gain: f32,
+	/// How much of the diffuse, shifted tail the cymbals have.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.8)]
+	#[id(display = "Cymbal Tail")]
+	#[layout(group = "Cymbal", order = 2, widget = knob)]
+	pub cymbal_tail: f32,
 }
 
 /// A pitch curve that stays at one, for the drums whose note is their pitch.
@@ -471,6 +641,7 @@ impl Default for DrumInstrument {
 			tom_tune: 1.0,
 			cymbal_decay: 2.5,
 			cymbal_gain: 0.5,
+			cymbal_tail: 0.8,
 		}
 	}
 }
@@ -1030,11 +1201,27 @@ impl DrumInstrument {
 		} else {
 			self.kick_recipe()
 		};
+		let tail = if Self::is_cymbal(note) {
+			let ride = note == RIDE;
+			let decay = self.cymbal_decay.clamp(0.3, 8.0) * if ride { 0.45 } else { 1.0 };
+
+			let level = self.cymbal_tail.clamp(0.0, 1.0);
+
+			(level > 0.0).then_some(TailSpec {
+				t60: decay,
+				shift: if ride { 5.0 } else { 8.0 },
+				level,
+			})
+		} else {
+			None
+		};
+
 		self.playing.push(Voice::start(
 			&recipe,
 			note,
 			self.rate,
 			velocity,
+			tail,
 			&mut self.rng,
 		));
 

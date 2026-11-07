@@ -15,6 +15,13 @@ fn main() {
 	const RATE: usize = 48_000;
 
 	let mut kit = DrumInstrument::new(RATE);
+
+	// An optional cymbal tail amount, so the two tails can be compared.
+	if let Some(amount) = std::env::args().nth(2)
+		&& let Ok(value) = amount.parse::<f32>()
+	{
+		kit.cymbal_tail = value.clamp(0.0, 1.0);
+	}
 	// (time, note, velocity)
 	let mut hits: Vec<(f32, u8, f32)> = vec![
 		(0.00, 36, 1.0),
