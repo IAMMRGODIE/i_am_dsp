@@ -8,8 +8,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
-	ClickSlot, Curve, DrumInstrument, GeneratorEffect, Parameter, Parameters, Samples, SetValue,
-	decode_click, from_binary, slot_drum, to_binary,
+	ClickSlot, Curve, DrumInstrument, DrumPreset, FitSlot, GeneratorEffect, Parameter, Parameters,
+	Samples, SetValue, decode_click, from_binary, slot_drum, to_binary,
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
@@ -49,6 +49,7 @@ pub struct DrummerWeb {
 	curve: Arc<Mutex<Curve>>,
 	click: Arc<ClickSlot>,
 	samples: Arc<Samples>,
+	fit: Arc<FitSlot>,
 	bypass: Arc<AtomicBool>,
 	scope: Arc<Scope>,
 }
@@ -61,6 +62,8 @@ impl Default for DrummerWeb {
 		let factory_click = click.clone();
 		let samples = Samples::new();
 		let factory_samples = samples.clone();
+		let fit = FitSlot::new();
+		let factory_fit = fit.clone();
 
 		Self {
 			processor: EffectProcessor::with_build(move |rate: usize| {
@@ -68,12 +71,14 @@ impl Default for DrummerWeb {
 					DrumInstrument::new(rate)
 						.with_shared(factory_curve.clone())
 						.with_click_slot(factory_click.clone())
-						.with_samples(factory_samples.clone()),
+						.with_samples(factory_samples.clone())
+						.with_fit_slot(factory_fit.clone()),
 				)
 			}),
 			curve,
 			click,
 			samples,
+			fit,
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(Scope::new()),
 		}
@@ -202,6 +207,7 @@ impl Plugin for DrummerWeb {
 		let curve = self.curve.clone();
 		let click = self.click.clone();
 		let samples = self.samples.clone();
+		let fit = self.fit.clone();
 
 		editor_with(
 			self,
@@ -221,6 +227,23 @@ impl Plugin for DrummerWeb {
 							Err(error) => ProtocolResponse::json(format!(
 								"{{\"error\":\"{}\"}}",
 								error.replace('"', "")
+							)),
+						},
+						_ => ProtocolResponse::json("{\"error\":\"method\"}"),
+					});
+				}
+
+				if request.path == "/preset" {
+					return Some(match request.method {
+						"GET" => ProtocolResponse::json(fit.json()),
+						"POST" => match serde_json::from_slice::<DrumPreset>(request.body) {
+							Ok(preset) => {
+								fit.set(preset);
+								ProtocolResponse::json("{\"ok\":true}")
+							}
+							Err(error) => ProtocolResponse::json(format!(
+								"{{\"error\":\"{}\"}}",
+								error.to_string().replace('"', "")
 							)),
 						},
 						_ => ProtocolResponse::json("{\"error\":\"method\"}"),

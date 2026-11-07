@@ -869,6 +869,15 @@ pub struct DrumInstrument {
 	/// The samples currently adopted, one per drum.
 	#[skip]
 	loaded: [Option<SampleData>; 6],
+	/// A fitted bank that replaces the cymbal's synthesis.
+	#[skip]
+	fitted: Option<DrumPreset>,
+	/// The fit slot, when a host shares one.
+	#[skip]
+	fit_slot: Option<Arc<FitSlot>>,
+	/// The fit generation last taken.
+	#[skip]
+	fit_seen: u64,
 	/// How hard the cymbals' bank is phase modulated.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.7)]
@@ -960,6 +969,9 @@ impl Default for DrumInstrument {
 			samples: None,
 			samples_seen: 0,
 			loaded: Default::default(),
+			fitted: None,
+			fit_slot: None,
+			fit_seen: 0,
 			click_sample: None,
 			click_sample_level: 0.7,
 			level_kick: 1.0,
@@ -1015,6 +1027,115 @@ impl ClickSlot {
 				data.pcm.len()
 			),
 			None => "{\"name\":null,\"rate\":0,\"samples\":0}".to_string(),
+		}
+	}
+}
+
+/// A fitted drum: the modal partials and noise bands an analysis produced.
+///
+/// This is the shape the offline fitters write and the page posts to `/preset`:
+/// the engine does not care whether the numbers came from a spectrogram or from
+/// a hand, only that they describe a bank.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct DrumPreset {
+	/// A name for the page.
+	#[serde(default)]
+	pub name: String,
+	/// How long the bank rings, in seconds.
+	#[serde(default = "default_preset_decay")]
+	pub decay: f32,
+	/// The decaying partials.
+	#[serde(default)]
+	pub partials: Vec<PresetPartial>,
+	/// The noise bands.
+	#[serde(default)]
+	pub noise: Vec<PresetNoise>,
+}
+
+/// One fitted partial.
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PresetPartial {
+	/// Frequency in Hz.
+	pub frequency: f32,
+	/// Linear amplitude.
+	#[serde(default = "default_preset_amplitude")]
+	pub amplitude: f32,
+	/// Time to -60 dB, in seconds.
+	#[serde(default = "default_preset_decay")]
+	pub t60: f32,
+}
+
+/// One fitted noise band.
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PresetNoise {
+	/// Centre frequency in Hz.
+	pub frequency: f32,
+	/// Resonance.
+	#[serde(default = "default_preset_q")]
+	pub q: f32,
+	/// Linear amplitude.
+	#[serde(default = "default_preset_amplitude")]
+	pub gain: f32,
+	/// Time to -60 dB, in seconds.
+	#[serde(default = "default_preset_decay")]
+	pub t60: f32,
+}
+
+fn default_preset_decay() -> f32 {
+	0.5
+}
+
+fn default_preset_amplitude() -> f32 {
+	1.0
+}
+
+fn default_preset_q() -> f32 {
+	0.8
+}
+
+/// The fitted preset a host posts, shared between the page and the voices.
+#[derive(Default)]
+pub struct FitSlot {
+	data: std::sync::Mutex<Option<DrumPreset>>,
+	generation: std::sync::atomic::AtomicU64,
+}
+
+impl FitSlot {
+	/// An empty slot.
+	pub fn new() -> Arc<Self> {
+		Arc::new(Self::default())
+	}
+
+	/// The preset currently fitted.
+	pub fn load(&self) -> Option<DrumPreset> {
+		self.data.lock().ok()?.clone()
+	}
+
+	/// How many times the slot has changed.
+	pub fn generation(&self) -> u64 {
+		self.generation.load(std::sync::atomic::Ordering::Acquire)
+	}
+
+	/// Installs a preset and bumps the generation.
+	pub fn set(&self, preset: DrumPreset) {
+		if let Ok(mut current) = self.data.lock() {
+			*current = Some(preset);
+			self.generation
+				.fetch_add(1, std::sync::atomic::Ordering::Release);
+		}
+	}
+
+	/// A summary for the page.
+	pub fn json(&self) -> String {
+		match self.load() {
+			Some(preset) => format!(
+				"{{\"name\":\"{}\",\"partials\":{},\"noise\":{},\"decay\":{}}}",
+				escape_name(&preset.name),
+				preset.partials.len(),
+				preset.noise.len(),
+				preset.decay
+			),
+			None => "{\"name\":null,\"partials\":0,\"noise\":0,\"decay\":0}".to_string(),
 		}
 	}
 }
@@ -1236,6 +1357,91 @@ impl DrumInstrument {
 		self.adopt_samples();
 
 		self
+	}
+
+	/// Shares the fitted preset with the editor.
+	pub fn with_fit_slot(mut self, slot: Arc<FitSlot>) -> Self {
+		self.fit_slot = Some(slot.clone());
+		self.fit_seen = slot.generation();
+		self.adopt_fit();
+
+		self
+	}
+
+	/// Installs a fitted bank directly, for a renderer.
+	pub fn set_fitted(&mut self, preset: Option<DrumPreset>) {
+		self.fitted = preset;
+	}
+
+	/// Takes a fitted preset the page posted since the last block.
+	fn adopt_fit(&mut self) {
+		let Some(slot) = &self.fit_slot else {
+			return;
+		};
+
+		let generation = slot.generation();
+
+		if generation != self.fit_seen {
+			self.fit_seen = generation;
+			self.fitted = slot.load();
+		}
+	}
+
+	/// The cymbal built from a fitted bank instead of the generated one.
+	fn fitted_recipe(&self, preset: &DrumPreset) -> Recipe {
+		let decay = preset.decay.clamp(0.02, 12.0);
+		let partials: Vec<Partial> = preset
+			.partials
+			.iter()
+			.filter(|partial| partial.frequency.is_finite() && partial.frequency > 0.0)
+			.map(|partial| Partial {
+				frequency: partial.frequency.clamp(20.0, 20_000.0),
+				amplitude: partial.amplitude.max(0.0),
+				t60: partial.t60.clamp(0.005, 20.0),
+			})
+			.collect();
+		let noise: Vec<NoiseBand> = preset
+			.noise
+			.iter()
+			.filter(|band| band.frequency.is_finite() && band.frequency > 0.0)
+			.map(|band| NoiseBand {
+				frequency: band.frequency.clamp(20.0, 20_000.0),
+				q: band.q.clamp(0.1, 20.0),
+				gain: band.gain.max(0.0),
+				t60: band.t60.clamp(0.005, 20.0),
+			})
+			.collect();
+		let amp = Curve::new(vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: decay,
+				value: 0.0,
+				bend: 0.0,
+			},
+		]);
+
+		Recipe {
+			layers: vec![
+				Layer {
+					source: Source::Partials(partials),
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: 0.6,
+				},
+				Layer {
+					source: Source::Noise(noise),
+					keytrack: 0.0,
+					velocity: 1.0,
+					gain: 1.0,
+				},
+			],
+			pitch: flat_pitch(),
+			amp,
+		}
 	}
 
 	/// The level of one slot's one-shot.
@@ -1781,6 +1987,10 @@ impl DrumInstrument {
 
 	/// The cymbals: a dense, inharmonic bank, excited by a noise burst.
 	fn cymbal_recipe(&self, drum: Drum) -> Recipe {
+		if let Some(preset) = &self.fitted {
+			return self.fitted_recipe(preset);
+		}
+
 		let ride = drum == Drum::Ride;
 		let decay = self.cymbal_decay.clamp(0.3, 8.0) * if ride { 0.45 } else { 1.0 };
 		let level = self.cymbal_gain.clamp(0.0, 1.0);
@@ -1847,6 +2057,7 @@ impl DrumInstrument {
 	/// Start one hit, if the note is the kick's.
 	pub fn start(&mut self, note: u8, velocity: f32) -> bool {
 		self.adopt_samples();
+		self.adopt_fit();
 
 		let Some(drum) = drum_of(note) else {
 			return false;
@@ -1976,6 +2187,7 @@ impl Generator<2> for DrumInstrument {
 
 		self.adopt_samples();
 		self.adopt_click();
+		self.adopt_fit();
 
 		let events = context.events().to_vec();
 		context.clear_events();
@@ -2288,6 +2500,35 @@ mod tests {
 		assert!(
 			mean > 0.1,
 			"the sample slot did not replace the snare: {mean}"
+		);
+	}
+
+	#[test]
+	fn a_fitted_bank_replaces_the_cymbal() {
+		let mut kit = DrumInstrument::new(48_000);
+		kit.set_fitted(Some(DrumPreset {
+			name: "fit".to_string(),
+			decay: 0.4,
+			partials: vec![PresetPartial {
+				frequency: 500.0,
+				amplitude: 1.0,
+				t60: 0.4,
+			}],
+			noise: Vec::new(),
+		}));
+
+		assert!(kit.start(CRASH, 1.0));
+		let out = render(&mut kit, 4_800);
+		let peak = out.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+		let crossings = out
+			.windows(2)
+			.filter(|pair| (pair[0] >= 0.0) != (pair[1] >= 0.0))
+			.count();
+
+		assert!(peak > 0.01, "the fitted bank was silent: {peak}");
+		assert!(
+			crossings > 40 && crossings < 200,
+			"the fitted bank is not one 500 Hz partial: {crossings} crossings"
 		);
 	}
 
