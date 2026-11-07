@@ -90,3 +90,24 @@
       '<text x="30" y="13" fill="#8a8a8a" font-size="9">' + label + '</text>'
     );
   }
+
+
+  /// The kit's click: which one is loaded, and a way to load another.
+  function kitHero(values, context) {
+    var click = context && context.click;
+    var name = click && click.name ? String(click.name) : "no click";
+    var detail = click && click.name
+      ? (click.samples / Math.max(click.rate, 1)).toFixed(3) + " s \u00b7 " +
+        (Math.round(click.rate / 100) / 10) + " kHz"
+      : "the synthetic click";
+
+    return heroSvg("") +
+      '<div class="hero-label" style="top:6%">CLICK</div>' +
+      '<div class="hero-label" style="top:36%; left:0; right:0; text-align:center">' +
+      escapeXml(name) + '</div>' +
+      '<div class="hero-label" style="top:52%; left:0; right:0; text-align:center">' +
+      escapeXml(detail) + '</div>' +
+      '<div class="hero-actions">' +
+        '<button type="button" class="hero-action" data-action="load">LOAD CLICK</button>' +
+      '</div>';
+  }

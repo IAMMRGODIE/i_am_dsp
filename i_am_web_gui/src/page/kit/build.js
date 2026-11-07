@@ -476,6 +476,18 @@
           hero.addEventListener("dblclick", fallDoubleClick);
         }
 
+        if (section.hero === "kit") {
+          hero.title = "Load a one-shot click: it plays under every hit.";
+          hero.addEventListener("pointerup", function (event) {
+            var button = event.target.closest(".hero-action");
+
+            if (button && button.getAttribute("data-action") === "load") {
+              if (clickInput) clickInput.click();
+              event.preventDefault();
+            }
+          });
+        }
+
         if (section.hero === "impulse") {
           hero.title = "Load an impulse response: click or drop a file; drag the dots to fade its ends";
           acceptDrop(hero, postIr);
@@ -708,6 +720,18 @@
       return hero.kind === "fall";
     });
     if (wantsFall) setTimeout(pollFall, 50);
+    wantsClick = heroes.some(function (hero) {
+      return hero.kind === "kit";
+    });
+    if (wantsClick) {
+      clickInput = document.createElement("input");
+      clickInput.type = "file";
+      clickInput.accept = ".wav,audio/*";
+      clickInput.style.display = "none";
+      clickInput.addEventListener("change", uploadClick);
+      document.body.appendChild(clickInput);
+      setTimeout(pollClick, 50);
+    }
     wantsOtt = heroes.some(function (hero) {
       return hero.kind === "ott";
     });

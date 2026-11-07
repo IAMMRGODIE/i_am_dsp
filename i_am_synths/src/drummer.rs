@@ -8,7 +8,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
-	Curve, DrumInstrument, GeneratorEffect, Parameter, Parameters, SetValue, from_binary, to_binary,
+	ClickSlot, Curve, DrumInstrument, GeneratorEffect, Parameter, Parameters, SetValue, decode_click,
+	from_binary, to_binary,
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
@@ -36,13 +37,16 @@ const PAGES: &[Page] = &[
 
 /// The faceplate of the first drum.
 pub fn faceplate() -> Faceplate {
-	Faceplate::new(TITLE, ACCENT, SIZE).with_pages(PAGES)
+	Faceplate::new(TITLE, ACCENT, SIZE)
+		.with_pages(PAGES)
+		.with_hidden(&["click_sample"])
 }
 
 /// A kick drum, with a web faceplate and an editable pitch fall.
 pub struct DrummerWeb {
 	processor: EffectProcessor<GeneratorEffect<DrumInstrument>>,
 	curve: Arc<Mutex<Curve>>,
+	click: Arc<ClickSlot>,
 	bypass: Arc<AtomicBool>,
 	scope: Arc<Scope>,
 }
@@ -51,12 +55,19 @@ impl Default for DrummerWeb {
 	fn default() -> Self {
 		let curve = Arc::new(Mutex::new(DrumInstrument::default().pitch_curve.clone()));
 		let factory_curve = curve.clone();
+		let click = ClickSlot::new();
+		let factory_click = click.clone();
 
 		Self {
 			processor: EffectProcessor::with_build(move |rate: usize| {
-				GeneratorEffect::new(DrumInstrument::new(rate).with_shared(factory_curve.clone()))
+				GeneratorEffect::new(
+					DrumInstrument::new(rate)
+						.with_shared(factory_curve.clone())
+						.with_click_slot(factory_click.clone()),
+				)
 			}),
 			curve,
+			click,
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(Scope::new()),
 		}
@@ -183,6 +194,7 @@ impl Plugin for DrummerWeb {
 	fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
 		let rate = self.processor.sample_rate();
 		let curve = self.curve.clone();
+		let click = self.click.clone();
 
 		editor_with(
 			self,
@@ -191,6 +203,23 @@ impl Plugin for DrummerWeb {
 			self.scope.clone(),
 			rate,
 			move |request: &ProtocolRequest<'_>| {
+				if request.path == "/click" {
+					return Some(match request.method {
+						"GET" => ProtocolResponse::json(click.json()),
+						"POST" => match decode_click(request.body) {
+							Ok(data) => {
+								click.set(data);
+								ProtocolResponse::json("{\"ok\":true}")
+							}
+							Err(error) => ProtocolResponse::json(format!(
+								"{{\"error\":\"{}\"}}",
+								error.replace('"', "")
+							)),
+						},
+						_ => ProtocolResponse::json("{\"error\":\"method\"}"),
+					});
+				}
+
 				if request.path != "/pitch" {
 					return None;
 				}

@@ -58,6 +58,10 @@ var scriptFingerprint = "";
 var wantsCurve = false;
 var curveState = null;
 var wantsFall = false;
+// The drummer's click slot, and its file input.
+var wantsClick = false;
+var clickState = null;
+var clickInput = null;
 var fallState = null;
 var canvasState = null;
   // The Spectrum product's drawn pages, fetched from its own route.

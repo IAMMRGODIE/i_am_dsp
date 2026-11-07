@@ -44,3 +44,4 @@
   registerHero("envelope", envelopeHero);
   registerHero("additive", additiveHero);
   registerHero("fall", fallHero);
+  registerHero("kit", kitHero);

@@ -745,7 +745,7 @@ pub struct DrumInstrument {
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.15)]
 	#[id(display = "Humanize")]
-	#[layout(group = "Kit", order = 0, widget = knob)]
+	#[layout(group = "Kit", order = 0, widget = knob, hero = "kit")]
 	pub humanize: f32,
 	/// A one-shot that is layered over every hit, saved with the state.
 	#[serde]
@@ -809,6 +809,12 @@ pub struct DrumInstrument {
 	/// The brightness this hit was started with: 1 is the nominal material.
 	#[skip]
 	brightness: f32,
+	/// The page's click slot, when one is shared.
+	#[skip]
+	click_slot: Option<Arc<ClickSlot>>,
+	/// The slot generation the instrument last took.
+	#[skip]
+	click_seen: u64,
 	/// How hard the cymbals' bank is phase modulated.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.7)]
@@ -889,6 +895,8 @@ impl Default for DrumInstrument {
 			humanize: 0.15,
 			velocity_brightness: 0.35,
 			kit: 0,
+			click_slot: None,
+			click_seen: 0,
 			click_sample: None,
 			click_sample_level: 0.7,
 			level_kick: 1.0,
@@ -900,6 +908,73 @@ impl Default for DrumInstrument {
 			brightness: 1.0,
 		}
 	}
+}
+
+/// The click sample a host imports, shared between the page and the voices.
+#[derive(Default)]
+pub struct ClickSlot {
+	data: std::sync::Mutex<Option<SampleData>>,
+	generation: std::sync::atomic::AtomicU64,
+}
+
+impl ClickSlot {
+	/// An empty slot.
+	pub fn new() -> Arc<Self> {
+		Arc::new(Self::default())
+	}
+
+	/// The sample currently loaded.
+	pub fn load(&self) -> Option<SampleData> {
+		self.data.lock().ok()?.clone()
+	}
+
+	/// How many times the slot has changed.
+	pub fn generation(&self) -> u64 {
+		self.generation.load(std::sync::atomic::Ordering::Acquire)
+	}
+
+	/// Installs a sample and bumps the generation.
+	pub fn set(&self, data: SampleData) {
+		if let Ok(mut current) = self.data.lock() {
+			*current = Some(data);
+			self.generation
+				.fetch_add(1, std::sync::atomic::Ordering::Release);
+		}
+	}
+
+	/// What the page draws.
+	pub fn json(&self) -> String {
+		match self.load() {
+			Some(data) => format!(
+				"{{\"name\":\"{}\",\"rate\":{},\"samples\":{}}}",
+				data.name.replace('"', ""),
+				data.rate,
+				data.pcm.len()
+			),
+			None => "{\"name\":null,\"rate\":0,\"samples\":0}".to_string(),
+		}
+	}
+}
+
+/// Decodes a WAV into a mono one-shot, at the rate it was recorded at.
+pub fn decode_click(bytes: &[u8]) -> Result<SampleData, String> {
+	let pcm = crate::tools::pcm_data::load_from_bytes::<2>(bytes.to_vec())
+		.map_err(|error| error.to_string())?;
+	let [left, right] = pcm.pcm_data;
+	let mono: Vec<f32> = if right.is_empty() {
+		left
+	} else {
+		left.iter()
+			.zip(&right)
+			.map(|(left, right)| 0.5 * (left + right))
+			.collect()
+	};
+
+	Ok(SampleData {
+		name: "click".to_string(),
+		rate: pcm.sample_rate as u32,
+		pcm: mono,
+	})
 }
 
 /// The values each kit preset writes, in parameter order.
@@ -956,27 +1031,36 @@ fn kit_values(index: i32) -> &'static [(&'static str, f32)] {
 impl DrumInstrument {
 	/// Imports a one-shot that every hit layers under it, from WAV bytes.
 	pub fn set_click_sample(&mut self, bytes: &[u8]) -> Result<(), String> {
-		let pcm = crate::tools::pcm_data::load_from_bytes::<2>(bytes.to_vec())
-			.map_err(|error| error.to_string())?;
-		let [left, right] = pcm.pcm_data;
-		let mono: Vec<f32> = if right.is_empty() {
-			left
-		} else {
-			left.iter()
-				.zip(&right)
-				.map(|(left, right)| 0.5 * (left + right))
-				.collect()
-		};
-		let [mono] = crate::tools::pcm_data::resample([mono], pcm.sample_rate, self.rate as usize)
-			.map_err(|error| error.to_string())?;
-
-		self.click_sample = Some(SampleData {
-			name: "click".to_string(),
-			rate: self.rate as u32,
-			pcm: mono,
-		});
-
+		self.click_sample = Some(decode_click(bytes)?);
 		Ok(())
+	}
+
+	/// Shares a slot with the editor, so a file the page loads reaches the
+	/// voices without the page being allowed to write serialized parameters.
+	pub fn with_click_slot(mut self, slot: Arc<ClickSlot>) -> Self {
+		if let Some(data) = slot.load() {
+			self.click_sample = Some(data);
+		}
+		self.click_seen = slot.generation();
+		self.click_slot = Some(slot);
+		self
+	}
+
+	/// Takes a click the page imported since the last block.
+	fn adopt_click(&mut self) {
+		let Some(slot) = &self.click_slot else {
+			return;
+		};
+
+		let generation = slot.generation();
+
+		if generation != self.click_seen {
+			self.click_seen = generation;
+
+			if let Some(data) = slot.load() {
+				self.click_sample = Some(data);
+			}
+		}
 	}
 
 	/// The mix level this drum's page sets.
@@ -1615,6 +1699,8 @@ impl Generator<2> for DrumInstrument {
 			self.rate = rate;
 			self.playing.clear();
 		}
+
+		self.adopt_click();
 
 		let events = context.events().to_vec();
 		context.clear_events();

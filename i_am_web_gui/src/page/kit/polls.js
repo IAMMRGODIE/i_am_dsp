@@ -700,6 +700,46 @@
 
   /// The pitch fall the editor keeps, so a reopened window shows the curve the
   /// voice is actually playing.
+  /// The kit's click: which one the voices are using, and loading a new one.
+  function pollClick() {
+    if (document.hidden || !wantsClick) {
+      setTimeout(pollClick, 800);
+      return;
+    }
+
+    fetch("/click", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state) return;
+        if (JSON.stringify(state) === JSON.stringify(clickState)) return;
+        clickState = state;
+        markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollClick, 800);
+      });
+  }
+
+  function uploadClick(file) {
+    if (!file) return;
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      fetch("/click", { method: "POST", body: reader.result })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (result) {
+          if (result && result.ok) pollClick();
+        })
+        .catch(function () {});
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
   function pollFall() {
     if (!wantsFall || document.hidden) {
       setTimeout(pollFall, 400);
