@@ -876,7 +876,7 @@ pub struct DrumInstrument {
 	fit_seen: u64,
 	/// How hard the cymbals' bank is phase modulated.
 	#[range(min = 0.0, max = 1.0)]
-	#[default(0.7)]
+	#[default(0.35)]
 	#[id(display = "Cymbal FM")]
 	#[layout(group = "Cymbal", order = 3, widget = knob)]
 	pub cymbal_fm: f32,
@@ -950,7 +950,7 @@ impl Default for DrumInstrument {
 			cymbal_decay: 2.5,
 			cymbal_gain: 0.5,
 			cymbal_tail: 0.8,
-			cymbal_fm: 0.7,
+			cymbal_fm: 0.35,
 			humanize: 0.15,
 			velocity_brightness: 0.35,
 			kit: 0,
@@ -2105,7 +2105,7 @@ impl DrumInstrument {
 					source: Source::Fm {
 						partials,
 						modulator: 173.0,
-						index: 24.0 * self.cymbal_fm.clamp(0.0, 1.0) * self.brightness,
+						index: 120.0 * self.cymbal_fm.clamp(0.0, 1.0) * self.brightness,
 					},
 					keytrack: 0.0,
 					velocity: 1.0,
