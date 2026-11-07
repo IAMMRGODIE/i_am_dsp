@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use i_am_dsp_derive::Parameters;
 
+use crate::generators::sampler_voice::SampleData;
 use crate::{Generator, NoteEvent};
 use curve::{Curve, Point};
 use sources::{Band, NoiseBand, Partial, Rng, Running};
@@ -262,6 +263,11 @@ enum Source {
 		t60: f32,
 		cutoff: f32,
 	},
+	/// An imported one-shot, played once from the hit.
+	Sample {
+		data: Arc<SampleData>,
+		level: f32,
+	},
 	/// A partial bank whose phases one sine modulates: dense sidebands.
 	Fm {
 		partials: Vec<Partial>,
@@ -298,8 +304,45 @@ struct VoiceLayer {
 	partials: Vec<Running>,
 	noise: Vec<Band>,
 	metal: Option<MetalVoice>,
+	sample: Option<SamplePlayback>,
 	modulator: Option<Modulator>,
 	keytrack: f32,
+}
+
+/// A one-shot being read, at the pace the host asks for it.
+struct SamplePlayback {
+	data: Arc<SampleData>,
+	position: f32,
+	step: f32,
+	gain: f32,
+}
+
+impl SamplePlayback {
+	fn new(data: Arc<SampleData>, rate: f32, gain: f32) -> Self {
+		Self {
+			step: data.rate.max(1) as f32 / rate.max(1.0),
+			data,
+			position: 0.0,
+			gain,
+		}
+	}
+
+	#[inline]
+	fn next(&mut self) -> f32 {
+		let pcm = &self.data.pcm;
+		let index = self.position as usize;
+
+		if index + 1 >= pcm.len() {
+			return 0.0;
+		}
+
+		let fraction = self.position - index as f32;
+		let value = pcm[index] + (pcm[index + 1] - pcm[index]) * fraction;
+
+		self.position += self.step;
+
+		value * self.gain
+	}
 }
 
 /// One running metal cluster: six square waves and the highpass after them.
@@ -408,6 +451,7 @@ impl Voice {
 					noise: Vec::new(),
 					metal: None,
 					modulator: None,
+					sample: None,
 					keytrack: layer.keytrack,
 				}),
 				Source::Noise(bands) => layers.push(VoiceLayer {
@@ -426,6 +470,7 @@ impl Voice {
 						.collect(),
 					metal: None,
 					modulator: None,
+					sample: None,
 					keytrack: layer.keytrack,
 				}),
 				Source::Metal {
@@ -442,6 +487,15 @@ impl Voice {
 						*cutoff,
 						rate,
 					)),
+					modulator: None,
+					sample: None,
+					keytrack: layer.keytrack,
+				}),
+				Source::Sample { data, level } => layers.push(VoiceLayer {
+					partials: Vec::new(),
+					noise: Vec::new(),
+					metal: None,
+					sample: Some(SamplePlayback::new(data.clone(), rate, *level)),
 					modulator: None,
 					keytrack: layer.keytrack,
 				}),
@@ -466,6 +520,7 @@ impl Voice {
 					noise: Vec::new(),
 					metal: None,
 					modulator: Some(Modulator::new(*modulator, *index, rng)),
+					sample: None,
 					keytrack: layer.keytrack,
 				}),
 			}
@@ -510,6 +565,9 @@ impl Voice {
 			}
 			if let Some(metal) = &mut layer.metal {
 				sum += metal.next(rate);
+			}
+			if let Some(sample) = &mut layer.sample {
+				sum += sample.next();
 			}
 		}
 
@@ -689,6 +747,16 @@ pub struct DrumInstrument {
 	#[id(display = "Humanize")]
 	#[layout(group = "Kit", order = 0, widget = knob)]
 	pub humanize: f32,
+	/// A one-shot that is layered over every hit, saved with the state.
+	#[serde]
+	#[id(display = "Click Sample")]
+	pub click_sample: Option<SampleData>,
+	/// The imported click's level.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.7)]
+	#[id(display = "Click Level")]
+	#[layout(group = "Kit", order = 3, widget = knob)]
+	pub click_sample_level: f32,
 	/// How much a harder hit opens the drum up instead of only getting louder.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.35)]
@@ -821,6 +889,8 @@ impl Default for DrumInstrument {
 			humanize: 0.15,
 			velocity_brightness: 0.35,
 			kit: 0,
+			click_sample: None,
+			click_sample_level: 0.7,
 			level_kick: 1.0,
 			level_snare: 1.0,
 			level_hat: 1.0,
@@ -884,6 +954,31 @@ fn kit_values(index: i32) -> &'static [(&'static str, f32)] {
 }
 
 impl DrumInstrument {
+	/// Imports a one-shot that every hit layers under it, from WAV bytes.
+	pub fn set_click_sample(&mut self, bytes: &[u8]) -> Result<(), String> {
+		let pcm = crate::tools::pcm_data::load_from_bytes::<2>(bytes.to_vec())
+			.map_err(|error| error.to_string())?;
+		let [left, right] = pcm.pcm_data;
+		let mono: Vec<f32> = if right.is_empty() {
+			left
+		} else {
+			left.iter()
+				.zip(&right)
+				.map(|(left, right)| 0.5 * (left + right))
+				.collect()
+		};
+		let [mono] = crate::tools::pcm_data::resample([mono], pcm.sample_rate, self.rate as usize)
+			.map_err(|error| error.to_string())?;
+
+		self.click_sample = Some(SampleData {
+			name: "click".to_string(),
+			rate: self.rate as u32,
+			pcm: mono,
+		});
+
+		Ok(())
+	}
+
 	/// The mix level this drum's page sets.
 	fn level_for(&self, drum: Drum) -> f32 {
 		match drum {
@@ -1424,7 +1519,7 @@ impl DrumInstrument {
 			self.playing.remove(0);
 		}
 
-		let recipe = match drum {
+		let mut recipe = match drum {
 			Drum::Kick => self.kick_recipe(),
 			Drum::Snare => self.snare_recipe(),
 			Drum::Clap => self.clap_recipe(),
@@ -1432,6 +1527,22 @@ impl DrumInstrument {
 			Drum::Tom => self.tom_recipe(note),
 			Drum::Crash | Drum::Ride => self.cymbal_recipe(drum),
 		};
+
+		// An imported click is layered under every drum: the synthetic click is
+		// the fallback, not the only answer.
+		if let Some(sample) = &self.click_sample
+			&& self.click_sample_level > 0.0
+		{
+			recipe.layers.push(Layer {
+				source: Source::Sample {
+					data: Arc::new(sample.clone()),
+					level: self.click_sample_level.clamp(0.0, 1.0),
+				},
+				keytrack: 0.0,
+				velocity: 1.0,
+				gain: 1.0,
+			});
+		}
 		let tail = match drum {
 			Drum::Crash | Drum::Ride => {
 				let ride = drum == Drum::Ride;
@@ -1745,6 +1856,38 @@ mod tests {
 	}
 
 	#[test]
+	fn an_imported_click_is_layered_over_the_kick() {
+		let sample = Arc::new(SampleData {
+			name: "click".to_string(),
+			rate: 48_000,
+			pcm: vec![0.4; 480],
+		});
+
+		let mean = |with: bool| {
+			let mut kit = DrumInstrument::new(48_000);
+			kit.level_kick = 1.0;
+
+			if with {
+				kit.click_sample = Some((*sample).clone());
+				kit.click_sample_level = 0.8;
+			}
+
+			kit.start(KICK, 0.5);
+			let out = render(&mut kit, 480);
+
+			out.iter().sum::<f32>() / out.len() as f32
+		};
+
+		let plain = mean(false);
+		let layered = mean(true);
+
+		assert!(
+			layered > plain + 0.02,
+			"the imported click was not heard: {layered} vs {plain}"
+		);
+	}
+
+	#[test]
 	fn the_mix_can_silence_a_voice() {
 		let mut kit = DrumInstrument::new(48_000);
 		kit.level_snare = 0.0;
@@ -1820,6 +1963,7 @@ mod tests {
 				Source::Noise(bands) => any |= !bands.is_empty(),
 				Source::Metal { .. } => any = true,
 				Source::Fm { .. } => any = true,
+				Source::Sample { .. } => any = true,
 			}
 		}
 
