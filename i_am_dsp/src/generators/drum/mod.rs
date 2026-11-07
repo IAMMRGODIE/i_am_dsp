@@ -798,7 +798,7 @@ pub struct DrumInstrument {
 	pub pan_snare: f32,
 	/// Where the hats sit.
 	#[range(min = -1.0, max = 1.0)]
-	#[default(0.15)]
+	#[default(0.0)]
 	#[id(display = "Hat Pan")]
 	#[layout(group = "Hat", order = 11, widget = knob)]
 	pub pan_hat: f32,
@@ -816,7 +816,7 @@ pub struct DrumInstrument {
 	pub pan_tom: f32,
 	/// Where the cymbals sit.
 	#[range(min = -1.0, max = 1.0)]
-	#[default(-0.1)]
+	#[default(0.0)]
 	#[id(display = "Cymbal Pan")]
 	#[layout(group = "Cymbal", order = 10, widget = knob)]
 	pub pan_cymbal: f32,
@@ -998,10 +998,10 @@ impl Default for DrumInstrument {
 			level_cymbal: 1.0,
 			pan_kick: 0.0,
 			pan_snare: 0.0,
-			pan_hat: 0.15,
+			pan_hat: 0.0,
 			pan_clap: 0.0,
 			pan_tom: 0.0,
-			pan_cymbal: -0.1,
+			pan_cymbal: 0.0,
 			width: 0.35,
 			hat_direct: 4.0,
 			brightness: 1.0,
