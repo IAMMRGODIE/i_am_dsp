@@ -78,7 +78,15 @@ impl Running {
 
 	/// The next sample, with the note's pitch curve applied.
 	pub fn next(&mut self, pitch_ratio: f32, rate: f32) -> f32 {
-		let sample = (self.phase * TAU).sin() * self.gain * self.envelope;
+		self.next_fm(pitch_ratio, rate, 0.0)
+	}
+
+	/// The next sample with a phase modulator added.
+	///
+	/// A bank of sines is a comb; phase modulation turns every sine into a
+	/// cluster of sidebands, which is how a cymbal stops being a chord.
+	pub fn next_fm(&mut self, pitch_ratio: f32, rate: f32, modulation: f32) -> f32 {
+		let sample = (self.phase * TAU + modulation).sin() * self.gain * self.envelope;
 
 		self.phase = (self.phase + self.frequency * pitch_ratio / rate).fract();
 		self.envelope *= self.step;

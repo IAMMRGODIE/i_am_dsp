@@ -22,6 +22,12 @@ fn main() {
 	{
 		kit.cymbal_tail = value.clamp(0.0, 1.0);
 	}
+
+	if let Some(amount) = std::env::args().nth(3)
+		&& let Ok(value) = amount.parse::<f32>()
+	{
+		kit.cymbal_fm = value.clamp(0.0, 1.0);
+	}
 	// (time, note, velocity)
 	let mut hits: Vec<(f32, u8, f32)> = vec![
 		(0.00, 36, 1.0),

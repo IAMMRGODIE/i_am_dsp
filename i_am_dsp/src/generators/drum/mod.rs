@@ -184,6 +184,32 @@ struct TailSpec {
 	level: f32,
 }
 
+/// One sine phase modulating a bank, which turns each mode into a cluster.
+struct Modulator {
+	phase: f32,
+	frequency: f32,
+	index: f32,
+}
+
+impl Modulator {
+	fn new(frequency: f32, index: f32, rng: &mut Rng) -> Self {
+		Self {
+			phase: rng.unit(),
+			frequency: frequency.max(1.0),
+			index,
+		}
+	}
+
+	#[inline]
+	fn next(&mut self, rate: f32) -> f32 {
+		let value = (self.phase * std::f32::consts::TAU).sin() * self.index;
+
+		self.phase = (self.phase + self.frequency / rate).fract();
+
+		value
+	}
+}
+
 /// What a layer is made of.
 enum Source {
 	/// A bank of decaying partials.
@@ -195,6 +221,12 @@ enum Source {
 		frequencies: [f32; 6],
 		t60: f32,
 		cutoff: f32,
+	},
+	/// A partial bank whose phases one sine modulates: dense sidebands.
+	Fm {
+		partials: Vec<Partial>,
+		modulator: f32,
+		index: f32,
 	},
 }
 
@@ -226,6 +258,7 @@ struct VoiceLayer {
 	partials: Vec<Running>,
 	noise: Vec<Band>,
 	metal: Option<MetalVoice>,
+	modulator: Option<Modulator>,
 	keytrack: f32,
 }
 
@@ -329,6 +362,7 @@ impl Voice {
 						.collect(),
 					noise: Vec::new(),
 					metal: None,
+					modulator: None,
 					keytrack: layer.keytrack,
 				}),
 				Source::Noise(bands) => layers.push(VoiceLayer {
@@ -346,6 +380,7 @@ impl Voice {
 						})
 						.collect(),
 					metal: None,
+					modulator: None,
 					keytrack: layer.keytrack,
 				}),
 				Source::Metal {
@@ -362,6 +397,30 @@ impl Voice {
 						*cutoff,
 						rate,
 					)),
+					modulator: None,
+					keytrack: layer.keytrack,
+				}),
+				Source::Fm {
+					partials,
+					modulator,
+					index,
+				} => layers.push(VoiceLayer {
+					partials: partials
+						.iter()
+						.map(|partial| {
+							Running::new(
+								Partial {
+									amplitude: partial.amplitude * level,
+									..*partial
+								},
+								rate,
+								rng,
+							)
+						})
+						.collect(),
+					noise: Vec::new(),
+					metal: None,
+					modulator: Some(Modulator::new(*modulator, *index, rng)),
 					keytrack: layer.keytrack,
 				}),
 			}
@@ -391,8 +450,13 @@ impl Voice {
 			// material while the body dives.
 			let ratio = (1.0 + (bend - 1.0) * layer.keytrack).clamp(0.05, 8.0);
 
+			let modulation = match &mut layer.modulator {
+				Some(modulator) => modulator.next(rate),
+				None => 0.0,
+			};
+
 			for partial in &mut layer.partials {
-				sum += partial.next(ratio, rate);
+				sum += partial.next_fm(ratio, rate, modulation);
 			}
 			for band in &mut layer.noise {
 				sum += band.next(rng);
@@ -572,6 +636,12 @@ pub struct DrumInstrument {
 	#[id(display = "Cymbal Level")]
 	#[layout(group = "Cymbal", order = 1, widget = knob)]
 	pub cymbal_gain: f32,
+	/// How hard the cymbals' bank is phase modulated.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.7)]
+	#[id(display = "Cymbal FM")]
+	#[layout(group = "Cymbal", order = 3, widget = knob)]
+	pub cymbal_fm: f32,
 	/// How much of the diffuse, shifted tail the cymbals have.
 	#[range(min = 0.0, max = 1.0)]
 	#[default(0.8)]
@@ -642,6 +712,7 @@ impl Default for DrumInstrument {
 			cymbal_decay: 2.5,
 			cymbal_gain: 0.5,
 			cymbal_tail: 0.8,
+			cymbal_fm: 0.7,
 		}
 	}
 }
@@ -1139,7 +1210,11 @@ impl DrumInstrument {
 		Recipe {
 			layers: vec![
 				Layer {
-					source: Source::Partials(partials),
+					source: Source::Fm {
+						partials,
+						modulator: 173.0,
+						index: 24.0 * self.cymbal_fm.clamp(0.0, 1.0),
+					},
 					keytrack: 0.0,
 					velocity: 1.0,
 					gain: 0.5 * level,
@@ -1410,6 +1485,27 @@ mod tests {
 	}
 
 	#[test]
+	fn the_cymbals_are_not_just_sines() {
+		let crossings = |fm: f32| {
+			let mut kit = DrumInstrument::new(48_000);
+			kit.cymbal_fm = fm;
+			kit.start(CRASH, 1.0);
+			let out = render(&mut kit, 2_400);
+
+			out.windows(2)
+				.filter(|pair| (pair[0] >= 0.0) != (pair[1] >= 0.0))
+				.count()
+		};
+
+		let plain = crossings(0.0);
+		let fm = crossings(1.0);
+		assert!(
+			fm > plain * 2,
+			"the FM did not thicken the cymbal: {plain} then {fm}"
+		);
+	}
+
+	#[test]
 	fn the_cymbals_ring_longer_than_a_hat() {
 		let tail = |note: u8| {
 			let mut kit = DrumInstrument::new(48_000);
@@ -1466,6 +1562,7 @@ mod tests {
 				Source::Partials(partials) => any |= !partials.is_empty(),
 				Source::Noise(bands) => any |= !bands.is_empty(),
 				Source::Metal { .. } => any = true,
+				Source::Fm { .. } => any = true,
 			}
 		}
 
