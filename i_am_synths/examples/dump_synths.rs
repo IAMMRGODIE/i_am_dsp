@@ -12,9 +12,9 @@ use std::path::Path;
 
 use i_am_plugin::Plugin;
 use i_am_synths::{
-	AdditiveWeb, CanvasWeb, SamplerWeb, ScriptWeb, ShapesWeb, SpectrumWeb, StringWeb,
-	additive_faceplate, canvas_faceplate, canvas_shape, faceplate, sampler_faceplate,
-	script_faceplate, shapes_faceplate, spectrum_faceplate,
+	AdditiveWeb, CanvasWeb, DrummerWeb, SamplerWeb, ScriptWeb, ShapesWeb, SpectrumWeb, StringWeb,
+	additive_faceplate, canvas_faceplate, canvas_shape, drummer_faceplate, faceplate,
+	sampler_faceplate, script_faceplate, shapes_faceplate, spectrum_faceplate,
 };
 
 fn main() {
@@ -57,6 +57,13 @@ fn main() {
 			let plugin = ScriptWeb::new();
 			(
 				i_am_web_gui::face_json(&plugin, &script_faceplate()),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
+		"drummer" => {
+			let plugin = DrummerWeb::new();
+			(
+				i_am_web_gui::face_json(&plugin, &drummer_faceplate()),
 				i_am_web_gui::state_json(&plugin),
 			)
 		}

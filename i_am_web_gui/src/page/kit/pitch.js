@@ -72,21 +72,21 @@ function fallPointerDown(event) {
       startBend: fallState.points[bendIndex][2] || 0
     };
   } else {
-    if (fallState.points.length >= 10) return;
-
-    var point = [position.time, position.ratio, 0];
-    fallState.points.push(point);
-    fallState.points.sort(function (a, b) { return a[0] - b[0]; });
-    fallDrag = {
-      kind: "point",
-      hero: hero,
-      index: fallState.points.indexOf(point),
-      pointerId: event.pointerId
-    };
+    // Empty space does nothing on a press: adding a point is a double click,
+    // so a press that misses a handle never edits the curve.
+    return;
   }
 
   hero.dataset.busy = "1";
-  if (hero.setPointerCapture) hero.setPointerCapture(event.pointerId);
+
+  // A host whose pointer id is not active (or a synthetic event) makes this
+  // throw; the drag still works without the capture, so it is not fatal.
+  if (hero.setPointerCapture) {
+    try {
+      hero.setPointerCapture(event.pointerId);
+    } catch (error) {}
+  }
+
   fallRender(hero);
   event.preventDefault();
 }
@@ -140,6 +140,24 @@ function fallPointerUp(event) {
   }
 
   fallDrag = null;
+  sendFall();
+  markDirty();
+  event.preventDefault();
+}
+
+/// Add a point where the picture was double clicked.
+function fallDoubleClick(event) {
+  if (!fallState || !fallState.points) return;
+  if (fallPointIndex(event) >= 0 || fallBendIndex(event) >= 0) return;
+  if (fallState.points.length >= 10) return;
+
+  var position = fallPosition(event.currentTarget, event);
+
+  if (!position) return;
+
+  fallState.points.push([position.time, position.ratio, 0]);
+  fallState.points.sort(function (a, b) { return a[0] - b[0]; });
+  fallRender(event.currentTarget);
   sendFall();
   markDirty();
   event.preventDefault();

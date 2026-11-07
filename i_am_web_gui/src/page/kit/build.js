@@ -473,6 +473,7 @@
           hero.addEventListener("pointerup", fallPointerUp);
           hero.addEventListener("pointercancel", fallPointerUp);
           hero.addEventListener("contextmenu", fallContextMenu);
+          hero.addEventListener("dblclick", fallDoubleClick);
         }
 
         if (section.hero === "impulse") {
