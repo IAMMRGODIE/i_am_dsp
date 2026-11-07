@@ -75,6 +75,9 @@ impl Resonator {
 	}
 }
 
+/// Below this a string is inaudible: -120 dB against a full scale note.
+const SILENCE: f32 = 1e-6;
+
 /// One sympathetic string: a few of its lowest partials.
 #[derive(Clone, Debug)]
 struct SympatheticString {
@@ -85,15 +88,45 @@ struct SympatheticString {
 	/// The smoothed damper engagement, in 0..1.
 	engagement: f32,
 	target: f32,
+	/// How long the string has been inaudible, in samples.
+	quiet: u32,
+	/// Whether it is skipped entirely until something drives it again.
+	silent: bool,
 }
 
 impl SympatheticString {
 	#[inline]
 	fn process(&mut self, x: f32) -> f32 {
+		// A string that has been inaudible for ten milliseconds is skipped
+		// until something drives it again. Its state is zeroed when it goes
+		// quiet, so waking it up starts from rest rather than from an old tail.
+		if self.silent {
+			if x.abs() < SILENCE {
+				return 0.0;
+			}
+
+			self.silent = false;
+		}
+
 		let mut sum = 0.0;
 		for partial in &mut self.partials {
 			sum += partial.process(x);
 		}
+
+		if sum.abs() < SILENCE && x.abs() < SILENCE {
+			self.quiet += 1;
+
+			if self.quiet > 480 {
+				for partial in &mut self.partials {
+					partial.clear();
+				}
+				self.quiet = 0;
+				self.silent = true;
+			}
+		} else {
+			self.quiet = 0;
+		}
+
 		sum
 	}
 }
@@ -148,6 +181,8 @@ impl SympatheticBank {
 				damped,
 				engagement: 0.0,
 				target: 0.0,
+				quiet: 0,
+				silent: false,
 			}),
 		}
 	}

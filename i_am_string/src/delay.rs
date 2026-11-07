@@ -1,5 +1,14 @@
 //! Delay lines used by the waveguide string.
 
+/// Split a delay in samples into the whole samples and the fraction between
+/// them, which is what a fractional read needs.
+#[inline]
+pub(crate) fn split(delay: f32) -> (usize, f32) {
+	let delay = delay.max(0.0);
+	let index = delay as usize;
+	(index, delay - index as f32)
+}
+
 /// A circular delay line with fractional reads.
 ///
 /// The line is written with [`DelayLine::push`] and read with
@@ -56,26 +65,21 @@ impl DelayLine {
 	/// Read `delay` samples behind the most recent push.
 	#[inline]
 	pub(crate) fn tap(&self, delay: f32) -> f32 {
-		let delay = delay.max(0.0);
-		let index = delay as usize;
-		let frac = delay - index as f32;
+		self.tap_split(split(delay))
+	}
+
+	/// Read a delay that was already split into its whole samples and fraction.
+	///
+	/// The waveguide's reads only move when the pitch ratio does, so the split
+	/// is done once per bend update instead of once per sample.
+	#[inline]
+	pub(crate) fn tap_split(&self, (index, frac): (usize, f32)) -> f32 {
 		let a = self.buffer[self.write.wrapping_sub(1).wrapping_sub(index) & self.mask];
 		if frac <= 0.0 {
 			return a;
 		}
 		let b = self.buffer[self.write.wrapping_sub(2).wrapping_sub(index) & self.mask];
 		a + (b - a) * frac
-	}
-
-	/// Read the wave that has travelled exactly `travelled` samples.
-	///
-	/// [DelayLine::tap] measures backwards from the last push, and the waveguide
-	/// loop reads its delay lines *before* it writes this sample back into them.
-	/// A wave pushed at time `s` is therefore `tap(d)` at time `s + d + 1`, and
-	/// forgetting that off-by-one detunes the whole string by a few cents.
-	#[inline]
-	pub(crate) fn arrival(&self, travelled: f32) -> f32 {
-		self.tap(travelled - 1.0)
 	}
 
 	/// Fill the line with a travelling wave shape.

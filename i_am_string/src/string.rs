@@ -154,6 +154,11 @@ struct Port {
 	law: Box<dyn ContactLaw>,
 	delay_from_nut: f32,
 	delay_from_bridge: f32,
+	/// The four reads this port makes, split into whole samples and fractions.
+	from_nut_read: (usize, f32),
+	from_bridge_read: (usize, f32),
+	to_bridge_read: (usize, f32),
+	to_nut_read: (usize, f32),
 	/// The nominal travel time from the port to each end, which is what the
 	/// bend scales. The lines themselves are allocated longer than this so that
 	/// bending *down* has somewhere to read from, and reading them at their own
@@ -322,6 +327,8 @@ pub struct WaveguideString {
 	left: DelayLine,
 	/// The half length of the string at its tuned pitch, in samples.
 	nominal: f32,
+	/// The nominal round trip read, split so the sample loop does no arithmetic.
+	nominal_read: (usize, f32),
 	/// How far the pitch is currently bent, as a frequency multiplier.
 	pitch_ratio: f32,
 	/// The reciprocal of the ratio, kept so the per sample loop has no divide.
@@ -480,6 +487,7 @@ impl WaveguideString {
 			left: DelayLine::new(n0 as f32 * BEND_HEADROOM),
 			// (both lines have the same length)
 			nominal: n0 as f32,
+			nominal_read: crate::delay::split(n0 as f32 - 1.0),
 			pitch_ratio: 1.0,
 			scale: 1.0,
 			dispersion,
@@ -583,10 +591,15 @@ impl WaveguideString {
 	pub fn add_port(&mut self, position: f32, law: Box<dyn ContactLaw>, substeps: u32) {
 		let beta = position.clamp(0.004, 0.996);
 		let n = self.nominal;
+		let scale = self.scale;
 		self.ports.push(Port {
 			law,
 			delay_from_nut: beta * n,
 			delay_from_bridge: (1.0 - beta) * n,
+			from_nut_read: crate::delay::split(beta * n * scale - 1.0),
+			from_bridge_read: crate::delay::split((1.0 - beta) * n * scale - 1.0),
+			to_bridge_read: crate::delay::split((1.0 - beta) * n * scale),
+			to_nut_read: crate::delay::split(beta * n * scale),
 			bridge_travel: (1.0 - beta) * n,
 			nut_travel: beta * n,
 			to_bridge: DelayLine::new((1.0 - beta) * n * BEND_HEADROOM),
@@ -654,9 +667,6 @@ impl WaveguideString {
 		let dt = self.dt;
 		let impedance = self.impedance;
 		let loop_gain = self.loop_gain * self.damper;
-		// Bending up shortens the round trip, so the reads come *closer*.
-		let scale = self.scale;
-		let nominal = self.nominal;
 
 		let bridge_in;
 		{
@@ -666,6 +676,7 @@ impl WaveguideString {
 				ports,
 				dispersion,
 				loss,
+				nominal_read,
 				..
 			} = self;
 
@@ -678,12 +689,12 @@ impl WaveguideString {
 					// running or that energy would be trapped forever.
 					port.to_bridge.push(0.0);
 					port.to_nut.push(0.0);
-					bridge_sum += port.to_bridge.tap(port.bridge_travel * scale);
-					nut_sum += port.to_nut.tap(port.nut_travel * scale);
+					bridge_sum += port.to_bridge.tap_split(port.to_bridge_read);
+					nut_sum += port.to_nut.tap_split(port.to_nut_read);
 					continue;
 				}
-				let from_nut = right.arrival(port.delay_from_nut * scale);
-				let from_bridge = left.arrival(port.delay_from_bridge * scale);
+				let from_nut = right.tap_split(port.from_nut_read);
+				let from_bridge = left.tap_split(port.from_bridge_read);
 				let incident = from_nut - from_bridge;
 				let force = port.solve(incident, impedance, dt);
 				// Only the scattered part is injected: the incident waves are
@@ -694,15 +705,15 @@ impl WaveguideString {
 				let half = 0.5 * force;
 				port.to_bridge.push(half);
 				port.to_nut.push(-half);
-				bridge_sum += port.to_bridge.tap(port.bridge_travel * scale);
-				nut_sum += port.to_nut.tap(port.nut_travel * scale);
+				bridge_sum += port.to_bridge.tap_split(port.to_bridge_read);
+				nut_sum += port.to_nut.tap_split(port.to_nut_read);
 				if !port.law.is_active() {
 					port.active = false;
 				}
 			}
 
-			bridge_in = right.arrival(nominal * scale) + bridge_sum;
-			let nut_in = left.arrival(nominal * scale) + nut_sum;
+			bridge_in = right.tap_split(*nominal_read) + bridge_sum;
+			let nut_in = left.tap_split(*nominal_read) + nut_sum;
 
 			// One pass around the loop: dispersion, then loss, then the rigid
 			// bridge reflection.
@@ -734,8 +745,28 @@ impl WaveguideString {
 	/// audible as a slight dulling, which is why the headroom is set for a
 	/// vibrato rather than for a pitch bend.
 	pub fn set_pitch_ratio(&mut self, ratio: f32) {
-		self.pitch_ratio = ratio.clamp(1.0 / BEND_HEADROOM, BEND_HEADROOM);
-		self.scale = 1.0 / self.pitch_ratio;
+		let ratio = ratio.clamp(1.0 / BEND_HEADROOM, BEND_HEADROOM);
+
+		if ratio == self.pitch_ratio {
+			return;
+		}
+
+		self.pitch_ratio = ratio;
+		self.scale = 1.0 / ratio;
+		self.refresh_reads();
+	}
+
+	/// Re-splits every read the sample loop makes for the current bend.
+	fn refresh_reads(&mut self) {
+		let scale = self.scale;
+		self.nominal_read = crate::delay::split(self.nominal * scale - 1.0);
+
+		for port in &mut self.ports {
+			port.from_nut_read = crate::delay::split(port.delay_from_nut * scale - 1.0);
+			port.from_bridge_read = crate::delay::split(port.delay_from_bridge * scale - 1.0);
+			port.to_bridge_read = crate::delay::split(port.bridge_travel * scale);
+			port.to_nut_read = crate::delay::split(port.nut_travel * scale);
+		}
 	}
 
 	/// How far the pitch is currently bent.
