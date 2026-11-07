@@ -706,6 +706,18 @@ impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SI
 	}
 }
 
+impl<const CHANNELS: usize, const FFT_SIZE: usize> FftConvolver<CHANNELS, FFT_SIZE> {
+	/// Convolve one frame with the wet path only.
+	///
+	/// A generator has no process context of its own, and the tail it feeds is
+	/// one sample at a time, so this is the door it uses instead of [process].
+	///
+	/// [process]: Effect::process
+	pub fn frame(&mut self, samples: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		self.buffer.frame(samples)
+	}
+}
+
 impl<const CHANNELS: usize, const FFT_SIZE: usize> Effect<CHANNELS>
 	for FftConvolver<CHANNELS, FFT_SIZE>
 {

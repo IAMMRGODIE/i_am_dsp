@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use i_am_dsp_derive::Parameters;
 
+use crate::effects::convolver::FftConvolver;
 use crate::generators::sampler_voice::SampleData;
 use crate::{Generator, NoteEvent};
 use curve::{Curve, Point};
@@ -41,149 +42,6 @@ pub const RIDE: u8 = 51;
 
 /// How many hits may ring at once.
 const MAX_VOICES: usize = 16;
-
-/// A diffuse, slowly shifting tail for the cymbals.
-///
-/// The bank on its own is a comb: modes that are close to evenly spaced and all
-/// ring for the same time read as points rather than as metal. Four combs and
-/// two allpasses scatter that into a tail, and the frequency shifter inside the
-/// loop moves every pass a few hertz so the tail never settles into a harmonic
-/// series.
-struct CymbalTail {
-	combs: Vec<Comb>,
-	allpasses: Vec<Allpass>,
-	shifter: crate::effects::prelude::HilbertTransform<4, 1>,
-	phase: f32,
-	shift: f32,
-	feedback: f32,
-	loop_state: f32,
-}
-
-/// A damped comb, the classic Schroeder building block.
-struct Comb {
-	buffer: Vec<f32>,
-	index: usize,
-	feedback: f32,
-	damping: f32,
-	state: f32,
-}
-
-impl Comb {
-	fn new(seconds: f32, t60: f32, rate: f32) -> Self {
-		let samples = ((seconds * rate).round() as usize).max(16);
-		let feedback = 10f32.powf(-3.0 * (samples as f32 / rate) / t60.max(0.05));
-
-		Self {
-			buffer: vec![0.0; samples],
-			index: 0,
-			feedback: feedback.clamp(0.05, 0.97),
-			damping: (-std::f32::consts::TAU * 8_000.0 / rate).exp(),
-			state: 0.0,
-		}
-	}
-
-	#[inline]
-	fn process(&mut self, input: f32) -> f32 {
-		let out = self.buffer[self.index];
-
-		self.state += (out - self.state) * self.damping;
-		self.buffer[self.index] = input + self.state * self.feedback;
-		self.index += 1;
-
-		if self.index >= self.buffer.len() {
-			self.index = 0;
-		}
-
-		out
-	}
-}
-
-/// A Schroeder allpass, which turns an echo into a smear.
-struct Allpass {
-	buffer: Vec<f32>,
-	index: usize,
-	gain: f32,
-}
-
-impl Allpass {
-	fn new(seconds: f32, rate: f32) -> Self {
-		Self {
-			buffer: vec![0.0; ((seconds * rate).round() as usize).max(8)],
-			index: 0,
-			gain: 0.5,
-		}
-	}
-
-	#[inline]
-	fn process(&mut self, input: f32) -> f32 {
-		let buffered = self.buffer[self.index];
-		let out = buffered - self.gain * input;
-
-		self.buffer[self.index] = input + self.gain * out;
-		self.index += 1;
-
-		if self.index >= self.buffer.len() {
-			self.index = 0;
-		}
-
-		out
-	}
-}
-
-impl CymbalTail {
-	fn new(rate: f32, t60: f32, shift: f32) -> Self {
-		Self {
-			combs: [0.0297, 0.0371, 0.0411, 0.0437]
-				.iter()
-				.map(|seconds| Comb::new(*seconds, t60, rate))
-				.collect(),
-			allpasses: [0.0050, 0.0017]
-				.iter()
-				.map(|seconds| Allpass::new(*seconds, rate))
-				.collect(),
-			shifter: crate::effects::prelude::HilbertTransform::new(rate as usize),
-			phase: 0.0,
-			shift: shift.max(0.0),
-			feedback: 0.45,
-			loop_state: 0.0,
-		}
-	}
-
-	#[inline]
-	fn process(&mut self, input: f32, rate: f32) -> f32 {
-		let loop_in = input + self.loop_state * self.feedback;
-		let mut wet = 0.0;
-
-		for comb in &mut self.combs {
-			wet += comb.process(loop_in);
-		}
-		wet *= 0.25;
-
-		for allpass in &mut self.allpasses {
-			wet = allpass.process(wet);
-		}
-
-		let analytic = self.shifter.apply_transform_single(wet, 0);
-
-		self.phase += std::f32::consts::TAU * self.shift / rate;
-		if self.phase > std::f32::consts::TAU {
-			self.phase -= std::f32::consts::TAU;
-		}
-
-		let (sin, cosine) = self.phase.sin_cos();
-		self.loop_state = analytic.real * cosine - analytic.imag * sin;
-
-		wet
-	}
-}
-
-/// What the tail of a note needs when it is a cymbal.
-#[derive(Clone, Copy)]
-struct TailSpec {
-	t60: f32,
-	shift: f32,
-	level: f32,
-}
 
 /// The per-hit variation the humaniser adds.
 #[derive(Clone, Copy)]
@@ -409,12 +267,6 @@ struct Voice {
 	pitch: Curve,
 	amp: Curve,
 	time: f32,
-	/// The diffuse tail under a cymbal, if this note has one.
-	tail: Option<CymbalTail>,
-	/// How long the tail is allowed to ring after the amp curve ends.
-	tail_grace: f32,
-	/// How loud the tail sits under the bank.
-	tail_level: f32,
 	/// 1 while the note rings, ramping to 0 when another hat chokes it.
 	choke: f32,
 	choking: bool,
@@ -432,7 +284,6 @@ impl Voice {
 		drum: Drum,
 		rate: f32,
 		velocity: f32,
-		tail: Option<TailSpec>,
 		human: Humanized,
 		rng: &mut Rng,
 	) -> Self {
@@ -537,9 +388,6 @@ impl Voice {
 
 		Self {
 			layers,
-			tail: tail.map(|spec| CymbalTail::new(rate, spec.t60, spec.shift)),
-			tail_grace: tail.map(|spec| spec.t60 * 0.8).unwrap_or(0.0),
-			tail_level: tail.map(|spec| spec.level).unwrap_or(0.0),
 			pitch: recipe.pitch.clone(),
 			amp: recipe.amp.clone(),
 			time: 0.0,
@@ -551,7 +399,7 @@ impl Voice {
 		}
 	}
 
-	fn next(&mut self, rng: &mut Rng, rate: f32) -> f32 {
+	fn next(&mut self, rng: &mut Rng, rate: f32) -> (f32, f32) {
 		let bend = 2f32.powf(self.pitch.octaves(self.time));
 		let mut sum = 0.0;
 
@@ -585,20 +433,24 @@ impl Voice {
 
 		let mut out = sum * level;
 
-		if let Some(tail) = &mut self.tail {
-			out += tail.process(sum, rate) * self.tail_level;
-		}
-
 		if self.choking {
 			self.choke = (self.choke - 1.0 / (0.004 * rate)).max(0.0);
 			out *= self.choke;
 		}
 
-		out * self.level
+		let out = out * self.level;
+		// A cymbal's dry signal is also the excitation of the kit's tail.
+		let send = if matches!(self.drum, Drum::Crash | Drum::Ride) {
+			out
+		} else {
+			0.0
+		};
+
+		(out, send)
 	}
 
 	fn finished(&self) -> bool {
-		self.time > self.amp.end() + self.tail_grace + 0.02
+		self.time > self.amp.end() + 0.02
 			|| (self.choking && self.choke <= 0.0)
 	}
 }
@@ -838,6 +690,15 @@ pub struct DrumInstrument {
 	/// The brightness this hit was started with: 1 is the nominal material.
 	#[skip]
 	brightness: f32,
+	/// The cymbal tail, convolved with a real crash's room.
+	#[skip]
+	tail_convolver: Option<Box<FftConvolver<2>>>,
+	/// The send of the last sample into that tail.
+	#[skip]
+	tail_send: f32,
+	/// How many samples the tail still has to process before it goes quiet.
+	#[skip]
+	tail_remaining: usize,
 	/// The page's click slot, when one is shared.
 	#[skip]
 	click_slot: Option<Arc<ClickSlot>>,
@@ -981,6 +842,9 @@ impl Default for DrumInstrument {
 			level_tom: 1.0,
 			level_cymbal: 1.0,
 			brightness: 1.0,
+			tail_convolver: None,
+			tail_send: 0.0,
+			tail_remaining: 0,
 		}
 	}
 }
@@ -1346,6 +1210,27 @@ pub fn decode_click(bytes: &[u8]) -> Result<SampleData, String> {
 		rate: pcm.sample_rate as u32,
 		pcm: mono,
 	})
+}
+
+/// The impulse response of the cymbal tail: a quarter second of a real crash,
+/// captured at 48 kHz, embedded so a hit never has to look for a file.
+fn load_cymbal_ir(rate: usize) -> Vec<f32> {
+	let bytes = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/cymbal-ir.f32"));
+	let mut ir: Vec<f32> = bytes
+		.as_chunks::<4>()
+		.0
+		.iter()
+		.map(|bytes| f32::from_le_bytes(*bytes))
+		.collect();
+
+	if rate != 48_000
+		&& !ir.is_empty()
+		&& let Ok([resampled]) = crate::tools::pcm_data::resample([ir.clone()], 48_000, rate)
+	{
+		ir = resampled;
+	}
+
+	ir
 }
 
 /// The values each kit preset writes, in parameter order.
@@ -1743,11 +1628,21 @@ impl DrumInstrument {
 
 	/// A silent instrument, built for one sample rate.
 	pub fn new(rate: usize) -> Self {
+		let rate = if rate > 0 { rate } else { 48_000 };
 		let mut instrument = Self {
-			rate: if rate > 0 { rate as f32 } else { 48_000.0 },
+			rate: rate as f32,
 			..Self::default()
 		};
 		instrument.shared = Arc::new(Mutex::new(instrument.pitch_curve.clone()));
+
+		// The cymbal tail is one convolver for the whole kit, built once.
+		let ir = load_cymbal_ir(rate);
+		let mut convolver = FftConvolver::<2>::new([ir.clone(), ir], rate);
+
+		convolver.dry_gain = 0.0;
+		convolver.wet_gain = 1.0;
+		instrument.tail_convolver = Some(Box::new(convolver));
+
 		instrument
 	}
 
@@ -2206,21 +2101,10 @@ impl DrumInstrument {
 			});
 		}
 
-		let tail = match drum {
-			Drum::Crash | Drum::Ride => {
-				let ride = drum == Drum::Ride;
-				let decay =
-					self.amp_end(Drum::Crash) / 0.95 * if ride { 0.45 } else { 1.0 };
-				let level = self.cymbal_tail.clamp(0.0, 1.0);
-
-				(level > 0.0).then_some(TailSpec {
-					t60: decay,
-					shift: if ride { 5.0 } else { 8.0 },
-					level,
-				})
-			}
-			_ => None,
-		};
+		if matches!(drum, Drum::Crash | Drum::Ride) {
+			// The convolver keeps ringing for an IR-length after the send stops.
+			self.tail_remaining = (self.rate * 0.35) as usize;
+		}
 
 		// A drummer never hits twice the same: the humaniser moves the level and
 		// the pitch of each hit, and zero leaves the kit exact.
@@ -2240,7 +2124,6 @@ impl DrumInstrument {
 				drum,
 				self.rate,
 				velocity,
-				tail,
 				human,
 				&mut self.rng,
 			));
@@ -2267,12 +2150,31 @@ impl DrumInstrument {
 	pub fn next_sample(&mut self) -> f32 {
 		let rate = self.rate;
 		let rng = &mut self.rng;
-		let mut sum = 0.0;
+		let mut dry = 0.0;
+		let mut send = 0.0;
 
 		for voice in &mut self.playing {
-			sum += voice.next(rng, rate);
+			let (out, voice_send) = voice.next(rng, rate);
+			dry += out;
+			send += voice_send;
 		}
 		self.playing.retain(|voice| !voice.finished());
+
+		self.tail_send = send;
+
+		let mut sum = dry;
+		let tail = self.cymbal_tail.clamp(0.0, 1.0);
+
+		if tail > 0.0
+			&& self.tail_remaining > 0
+			&& let Some(convolver) = &mut self.tail_convolver
+		{
+			self.tail_remaining -= 1;
+			// The IR keeps ringing after the voices have gone; feeding it a
+			// silent send is what lets the tail finish.
+			let wet = convolver.frame([send, send]);
+			sum += wet[0] * tail;
+		}
 
 		(sum * self.drive.clamp(1.0, 8.0)).tanh() * self.gain.clamp(0.0, 1.0)
 	}
@@ -2516,6 +2418,7 @@ mod tests {
 	fn a_harder_hit_opens_the_cymbal_up() {
 		let crossings = |velocity: f32| {
 			let mut kit = DrumInstrument::new(48_000);
+			kit.cymbal_tail = 0.0;
 			kit.start(CRASH, velocity);
 			let out = render(&mut kit, 2_400);
 
