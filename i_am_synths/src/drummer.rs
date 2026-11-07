@@ -346,9 +346,10 @@ fn parse_pitch(text: &str) -> Option<Curve> {
 			return None;
 		}
 
+		// The editor goes to ten octaves; the wire carries the same range.
 		triples.push((
 			time.clamp(0.0, 1.0),
-			value.clamp(0.5, 16.0),
+			value.clamp(0.05, 1_024.0),
 			bend.clamp(-10.0, 10.0),
 		));
 	}
@@ -358,4 +359,21 @@ fn parse_pitch(text: &str) -> Option<Curve> {
 	}
 
 	Some(Curve::from_triples(triples))
+}
+
+
+#[cfg(test)]
+mod route_tests {
+	use super::parse_pitch;
+
+	#[test]
+	fn a_ten_octave_point_survives_the_wire() {
+		let curve = parse_pitch("0:1024:-2.5;0.03:1:0").expect("the wire parses");
+
+		assert!(
+			(curve.points()[0].value - 1_024.0).abs() < 1e-3,
+			"the wire clamped the top of the curve: {}",
+			curve.points()[0].value
+		);
+	}
 }
