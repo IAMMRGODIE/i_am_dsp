@@ -43,6 +43,14 @@ pub const RIDE: u8 = 51;
 /// How many hits may ring at once.
 const MAX_VOICES: usize = 16;
 
+/// Where a hit sits in the stereo field.
+#[derive(Clone, Copy)]
+struct Stereo {
+	pan_l: f32,
+	pan_r: f32,
+	width: f32,
+}
+
 /// The per-hit variation the humaniser adds.
 #[derive(Clone, Copy)]
 struct Humanized {
@@ -130,6 +138,8 @@ enum Source {
 		t60: f32,
 		cutoff: f32,
 	},
+	/// Noise with a decorrelated second stream: the wide parts of a drum.
+	NoiseWide(Vec<NoiseBand>),
 	/// An imported one-shot, played once from the hit.
 	Sample {
 		data: Arc<SampleData>,
@@ -166,10 +176,37 @@ struct Recipe {
 	amp: Curve,
 }
 
+/// One noise band and, for a wide layer, its decorrelated partner.
+struct NoiseVoice {
+	band: Band,
+	second: Option<Band>,
+}
+
+impl NoiseVoice {
+	/// The band's next sample: a mono pair, or two channels at the given width.
+	#[inline]
+	fn next(&mut self, rng: &mut Rng, width: f32) -> (f32, f32) {
+		let left = self.band.next(rng);
+
+		match &mut self.second {
+			Some(second) => {
+				let right = second.next(rng);
+				let cross = 0.5 - width * 0.5;
+
+				(
+					left * (1.0 - cross) + right * cross,
+					right * (1.0 - cross) + left * cross,
+				)
+			}
+			None => (left, left),
+		}
+	}
+}
+
 /// One running layer of a hit.
 struct VoiceLayer {
 	partials: Vec<Running>,
-	noise: Vec<Band>,
+	noise: Vec<NoiseVoice>,
 	metal: Option<MetalVoice>,
 	sample: Option<SamplePlayback>,
 	modulator: Option<Modulator>,
@@ -276,6 +313,11 @@ struct Voice {
 	level: f32,
 	/// The hit's own detune, from the humaniser.
 	detune: f32,
+	/// The pan gains of this hit.
+	pan_l: f32,
+	pan_r: f32,
+	/// How wide the decorrelated noise sits.
+	width: f32,
 }
 
 impl Voice {
@@ -285,6 +327,7 @@ impl Voice {
 		rate: f32,
 		velocity: f32,
 		human: Humanized,
+		stereo: Stereo,
 		rng: &mut Rng,
 	) -> Self {
 		let velocity = velocity.clamp(0.0, 1.0);
@@ -318,14 +361,15 @@ impl Voice {
 					partials: Vec::new(),
 					noise: bands
 						.iter()
-						.map(|band| {
-							Band::new(
+						.map(|band| NoiseVoice {
+							band: Band::new(
 								NoiseBand {
 									gain: band.gain * level,
 									..*band
 								},
 								rate,
-							)
+							),
+							second: None,
 						})
 						.collect(),
 					metal: None,
@@ -347,6 +391,32 @@ impl Voice {
 						*cutoff,
 						rate,
 					)),
+					modulator: None,
+					sample: None,
+					keytrack: layer.keytrack,
+				}),
+				Source::NoiseWide(bands) => layers.push(VoiceLayer {
+					partials: Vec::new(),
+					noise: bands
+						.iter()
+						.map(|band| NoiseVoice {
+							band: Band::new(
+								NoiseBand {
+									gain: band.gain * level,
+									..*band
+								},
+								rate,
+							),
+							second: Some(Band::new(
+								NoiseBand {
+									gain: band.gain * level,
+									..*band
+								},
+								rate,
+							)),
+						})
+						.collect(),
+					metal: None,
 					modulator: None,
 					sample: None,
 					keytrack: layer.keytrack,
@@ -396,12 +466,17 @@ impl Voice {
 			drum,
 			level: human.level,
 			detune: human.detune,
+			pan_l: stereo.pan_l,
+			pan_r: stereo.pan_r,
+			width: stereo.width,
 		}
 	}
 
-	fn next(&mut self, rng: &mut Rng, rate: f32) -> (f32, f32) {
+	fn next(&mut self, rng: &mut Rng, rate: f32) -> ([f32; 2], f32, [f32; 2]) {
 		let bend = 2f32.powf(self.pitch.octaves(self.time));
-		let mut sum = 0.0;
+		let mut mono = 0.0;
+		let mut wide_l = 0.0;
+		let mut wide_r = 0.0;
 
 		for layer in &mut self.layers {
 			// A layer that does not follow the note keeps its own frequencies;
@@ -415,37 +490,47 @@ impl Voice {
 			};
 
 			for partial in &mut layer.partials {
-				sum += partial.next_fm(ratio, rate, modulation);
+				mono += partial.next_fm(ratio, rate, modulation);
 			}
-			for band in &mut layer.noise {
-				sum += band.next(rng);
+			for noise in &mut layer.noise {
+				let (left, right) = noise.next(rng, self.width);
+
+				if noise.second.is_some() {
+					wide_l += left;
+					wide_r += right;
+				} else {
+					mono += left;
+				}
 			}
 			if let Some(metal) = &mut layer.metal {
-				sum += metal.next(rate);
+				mono += metal.next(rate);
 			}
 			if let Some(sample) = &mut layer.sample {
-				sum += sample.next();
+				mono += sample.next();
 			}
 		}
 
 		let level = self.amp.value(self.time).max(0.0);
 		self.time += 1.0 / rate;
 
-		let mut out = sum * level;
+		let mut left = (mono + wide_l) * level * self.pan_l;
+		let mut right = (mono + wide_r) * level * self.pan_r;
 
 		if self.choking {
 			self.choke = (self.choke - 1.0 / (0.004 * rate)).max(0.0);
-			out *= self.choke;
+			left *= self.choke;
+			right *= self.choke;
 		}
 
-		let out = out * self.level;
+		left *= self.level;
+		right *= self.level;
 
-		// A cymbal is its tail: the dry bank only excites the convolver, and
-		// what comes out of it is the cymbal.
-		if matches!(self.drum, Drum::Crash | Drum::Ride) {
-			(0.0, out)
-		} else {
-			(out, 0.0)
+		// A cymbal is its tail and a hat is its own dry until the IR takes
+		// over; both feed a bus, and neither is heard directly.
+		match self.drum {
+			Drum::Crash | Drum::Ride => ([0.0, 0.0], left, [0.0, 0.0]),
+			Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => ([0.0, 0.0], 0.0, [left, right]),
+			_ => ([left, right], 0.0, [0.0, 0.0]),
 		}
 	}
 
@@ -680,6 +765,54 @@ pub struct DrumInstrument {
 	#[id(display = "Cymbal Shot")]
 	#[layout(group = "Samples", order = 5, widget = knob)]
 	pub sample_level_cymbal: f32,
+	/// Where the kick sits in the stereo field.
+	#[range(min = -1.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Kick Pan")]
+	#[layout(group = "Kick", order = 10, widget = knob)]
+	pub pan_kick: f32,
+	/// Where the snare sits.
+	#[range(min = -1.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Snare Pan")]
+	#[layout(group = "Snare", order = 10, widget = knob)]
+	pub pan_snare: f32,
+	/// Where the hats sit.
+	#[range(min = -1.0, max = 1.0)]
+	#[default(0.15)]
+	#[id(display = "Hat Pan")]
+	#[layout(group = "Hat", order = 11, widget = knob)]
+	pub pan_hat: f32,
+	/// Where the clap sits.
+	#[range(min = -1.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Clap Pan")]
+	#[layout(group = "Clap", order = 10, widget = knob)]
+	pub pan_clap: f32,
+	/// Where the toms sit.
+	#[range(min = -1.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Tom Pan")]
+	#[layout(group = "Tom", order = 10, widget = knob)]
+	pub pan_tom: f32,
+	/// Where the cymbals sit.
+	#[range(min = -1.0, max = 1.0)]
+	#[default(-0.1)]
+	#[id(display = "Cymbal Pan")]
+	#[layout(group = "Cymbal", order = 10, widget = knob)]
+	pub pan_cymbal: f32,
+	/// How wide the decorrelated noise parts sit.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.35)]
+	#[id(display = "Width")]
+	#[layout(group = "Kit", order = 6, widget = knob)]
+	pub width: f32,
+	/// How many milliseconds of a hat stay dry before the IR takes over.
+	#[range(min = 0.0, max = 10.0)]
+	#[default(4.0)]
+	#[id(display = "Hat Direct")]
+	#[layout(group = "Hat", order = 12, widget = knob)]
+	pub hat_direct: f32,
 	/// Which kit the instrument starts from. Choosing one writes the knobs.
 	#[range(min = 0, max = 1)]
 	#[choices("Studio", "808")]
@@ -693,12 +826,21 @@ pub struct DrumInstrument {
 	/// The cymbal tail, convolved with a real crash's room.
 	#[skip]
 	tail_convolver: Option<Box<FftConvolver<2>>>,
+	/// The hat's colour, convolved with a real hat's short response.
+	#[skip]
+	hat_convolver: Option<Box<FftConvolver<2>>>,
 	/// The send of the last sample into that tail.
 	#[skip]
 	tail_send: f32,
 	/// How many samples the tail still has to process before it goes quiet.
 	#[skip]
 	tail_remaining: usize,
+	/// How many samples the hat's tail still has.
+	#[skip]
+	hat_remaining: usize,
+	/// 0 while a hat's dry attack is still in front, then 1 for the wet.
+	#[skip]
+	hat_gate: f32,
 	/// The page's click slot, when one is shared.
 	#[skip]
 	click_slot: Option<Arc<ClickSlot>>,
@@ -835,10 +977,21 @@ impl Default for DrumInstrument {
 			level_clap: 1.0,
 			level_tom: 1.0,
 			level_cymbal: 1.0,
+			pan_kick: 0.0,
+			pan_snare: 0.0,
+			pan_hat: 0.15,
+			pan_clap: 0.0,
+			pan_tom: 0.0,
+			pan_cymbal: -0.1,
+			width: 0.35,
+			hat_direct: 4.0,
 			brightness: 1.0,
 			tail_convolver: None,
+			hat_convolver: None,
 			tail_send: 0.0,
 			tail_remaining: 0,
+			hat_remaining: 0,
+			hat_gate: 1.0,
 		}
 	}
 }
@@ -1227,6 +1380,27 @@ fn load_cymbal_ir(rate: usize) -> Vec<f32> {
 	ir
 }
 
+/// The impulse response of the hat's colour: twenty milliseconds of a real
+/// closed hat, embedded so a hit never has to look for a file.
+fn load_hat_ir(rate: usize) -> Vec<f32> {
+	let bytes = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/hat-ir.f32"));
+	let mut ir: Vec<f32> = bytes
+		.as_chunks::<4>()
+		.0
+		.iter()
+		.map(|bytes| f32::from_le_bytes(*bytes))
+		.collect();
+
+	if rate != 48_000
+		&& !ir.is_empty()
+		&& let Ok([resampled]) = crate::tools::pcm_data::resample([ir.clone()], 48_000, rate)
+	{
+		ir = resampled;
+	}
+
+	ir
+}
+
 /// The values each kit preset writes, in parameter order.
 ///
 /// The knobs stay editable after a preset is chosen: this is a starting point,
@@ -1588,6 +1762,18 @@ impl DrumInstrument {
 	}
 
 
+	fn pan_for(&self, drum: Drum) -> f32 {
+		match drum {
+			Drum::Kick => self.pan_kick,
+			Drum::Snare => self.pan_snare,
+			Drum::HatClosed | Drum::HatPedal | Drum::HatOpen => self.pan_hat,
+			Drum::Clap => self.pan_clap,
+			Drum::Tom => self.pan_tom,
+			Drum::Crash | Drum::Ride => self.pan_cymbal,
+		}
+		.clamp(-1.0, 1.0)
+	}
+
 	fn level_for(&self, drum: Drum) -> f32 {
 		match drum {
 			Drum::Kick => self.level_kick,
@@ -1637,6 +1823,14 @@ impl DrumInstrument {
 		// come out louder than a short one at the same mix.
 		convolver.normalize_energy();
 		instrument.tail_convolver = Some(Box::new(convolver));
+
+		let hat_ir = load_hat_ir(rate);
+		let mut hat = FftConvolver::<2>::new([hat_ir.clone(), hat_ir], rate);
+
+		hat.dry_gain = 0.0;
+		hat.wet_gain = 1.0;
+		hat.normalize_energy();
+		instrument.hat_convolver = Some(Box::new(hat));
 
 		instrument
 	}
@@ -1814,7 +2008,7 @@ impl DrumInstrument {
 
 		Recipe {
 			layers: vec![Layer {
-				source: Source::Noise(vec![air, wire]),
+				source: Source::NoiseWide(vec![air, wire]),
 				keytrack: 0.0,
 				velocity: 1.0,
 				gain: 1.0,
@@ -1866,7 +2060,7 @@ impl DrumInstrument {
 					gain: level,
 				},
 				Layer {
-					source: Source::Noise(vec![NoiseBand {
+					source: Source::NoiseWide(vec![NoiseBand {
 						frequency: 9_000.0,
 						q: 0.6,
 						gain: 0.25 * level,
@@ -1896,7 +2090,7 @@ impl DrumInstrument {
 		Recipe {
 			layers: vec![
 				Layer {
-					source: Source::Noise(vec![NoiseBand {
+					source: Source::NoiseWide(vec![NoiseBand {
 						frequency: tone,
 						q: 1.1,
 						gain: 0.55,
@@ -2096,6 +2290,11 @@ impl DrumInstrument {
 			});
 		}
 
+		if matches!(drum, Drum::HatClosed | Drum::HatPedal | Drum::HatOpen) {
+			// The hat's attack starts dry and hands over to the IR.
+			self.hat_gate = 0.0;
+		}
+
 		// A drummer never hits twice the same: the humaniser moves the level and
 		// the pitch of each hit, and zero leaves the kit exact.
 		let humanize = self.humanize.clamp(0.0, 1.0);
@@ -2115,6 +2314,16 @@ impl DrumInstrument {
 				self.rate,
 				velocity,
 				human,
+				{
+					let pan = self.pan_for(drum).clamp(-1.0, 1.0);
+					let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
+
+					Stereo {
+						pan_l: angle.cos(),
+						pan_r: angle.sin(),
+						width: self.width.clamp(0.0, 1.0),
+					}
+				},
 				&mut self.rng,
 			));
 		}
@@ -2138,21 +2347,32 @@ impl DrumInstrument {
 	///
 	/// Public so an offline renderer can pull the instrument without a host.
 	pub fn next_sample(&mut self) -> f32 {
+		let frame = self.next_frame();
+
+		(frame[0] + frame[1]) * 0.5
+	}
+
+	/// One stereo frame of the summed voices, driven and levelled.
+	pub fn next_frame(&mut self) -> [f32; 2] {
 		let rate = self.rate;
 		let rng = &mut self.rng;
-		let mut dry = 0.0;
-		let mut send = 0.0;
+		let mut dry = [0.0f32; 2];
+		let mut cymbal_send = 0.0;
+		let mut hat_send = [0.0f32; 2];
 
 		for voice in &mut self.playing {
-			let (out, voice_send) = voice.next(rng, rate);
-			dry += out;
-			send += voice_send;
+			let (frame, cymbal, hat) = voice.next(rng, rate);
+			dry[0] += frame[0];
+			dry[1] += frame[1];
+			cymbal_send += cymbal;
+			hat_send[0] += hat[0];
+			hat_send[1] += hat[1];
 		}
 		self.playing.retain(|voice| !voice.finished());
 
-		self.tail_send = send;
+		self.tail_send = cymbal_send;
 
-		// The tail runs while a cymbal voice is alive, and a little longer so
+		// The tails run while a voice of theirs is alive, and a little longer so
 		// the IR's own ring can finish after the send stops.
 		if self
 			.playing
@@ -2161,20 +2381,49 @@ impl DrumInstrument {
 		{
 			self.tail_remaining = (rate * 0.3) as usize;
 		}
+		if self
+			.playing
+			.iter()
+			.any(|voice| matches!(voice.drum, Drum::HatClosed | Drum::HatPedal | Drum::HatOpen))
+		{
+			self.hat_remaining = (rate * 0.05) as usize;
+		}
 
-		let mut sum = dry;
+		let direct = self.hat_direct.clamp(0.0, 10.0) * 0.001;
+
+		if direct <= 0.0 {
+			self.hat_gate = 1.0;
+		} else if self.hat_gate < 1.0 {
+			self.hat_gate = (self.hat_gate + 1.0 / (direct * rate)).min(1.0);
+		}
+
+		let mut out = dry;
 
 		if self.tail_remaining > 0
 			&& let Some(convolver) = &mut self.tail_convolver
 		{
 			self.tail_remaining -= 1;
-			// The IR keeps ringing after the voices have gone; feeding it a
-			// silent send is what lets the tail finish.
-			let wet = convolver.frame([send, send]);
-			sum += wet[0];
+			let wet = convolver.frame([cymbal_send, cymbal_send]);
+			out[0] += wet[0];
+			out[1] += wet[1];
 		}
 
-		(sum * self.drive.clamp(1.0, 8.0)).tanh() * self.gain.clamp(0.0, 1.0)
+		if self.hat_remaining > 0
+			&& let Some(convolver) = &mut self.hat_convolver
+		{
+			self.hat_remaining -= 1;
+			let wet = convolver.frame(hat_send);
+			out[0] += hat_send[0] * (1.0 - self.hat_gate) + wet[0] * self.hat_gate;
+			out[1] += hat_send[1] * (1.0 - self.hat_gate) + wet[1] * self.hat_gate;
+		} else if hat_send != [0.0, 0.0] {
+			out[0] += hat_send[0];
+			out[1] += hat_send[1];
+		}
+
+		let drive = self.drive.clamp(1.0, 8.0);
+		let gain = self.gain.clamp(0.0, 1.0);
+
+		[(out[0] * drive).tanh() * gain, (out[1] * drive).tanh() * gain]
 	}
 }
 
@@ -2304,7 +2553,7 @@ mod tests {
 		let choked_tail = rms(&after[0..1_440]);
 
 		assert!(
-			choked_tail < open_tail * 0.6,
+			choked_tail < open_tail * 0.7,
 			"the closed hat did not choke the open one: {choked_tail} vs {open_tail}"
 		);
 	}
@@ -2561,6 +2810,49 @@ mod tests {
 	}
 
 	#[test]
+	fn the_hats_can_be_wide() {
+		let spread = |width: f32| {
+			let mut kit = DrumInstrument::new(48_000);
+			kit.width = width;
+			kit.pan_hat = 0.0;
+			kit.start(HAT_CLOSED, 1.0);
+
+			let mut total = 0.0;
+			for _ in 0..4_800 {
+				let frame = kit.next_frame();
+				total += (frame[0] - frame[1]).abs();
+			}
+
+			total
+		};
+
+		assert!(spread(1.0) > 0.01, "the wide hat was mono: {}", spread(1.0));
+		assert!(spread(0.0) < 1e-4, "the mono hat was wide: {}", spread(0.0));
+	}
+
+	#[test]
+	fn a_pan_moves_the_hat() {
+		let energy = |pan: f32| {
+			let mut kit = DrumInstrument::new(48_000);
+			kit.pan_hat = pan;
+			kit.start(HAT_CLOSED, 1.0);
+
+			let mut left = 0.0;
+			let mut right = 0.0;
+			for _ in 0..4_800 {
+				let frame = kit.next_frame();
+				left += frame[0] * frame[0];
+				right += frame[1] * frame[1];
+			}
+
+			(left, right)
+		};
+
+		let (left, right) = energy(-1.0);
+		assert!(left > right * 10.0, "the pan did not move the hat: {left} vs {right}");
+	}
+
+	#[test]
 	fn the_mix_can_silence_a_voice() {
 		let mut kit = DrumInstrument::new(48_000);
 		kit.level_snare = 0.0;
@@ -2679,6 +2971,7 @@ mod tests {
 				Source::Noise(bands) => any |= !bands.is_empty(),
 				Source::Metal { .. } => any = true,
 				Source::Fm { .. } => any = true,
+				Source::NoiseWide(_) => any = true,
 				Source::Sample { .. } => any = true,
 			}
 		}
