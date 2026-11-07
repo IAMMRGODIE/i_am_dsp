@@ -1067,10 +1067,11 @@ impl Samples {
 					let _ = std::fmt::Write::write_fmt(
 						&mut out,
 						format_args!(
-							"{{\"name\":\"{}\",\"rate\":{},\"samples\":{}}}",
+							"{{\"name\":\"{}\",\"rate\":{},\"samples\":{},\"peaks\":[{}]}}",
 							escape_name(&data.name),
 							data.rate,
-							data.pcm.len()
+							data.pcm.len(),
+							peaks_json(&data.pcm)
 						),
 					);
 				}
@@ -1108,6 +1109,29 @@ pub fn slot_drum(name: &str) -> Option<Drum> {
 		"cymbal" => Drum::Crash,
 		_ => return None,
 	})
+}
+
+/// The sample's shape in a few numbers, for the page to draw.
+fn peaks_json(pcm: &[f32]) -> String {
+	const COLUMNS: usize = 32;
+
+	let mut out = String::new();
+
+	for column in 0..COLUMNS {
+		let start = column * pcm.len() / COLUMNS;
+		let end = ((column + 1) * pcm.len() / COLUMNS).max(start + 1);
+		let peak = pcm[start.min(pcm.len())..end.min(pcm.len())]
+			.iter()
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+
+		if column > 0 {
+			out.push(',');
+		}
+
+		let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{peak:.3}"));
+	}
+
+	out
 }
 
 /// A name with the characters JSON cannot carry removed.
@@ -2222,6 +2246,24 @@ mod tests {
 			layered > plain + 0.02,
 			"the imported click was not heard: {layered} vs {plain}"
 		);
+	}
+
+	#[test]
+	fn a_slot_reports_its_shape() {
+		let slots = Samples::new();
+		slots.set(
+			slot_drum("kick").expect("the kick's slot"),
+			Some(SampleData {
+				name: "kick".to_string(),
+				rate: 48_000,
+				pcm: vec![1.0; 320],
+			}),
+		);
+
+		let json = slots.json();
+
+		assert!(json.contains("\"peaks\""));
+		assert!(json.contains("1.000"), "{json}");
 	}
 
 	#[test]

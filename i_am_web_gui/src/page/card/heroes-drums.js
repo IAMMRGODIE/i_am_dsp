@@ -130,9 +130,26 @@
       rows += '<text x="26" y="' + y + '" fill="#8a8a8a" font-size="9">' + names[index] + '</text>';
       rows += '<text x="88" y="' + y + '" fill="' + (slot ? "var(--accent)" : "#5f5f5f") +
         '" font-size="9">' + escapeXml(detail) + '</text>';
-      rows += '<rect data-load="' + keys[index] + '" x="428" y="' + (y - 11) +
-        '" width="58" height="15" rx="3" fill="#262626" stroke="#3a3a3a" pointer-events="all" style="cursor:pointer"/>';
-      rows += '<text x="457" y="' + (y - 1) + '" fill="#d8d8d8" font-size="8" text-anchor="middle" pointer-events="none">LOAD</text>';
+      if (slot && slot.peaks && slot.peaks.length) {
+        var bars = slot.peaks.length;
+        var span = 170;
+
+        for (var bar = 0; bar < bars; bar++) {
+          var height = Math.abs(slot.peaks[bar]) * 6;
+          var x = 232 + (bar / (bars - 1)) * span;
+
+          rows += '<line x1="' + x.toFixed(1) + '" y1="' + (y - 2 - height).toFixed(1) +
+            '" x2="' + x.toFixed(1) + '" y2="' + (y - 2 + height).toFixed(1) +
+            '" stroke="var(--accent)" stroke-opacity=".55" stroke-width="1.5"/>';
+        }
+      }
+
+      rows += '<rect data-load="' + keys[index] + '" x="414" y="' + (y - 11) +
+        '" width="52" height="15" rx="3" fill="#262626" stroke="#3a3a3a" pointer-events="all" style="cursor:pointer"/>';
+      rows += '<text x="440" y="' + (y - 1) + '" fill="#d8d8d8" font-size="8" text-anchor="middle" pointer-events="none">LOAD</text>';
+      rows += '<rect data-clear="' + keys[index] + '" x="472" y="' + (y - 11) +
+        '" width="18" height="15" rx="3" fill="#262626" stroke="#3a3a3a" pointer-events="all" style="cursor:pointer"/>';
+      rows += '<text x="481" y="' + (y - 1) + '" fill="#d8d8d8" font-size="9" text-anchor="middle" pointer-events="none">\u00d7</text>';
     }
 
     return heroSvg(rows);

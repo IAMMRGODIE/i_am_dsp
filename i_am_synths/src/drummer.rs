@@ -231,13 +231,20 @@ impl Plugin for DrummerWeb {
 					return Some(match request.method {
 						"GET" => ProtocolResponse::json(samples.json()),
 						"POST" => {
-							let slot = request
-								.query
-								.and_then(|query| query.split('&').find_map(|part| part.strip_prefix("slot=")))
+							let query = request.query.unwrap_or("");
+							let slot = query
+								.split('&')
+								.find_map(|part| part.strip_prefix("slot="))
 								.unwrap_or("");
+							let clear = query.split('&').any(|part| part == "clear=1");
 							let Some(drum) = slot_drum(slot) else {
 								return Some(ProtocolResponse::json("{\"error\":\"slot\"}"));
 							};
+
+							if clear {
+								samples.set(drum, None);
+								return Some(ProtocolResponse::json("{\"ok\":true}"));
+							}
 
 							match decode_click(request.body) {
 								Ok(data) => {

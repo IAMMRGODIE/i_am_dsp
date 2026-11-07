@@ -743,6 +743,17 @@
     reader.readAsArrayBuffer(file);
   }
 
+  function clearSampleSlot(slot) {
+    fetch("/samples?slot=" + encodeURIComponent(slot) + "&clear=1", { method: "POST", body: "clear" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (result) {
+        if (result && result.ok) pollSamples();
+      })
+      .catch(function () {});
+  }
+
   /// The kit's click: which one the voices are using, and loading a new one.
   function pollClick() {
     if (document.hidden || !wantsClick) {

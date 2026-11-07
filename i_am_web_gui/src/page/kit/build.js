@@ -496,6 +496,14 @@
           });
 
           hero.addEventListener("pointerup", function (event) {
+            var clear = event.target.closest("[data-clear]");
+
+            if (clear) {
+              clearSampleSlot(clear.getAttribute("data-clear"));
+              event.preventDefault();
+              return;
+            }
+
             var target = event.target.closest("[data-load]");
             if (!target) return;
 
