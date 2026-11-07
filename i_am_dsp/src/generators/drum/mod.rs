@@ -318,9 +318,6 @@ struct Voice {
 	pan_r: f32,
 	/// How wide the decorrelated noise sits.
 	width: f32,
-	/// The allpass that widens the mono body on the right channel.
-	spread_x: f32,
-	spread_y: f32,
 }
 
 impl Voice {
@@ -472,8 +469,6 @@ impl Voice {
 			pan_l: stereo.pan_l,
 			pan_r: stereo.pan_r,
 			width: stereo.width,
-			spread_x: 0.0,
-			spread_y: 0.0,
 		}
 	}
 
@@ -518,22 +513,11 @@ impl Voice {
 		let level = self.amp.value(self.time).max(0.0);
 		self.time += 1.0 / rate;
 
-		// A short allpass on the right channel gives the mono body a stereo
-		// phase difference, so Width is audible even on the metal and the FM
-		// bank, not only on the noise layers.
-		let body_r = if self.width > 0.0 {
-			let a = 0.6;
-			let y = -a * mono + self.spread_x + a * self.spread_y;
-
-			self.spread_x = mono;
-			self.spread_y = y;
-			mono * (1.0 - self.width) + y * self.width
-		} else {
-			mono
-		};
-
+		// Only the decorrelated parts are widened. A phase or time spread on the
+		// body itself biases the image (the ear locks to the earlier, louder
+		// transient), which is why Width lives on the noise layers.
 		let mut left = (mono + wide_l) * level * self.pan_l;
-		let mut right = (body_r + wide_r) * level * self.pan_r;
+		let mut right = (mono + wide_r) * level * self.pan_r;
 
 		if self.choking {
 			self.choke = (self.choke - 1.0 / (0.004 * rate)).max(0.0);
