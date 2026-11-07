@@ -78,6 +78,21 @@ impl Parameters for DrummerWeb {
 			*shared = curve;
 		}
 
+		// Choosing a kit writes the knobs it describes, so the page and the host
+		// see the preset rather than only the choice.
+		if identifier == "kit"
+			&& let SetValue::Int(index) = value
+		{
+			let applied = self.processor.set_parameter("kit", SetValue::Int(index));
+
+			for (identifier, value) in DrumInstrument::kit_preset(index) {
+				self.processor
+					.set_parameter(identifier, SetValue::Float(*value));
+			}
+
+			return applied;
+		}
+
 		self.processor.set_parameter(identifier, value)
 	}
 }

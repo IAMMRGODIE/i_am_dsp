@@ -28,6 +28,12 @@ fn main() {
 	{
 		kit.cymbal_fm = value.clamp(0.0, 1.0);
 	}
+
+	if let Some(kit_index) = std::env::args().nth(4)
+		&& let Ok(index) = kit_index.parse::<i32>()
+	{
+		kit.apply_kit(index);
+	}
 	// (time, note, velocity)
 	let mut hits: Vec<(f32, u8, f32)> = vec![
 		(0.00, 36, 1.0),

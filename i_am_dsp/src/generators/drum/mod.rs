@@ -695,6 +695,13 @@ pub struct DrumInstrument {
 	#[id(display = "Velocity Bright")]
 	#[layout(group = "Kit", order = 1, widget = knob)]
 	pub velocity_brightness: f32,
+	/// Which kit the instrument starts from. Choosing one writes the knobs.
+	#[range(min = 0, max = 1)]
+	#[choices("Studio", "808")]
+	#[default(0)]
+	#[id(display = "Kit")]
+	#[layout(group = "Kit", order = 2, widget = choice)]
+	pub kit: i32,
 	/// The brightness this hit was started with: 1 is the nominal material.
 	#[skip]
 	brightness: f32,
@@ -777,12 +784,82 @@ impl Default for DrumInstrument {
 			cymbal_fm: 0.7,
 			humanize: 0.15,
 			velocity_brightness: 0.35,
+			kit: 0,
 			brightness: 1.0,
 		}
 	}
 }
 
+/// The values each kit preset writes, in parameter order.
+///
+/// The knobs stay editable after a preset is chosen: this is a starting point,
+/// not a mode.
+fn kit_values(index: i32) -> &'static [(&'static str, f32)] {
+	const STUDIO: &[(&str, f32)] = &[
+		("tune", 52.0),
+		("decay", 0.45),
+		("click", 0.5),
+		("click_tone", 1_800.0),
+		("snare_tune", 180.0),
+		("snare_decay", 0.18),
+		("snare_wires", 0.5),
+		("snare_click", 0.4),
+		("hat_decay", 0.05),
+		("hat_open", 0.45),
+		("hat_cutoff", 6_500.0),
+		("clap_tone", 1_600.0),
+		("clap_decay", 0.35),
+		("tom_decay", 0.5),
+		("cymbal_decay", 2.5),
+		("cymbal_fm", 0.7),
+		("cymbal_tail", 0.8),
+		("humanize", 0.15),
+		("velocity_brightness", 0.35),
+	];
+	const EIGHTY_EIGHT: &[(&str, f32)] = &[
+		("tune", 48.0),
+		("decay", 0.85),
+		("click", 0.3),
+		("click_tone", 900.0),
+		("snare_tune", 200.0),
+		("snare_decay", 0.25),
+		("snare_wires", 0.75),
+		("snare_click", 0.25),
+		("hat_decay", 0.07),
+		("hat_open", 0.6),
+		("hat_cutoff", 7_000.0),
+		("clap_tone", 1_100.0),
+		("clap_decay", 0.5),
+		("tom_decay", 0.4),
+		("cymbal_decay", 3.5),
+		("cymbal_fm", 0.45),
+		("cymbal_tail", 0.6),
+		("humanize", 0.1),
+		("velocity_brightness", 0.5),
+	];
+
+	if index == 1 { EIGHTY_EIGHT } else { STUDIO }
+}
+
 impl DrumInstrument {
+	/// Writes a kit preset into the controls.
+	pub fn apply_kit(&mut self, index: i32) {
+		self.kit = index.clamp(0, 1);
+
+		for (identifier, value) in kit_values(self.kit) {
+			let _ = <Self as crate::parameters::Parameters>::set_parameter(
+				self,
+				identifier,
+				crate::parameters::SetValue::Float(*value),
+			);
+		}
+	}
+
+	/// The values a kit preset writes, for a host that applies them itself.
+	pub fn kit_preset(index: i32) -> &'static [(&'static str, f32)] {
+		kit_values(index)
+	}
+
 	/// A silent instrument, built for one sample rate.
 	pub fn new(rate: usize) -> Self {
 		let mut instrument = Self {
@@ -1610,6 +1687,19 @@ mod tests {
 			crossings(1.0),
 			crossings(0.2)
 		);
+	}
+
+	#[test]
+	fn the_kit_presets_write_the_controls() {
+		let mut kit = DrumInstrument::new(48_000);
+
+		kit.apply_kit(1);
+		assert_eq!(kit.kit, 1);
+		assert!((kit.tune - 48.0).abs() < 1e-4, "{}", kit.tune);
+		assert!((kit.cymbal_fm - 0.45).abs() < 1e-4);
+
+		kit.apply_kit(0);
+		assert!((kit.tune - 52.0).abs() < 1e-4, "{}", kit.tune);
 	}
 
 	#[test]

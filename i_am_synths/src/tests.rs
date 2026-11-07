@@ -838,3 +838,26 @@ fn the_pitch_curve_survives_the_state() {
 		other => panic!("unexpected value: {other:?}"),
 	}
 }
+
+
+#[test]
+fn the_drummer_kit_choice_writes_the_knobs() {
+	let mut plugin = DrummerWeb::new();
+	assert!(Parameters::set_parameter(
+		&mut plugin,
+		"kit",
+		SetValue::Int(1)
+	));
+
+	let tune = Parameters::get_parameters(&plugin)
+		.into_iter()
+		.find(|parameter| parameter.identifier == "tune")
+		.expect("the kick's tune");
+
+	let applied = tune.value.to_set_value();
+
+	assert!(
+		matches!(applied, SetValue::Float(value) if (value - 48.0).abs() < 1e-4),
+		"the 808 kit did not write the tune: {applied:?}"
+	);
+}
