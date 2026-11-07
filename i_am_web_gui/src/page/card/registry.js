@@ -46,4 +46,9 @@
   registerHero("fall", fallHero);
   registerHero("kit", kitHero);
   registerHero("samples", samplesHero);
-  registerHero("amp", ampHero);
+  registerHero("kick", kickHero);
+  registerHero("amp_snare", function (values, context) { return ampHero(values, context, 1); });
+  registerHero("amp_hat", function (values, context) { return ampHero(values, context, 2); });
+  registerHero("amp_clap", function (values, context) { return ampHero(values, context, 3); });
+  registerHero("amp_tom", function (values, context) { return ampHero(values, context, 4); });
+  registerHero("amp_cymbal", function (values, context) { return ampHero(values, context, 5); });

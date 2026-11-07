@@ -476,7 +476,39 @@
           hero.addEventListener("dblclick", fallDoubleClick);
         }
 
-        if (section.hero === "amp") {
+        if (section.hero === "kick") {
+          var switchCurve = function (event) {
+            var button = event.target.closest ? event.target.closest("[data-kick-mode]") : null;
+            if (!button) return false;
+
+            kickMode = button.getAttribute("data-kick-mode");
+            markDirty();
+            event.preventDefault();
+            return true;
+          };
+
+          hero.dataset.ampDrum = "0";
+          hero.style.touchAction = "none";
+          hero.addEventListener("pointerdown", function (event) {
+            if (event.target.closest && event.target.closest("[data-kick-mode]")) return;
+            if (kickMode === "amp") ampPointerDown(hero, event); else fallPointerDown(event);
+          });
+          hero.addEventListener("pointermove", function (event) {
+            if (kickMode === "amp") ampPointerMove(hero, event); else fallPointerMove(event);
+          });
+          hero.addEventListener("pointerup", function (event) {
+            if (switchCurve(event)) return;
+            if (kickMode === "amp") ampPointerUp(hero, event); else fallPointerUp(event);
+          });
+          hero.addEventListener("dblclick", function (event) {
+            if (kickMode === "amp") ampDoubleClick(hero, event); else fallDoubleClick(event);
+          });
+          hero.addEventListener("contextmenu", function (event) {
+            if (kickMode === "amp") ampContextMenu(hero, event); else fallContextMenu(event);
+          });
+        } else if (section.hero && section.hero.indexOf("amp_") === 0) {
+          var drums = { amp_snare: 1, amp_hat: 2, amp_clap: 3, amp_tom: 4, amp_cymbal: 5 };
+          hero.dataset.ampDrum = String(drums[section.hero] || 0);
           hero.title = "Drag a dot for the level, a ring for the bend; double click to add, right click to remove.";
           hero.addEventListener("pointerdown", function (event) { ampPointerDown(hero, event); });
           hero.addEventListener("pointermove", function (event) { ampPointerMove(hero, event); });
@@ -765,7 +797,7 @@
     });
     if (wantsCurve) setTimeout(pollCurve, 50);
     wantsFall = heroes.some(function (hero) {
-      return hero.kind === "fall";
+      return hero.kind === "fall" || hero.kind === "kick";
     });
     if (wantsFall) setTimeout(pollFall, 50);
     wantsClick = heroes.some(function (hero) {
@@ -776,7 +808,7 @@
     });
     if (wantsSamples) setTimeout(pollSamples, 50);
     wantsAmp = heroes.some(function (hero) {
-      return hero.kind === "amp";
+      return hero.kind === "kick" || hero.kind.indexOf("amp") === 0;
     });
     if (wantsAmp) setTimeout(pollAmp, 50);
     if (wantsClick) {

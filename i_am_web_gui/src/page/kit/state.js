@@ -67,8 +67,8 @@ var wantsSamples = false;
 var samplesState = [];
 // The amplitude envelope of the drum the Amp page selects.
 var wantsAmp = false;
-var ampDrum = 0;
-var ampPoints = [];
+var kickMode = "pitch";
+var ampCurves = [[], [], [], [], [], []];
 var ampDrag = null;
 var fallState = null;
 var canvasState = null;

@@ -172,12 +172,11 @@
 
   /// The amplitude envelope of the selected drum: level against the share of
   /// its decay. The Decay knob is the length, so the picture is only the shape.
-  function ampHero(values, context) {
-    var amp = context && context.amp;
-    var points = amp && amp.points && amp.points.length ? amp.points : [[0, 1, -2.5], [1, 0, 0]];
-    var drum = Math.round(values.amp_drum || 0);
-    var knobs = ["decay", "snare_decay", "hat_decay", "clap_decay", "tom_decay", "cymbal_decay"];
-    var length = Number(values[knobs[drum]] || 0.3) * 1000;
+  function ampHero(values, context, drum) {
+    drum = drum || 0;
+    var amp = context && context.ampCurves && context.ampCurves[drum];
+    var points = amp && amp.length ? amp : [[0, 1, -2.5], [1, 0, 0]];
+    var length = Number(points[points.length - 1][0] || 0) * 1000;
     var grid = "";
     var path = "";
     var bends = "";
@@ -233,4 +232,20 @@
       bends +
       dots
     );
+  }
+
+
+  /// The kick's hero: the pitch fall or its amplitude envelope, whichever the
+  /// button last chose.
+  function kickHero(values, context) {
+    var mode = context && context.kickMode === "amp" ? "amp" : "pitch";
+    var content = mode === "amp" ? ampHero(values, context, 0) : fallHero(values, context);
+    var next = mode === "amp" ? "pitch" : "amp";
+
+    return content +
+      '<div class="hero-actions">' +
+        '<button type="button" class="hero-action" data-kick-mode="' + next + '">' +
+          (mode === "amp" ? "PITCH" : "AMP") +
+        '</button>' +
+      '</div>';
   }

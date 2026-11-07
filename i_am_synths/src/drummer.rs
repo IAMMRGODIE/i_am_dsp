@@ -26,9 +26,9 @@ const ACCENT: &str = "#c8793d";
 
 const PAGES: &[Page] = &[
 	Page::new("Kit", &["Kit"]),
-	Page::new("Mix", &["Kit Mix"]),
+
 	Page::new("Samples", &["Samples"]),
-	Page::new("Amp", &["Amp"]),
+
 	Page::new("Kick", &["Kick"]),
 	Page::new("Snare", &["Snare"]),
 	Page::new("Hat", &["Hat"]),
@@ -260,7 +260,7 @@ impl Plugin for DrummerWeb {
 
 				if request.path == "/amp" {
 					return Some(match request.method {
-						"GET" => ProtocolResponse::json(amp_json(&amps, query_drum(request.query))),
+						"GET" => ProtocolResponse::json(amp_json(&amps)),
 						"POST" => match std::str::from_utf8(request.body) {
 							Ok(text) => {
 								let drum = query_drum(request.query);
@@ -370,18 +370,26 @@ fn query_drum(query: Option<&str>) -> usize {
 		.unwrap_or(0)
 }
 
-fn amp_json(amps: &Arc<Mutex<[Curve; 6]>>, drum: usize) -> String {
+fn amp_json(amps: &Arc<Mutex<[Curve; 6]>>) -> String {
 	let Ok(guard) = amps.lock() else {
-		return "{\"points\":[]}".to_string();
+		return "{\"curves\":[]}".to_string();
 	};
-	let curve = &guard[drum.min(5)];
-	let mut out = String::from("{\"points\":[");
+	let mut out = String::from("{\"curves\":[");
 
-	for (index, point) in curve.points().iter().enumerate() {
-		if index > 0 {
+	for (drum, curve) in guard.iter().enumerate() {
+		if drum > 0 {
 			out.push(',');
 		}
-		out.push_str(&format!("[{},{},{}]", point.time, point.value, point.bend));
+		out.push('[');
+
+		for (index, point) in curve.points().iter().enumerate() {
+			if index > 0 {
+				out.push(',');
+			}
+			out.push_str(&format!("[{},{},{}]", point.time, point.value, point.bend));
+		}
+
+		out.push(']');
 	}
 
 	out.push_str("]}");

@@ -761,13 +761,13 @@ fn an_imported_table_plays_and_survives_the_state() {
 #[test]
 fn the_drummer_plays_the_kick_on_note_36() {
 	let face = i_am_web_gui::face_json(&DrummerWeb::new(), &drummer_faceplate());
-	for id in ["tune", "decay", "click", "click_tone", "drive", "gain"] {
+	for id in ["tune", "click", "click_tone", "drive", "gain", "level_kick"] {
 		assert!(
 			face.contains(&format!("\"id\":\"{id}\"")),
 			"missing {id}: {face}"
 		);
 	}
-	assert!(face.contains("\"hero\":\"fall\""), "{face}");
+	assert!(face.contains("\"hero\":\"kick\""), "{face}");
 
 	let tags = <DrummerWeb as Plugin>::DESCRIPTOR.tags;
 	assert!(tags.iter().any(|tag| matches!(tag, Tag::Drum)));

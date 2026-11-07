@@ -1,12 +1,15 @@
   // Part five-and-a-half: the amplitude envelope editor.
   //
-  // The x axis is the share of the drum's decay and the y axis is the level, so
-  // the picture is the shape and the Decay knob is how long it lasts. The
-  // gestures match the fall editor: drag a dot, drag a ring for the bend, double
-  // click to add, right click to remove.
+  // Each drum's page owns one curve. The x axis is the share of the drum's
+  // decay and the y axis is the level. The gestures match the fall editor: drag
+  // a dot, drag a ring for the bend, double click to add, right click to remove.
 
-  function ampCurve() {
-    return ampPoints;
+  function ampDrumOf(hero) {
+    return Number(hero.dataset.ampDrum || 0);
+  }
+
+  function ampCurveOf(hero) {
+    return ampCurves[ampDrumOf(hero)] || ampCurves[0];
   }
 
   function ampMap(hero) {
@@ -29,7 +32,7 @@
     return 26 + clamp(time, 0, 1) * 468;
   }
 
-  function ampY(value) {
+  function ampLevel(value) {
     return 132 - clamp(value, 0, 1) * 112;
   }
 
@@ -43,18 +46,15 @@
     };
   }
 
-  function ampDrumNow() {
-    return controls.amp_drum ? Math.round(controls.amp_drum.value) : 0;
-  }
-
-  function sendAmp() {
-    var body = ampPoints
+  function sendAmp(hero) {
+    var points = ampCurveOf(hero);
+    var body = points
       .map(function (point) {
         return point[0].toFixed(4) + ":" + point[1].toFixed(4) + ":" + (point[2] || 0).toFixed(3);
       })
       .join(";");
 
-    fetch("/amp?drum=" + ampDrumNow(), { method: "POST", body: body })
+    fetch("/amp?drum=" + ampDrumOf(hero), { method: "POST", body: body })
       .then(function (response) {
         return response.ok ? response.json() : null;
       })
@@ -62,7 +62,10 @@
   }
 
   function ampPointerDown(hero, event) {
-    if (event.button !== 0 || !ampPoints.length) return;
+    if (event.button !== 0) return;
+
+    var points = ampCurveOf(hero);
+    if (!points.length) return;
 
     var map = ampMap(hero);
     if (!map) return;
@@ -72,18 +75,19 @@
 
     if (bend) {
       var index = Number(bend.getAttribute("data-amp-bend"));
-      var left = ampPoints[index];
-      var right = ampPoints[index + 1];
+      var left = points[index];
+      var right = points[index + 1];
       if (!left || !right) return;
 
       ampDrag = {
         kind: "bend",
+        hero: hero,
         index: index,
         pointerId: event.pointerId,
         startY: event.clientY,
         scale: map.scale || 1,
         startBend: left[2] || 0,
-        direction: right[1] > left[1] ? 1 : -1
+        direction: right[1] > left[1] ? -1 : 1
       };
       try { hero.setPointerCapture(event.pointerId); } catch (error) {}
       event.preventDefault();
@@ -92,10 +96,10 @@
 
     if (!point) return;
 
-    var pointIndex = Number(point.getAttribute("data-amp-point"));
     ampDrag = {
       kind: "point",
-      index: pointIndex,
+      hero: hero,
+      index: Number(point.getAttribute("data-amp-point")),
       pointerId: event.pointerId
     };
     try { hero.setPointerCapture(event.pointerId); } catch (error) {}
@@ -105,23 +109,27 @@
   function ampPointerMove(hero, event) {
     if (!ampDrag || event.pointerId !== ampDrag.pointerId) return;
 
+    var points = ampCurveOf(ampDrag.hero);
+
     if (ampDrag.kind === "point") {
-      var position = ampPointAt(hero, event);
+      var position = ampPointAt(ampDrag.hero, event);
       if (!position) return;
 
-      var point = ampPoints[ampDrag.index];
+      var point = points[ampDrag.index];
       if (!point) return;
 
-      point[0] = ampDrag.index === 0 ? 0 : Math.max(point[0], position.time);
-      point[1] = Math.max(0, Math.min(1, position.value));
-      ampPoints.sort(function (a, b) { return a[0] - b[0]; });
+      var lower = ampDrag.index === 0 ? 0 : points[ampDrag.index - 1][0] + 0.001;
+      var upper = ampDrag.index === points.length - 1 ? 1 : points[ampDrag.index + 1][0] - 0.001;
+
+      point[0] = clamp(position.time, lower, Math.max(lower, upper));
+      point[1] = clamp(position.value, 0, 1);
       markDirty();
       event.preventDefault();
       return;
     }
 
     var travel = (ampDrag.startY - event.clientY) / Math.max(ampDrag.scale, 1e-6);
-    ampPoints[ampDrag.index][2] = clamp(ampDrag.startBend + travel * 0.09 * ampDrag.direction, -10, 10);
+    points[ampDrag.index][2] = clamp(ampDrag.startBend + travel * 0.09 * ampDrag.direction, -10, 10);
     markDirty();
     event.preventDefault();
   }
@@ -131,19 +139,20 @@
 
     ampDrag = null;
     try { hero.releasePointerCapture(event.pointerId); } catch (error) {}
-    sendAmp();
+    sendAmp(hero);
   }
 
   function ampDoubleClick(hero, event) {
     var position = ampPointAt(hero, event);
     if (!position) return;
 
-    if (ampPoints.some(function (point) { return Math.abs(point[0] - position.time) < 0.02; })) return;
+    var points = ampCurveOf(hero);
+    if (points.some(function (point) { return Math.abs(point[0] - position.time) < 0.02; })) return;
 
-    ampPoints.push([position.time, position.value, 0]);
-    ampPoints.sort(function (a, b) { return a[0] - b[0]; });
+    points.push([position.time, position.value, 0]);
+    points.sort(function (a, b) { return a[0] - b[0]; });
     markDirty();
-    sendAmp();
+    sendAmp(hero);
     event.preventDefault();
   }
 
@@ -152,10 +161,11 @@
     if (!node) return;
 
     var index = Number(node.getAttribute("data-amp-point"));
-    if (ampPoints.length <= 2 || index === 0) return;
+    var points = ampCurveOf(hero);
+    if (points.length <= 2 || index === 0) return;
 
-    ampPoints.splice(index, 1);
+    points.splice(index, 1);
     markDirty();
-    sendAmp();
+    sendAmp(hero);
     event.preventDefault();
   }

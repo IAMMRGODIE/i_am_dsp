@@ -700,31 +700,28 @@
 
   /// The pitch fall the editor keeps, so a reopened window shows the curve the
   /// voice is actually playing.
-  /// The amplitude envelope of the drum the Amp page selects.
+  /// The six amplitude envelopes.
   function pollAmp() {
     if (document.hidden || !wantsAmp) {
-      setTimeout(pollAmp, 500);
+      setTimeout(pollAmp, 700);
       return;
     }
 
-    var drum = controls.amp_drum ? Math.round(controls.amp_drum.value) : 0;
-
-    fetch("/amp?drum=" + drum, { cache: "no-store" })
+    fetch("/amp", { cache: "no-store" })
       .then(function (response) {
         return response.ok ? response.json() : null;
       })
       .then(function (state) {
         if (ampDrag) return;
-        if (!state || !state.points) return;
-        if (drum === ampDrum && JSON.stringify(state.points) === JSON.stringify(ampPoints)) return;
+        if (!state || !state.curves) return;
+        if (JSON.stringify(state.curves) === JSON.stringify(ampCurves)) return;
 
-        ampDrum = drum;
-        ampPoints = state.points;
+        ampCurves = state.curves;
         markDirty();
       })
       .catch(function () {})
       .then(function () {
-        setTimeout(pollAmp, 500);
+        setTimeout(pollAmp, 700);
       });
   }
 

@@ -624,13 +624,11 @@ pub struct DrumInstrument {
 	#[default(52.0)]
 	#[unit(hertz)]
 	#[id(display = "Tune")]
-	#[layout(group = "Kick", order = 0, widget = knob, hero = "fall")]
+	#[layout(group = "Kick", order = 0, widget = knob, hero = "kick")]
 	pub tune: f32,
 	/// How long the body rings, in seconds.
-	#[range(min = 0.05, max = 2.0)]
-	#[default(0.45)]
 	#[id(display = "Decay")]
-	#[layout(group = "Kick", order = 2, widget = knob)]
+	#[serde]
 	pub decay: f32,
 	/// The click level.
 	#[range(min = 0.0, max = 1.0)]
@@ -662,13 +660,11 @@ pub struct DrumInstrument {
 	#[default(180.0)]
 	#[unit(hertz)]
 	#[id(display = "Snare Tune")]
-	#[layout(group = "Snare", order = 0, widget = knob)]
+	#[layout(group = "Snare", order = 0, widget = knob, hero = "amp_snare")]
 	pub snare_tune: f32,
 	/// How long the shell rings, in seconds.
-	#[range(min = 0.05, max = 1.0)]
-	#[default(0.18)]
 	#[id(display = "Snare Decay")]
-	#[layout(group = "Snare", order = 1, widget = knob)]
+	#[serde]
 	pub snare_decay: f32,
 	/// How much air and wire the hit throws off.
 	#[range(min = 0.0, max = 1.0)]
@@ -686,13 +682,11 @@ pub struct DrumInstrument {
 	#[range(min = 0.4, max = 2.5)]
 	#[default(1.0)]
 	#[id(display = "Hat Tone")]
-	#[layout(group = "Hat", order = 0, widget = knob)]
+	#[layout(group = "Hat", order = 0, widget = knob, hero = "amp_hat")]
 	pub hat_tune: f32,
 	/// How long a closed hat rings, in seconds.
-	#[range(min = 0.01, max = 0.3)]
-	#[default(0.05)]
 	#[id(display = "Closed")]
-	#[layout(group = "Hat", order = 1, widget = knob)]
+	#[serde]
 	pub hat_decay: f32,
 	/// How long an open hat rings, in seconds.
 	#[range(min = 0.1, max = 2.0)]
@@ -718,19 +712,15 @@ pub struct DrumInstrument {
 	#[default(1_600.0)]
 	#[unit(hertz)]
 	#[id(display = "Clap Tone")]
-	#[layout(group = "Clap", order = 0, widget = knob)]
+	#[layout(group = "Clap", order = 0, widget = knob, hero = "amp_clap")]
 	pub clap_tone: f32,
 	/// How long the clap's tail lasts, in seconds.
-	#[range(min = 0.08, max = 1.0)]
-	#[default(0.35)]
 	#[id(display = "Clap Decay")]
-	#[layout(group = "Clap", order = 1, widget = knob)]
+	#[serde]
 	pub clap_decay: f32,
 	/// How long the toms ring, in seconds.
-	#[range(min = 0.1, max = 1.5)]
-	#[default(0.5)]
 	#[id(display = "Tom Decay")]
-	#[layout(group = "Tom", order = 0, widget = knob)]
+	#[serde]
 	pub tom_decay: f32,
 	/// A multiplier on the toms' shell pitch.
 	#[range(min = 0.5, max = 2.0)]
@@ -739,10 +729,8 @@ pub struct DrumInstrument {
 	#[layout(group = "Tom", order = 1, widget = knob)]
 	pub tom_tune: f32,
 	/// How long the cymbals ring, in seconds.
-	#[range(min = 0.5, max = 6.0)]
-	#[default(2.5)]
 	#[id(display = "Cymbal Decay")]
-	#[layout(group = "Cymbal", order = 0, widget = knob)]
+	#[serde]
 	pub cymbal_decay: f32,
 	/// The cymbals' level.
 	#[range(min = 0.0, max = 1.0)]
@@ -776,37 +764,37 @@ pub struct DrumInstrument {
 	#[range(min = 0.0, max = 2.0)]
 	#[default(1.0)]
 	#[id(display = "Kick Level")]
-	#[layout(group = "Kit Mix", order = 0, widget = knob)]
+	#[layout(group = "Kick", order = 9, widget = knob)]
 	pub level_kick: f32,
 	/// The snare's level in the kit.
 	#[range(min = 0.0, max = 2.0)]
 	#[default(1.0)]
 	#[id(display = "Snare Level")]
-	#[layout(group = "Kit Mix", order = 1, widget = knob)]
+	#[layout(group = "Snare", order = 1, widget = knob)]
 	pub level_snare: f32,
 	/// The hat's level in the kit.
 	#[range(min = 0.0, max = 2.0)]
 	#[default(1.0)]
 	#[id(display = "Hat Level")]
-	#[layout(group = "Kit Mix", order = 2, widget = knob)]
+	#[layout(group = "Hat", order = 2, widget = knob)]
 	pub level_hat: f32,
 	/// The clap's level in the kit.
 	#[range(min = 0.0, max = 2.0)]
 	#[default(1.0)]
 	#[id(display = "Clap Level")]
-	#[layout(group = "Kit Mix", order = 3, widget = knob)]
+	#[layout(group = "Clap", order = 3, widget = knob)]
 	pub level_clap: f32,
 	/// The toms' level in the kit.
 	#[range(min = 0.0, max = 2.0)]
 	#[default(1.0)]
 	#[id(display = "Tom Level")]
-	#[layout(group = "Kit Mix", order = 4, widget = knob)]
+	#[layout(group = "Tom", order = 4, widget = knob)]
 	pub level_tom: f32,
 	/// The cymbals' level in the kit.
 	#[range(min = 0.0, max = 2.0)]
 	#[default(1.0)]
 	#[id(display = "Cymbal Level")]
-	#[layout(group = "Kit Mix", order = 5, widget = knob)]
+	#[layout(group = "Cymbal", order = 5, widget = knob)]
 	pub level_cymbal: f32,
 	/// The kick's one-shot level, when a sample replaces the synthesis.
 	#[range(min = 0.0, max = 2.0)]
@@ -844,13 +832,6 @@ pub struct DrumInstrument {
 	#[id(display = "Cymbal Shot")]
 	#[layout(group = "Samples", order = 5, widget = knob)]
 	pub sample_level_cymbal: f32,
-	/// Which drum's amplitude envelope the Amp page draws.
-	#[range(min = 0, max = 5)]
-	#[choices("Kick", "Snare", "Hat", "Clap", "Tom", "Cymbal")]
-	#[default(0)]
-	#[id(display = "Drum")]
-	#[layout(group = "Amp", order = 0, widget = choice, hero = "amp")]
-	pub amp_drum: i32,
 	/// Which kit the instrument starts from. Choosing one writes the knobs.
 	#[range(min = 0, max = 1)]
 	#[choices("Studio", "808")]
@@ -971,7 +952,6 @@ impl Default for DrumInstrument {
 			humanize: 0.15,
 			velocity_brightness: 0.35,
 			kit: 0,
-			amp_drum: 0,
 			sample_level_kick: 1.0,
 			sample_level_snare: 1.0,
 			sample_level_hat: 1.0,
@@ -1047,12 +1027,12 @@ impl ClickSlot {
 	}
 }
 
-/// The default amplitude shape of each drum, normalised to its length.
+/// The default amplitude shape of each drum, in seconds.
 ///
-/// The page edits these directly: a point at 0.5 is halfway through the drum's
-/// decay, whatever the decay knob says.
+/// The curve is the envelope and the length both: the last point is when the
+/// voice stops. There is no Decay knob to fight with the shape.
 pub fn default_amp_templates() -> [Curve; 6] {
-	let simple = || {
+	let simple = |end: f32| {
 		Curve::new(vec![
 			Point {
 				time: 0.0,
@@ -1060,7 +1040,7 @@ pub fn default_amp_templates() -> [Curve; 6] {
 				bend: -2.5,
 			},
 			Point {
-				time: 1.0,
+				time: end,
 				value: 0.0,
 				bend: 0.0,
 			},
@@ -1068,8 +1048,8 @@ pub fn default_amp_templates() -> [Curve; 6] {
 	};
 
 	[
-		simple(),
-		simple(),
+		simple(0.45),
+		simple(0.18),
 		Curve::new(vec![
 			Point {
 				time: 0.0,
@@ -1077,7 +1057,7 @@ pub fn default_amp_templates() -> [Curve; 6] {
 				bend: 0.0,
 			},
 			Point {
-				time: 1.0,
+				time: 0.065,
 				value: 0.0,
 				bend: 0.0,
 			},
@@ -1085,20 +1065,20 @@ pub fn default_amp_templates() -> [Curve; 6] {
 		Curve::new(
 			[
 				(0.0, 1.0, -3.0),
-				(0.0257, 0.0, 0.0),
-				(0.0343, 0.9, -3.0),
-				(0.0600, 0.0, 0.0),
-				(0.0686, 0.8, -2.5),
-				(0.0943, 0.0, 0.0),
-				(0.1029, 0.7, -1.5),
-				(0.1714, 0.32, 0.0),
-				(1.0, 0.0, 0.0),
+				(0.009, 0.0, 0.0),
+				(0.012, 0.9, -3.0),
+				(0.021, 0.0, 0.0),
+				(0.024, 0.8, -2.5),
+				(0.033, 0.0, 0.0),
+				(0.036, 0.7, -1.5),
+				(0.060, 0.32, 0.0),
+				(0.35, 0.0, 0.0),
 			]
 			.into_iter()
 			.map(|(time, value, bend)| Point { time, value, bend })
 			.collect(),
 		),
-		simple(),
+		simple(0.5),
 		Curve::new(vec![
 			Point {
 				time: 0.0,
@@ -1106,7 +1086,7 @@ pub fn default_amp_templates() -> [Curve; 6] {
 				bend: 0.0,
 			},
 			Point {
-				time: 0.95,
+				time: 2.375,
 				value: 0.0,
 				bend: 0.0,
 			},
@@ -1448,22 +1428,37 @@ impl DrumInstrument {
 		self
 	}
 
-	/// The amplitude shape of one drum, scaled to the hit's length.
-	fn amp_for(&self, drum: Drum, length: f32) -> Curve {
+	/// The amplitude shape of one drum, as drawn.
+	fn amp_for(&self, drum: Drum) -> Curve {
 		let fallback = default_amp_templates();
-		let template = self
-			.amps
+
+		self.amps
 			.lock()
 			.map(|amps| amps[drum.index()].clone())
-			.unwrap_or_else(|_| fallback[drum.index()].clone());
-		let length = length.max(0.002);
+			.unwrap_or_else(|_| fallback[drum.index()].clone())
+	}
+
+	/// When the amplitude shape ends, which is also the voice's length.
+	fn amp_end(&self, drum: Drum) -> f32 {
+		self.amp_for(drum).end().max(0.01)
+	}
+
+	/// The hat's shape: the closed template, stretched for an open hit.
+	fn amp_for_hat(&self, open: bool, hat_open: f32) -> Curve {
+		let template = self.amp_for(Drum::HatClosed);
+
+		if !open {
+			return template;
+		}
+
+		let scale = (hat_open.clamp(0.1, 2.0) * 1.3) / template.end().max(1e-4);
 
 		Curve::new(
 			template
 				.points()
 				.iter()
 				.map(|point| Point {
-					time: point.time * length,
+					time: point.time * scale,
 					value: point.value,
 					bend: point.bend,
 				})
@@ -1699,7 +1694,7 @@ impl DrumInstrument {
 	/// The controls, turned into one hit.
 	fn kick_recipe(&self) -> Recipe {
 		let tune = self.tune.clamp(20.0, 200.0);
-		let decay = self.decay.clamp(0.02, 4.0);
+		let decay = self.amp_end(Drum::Kick);
 
 		// Circular membrane ratios: the body is not a sine, and it is not a
 		// harmonic series either.
@@ -1750,7 +1745,7 @@ impl DrumInstrument {
 			.lock()
 			.map(|curve| curve.clone())
 			.unwrap_or_else(|_| self.pitch_curve.clone());
-		let amp = self.amp_for(Drum::Kick, decay);
+		let amp = self.amp_for(Drum::Kick);
 
 		Recipe {
 			layers: vec![
@@ -1782,7 +1777,7 @@ impl DrumInstrument {
 	/// stick click. Same engine as the kick, different layers.
 	fn snare_recipe(&self) -> Recipe {
 		let tune = self.snare_tune.clamp(60.0, 600.0);
-		let decay = self.snare_decay.clamp(0.03, 2.0);
+		let decay = self.amp_end(Drum::Snare);
 		let wires = self.snare_wires.clamp(0.0, 1.0) * self.brightness;
 		let click_level = self.snare_click.clamp(0.0, 1.0) * self.brightness;
 
@@ -1839,7 +1834,7 @@ impl DrumInstrument {
 				bend: 0.0,
 			},
 		]);
-		let amp = self.amp_for(Drum::Snare, decay);
+		let amp = self.amp_for(Drum::Snare);
 
 		Recipe {
 			layers: vec![
@@ -1881,7 +1876,7 @@ impl DrumInstrument {
 		let t60 = if open {
 			self.hat_open.clamp(0.1, 2.0)
 		} else {
-			self.hat_decay.clamp(0.01, 0.3)
+			self.amp_end(Drum::HatClosed) / 1.3
 		};
 		let cutoff = (self.hat_cutoff * self.brightness).clamp(1_500.0, 12_000.0);
 		let level = self.hat_gain.clamp(0.0, 1.0);
@@ -1900,7 +1895,7 @@ impl DrumInstrument {
 				bend: 0.0,
 			},
 		]);
-		let amp = self.amp_for(Drum::HatClosed, t60 * 1.3);
+		let amp = self.amp_for_hat(open, self.hat_open);
 
 		Recipe {
 			layers: vec![
@@ -1937,9 +1932,9 @@ impl DrumInstrument {
 	/// hands close together, and the tail they leave on the room.
 	fn clap_recipe(&self) -> Recipe {
 		let tone = self.clap_tone.clamp(400.0, 8_000.0);
-		let decay = self.clap_decay.clamp(0.05, 2.0);
+		let decay = self.amp_end(Drum::Clap);
 
-		let amp = self.amp_for(Drum::Clap, decay);
+		let amp = self.amp_for(Drum::Clap);
 		let pitch = flat_pitch();
 
 		Recipe {
@@ -1977,7 +1972,7 @@ impl DrumInstrument {
 		let frequency = 440.0
 			* 2f32.powf((note as f32 - 69.0) / 12.0)
 			* self.tom_tune.clamp(0.4, 2.5);
-		let decay = self.tom_decay.clamp(0.05, 2.0);
+		let decay = self.amp_end(Drum::Tom);
 		let ratios = [1.0, 1.593, 2.135, 2.296, 2.653];
 		let gains = [1.0, 0.55, 0.3, 0.18, 0.1];
 		let t60 = [1.0, 0.7, 0.5, 0.4, 0.3];
@@ -1993,7 +1988,7 @@ impl DrumInstrument {
 			})
 			.collect();
 
-		let amp = self.amp_for(Drum::Tom, decay);
+		let amp = self.amp_for(Drum::Tom);
 
 		Recipe {
 			layers: vec![Layer {
@@ -2014,7 +2009,7 @@ impl DrumInstrument {
 		}
 
 		let ride = drum == Drum::Ride;
-		let decay = self.cymbal_decay.clamp(0.3, 8.0) * if ride { 0.45 } else { 1.0 };
+		let decay = self.amp_end(Drum::Crash) / 0.95 * if ride { 0.45 } else { 1.0 };
 		let level = self.cymbal_gain.clamp(0.0, 1.0);
 		let count = 56usize;
 		let mut partials = Vec::with_capacity(count);
@@ -2034,7 +2029,7 @@ impl DrumInstrument {
 			});
 		}
 
-		let amp = self.amp_for(Drum::Crash, decay);
+		let amp = self.amp_for(Drum::Crash);
 
 		Recipe {
 			layers: vec![
@@ -2126,7 +2121,8 @@ impl DrumInstrument {
 		let tail = match drum {
 			Drum::Crash | Drum::Ride => {
 				let ride = drum == Drum::Ride;
-				let decay = self.cymbal_decay.clamp(0.3, 8.0) * if ride { 0.45 } else { 1.0 };
+				let decay =
+				self.amp_end(Drum::Crash) / 0.95 * if ride { 0.45 } else { 1.0 };
 				let level = self.cymbal_tail.clamp(0.0, 1.0);
 
 				(level > 0.0).then_some(TailSpec {
@@ -2571,13 +2567,16 @@ mod tests {
 	}
 
 	#[test]
-	fn the_amp_templates_are_normalised() {
+	fn the_amp_templates_are_in_seconds() {
 		for template in default_amp_templates() {
 			let first = template.points().first().expect("a template has points");
 
 			assert!(first.time <= 1e-4);
-			assert!(template.end() <= 1.0 + 1e-4);
+			assert!(template.end() > 0.01 && template.end() < 10.0, "{}", template.end());
 		}
+
+		// The kick's default ends at the shape's 450 ms.
+		assert!((default_amp_templates()[0].end() - 0.45).abs() < 1e-4);
 	}
 
 	#[test]
