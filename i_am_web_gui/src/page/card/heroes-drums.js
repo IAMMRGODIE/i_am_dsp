@@ -47,10 +47,14 @@
       var start = sorted[index - 1];
       var end = sorted[index];
 
+      // Pitch is interpolated in octaves, the same way the voice reads it.
+      var from = Math.log2(Math.max(start[1], 1e-4));
+      var to = Math.log2(Math.max(end[1], 1e-4));
+
       for (var sample = 1; sample <= 18; sample++) {
         var unit = sample / 18;
         var time = start[0] + (end[0] - start[0]) * unit;
-        var ratio = start[1] + (end[1] - start[1]) * fallBend(unit, start[2] || 0);
+        var ratio = Math.pow(2, from + (to - from) * fallBend(unit, start[2] || 0));
         path += " L " + fallX(time).toFixed(1) + " " + fallY(ratio).toFixed(1);
       }
     }
@@ -72,7 +76,9 @@
       if (right[0] - left[0] < 0.002) continue;
 
       var middle = (left[0] + right[0]) / 2;
-      var value = left[1] + (right[1] - left[1]) * fallBend(0.5, left[2] || 0);
+      var leftOctave = Math.log2(Math.max(left[1], 1e-4));
+      var rightOctave = Math.log2(Math.max(right[1], 1e-4));
+      var value = Math.pow(2, leftOctave + (rightOctave - leftOctave) * fallBend(0.5, left[2] || 0));
       bends += '<circle data-bend="' + segment + '" cx="' + fallX(middle).toFixed(1) +
         '" cy="' + fallY(value).toFixed(1) + '" r="5" fill="transparent" ' +
         'stroke="var(--accent)" stroke-opacity="0.7" stroke-width="1.4" pointer-events="all"/>';

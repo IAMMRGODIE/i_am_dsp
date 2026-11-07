@@ -552,7 +552,7 @@ impl Voice {
 	}
 
 	fn next(&mut self, rng: &mut Rng, rate: f32) -> f32 {
-		let bend = self.pitch.value(self.time);
+		let bend = 2f32.powf(self.pitch.octaves(self.time));
 		let mut sum = 0.0;
 
 		for layer in &mut self.layers {
