@@ -324,6 +324,8 @@ pub struct WaveguideString {
 	nominal: f32,
 	/// How far the pitch is currently bent, as a frequency multiplier.
 	pitch_ratio: f32,
+	/// The reciprocal of the ratio, kept so the per sample loop has no divide.
+	scale: f32,
 	dispersion: DispersionFilter,
 	loss: OnePole,
 	loop_gain: f32,
@@ -479,6 +481,7 @@ impl WaveguideString {
 			// (both lines have the same length)
 			nominal: n0 as f32,
 			pitch_ratio: 1.0,
+			scale: 1.0,
 			dispersion,
 			loss: OnePole {
 				a: loss_a,
@@ -652,7 +655,7 @@ impl WaveguideString {
 		let impedance = self.impedance;
 		let loop_gain = self.loop_gain * self.damper;
 		// Bending up shortens the round trip, so the reads come *closer*.
-		let scale = 1.0 / self.pitch_ratio;
+		let scale = self.scale;
 		let nominal = self.nominal;
 
 		let bridge_in;
@@ -732,6 +735,7 @@ impl WaveguideString {
 	/// vibrato rather than for a pitch bend.
 	pub fn set_pitch_ratio(&mut self, ratio: f32) {
 		self.pitch_ratio = ratio.clamp(1.0 / BEND_HEADROOM, BEND_HEADROOM);
+		self.scale = 1.0 / self.pitch_ratio;
 	}
 
 	/// How far the pitch is currently bent.

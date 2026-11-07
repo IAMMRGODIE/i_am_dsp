@@ -311,6 +311,8 @@ struct Voice {
 	age_seconds: f32,
 	/// Where the left hand is in its shake.
 	vibrato_phase: f32,
+	/// The pitch ratio the last bend update settled on.
+	ratio: f32,
 	/// How many samples the note fades in over; zero leaves it alone.
 	fade_in: u64,
 	/// Per channel DC blocker state, so every note loses its own static force.
@@ -365,6 +367,12 @@ const SHORT_NOTE: f32 = 0.12;
 /// transient to hide it behind: the fade gives the note a start instead of a
 /// click, short enough that the bow still bites.
 const BOW_FADE_SECONDS: f32 = 0.08;
+
+/// How often the vibrato's pitch ratio is recomputed, in samples.
+///
+/// Sixteen is three kilohertz at 48, far above the five hertz a hand can shake,
+/// and a sixteenth of the `powf` the sample rate would otherwise ask for.
+const BEND_INTERVAL: u64 = 16;
 
 /// How many low partials each sympathetic string contributes.
 const SYMPATHETIC_PARTIALS: usize = 2;
@@ -675,8 +683,17 @@ impl StringEngine {
 			voice.damper += (voice.damper_target - voice.damper) * voice.damper_rate;
 
 			voice.samples += 1;
-			let cents = Self::bend(voice, params, dt);
-			let ratio = 2f32.powf(cents / 1200.0);
+			voice.age_seconds += dt;
+
+			// A powf and a sin per sample per voice is the most expensive thing
+			// in the loop, and the hand moves far slower than the sample rate.
+			if voice.samples % BEND_INTERVAL == 0 || voice.samples == 1 {
+				let cents = Self::bend(voice, params, dt * BEND_INTERVAL as f32);
+
+				voice.ratio = 2f32.powf(cents / 1200.0);
+			}
+
+			let ratio = voice.ratio;
 			let mut value_left = 0.0;
 			let mut value_right = 0.0;
 			for (index, string) in voice.strings.iter_mut().enumerate() {
@@ -867,6 +884,7 @@ impl StringEngine {
 			// Deliberately not zero. Every note of a chord starting its shake
 			// from the same place sounds like one hand playing all of them.
 			vibrato_phase: (note as f32 * 0.37).fract() * std::f32::consts::TAU,
+			ratio: 1.0,
 			fade_in: if spec.excitation == Excitation::Bow {
 				(self.sample_rate * BOW_FADE_SECONDS) as u64
 			} else {
@@ -884,7 +902,6 @@ impl StringEngine {
 	/// to reach full depth - which is most of why a real vibrato sounds like
 	/// expression and a sinusoidal one sounds like a fault.
 	fn bend(voice: &mut Voice, params: &EngineParams, dt: f32) -> f32 {
-		voice.age_seconds += dt;
 		let rate = params.vibrato_rate.clamp(0.0, 20.0);
 		voice.vibrato_phase += std::f32::consts::TAU * rate * dt;
 		if voice.vibrato_phase > std::f32::consts::TAU {
