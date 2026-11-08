@@ -215,6 +215,15 @@ fn vocoder(sample_rate: usize) -> Box<dyn Effect<2>> {
 	))
 }
 
+/// The faceplate size a product declares, for a card that draws the product's
+/// own shape rather than guessing one.
+pub fn face(id: &str) -> Option<(f32, f32)> {
+	match id {
+		"filter" => Some((520.0, 330.0)),
+		_ => None,
+	}
+}
+
 /// The multimode filter product.
 pub const FILTER: ModuleDescriptor = ModuleDescriptor {
 	id: "filter",

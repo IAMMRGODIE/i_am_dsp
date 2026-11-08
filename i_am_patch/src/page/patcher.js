@@ -31,7 +31,7 @@
     if (entry) {
       entry.host.style.setProperty(
         "--k",
-        String(Math.max(0.2, Math.min(w / 520, h / 420))),
+        String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
       );
       entry.host.classList.toggle("compact", w < 430);
     }
@@ -60,6 +60,9 @@
       host.className = "card-host";
       const scale = document.createElement("div");
       scale.className = "card-scale";
+      scale.style.width = `${baseWidth(node)}px`;
+      scale.style.height = `${baseHeight(node)}px`;
+      scale.style.flexBasis = `${baseWidth(node)}px`;
       const card = window.IAmCard.create({
         title: "Filter",
         accent: kind.accent || "#e07a2f",
@@ -83,7 +86,7 @@
       cards[node.id] = entry;
       entry.host.style.setProperty(
         "--k",
-        String(Math.max(0.2, Math.min(w / 520, h / 420))),
+        String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
       );
       entry.host.classList.toggle("compact", w < 430);
     }
@@ -111,12 +114,19 @@
 
   // A product card is wider and taller than the plain ones: the filter's six
   // controls need the room its own faceplate gives them.
+  function faceOf(node) {
+    const kind = kindOf(node.kind);
+    return kind && kind.face ? kind.face : null;
+  }
+
   function baseWidth(node) {
-    return node.kind === "filter" ? 520 : BASE_W;
+    const face = faceOf(node);
+    return face ? face[0] : BASE_W;
   }
 
   function baseHeight(node) {
-    return node.kind === "filter" ? 420 : BASE_H;
+    const face = faceOf(node);
+    return face ? face[1] : BASE_H;
   }
 
   function size(node) {
