@@ -80,6 +80,7 @@ pub fn catalog_json() -> String {
 fn product_module(kind: &str) -> Option<&'static str> {
 	match kind {
 		"filter" => Some("filter"),
+		"gain" => Some("gain"),
 		_ => None,
 	}
 }

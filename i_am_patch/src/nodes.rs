@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 
-use i_am_dsp::prelude::{Effect, Multimode, NoteEvent, Parameters};
+use i_am_dsp::prelude::{Effect, Gain, Multimode, NoteEvent, Parameters};
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
 
@@ -37,10 +37,7 @@ pub fn make(
 		"voice:in" => Box::new(Quiet),
 		"voice:out" => Box::new(Quiet),
 		"gen:additive" => Box::new(Additive::new(rate, param(params, "decay", 1.0))),
-		"gain" => Box::new(Gain {
-			gain: param(params, "gain", 1.0),
-			pan: param(params, "pan", 0.0),
-		}),
+		"gain" => Box::new(GainNode::new(params)),
 		"filter" => Box::new(Filter::new(rate, params)),
 		"split:ms" => Box::new(SplitMs),
 		"mixer" => Box::new(Mixer {
@@ -172,34 +169,42 @@ impl BlockNode for Additive {
 	}
 }
 
-/// Gain and pan.
-struct Gain {
-	gain: f32,
-	pan: f32,
+/// The product's gain: one knob, and the DSP the product ships.
+struct GainNode {
+	effect: Gain,
 }
 
-impl BlockNode for Gain {
-	fn set_param(&mut self, name: &str, value: f32) {
-		match name {
-			"gain" => self.gain = value,
-			"pan" => self.pan = value,
-			_ => {}
+impl GainNode {
+	fn new(params: &BTreeMap<&'static str, f32>) -> Self {
+		let mut node = Self {
+			effect: Gain::new(1.0),
+		};
+
+		for (name, value) in params {
+			node.effect.set_parameter(name, (*value).into());
 		}
+
+		node
+	}
+}
+
+impl BlockNode for GainNode {
+	fn set_param(&mut self, name: &str, value: f32) {
+		self.effect.set_parameter(name, value.into());
 	}
 
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
-		let angle = (self.pan.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
-		let left = angle.cos() * self.gain;
-		let right = angle.sin() * self.gain;
 
 		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
 			out.clear();
 			out.frames = context.frames;
 
 			for frame in 0..context.frames {
-				out.channels[0][frame] = input.channels[0][frame] * left;
-				out.channels[1][frame] = input.channels[1][frame] * right;
+				let mut samples = [input.channels[0][frame], input.channels[1][frame]];
+				self.effect.process(&mut samples, &[], &mut context.context);
+				out.channels[0][frame] = samples[0];
+				out.channels[1][frame] = samples[1];
 			}
 		}
 	}

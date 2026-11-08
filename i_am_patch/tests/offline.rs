@@ -110,14 +110,11 @@ fn two_edges_into_one_input_sum() {
 }
 
 #[test]
-fn a_pan_moves_the_image() {
-	let graph = chain("gain", &[("pan", -1.0), ("gain", 1.0)]);
-	let frames = render(&graph, 8, &[(0, note(60))]);
+fn a_lower_gain_is_quieter() {
+	let loud = peak(&render(&chain("gain", &[("gain", 1.0)]), 8, &[(0, note(60))]));
+	let quiet = peak(&render(&chain("gain", &[("gain", 0.25)]), 8, &[(0, note(60))]));
 
-	let left: f32 = frames.iter().map(|frame| frame[0] * frame[0]).sum();
-	let right: f32 = frames.iter().map(|frame| frame[1] * frame[1]).sum();
-
-	assert!(left > right * 10.0, "{left} vs {right}");
+	assert!(quiet < loud * 0.6, "{quiet} vs {loud}");
 }
 
 #[test]

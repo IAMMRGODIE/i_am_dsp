@@ -154,11 +154,11 @@ pub const CATALOG: &[NodeDesc] = &[
 	},
 	NodeDesc {
 		id: "gain",
-		name: "Gain / Pan",
+		name: "Gain",
 		inputs: &[port("audio", AUDIO)],
 		outputs: &[port("audio", AUDIO)],
 		latency: 0,
-		params: &[("gain", 1.0), ("pan", 0.0)],
+		params: &[("gain", 1.0)],
 	},
 	NodeDesc {
 		id: "filter",

@@ -19,6 +19,8 @@
   let selectedMod = null;
   let view = { x: 230, y: 30, zoom: 1 };
   let drag = null;
+  // Each card scales by itself: x and y are independent, so a wide filter and
+  // a narrow one can sit side by side at the sizes they need.
   const scales = {};
 
   const cards = {};
@@ -87,7 +89,7 @@
 
   const kindOf = (id) => catalog.find((kind) => kind.id === id);
   const nodeOf = (id) => patch.nodes.find((node) => node.id === id);
-  const scaleOf = (id) => scales[id] ?? 1;
+  const scaleOf = (id) => scales[id] ?? { x: 1, y: 1 };
 
   function el(name, attrs = {}) {
     const node = document.createElementNS(NS, name);
@@ -111,7 +113,12 @@
 
   function size(node) {
     const scale = scaleOf(node.id);
-    return { w: BASE_W * scale, h: baseHeight(node) * scale, scale };
+    return {
+      w: BASE_W * scale.x,
+      h: baseHeight(node) * scale.y,
+      sx: scale.x,
+      sy: scale.y,
+    };
   }
 
   async function load() {
@@ -142,10 +149,10 @@
     const kind = kindOf(node.kind);
     const list = output ? kind.outputs : kind.inputs;
     const index = list.indexOf(port);
-    const { w, scale } = size(node);
+    const { w, sy } = size(node);
     return {
       x: node.x + (output ? w : 0),
-      y: node.y + portY(port, index) * scale,
+      y: node.y + portY(port, index) * sy,
     };
   }
 
@@ -216,11 +223,11 @@
       const kind = kindOf(node.kind);
       if (!kind) continue;
 
-      const { w, h, scale } = size(node);
-      const baseH = h / scale;
+      const { h, sx, sy } = size(node);
+      const baseH = h / sy;
       const group = el("g", {
         "data-node": node.id,
-        transform: `translate(${node.x} ${node.y}) scale(${scale})`,
+        transform: `translate(${node.x} ${node.y}) scale(${sx} ${sy})`,
       });
 
       // The card itself.
@@ -534,7 +541,7 @@
 
       // The scale handle scales the card, not moves it.
       if (event.target.closest(".scale-handle")) {
-        drag = { kind: "scale", id, start: scaleOf(id), from: point };
+        drag = { kind: "scale", id, start: { ...scaleOf(id) }, from: point };
         return;
       }
 
@@ -567,8 +574,9 @@
       draw();
     } else if (drag.kind === "scale") {
       const point = toWorld(event);
-      const scale = Math.min(2.2, Math.max(0.45, drag.start * (1 + (point.x - drag.from.x) / 160)));
-      scales[drag.id] = scale;
+      const sx = Math.min(2.2, Math.max(0.45, drag.start.x * (1 + (point.x - drag.from.x) / 160)));
+      const sy = Math.min(2.2, Math.max(0.45, drag.start.y * (1 + (point.y - drag.from.y) / 120)));
+      scales[drag.id] = { x: sx, y: sy };
       draw();
     } else if (drag.kind === "pan") {
       view.x = drag.vx + (event.clientX - drag.x);
