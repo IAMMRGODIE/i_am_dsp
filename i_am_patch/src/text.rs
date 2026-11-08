@@ -58,6 +58,19 @@ pub fn to_text(graph: &Graph) -> String {
 		}
 	}
 
+	for link in &graph.modulations {
+		let from = graph.get(link.source.0).expect("a link names a node");
+		let _ = writeln!(
+			out,
+			"mod {}.{} -> {}.{} depth={}",
+			link.source.0 .0,
+			from.kind.outputs[link.source.1].name,
+			link.target.0 .0,
+			link.target.1,
+			link.depth
+		);
+	}
+
 	for edge in &graph.edges {
 		let from = graph.get(edge.from.0).expect("an edge names a node");
 		let to = graph.get(edge.to.0).expect("an edge names a node");
@@ -139,6 +152,28 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 					to: (to_node, to_port),
 				});
 			}
+			"mod" => {
+				let from = words.next().ok_or_else(|| error(line, "mod needs a source"))?;
+				let arrow = words.next().ok_or_else(|| error(line, "mod needs ->"))?;
+
+				if arrow != "->" {
+					return Err(error(line, "mod needs -> between the ports"));
+				}
+
+				let to = words.next().ok_or_else(|| error(line, "mod needs a target"))?;
+				let depth = words.next().ok_or_else(|| error(line, "mod needs depth="))?;
+				let depth = depth
+					.strip_prefix("depth=")
+					.ok_or_else(|| error(line, "mod needs depth="))?;
+				let (from_node, from_port) = resolve(&graph, from, line, true)?;
+				let (to_node, to_port) = resolve_param(&graph, to, line)?;
+
+				graph.modulate(
+					(from_node, from_port),
+					(to_node, to_port),
+					parse_f32(Some(depth), line)?,
+				);
+			}
 			"set" => {
 				let id = parse_id(words.next(), line)?;
 				let pair = words.next().ok_or_else(|| error(line, "set needs key=value"))?;
@@ -174,6 +209,31 @@ fn parse_f32(word: Option<&str>, line: usize) -> Result<f32, TextError> {
 	word.ok_or_else(|| error(line, "expected a number"))?
 		.parse()
 		.map_err(|_| error(line, "not a number"))
+}
+
+fn resolve_param(
+	graph: &Graph,
+	reference: &str,
+	line: usize,
+) -> Result<(NodeId, &'static str), TextError> {
+	let (id, param) = reference
+		.split_once('.')
+		.ok_or_else(|| error(line, format!("expected node.param, found {reference}")))?;
+	let id: u32 = id
+		.parse()
+		.map_err(|_| error(line, format!("{id} is not a node id")))?;
+	let instance = graph
+		.get(NodeId(id))
+		.ok_or_else(|| error(line, format!("no node {id}")))?;
+	let param = instance
+		.kind
+		.params
+		.iter()
+		.find(|(name, _)| *name == param)
+		.map(|(name, _)| *name)
+		.ok_or_else(|| error(line, format!("node {id} has no parameter {param}")))?;
+
+	Ok((NodeId(id), param))
 }
 
 fn resolve(
@@ -242,6 +302,20 @@ mod tests {
 		}
 
 		assert!((back.get(graph.nodes[2].id).expect("gain").param("gain") - 0.5).abs() < 1e-6);
+	}
+
+	#[test]
+	fn a_modulation_round_trips() {
+		let mut graph = patch();
+		let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
+		let gain = graph.nodes[2].id;
+		graph.modulate((lfo, 0), (gain, "gain"), 0.4);
+
+		let back = from_text(&to_text(&graph)).expect("the text parses");
+
+		assert_eq!(back.modulations.len(), 1);
+		assert_eq!(back.modulations[0].target.1, "gain");
+		assert!((back.modulations[0].depth - 0.4).abs() < 1e-6);
 	}
 
 	#[test]

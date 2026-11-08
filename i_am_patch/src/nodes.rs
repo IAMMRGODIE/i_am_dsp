@@ -11,6 +11,12 @@ use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
 pub trait BlockNode: Send {
 	/// Processes one block: reads the inputs, writes the outputs.
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]);
+
+	/// Applies one parameter, before the block runs.
+	///
+	/// The engine calls this for every parameter every block, so a modulation
+	/// only has to move the value it is assigned to.
+	fn set_param(&mut self, _name: &str, _value: f32) {}
 }
 
 /// One parameter, or the fallback when the node does not have it.
@@ -105,6 +111,12 @@ impl Additive {
 }
 
 impl BlockNode for Additive {
+	fn set_param(&mut self, name: &str, value: f32) {
+		if name == "decay" {
+			self.decay = 10f32.powf(-3.0 / (value.clamp(0.05, 30.0) * self.rate));
+		}
+	}
+
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
 		for event in &context.events {
 			if let NoteEvent::NoteOn { note, velocity, .. } = event {
@@ -145,6 +157,14 @@ struct Gain {
 }
 
 impl BlockNode for Gain {
+	fn set_param(&mut self, name: &str, value: f32) {
+		match name {
+			"gain" => self.gain = value,
+			"pan" => self.pan = value,
+			_ => {}
+		}
+	}
+
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
 		let angle = (self.pan.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
@@ -167,6 +187,7 @@ impl BlockNode for Gain {
 struct Filter {
 	coefficient: f32,
 	state: [f32; 2],
+	rate: f32,
 }
 
 impl Filter {
@@ -174,11 +195,18 @@ impl Filter {
 		Self {
 			coefficient: 1.0 - (-TAU * cutoff / rate as f32).exp(),
 			state: [0.0; 2],
+			rate: rate as f32,
 		}
 	}
 }
 
 impl BlockNode for Filter {
+	fn set_param(&mut self, name: &str, value: f32) {
+		if name == "cutoff" {
+			self.coefficient = 1.0 - (-TAU * value.clamp(20.0, 20_000.0) / self.rate).exp();
+		}
+	}
+
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
 		let coefficient = self.coefficient;
@@ -238,6 +266,14 @@ struct Mixer {
 }
 
 impl BlockNode for Mixer {
+	fn set_param(&mut self, name: &str, value: f32) {
+		match name {
+			"a" => self.a = value,
+			"b" => self.b = value,
+			_ => {}
+		}
+	}
+
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let a = audio(inputs, 0);
 		let b = audio(inputs, 1);
@@ -260,6 +296,7 @@ impl BlockNode for Mixer {
 struct Lfo {
 	phase: f32,
 	step: f32,
+	rate: f32,
 }
 
 impl Lfo {
@@ -267,11 +304,18 @@ impl Lfo {
 		Self {
 			phase: 0.0,
 			step: frequency / rate as f32,
+			rate: rate as f32,
 		}
 	}
 }
 
 impl BlockNode for Lfo {
+	fn set_param(&mut self, name: &str, value: f32) {
+		if name == "rate" {
+			self.step = value.clamp(0.01, 100.0) / self.rate;
+		}
+	}
+
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
 		self.phase = (self.phase + self.step * context.frames as f32).fract();
 
@@ -286,6 +330,7 @@ struct Envelope {
 	attack: f32,
 	release: f32,
 	envelope: f32,
+	rate: f32,
 }
 
 impl Envelope {
@@ -298,11 +343,24 @@ impl Envelope {
 			attack: coefficient(attack_ms),
 			release: coefficient(release_ms),
 			envelope: 0.0,
+			rate: rate as f32,
 		}
 	}
 }
 
 impl BlockNode for Envelope {
+	fn set_param(&mut self, name: &str, value: f32) {
+		let coefficient = |milliseconds: f32| {
+			1.0 - (-1000.0 / (milliseconds.clamp(0.1, 2000.0) * self.rate)).exp()
+		};
+
+		match name {
+			"attack" => self.attack = coefficient(value),
+			"release" => self.release = coefficient(value),
+			_ => {}
+		}
+	}
+
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
 

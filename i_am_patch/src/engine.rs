@@ -1,5 +1,7 @@
 //! The block engine: runs a compiled plan one block at a time.
 
+use std::collections::BTreeMap;
+
 use i_am_dsp::prelude::NoteEvent;
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
@@ -22,6 +24,15 @@ impl From<CompileError> for EngineError {
 	}
 }
 
+/// One control assignment, resolved to steps.
+struct Link {
+	source: usize,
+	port: usize,
+	target: usize,
+	param: &'static str,
+	depth: f32,
+}
+
 /// One running patch.
 pub struct Engine {
 	rate: usize,
@@ -32,6 +43,9 @@ pub struct Engine {
 	outputs: Vec<Vec<Buffer>>,
 	inputs: Vec<Vec<Buffer>>,
 	edges: Vec<Vec<(usize, usize, usize)>>,
+	links: Vec<Link>,
+	controls: Vec<Vec<f32>>,
+	base: Vec<BTreeMap<&'static str, f32>>,
 	output_step: Option<usize>,
 }
 
@@ -51,6 +65,8 @@ impl Engine {
 		let mut outputs = Vec::with_capacity(plan.order.len());
 		let mut inputs = Vec::with_capacity(plan.order.len());
 		let mut edges = vec![Vec::new(); plan.order.len()];
+		let mut controls = Vec::with_capacity(plan.order.len());
+		let mut base = Vec::with_capacity(plan.order.len());
 		let mut output_step = None;
 
 		for (step, id) in plan.order.iter().enumerate() {
@@ -73,6 +89,8 @@ impl Engine {
 				});
 			}
 			outputs.push(node_outputs);
+			controls.push(vec![0.0; kind.outputs.len()]);
+			base.push(instance.params.clone());
 
 			let mut node_inputs = Vec::with_capacity(kind.inputs.len());
 			for port in kind.inputs {
@@ -95,6 +113,18 @@ impl Engine {
 			edges[to].push((edge.to.1, from, edge.from.1));
 		}
 
+		let links: Vec<Link> = plan
+			.modulations
+			.iter()
+			.map(|link| Link {
+				source: steps[&link.source.0],
+				port: link.source.1,
+				target: steps[&link.target.0],
+				param: link.target.1,
+				depth: link.depth,
+			})
+			.collect();
+
 		Ok(Self {
 			rate,
 			block: 0,
@@ -104,6 +134,9 @@ impl Engine {
 			outputs,
 			inputs,
 			edges,
+			links,
+			controls,
+			base,
 			output_step,
 		})
 	}
@@ -172,6 +205,28 @@ impl Engine {
 			}
 		}
 
+		// Apply the modulations with the control values of the previous block:
+		// a control is one value per block, so it can only steer the next one.
+		for step in 0..self.order.len() {
+			let mut updates: Vec<(&'static str, f32)> = Vec::new();
+
+			for (name, base) in self.base[step].clone() {
+				let mut value = base;
+
+				for link in &self.links {
+					if link.target == step && link.param == name {
+						value += link.depth * self.controls[link.source][link.port];
+					}
+				}
+
+				updates.push((name, value));
+			}
+
+			for (name, value) in updates {
+				self.nodes[step].set_param(name, value);
+			}
+		}
+
 		for step in 0..self.order.len() {
 			// An input sums every edge into it, so two wires into one port add.
 			for buffer in &mut self.inputs[step] {
@@ -188,6 +243,12 @@ impl Engine {
 			let outputs = &mut self.outputs[step];
 
 			node.process(&mut context, inputs, outputs);
+
+			for (port, buffer) in self.outputs[step].iter().enumerate() {
+				if let Buffer::Control(value) = buffer {
+					self.controls[step][port] = *value;
+				}
+			}
 		}
 
 		for sample in out.iter_mut().take(frames) {
@@ -271,6 +332,33 @@ mod tests {
 		let peak = render(&graph);
 
 		assert!(peak > 1e-3, "the split/mixer chain was silent: {peak}");
+	}
+
+	#[test]
+	fn an_lfo_can_move_a_parameter() {
+		let build = |modulated: bool| {
+			let mut graph = Graph::new();
+			let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+			let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+			let gain_node = graph.add_node("gain", (200.0, 0.0)).expect("gain");
+			let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+			graph.connect((midi, 0), (generator, 0));
+			graph.connect((generator, 0), (gain_node, 0));
+			graph.connect((gain_node, 0), (out, 0));
+
+			if modulated {
+				let lfo = graph.add_node("lfo", (100.0, 100.0)).expect("lfo");
+				graph.set_param(lfo, "rate", 120.0);
+				graph.modulate((lfo, 0), (gain_node, "gain"), 0.6);
+			}
+
+			graph
+		};
+
+		let plain = render(&build(false));
+		let moved = render(&build(true));
+
+		assert!(plain != moved, "the modulation did nothing");
 	}
 
 	#[test]

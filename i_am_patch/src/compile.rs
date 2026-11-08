@@ -40,6 +40,18 @@ pub enum CompileError {
 	},
 	/// The graph has a cycle.
 	Cycle(Vec<NodeId>),
+	/// A modulation source does not carry a control signal.
+	NotControl {
+		/// The source port.
+		from: (NodeId, usize),
+	},
+	/// A modulation target is not a parameter of that node.
+	UnknownParam {
+		/// The target node.
+		node: NodeId,
+		/// The parameter name.
+		param: &'static str,
+	},
 	/// Two paths into one node arrive with different latencies.
 	UnequalLatency {
 		/// The node whose inputs disagree.
@@ -75,6 +87,14 @@ impl std::fmt::Display for CompileError {
 				let ids: Vec<String> = ids.iter().map(|id| id.0.to_string()).collect();
 				write!(formatter, "the graph has a cycle: {}", ids.join(", "))
 			}
+			Self::NotControl { from } => write!(
+				formatter,
+				"port {}.{} is not a control output",
+				from.0 .0, from.1
+			),
+			Self::UnknownParam { node, param } => {
+				write!(formatter, "node {} has no parameter {param}", node.0)
+			}
 			Self::UnequalLatency { node, latencies } => write!(
 				formatter,
 				"node {} receives {} and {} frames on different inputs",
@@ -87,12 +107,14 @@ impl std::fmt::Display for CompileError {
 impl std::error::Error for CompileError {}
 
 /// The order the engine runs, and each node's latency.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Plan {
 	/// The nodes, inputs before consumers.
 	pub order: Vec<NodeId>,
 	/// The latency of each node's output, in frames.
 	pub latency: BTreeMap<NodeId, usize>,
+	/// The validated modulation assignments.
+	pub modulations: Vec<crate::graph::ModulationLink>,
 }
 
 /// Validates a graph and plans its execution.
@@ -148,6 +170,37 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 					to: edge.to,
 				});
 			}
+		}
+	}
+
+	// A modulation source is a control output and its target is a parameter.
+	for link in &graph.modulations {
+		let from = nodes
+			.get(&link.source.0)
+			.ok_or(CompileError::UnknownNode(link.source.0))?;
+		let port = from
+			.kind
+			.outputs
+			.get(link.source.1)
+			.ok_or(CompileError::UnknownPort {
+				node: link.source.0,
+				port: link.source.1,
+				output: true,
+			})?;
+
+		if port.kind != SignalKind::Control {
+			return Err(CompileError::NotControl { from: link.source });
+		}
+
+		let to = nodes
+			.get(&link.target.0)
+			.ok_or(CompileError::UnknownNode(link.target.0))?;
+
+		if !to.kind.params.iter().any(|(name, _)| *name == link.target.1) {
+			return Err(CompileError::UnknownParam {
+				node: link.target.0,
+				param: link.target.1,
+			});
 		}
 	}
 
@@ -235,7 +288,11 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 		latency.insert(*id, last + node.kind.latency);
 	}
 
-	Ok(Plan { order, latency })
+	Ok(Plan {
+		order,
+		latency,
+		modulations: graph.modulations.clone(),
+	})
 }
 
 
@@ -366,6 +423,35 @@ mod tests {
 
 		let plan = compile(&graph).expect("both paths are 64 frames");
 		assert_eq!(plan.latency[&mixer], 64);
+	}
+
+	#[test]
+	fn a_modulation_must_come_from_a_control_port() {
+		let mut graph = Graph::new();
+		let generator = graph.add_node("gen:additive", (0.0, 0.0)).expect("gen");
+		let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+		graph.modulate((generator, 0), (gain, "gain"), 0.5);
+
+		assert!(matches!(
+			compile(&graph),
+			Err(CompileError::NotControl { .. })
+		));
+	}
+
+	#[test]
+	fn a_modulation_must_target_a_parameter() {
+		let mut graph = Graph::new();
+		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+		let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+		graph.modulate((lfo, 0), (gain, "nope"), 0.5);
+
+		assert_eq!(
+			compile(&graph),
+			Err(CompileError::UnknownParam {
+				node: gain,
+				param: "nope"
+			})
+		);
 	}
 
 	#[test]

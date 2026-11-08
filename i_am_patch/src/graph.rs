@@ -235,6 +235,17 @@ pub struct Edge {
 	pub to: (NodeId, usize),
 }
 
+/// One control-to-parameter assignment.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ModulationLink {
+	/// The source node and its control output port.
+	pub source: (NodeId, usize),
+	/// The destination node and the parameter name.
+	pub target: (NodeId, &'static str),
+	/// How far the control moves the parameter, in parameter units.
+	pub depth: f32,
+}
+
 /// A patch: nodes and the edges between them.
 #[derive(Debug, Default, Clone)]
 pub struct Graph {
@@ -242,6 +253,8 @@ pub struct Graph {
 	pub nodes: Vec<NodeInstance>,
 	/// The edges.
 	pub edges: Vec<Edge>,
+	/// The control-to-parameter assignments.
+	pub modulations: Vec<ModulationLink>,
 }
 
 impl Graph {
@@ -276,6 +289,20 @@ impl Graph {
 	/// The node with the given id.
 	pub fn get(&self, id: NodeId) -> Option<&NodeInstance> {
 		self.nodes.iter().find(|node| node.id == id)
+	}
+
+	/// Adds a control-to-parameter assignment without checking it.
+	pub fn modulate(
+		&mut self,
+		source: (NodeId, usize),
+		target: (NodeId, &'static str),
+		depth: f32,
+	) {
+		self.modulations.push(ModulationLink {
+			source,
+			target,
+			depth,
+		});
 	}
 
 	/// Sets one node's parameter, if the kind has it.
