@@ -13,12 +13,12 @@ use serde_json::{Value, json};
 fn demo() -> Graph {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 120.0)).expect("midi");
-	let voice_in = graph.add_node("voice:in", (180.0, 120.0)).expect("voice in");
-	let generator = graph.add_node("gen:additive", (360.0, 120.0)).expect("gen");
-	let filter = graph.add_node("filter", (540.0, 120.0)).expect("filter");
-	let lfo = graph.add_node("lfo", (540.0, 260.0)).expect("lfo");
-	let voice_out = graph.add_node("voice:out", (720.0, 120.0)).expect("voice out");
-	let out = graph.add_node("out:audio", (900.0, 120.0)).expect("out");
+	let voice_in = graph.add_node("voice:in", (300.0, 120.0)).expect("voice in");
+	let generator = graph.add_node("gen:additive", (600.0, 120.0)).expect("gen");
+	let filter = graph.add_node("filter", (900.0, 120.0)).expect("filter");
+	let lfo = graph.add_node("lfo", (900.0, 360.0)).expect("lfo");
+	let voice_out = graph.add_node("voice:out", (1200.0, 120.0)).expect("voice out");
+	let out = graph.add_node("out:audio", (1500.0, 120.0)).expect("out");
 	graph.connect((midi, 0), (voice_in, 0));
 	graph.connect((voice_in, 0), (generator, 0));
 	graph.connect((generator, 0), (filter, 0));

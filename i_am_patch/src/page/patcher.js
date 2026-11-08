@@ -1,20 +1,29 @@
-// The graph editor: an SVG canvas over the /patch JSON, with an op per gesture.
+// The graph editor: every node is its own card on the canvas.
+//
+// A card is drawn at a base size and scaled by itself, so zooming a node scales
+// its face the way the product's faceplate scales to its window. The page talks
+// to /catalog, /patch and /op; the graph stays the truth.
 (() => {
   const svg = document.getElementById("graph");
   const palette = document.getElementById("palette");
   const params = document.getElementById("params");
   const NS = "http://www.w3.org/2000/svg";
 
+  const BASE_W = 240;
+  const BASE_H = 170;
+
   let catalog = [];
   let patch = { nodes: [], edges: [], mods: [] };
   let selected = null;
   let selectedEdge = null;
   let selectedMod = null;
-  let view = { x: 210, y: 40, zoom: 1 };
+  let view = { x: 230, y: 30, zoom: 1 };
   let drag = null;
+  const scales = {};
 
   const kindOf = (id) => catalog.find((kind) => kind.id === id);
   const nodeOf = (id) => patch.nodes.find((node) => node.id === id);
+  const scaleOf = (id) => scales[id] ?? 1;
 
   function el(name, attrs = {}) {
     const node = document.createElementNS(NS, name);
@@ -28,6 +37,11 @@
       x: (event.clientX - rect.left - view.x) / view.zoom,
       y: (event.clientY - rect.top - view.y) / view.zoom,
     };
+  }
+
+  function size(node) {
+    const scale = scaleOf(node.id);
+    return { w: BASE_W * scale, h: BASE_H * scale, scale };
   }
 
   async function load() {
@@ -48,185 +62,27 @@
     draw();
   }
 
-  function nodeSize(node) {
-    const kind = kindOf(node.kind);
-    const ports = Math.max(kind ? kind.inputs.length : 0, kind ? kind.outputs.length : 0);
-    return { w: 132, h: 28 + ports * 16 };
+  // The port circles sit on the card's edge, in base coordinates; the world
+  // point includes the node's own scale.
+  function portY(port, index) {
+    return 44 + 20 * index;
   }
 
   function portXY(node, port, output) {
-    const { w, h } = nodeSize(node);
     const kind = kindOf(node.kind);
     const list = output ? kind.outputs : kind.inputs;
     const index = list.indexOf(port);
+    const { w, scale } = size(node);
     return {
       x: node.x + (output ? w : 0),
-      y: node.y + 26 + 16 * index,
+      y: node.y + portY(port, index) * scale,
     };
   }
 
-  function draw() {
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    const world = el("g", {
-      transform: `translate(${view.x} ${view.y}) scale(${view.zoom})`,
-    });
-    svg.appendChild(world);
-
-    // Wires first, so the nodes sit on top.
-    for (const edge of patch.edges) {
-      const from = nodeOf(edge.from[0]);
-      const to = nodeOf(edge.to[0]);
-      if (!from || !to) continue;
-      const fromKind = kindOf(from.kind);
-      const toKind = kindOf(to.kind);
-      const a = portXY(from, fromKind.outputs[edge.from[1]], true);
-      const b = portXY(to, toKind.inputs[edge.to[1]], false);
-      const mid = (a.x + b.x) / 2;
-      const d = `M ${a.x} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${b.x} ${b.y}`;
-
-      world.appendChild(el("path", { d, class: "wire-hit", "data-edge": patch.edges.indexOf(edge) }));
-      world.appendChild(el("path", {
-        d,
-        class: "wire" + (selectedEdge === patch.edges.indexOf(edge) ? " selected" : ""),
-      }));
-    }
-
-    for (const mod of patch.mods) {
-      const from = nodeOf(mod.from[0]);
-      const to = nodeOf(mod.to[0]);
-      if (!from || !to) continue;
-      const fromKind = kindOf(from.kind);
-      const toKind = kindOf(to.kind);
-      const a = portXY(from, fromKind.outputs[mod.from[1]], true);
-      const b = { x: to.x + 60, y: to.y + nodeSize(to).h - 4 };
-      const d = `M ${a.x} ${a.y} C ${a.x + 60} ${a.y}, ${b.x} ${b.y - 40}, ${b.x} ${b.y}`;
-
-      world.appendChild(el("path", { d, class: "mod-hit", "data-mod": patch.mods.indexOf(mod) }));
-      world.appendChild(el("path", {
-        d,
-        class: "mod" + (selectedMod === patch.mods.indexOf(mod) ? " selected" : ""),
-      }));
-    }
-
-    for (const node of patch.nodes) {
-      const kind = kindOf(node.kind);
-      if (!kind) continue;
-      const { w, h } = nodeSize(node);
-      const group = el("g", { "data-node": node.id, transform: `translate(${node.x} ${node.y})` });
-      group.appendChild(el("rect", {
-        class: "node" + (selected === node.id ? " selected" : ""),
-        width: w, height: h, rx: 5,
-      }));
-      const name = el("text", { class: "node-name", x: 8, y: 15 });
-      name.textContent = kind.name;
-      group.appendChild(name);
-
-      kind.inputs.forEach((port, index) => {
-        const circle = el("circle", {
-          "data-port": "in", "data-index": index, cx: 0, cy: 26 + index * 16, r: 5,
-          class: "port " + port.kind,
-        });
-        group.appendChild(circle);
-        const label = el("text", { class: "port-label", x: 8, y: 29 + index * 16 });
-        label.textContent = port.name;
-        group.appendChild(label);
-      });
-
-      kind.outputs.forEach((port, index) => {
-        const circle = el("circle", {
-          "data-port": "out", "data-index": index, cx: w, cy: 26 + index * 16, r: 5,
-          class: "port " + port.kind,
-        });
-        group.appendChild(circle);
-        const label = el("text", { class: "port-label", x: w - 8, y: 29 + index * 16, "text-anchor": "end" });
-        label.textContent = port.name;
-        group.appendChild(label);
-      });
-
-      if (drag && drag.kind === "port" && drag.control && drag.output && node.id !== drag.id) {
-        kind.params.forEach(([key, value], row) => {
-          const y = h + 6 + row * 16;
-          group.appendChild(el("rect", {
-            class: "drop-row", x: -6, y, width: w + 12, height: 14, rx: 3,
-          }));
-          const text = el("text", { class: "drop-label", x: 6, y: y + 11 });
-          text.textContent = key;
-          group.appendChild(text);
-          const id = `${node.id}:${key}:${value}`;
-          const hit = el("rect", {
-            x: -6, y, width: w + 12, height: 14, fill: "transparent", "data-mod-target": id,
-          });
-          group.appendChild(hit);
-        });
-      }
-
-      world.appendChild(group);
-    }
-
-    drawPalette();
-  }
-
-  function drawPalette() {
-    palette.innerHTML = "<h3>Add node</h3>";
-    for (const kind of catalog) {
-      const button = document.createElement("button");
-      button.className = "kind";
-      button.textContent = kind.name;
-      button.onclick = () => {
-        const rect = svg.getBoundingClientRect();
-        const x = (rect.width / 2 - view.x) / view.zoom - 60;
-        const y = (rect.height / 2 - view.y) / view.zoom - 20;
-        op({ op: "add", kind: kind.id, x: Math.round(x), y: Math.round(y) });
-      };
-      palette.appendChild(button);
-    }
-  }
-
-  function drawParams(node) {
-    params.innerHTML = "";
-    const kind = kindOf(node.kind);
-    if (!kind) { params.style.display = "none"; return; }
-    params.style.display = "block";
-    const title = document.createElement("h3");
-    title.textContent = kind.name;
-    params.appendChild(title);
-
-    for (const [key, value] of kind.params) {
-      const label = document.createElement("label");
-      label.textContent = key;
-      params.appendChild(label);
-      const input = document.createElement("input");
-      input.type = "range";
-      input.min = "0";
-      input.max = String(Math.max(2, Math.abs(value) * 4));
-      input.step = "0.001";
-      input.value = String(node.params[key] ?? value);
-      const readout = document.createElement("span");
-      readout.className = "value";
-      readout.textContent = input.value;
-      input.oninput = () => { readout.textContent = input.value; };
-      input.onchange = () => op({ op: "param", id: node.id, key, value: Number(input.value) });
-      params.appendChild(input);
-      params.appendChild(readout);
-    }
-  }
-
-  let card = null;
-
-  function openCard(id) {
-    card = id;
-    drawCard();
-  }
-
-  function closeCard() {
-    card = null;
-    document.getElementById("card").style.display = "none";
-  }
-
-  /// The biquad lowpass response, in dB, at a frequency.
-  function filterMagnitude(node, frequency, rate) {
-    const cutoff = Math.min(Math.max(node.params.cutoff ?? 2000, 20), rate * 0.45);
-    const q = Math.min(Math.max(node.params.resonance ?? 0.707, 0.3), 10);
+  // The biquad lowpass response, in dB, at a frequency.
+  function filterMagnitude(state, frequency, rate) {
+    const cutoff = Math.min(Math.max(state.cutoff ?? 2000, 20), rate * 0.45);
+    const q = Math.min(Math.max(state.resonance ?? 0.707, 0.3), 10);
     const w0 = 2 * Math.PI * cutoff / rate;
     const alpha = Math.sin(w0) / (2 * q);
     const cos = Math.cos(w0);
@@ -239,206 +95,248 @@
     const w = 2 * Math.PI * frequency / rate;
     const c1 = Math.cos(w), s1 = Math.sin(w);
     const c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
-    const numRe = b0 + b1 * c1 + b2 * c2;
-    const numIm = -(b1 * s1 + b2 * s2);
-    const denRe = 1 + a1 * c1 + a2 * c2;
-    const denIm = -(a1 * s1 + a2 * s2);
-    const num = Math.hypot(numRe, numIm);
-    const den = Math.hypot(denRe, denIm);
+    const num = Math.hypot(b0 + b1 * c1 + b2 * c2, -(b1 * s1 + b2 * s2));
+    const den = Math.hypot(1 + a1 * c1 + a2 * c2, -(a1 * s1 + a2 * s2));
     return 20 * Math.log10(num / Math.max(den, 1e-9));
   }
 
-  function knob(label, value, min, max, step, format, onInput) {
-    const wrap = document.createElement("div");
-    wrap.className = "knob";
+  function draw() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-    const svg = document.createElementNS(NS, "svg");
-    svg.setAttribute("width", "64");
-    svg.setAttribute("height", "64");
-    svg.setAttribute("viewBox", "0 0 64 64");
-
-    const ring = document.createElementNS(NS, "circle");
-    ring.setAttribute("cx", "32");
-    ring.setAttribute("cy", "32");
-    ring.setAttribute("r", "24");
-    ring.setAttribute("fill", "none");
-    ring.setAttribute("stroke", "#333");
-    ring.setAttribute("stroke-width", "4");
-    svg.appendChild(ring);
-
-    const arc = document.createElementNS(NS, "circle");
-    arc.setAttribute("cx", "32");
-    arc.setAttribute("cy", "32");
-    arc.setAttribute("r", "24");
-    arc.setAttribute("fill", "none");
-    arc.setAttribute("stroke", "#e07a2f");
-    arc.setAttribute("stroke-width", "4");
-    arc.setAttribute("stroke-linecap", "round");
-    arc.setAttribute("transform", "rotate(135 32 32)");
-    svg.appendChild(arc);
-
-    const text = document.createElement("div");
-    text.className = "knob-label";
-    text.textContent = label;
-
-    const readout = document.createElement("div");
-    readout.className = "knob-value";
-
-    const paint = (value) => {
-      const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
-      const dash = 2 * Math.PI * 24 * 0.75;
-      arc.setAttribute("stroke-dasharray", `${dash * t} ${dash}`);
-      readout.textContent = format(value);
-    };
-
-    paint(value);
-
-    svg.addEventListener("pointerdown", (start) => {
-      start.preventDefault();
-      const y0 = start.clientY;
-      const v0 = value;
-
-      const move = (event) => {
-        const span = max - min;
-        let next = v0 + ((y0 - event.clientY) / 140) * span;
-        next = Math.min(max, Math.max(min, next));
-        if (step > 0) next = Math.round(next / step) * step;
-        value = next;
-        paint(next);
-        onInput(next);
-      };
-
-      const up = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-      };
-
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
+    const world = el("g", {
+      transform: `translate(${view.x} ${view.y}) scale(${view.zoom})`,
     });
+    svg.appendChild(world);
 
-    wrap.appendChild(svg);
-    wrap.appendChild(text);
-    wrap.appendChild(readout);
+    for (const edge of patch.edges) {
+      const from = nodeOf(edge.from[0]);
+      const to = nodeOf(edge.to[0]);
+      if (!from || !to) continue;
+      const a = portXY(from, kindOf(from.kind).outputs[edge.from[1]], true);
+      const b = portXY(to, kindOf(to.kind).inputs[edge.to[1]], false);
+      const mid = (a.x + b.x) / 2;
+      const d = `M ${a.x} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${b.x} ${b.y}`;
+      const index = patch.edges.indexOf(edge);
 
-    return wrap;
+      world.appendChild(el("path", { d, class: "wire-hit", "data-edge": index }));
+      world.appendChild(el("path", {
+        d,
+        class: "wire" + (selectedEdge === index ? " selected" : ""),
+      }));
+    }
+
+    for (const mod of patch.mods) {
+      const from = nodeOf(mod.from[0]);
+      const to = nodeOf(mod.to[0]);
+      if (!from || !to) continue;
+      const a = portXY(from, kindOf(from.kind).outputs[mod.from[1]], true);
+      const { w, h } = size(to);
+      const b = { x: to.x + w * 0.5, y: to.y + h };
+      const d = `M ${a.x} ${a.y} C ${a.x + 60} ${a.y}, ${b.x} ${b.y - 50}, ${b.x} ${b.y}`;
+      const index = patch.mods.indexOf(mod);
+
+      world.appendChild(el("path", { d, class: "mod-hit", "data-mod": index }));
+      world.appendChild(el("path", {
+        d,
+        class: "mod" + (selectedMod === index ? " selected" : ""),
+      }));
+    }
+
+    for (const node of patch.nodes) {
+      const kind = kindOf(node.kind);
+      if (!kind) continue;
+
+      const { w, h, scale } = size(node);
+      const group = el("g", {
+        "data-node": node.id,
+        transform: `translate(${node.x} ${node.y}) scale(${scale})`,
+      });
+
+      // The card itself.
+      group.appendChild(el("rect", {
+        class: "node" + (selected === node.id ? " selected" : ""),
+        x: 0, y: 0, width: BASE_W, height: BASE_H, rx: 6,
+      }));
+      group.appendChild(el("rect", {
+        x: 0, y: 0, width: BASE_W, height: 22, rx: 6, class: "card-head",
+      }));
+
+      const title = el("text", { class: "node-name", x: 10, y: 15 });
+      title.textContent = kind.name;
+      group.appendChild(title);
+
+      const tag = el("text", { class: "node-kind", x: BASE_W - 10, y: 15, "text-anchor": "end" });
+      tag.textContent = node.kind;
+      group.appendChild(tag);
+
+      drawBody(group, node, kind);
+      drawPorts(group, node, kind);
+
+      // The scale handle, only on the selected card.
+      if (selected === node.id) {
+        group.appendChild(el("rect", {
+          class: "scale-handle", x: BASE_W - 14, y: BASE_H - 14, width: 12, height: 12, rx: 2,
+        }));
+      }
+
+      world.appendChild(group);
+    }
+
+    drawPalette();
   }
 
-  function drawCard() {
-    const panel = document.getElementById("card");
-
-    if (card === null) {
-      panel.style.display = "none";
-      return;
-    }
-
-    const node = nodeOf(card);
-    const kind = node ? kindOf(node.kind) : null;
-
-    if (!node || !kind) {
-      closeCard();
-      return;
-    }
-
-    panel.innerHTML = "";
-    panel.style.display = "block";
-
-    const head = document.createElement("header");
-    const title = document.createElement("span");
-    title.className = "card-title";
-    title.textContent = kind.name;
-    head.appendChild(title);
-
-    const close = document.createElement("button");
-    close.textContent = "×";
-    close.onclick = closeCard;
-    head.appendChild(close);
-    panel.appendChild(head);
-
-    const body = document.createElement("div");
-    body.className = "card-body";
-
+  function drawBody(group, node, kind) {
     if (node.kind === "filter") {
-      const curve = document.createElementNS(NS, "svg");
-      curve.setAttribute("class", "card-curve");
-      curve.setAttribute("viewBox", "0 0 460 150");
+      const width = 216, height = 76;
+      const path = el("path", {
+        fill: "none",
+        stroke: "#4d9dff",
+        "stroke-width": "1.8",
+      });
+      const points = [];
 
-      const width = 460, height = 150;
-      let state = {
-        cutoff: node.params.cutoff ?? 2000,
-        resonance: node.params.resonance ?? 0.707,
-      };
-
-      const path = document.createElementNS(NS, "path");
-      path.setAttribute("fill", "none");
-      path.setAttribute("stroke", "#4d9dff");
-      path.setAttribute("stroke-width", "2");
-      curve.appendChild(path);
-
-      const repaint = () => {
-        const points = [];
-        for (let x = 0; x <= width; x += 2) {
-          const frequency = 20 * Math.pow(1000, x / width);
-          const db = filterMagnitude({ params: state }, frequency, 48000);
-          const y = height * (1 - (Math.max(-48, Math.min(6, db)) + 48) / 54);
-          points.push(`${x},${y.toFixed(1)}`);
-        }
-        path.setAttribute("d", "M " + points.join(" L "));
-      };
-
-      repaint();
-      body.appendChild(curve);
-
-      const knobs = document.createElement("div");
-      knobs.className = "card-knobs";
-
-      knobs.appendChild(knob(
-        "Cutoff",
-        state.cutoff,
-        20,
-        20000,
-        1,
-        (value) => (value >= 1000 ? (value / 1000).toFixed(2) + " kHz" : Math.round(value) + " Hz"),
-        (value) => {
-          state.cutoff = value;
-          repaint();
-          op({ op: "param", id: node.id, key: "cutoff", value });
-        },
-      ));
-      knobs.appendChild(knob(
-        "Resonance",
-        state.resonance,
-        0.3,
-        10,
-        0.01,
-        (value) => value.toFixed(2),
-        (value) => {
-          state.resonance = value;
-          repaint();
-          op({ op: "param", id: node.id, key: "resonance", value });
-        },
-      ));
-      body.appendChild(knobs);
-    } else {
-      body.className += " card-generic";
-
-      for (const [key, fallback] of kind.params) {
-        const label = document.createElement("label");
-        label.textContent = key;
-        body.appendChild(label);
-
-        const input = document.createElement("input");
-        input.type = "range";
-        input.min = "0";
-        input.max = String(Math.max(2, Math.abs(fallback) * 4));
-        input.step = "0.001";
-        input.value = String(node.params[key] ?? fallback);
-        input.onchange = () => op({ op: "param", id: node.id, key, value: Number(input.value) });
-        body.appendChild(input);
+      for (let x = 0; x <= width; x += 2) {
+        const frequency = 20 * Math.pow(1000, x / width);
+        const db = filterMagnitude(node.params, frequency, 48000);
+        const y = height * (1 - (Math.max(-48, Math.min(6, db)) + 48) / 54);
+        points.push(`${12 + x},${30 + y}`);
       }
+
+      path.setAttribute("d", "M " + points.join(" L "));
+      group.appendChild(path);
+      group.appendChild(knob(node, 70, 132, 20, "cutoff", node.params.cutoff ?? 2000, 20, 20000));
+      group.appendChild(knob(node, 170, 132, 20, "resonance", node.params.resonance ?? 0.707, 0.3, 10));
+    } else {
+      const rows = kind.params.slice(0, 6);
+
+      rows.forEach(([key, fallback], index) => {
+        const y = 42 + index * 20;
+        const row = el("g", { "data-mod-target": `${node.id}:${key}` });
+        const label = el("text", { class: "card-param", x: 12, y });
+        label.textContent = key;
+        row.appendChild(label);
+        const value = el("text", { class: "card-value", x: BASE_W - 12, y, "text-anchor": "end" });
+        value.textContent = (node.params[key] ?? fallback).toFixed(2);
+        row.appendChild(value);
+        row.appendChild(el("rect", { x: 6, y: y - 13, width: BASE_W - 12, height: 18, fill: "transparent" }));
+        group.appendChild(row);
+      });
+    }
+  }
+
+  function knob(node, cx, cy, r, key, value, min, max) {
+    const group = el("g", { "data-knob": key, "data-node": node.id, "data-mod-target": `${node.id}:${key}` });
+    group.appendChild(el("circle", { cx, cy, r: r + 3, fill: "transparent" }));
+    group.appendChild(el("circle", { cx, cy, r, fill: "#1a1a1a", stroke: "#333", "stroke-width": 2 }));
+
+    const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
+    const angle = -135 + 270 * t;
+    const arc = el("path", {
+      d: describeArc(cx, cy, r, -135, angle),
+      fill: "none",
+      stroke: "#e07a2f",
+      "stroke-width": 3,
+      "stroke-linecap": "round",
+    });
+    group.appendChild(arc);
+
+    const text = el("text", { class: "card-value", x: cx, y: cy + 34, "text-anchor": "middle" });
+    text.textContent = formatKnob(key, value);
+    group.appendChild(text);
+
+    return group;
+  }
+
+  function describeArc(cx, cy, r, from, to) {
+    const start = polar(cx, cy, r, to);
+    const end = polar(cx, cy, r, from);
+    const large = Math.abs(to - from) <= 180 ? "0" : "1";
+
+    return `M ${start.x} ${start.y} A ${r} ${r} 0 ${large} 0 ${end.x} ${end.y}`;
+  }
+
+  function polar(cx, cy, r, angle) {
+    const radians = (angle - 90) * Math.PI / 180;
+    return { x: cx + r * Math.cos(radians), y: cy + r * Math.sin(radians) };
+  }
+
+  function formatKnob(key, value) {
+    if (key === "cutoff") {
+      return value >= 1000 ? (value / 1000).toFixed(2) + "k" : Math.round(value) + "";
     }
 
-    panel.appendChild(body);
+    return value.toFixed(2);
+  }
+
+  function drawPorts(group, node, kind) {
+    kind.inputs.forEach((port, index) => {
+      const y = portY(port, index);
+      group.appendChild(el("circle", {
+        "data-port": "in", "data-index": index, cx: 0, cy: y, r: 5,
+        class: "port " + port.kind,
+      }));
+      const label = el("text", { class: "port-label", x: 8, y: y + 3 });
+      label.textContent = port.name;
+      group.appendChild(label);
+    });
+
+    kind.outputs.forEach((port, index) => {
+      const y = portY(port, index);
+      group.appendChild(el("circle", {
+        "data-port": "out", "data-index": index, cx: BASE_W, cy: y, r: 5,
+        class: "port " + port.kind,
+      }));
+      const label = el("text", { class: "port-label", x: BASE_W - 8, y: y + 3, "text-anchor": "end" });
+      label.textContent = port.name;
+      group.appendChild(label);
+    });
+  }
+
+  function drawPalette() {
+    palette.innerHTML = "<h3>Add node</h3>";
+
+    for (const kind of catalog) {
+      const button = document.createElement("button");
+      button.className = "kind";
+      button.textContent = kind.name;
+      button.onclick = () => {
+        const rect = svg.getBoundingClientRect();
+        const x = (rect.width / 2 - view.x) / view.zoom - BASE_W / 2;
+        const y = (rect.height / 2 - view.y) / view.zoom - BASE_H / 2;
+        op({ op: "add", kind: kind.id, x: Math.round(x), y: Math.round(y) });
+      };
+      palette.appendChild(button);
+    }
+  }
+
+  function drawParams(node) {
+    params.innerHTML = "";
+    const kind = kindOf(node.kind);
+
+    if (!kind) {
+      params.style.display = "none";
+      return;
+    }
+
+    params.style.display = "block";
+    const title = document.createElement("h3");
+    title.textContent = kind.name;
+    params.appendChild(title);
+
+    for (const [key, fallback] of kind.params) {
+      const label = document.createElement("label");
+      label.textContent = key;
+      params.appendChild(label);
+
+      const input = document.createElement("input");
+      input.type = "range";
+      input.min = "0";
+      input.max = String(Math.max(2, Math.abs(fallback) * 4));
+      input.step = "0.001";
+      input.value = String(node.params[key] ?? fallback);
+      input.onchange = () => op({ op: "param", id: node.id, key, value: Number(input.value) });
+      params.appendChild(input);
+    }
   }
 
   function drawModParams(index) {
@@ -488,15 +386,25 @@
     params.appendChild(readout);
   }
 
-  svg.addEventListener("dblclick", (event) => {
-    const nodeEl = event.target.closest("[data-node]");
-
-    if (nodeEl) openCard(Number(nodeEl.getAttribute("data-node")));
-  });
-
   svg.addEventListener("pointerdown", (event) => {
+    const knobEl = event.target.closest("[data-knob]");
     const wire = event.target.closest("[data-edge]");
     const mod = event.target.closest("[data-mod]");
+
+    if (knobEl) {
+      const id = Number(knobEl.getAttribute("data-node"));
+      const key = knobEl.getAttribute("data-knob");
+      const node = nodeOf(id);
+
+      drag = {
+        kind: "knob", id, key,
+        startY: event.clientY,
+        start: node.params[key] ?? 0,
+        min: key === "cutoff" ? 20 : 0.3,
+        max: key === "cutoff" ? 20000 : 10,
+      };
+      return;
+    }
 
     if (wire) {
       selected = null;
@@ -534,11 +442,19 @@
 
     if (nodeEl) {
       const id = Number(nodeEl.getAttribute("data-node"));
-      selected = id;
+      const point = toWorld(event);
       const node = nodeOf(id);
+
+      selected = id;
       draw();
       drawParams(node);
-      const point = toWorld(event);
+
+      // The scale handle scales the card, not moves it.
+      if (event.target.closest(".scale-handle")) {
+        drag = { kind: "scale", id, start: scaleOf(id), from: point };
+        return;
+      }
+
       drag = { kind: "node", id, dx: point.x - node.x, dy: point.y - node.y };
       return;
     }
@@ -558,6 +474,19 @@
       node.x = Math.round(point.x - drag.dx);
       node.y = Math.round(point.y - drag.dy);
       draw();
+    } else if (drag.kind === "knob") {
+      const node = nodeOf(drag.id);
+      const span = drag.max - drag.min;
+      let value = drag.start + ((drag.startY - event.clientY) / 120) * span;
+      value = Math.min(drag.max, Math.max(drag.min, value));
+      if (drag.key === "cutoff") value = Math.round(value);
+      node.params[drag.key] = value;
+      draw();
+    } else if (drag.kind === "scale") {
+      const point = toWorld(event);
+      const scale = Math.min(2.2, Math.max(0.45, drag.start * (1 + (point.x - drag.from.x) / 160)));
+      scales[drag.id] = scale;
+      draw();
     } else if (drag.kind === "pan") {
       view.x = drag.vx + (event.clientX - drag.x);
       view.y = drag.vy + (event.clientY - drag.y);
@@ -574,18 +503,34 @@
       const point = toWorld(event);
       const node = nodeOf(drag.id);
       op({ op: "move", id: node.id, x: node.x, y: node.y });
-    } else if (drag.kind === "pan") {
-      // nothing to save
+    } else if (drag.kind === "knob") {
+      const node = nodeOf(drag.id);
+      op({ op: "param", id: node.id, key: drag.key, value: node.params[drag.key] });
+    } else if (drag.kind === "scale") {
+      // The scale is a page affordance, not part of the patch.
     } else if (drag.kind === "port" && drag.control && drag.output) {
-      const target = event.target.closest("[data-mod-target]");
+      const row = event.target.closest("[data-mod-target]");
+      const target = event.target.closest("[data-node]");
 
-      if (target) {
-        const [id, key, fallback] = target.getAttribute("data-mod-target").split(":");
-        const depth = Math.max(0.1, Math.abs(Number(fallback)) * 0.5);
-        op({ op: "modulate", from: [drag.id, drag.index], to: [Number(id), key], depth });
+      let id = null;
+      let key = null;
+
+      if (row) {
+        [id, key] = row.getAttribute("data-mod-target").split(":");
+        id = Number(id);
+      } else if (target && Number(target.getAttribute("data-node")) !== drag.id) {
+        id = Number(target.getAttribute("data-node"));
+        key = kindOf(nodeOf(id).kind).params[0]?.[0] ?? null;
+      }
+
+      if (id !== null && key) {
+        const fallback = kindOf(nodeOf(id).kind).params.find(([name]) => name === key)?.[1] ?? 1;
+        const depth = Math.max(0.1, Math.abs(fallback) * 0.5);
+        op({ op: "modulate", from: [drag.id, drag.index], to: [id, key], depth });
       }
     } else if (drag.kind === "port") {
       const port = event.target.closest("[data-port]");
+
       if (port) {
         const nodeEl = event.target.closest("[data-node]");
         const id = Number(nodeEl.getAttribute("data-node"));
