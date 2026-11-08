@@ -26,6 +26,28 @@ impl From<CompileError> for EngineError {
 	}
 }
 
+/// A short ring that holds one edge back, so a diamond's paths meet.
+struct DelayLine {
+	buffer: Vec<[f32; 2]>,
+	write: usize,
+}
+
+impl DelayLine {
+	fn new(frames: usize) -> Self {
+		Self {
+			buffer: vec![[0.0; 2]; frames.max(1)],
+			write: 0,
+		}
+	}
+
+	fn next(&mut self, input: [f32; 2]) -> [f32; 2] {
+		let output = self.buffer[self.write];
+		self.buffer[self.write] = input;
+		self.write = (self.write + 1) % self.buffer.len();
+		output
+	}
+}
+
 /// One control assignment, resolved to steps.
 struct Link {
 	source: usize,
@@ -45,7 +67,8 @@ pub struct Engine {
 	nodes: Vec<Box<dyn BlockNode>>,
 	outputs: Vec<Vec<Buffer>>,
 	inputs: Vec<Vec<Buffer>>,
-	edges: Vec<Vec<(usize, usize, usize)>>,
+	edges: Vec<Vec<(usize, usize, usize, usize)>>,
+	lines: Vec<Vec<Option<DelayLine>>>,
 	links: Vec<Link>,
 	steps: std::collections::BTreeMap<NodeId, usize>,
 	previous: Vec<Vec<f32>>,
@@ -74,6 +97,8 @@ impl Engine {
 		let mut outputs = Vec::with_capacity(plan.order.len());
 		let mut inputs = Vec::with_capacity(plan.order.len());
 		let mut edges = vec![Vec::new(); plan.order.len()];
+		let mut lines: Vec<Vec<Option<DelayLine>>> =
+			(0..plan.order.len()).map(|_| Vec::new()).collect();
 		let mut controls = Vec::with_capacity(plan.order.len());
 		let mut base = Vec::with_capacity(plan.order.len());
 		let mut output_step = None;
@@ -116,10 +141,16 @@ impl Engine {
 			}
 		}
 
-		for edge in &graph.edges {
+		for (index, edge) in graph.edges.iter().enumerate() {
 			let from = steps[&edge.from.0];
 			let to = steps[&edge.to.0];
-			edges[to].push((edge.to.1, from, edge.from.1));
+			let delay = plan.delays.get(index).copied().unwrap_or(0);
+			edges[to].push((edge.to.1, from, edge.from.1, delay));
+			lines[to].push(if delay > 0 {
+				Some(DelayLine::new(delay))
+			} else {
+				None
+			});
 		}
 
 		let latency = output_step
@@ -171,6 +202,7 @@ impl Engine {
 			outputs,
 			inputs,
 			edges,
+			lines,
 			links,
 			steps: step_map,
 			previous,
@@ -364,9 +396,27 @@ impl Engine {
 				*buffer = buffer.silent_of(frames);
 			}
 
-			for (port, from, from_port) in &self.edges[step] {
-				let source = self.outputs[*from][*from_port];
-				self.inputs[step][*port].add(&source);
+			for index in 0..self.edges[step].len() {
+				let (port, from, from_port, delay) = self.edges[step][index];
+				let source = self.outputs[from][from_port];
+
+				if delay == 0 {
+					self.inputs[step][port].add(&source);
+					continue;
+				}
+
+				if let Some(line) = &mut self.lines[step][index]
+					&& let (Buffer::Audio(src), Buffer::Audio(input)) =
+						(&source, &mut self.inputs[step][port])
+				{
+					for frame in 0..frames {
+						let delayed = line.next(src.frame(frame));
+						input.channels[0][frame] += delayed[0];
+						input.channels[1][frame] += delayed[1];
+					}
+
+					input.frames = frames;
+				}
 			}
 
 			let node = &mut self.nodes[step];
@@ -510,6 +560,34 @@ mod tests {
 		graph.modulate((lfo, 0), (filter, "cutoff"), 400.0);
 
 		graph
+	}
+
+	#[test]
+	fn a_short_path_is_delayed_to_align() {
+		let mut graph = Graph::new();
+		let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+		let delay = graph.add_node("delay", (100.0, 0.0)).expect("delay");
+		let mixer = graph.add_node("mixer", (200.0, 0.0)).expect("mixer");
+		let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+		graph.connect((input, 0), (mixer, 0));
+		graph.connect((input, 0), (delay, 0));
+		graph.connect((delay, 0), (mixer, 1));
+		graph.connect((mixer, 0), (out, 0));
+
+		let mut engine = Engine::new(&graph, 48_000).expect("builds");
+		assert_eq!(engine.latency(), 64);
+
+		let mut first = vec![[0.0f32; 2]; BLOCK];
+		first[0] = [1.0, 1.0];
+		let mut block = vec![[0.0f32; 2]; BLOCK];
+		engine.process(&first, &[], &mut block);
+		assert!(block.iter().all(|frame| frame[0].abs() < 1e-6));
+
+		let silence = vec![[0.0f32; 2]; BLOCK];
+		engine.process(&silence, &[], &mut block);
+		// Both paths arrive together, and the short one was padded to meet the
+		// delayed one.
+		assert!((block[0][0] - 2.0).abs() < 1e-6, "got {}", block[0][0]);
 	}
 
 	#[test]

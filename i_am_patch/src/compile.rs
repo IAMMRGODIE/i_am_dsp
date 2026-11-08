@@ -59,13 +59,6 @@ pub enum CompileError {
 		/// The target node.
 		to: NodeId,
 	},
-	/// Two paths into one node arrive with different latencies.
-	UnequalLatency {
-		/// The node whose inputs disagree.
-		node: NodeId,
-		/// The two latencies, in frames.
-		latencies: [usize; 2],
-	},
 }
 
 impl std::fmt::Display for CompileError {
@@ -107,11 +100,6 @@ impl std::fmt::Display for CompileError {
 			Self::UnknownParam { node, param } => {
 				write!(formatter, "node {} has no parameter {param}", node.0)
 			}
-			Self::UnequalLatency { node, latencies } => write!(
-				formatter,
-				"node {} receives {} and {} frames on different inputs",
-				node.0, latencies[0], latencies[1]
-			),
 		}
 	}
 }
@@ -127,6 +115,9 @@ pub struct Plan {
 	pub latency: BTreeMap<NodeId, usize>,
 	/// The validated modulation assignments.
 	pub modulations: Vec<crate::graph::ModulationLink>,
+	/// Frames of compensation for each graph edge, in the graph's edge order:
+	/// the short paths into a node are delayed to meet its longest input.
+	pub delays: Vec<usize>,
 	/// The nodes inside a voice group, which restart on every note.
 	pub retrigger: Vec<NodeId>,
 }
@@ -275,51 +266,39 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 
 	// Latency: every input of a node must arrive at the same frame.
 	let mut latency: BTreeMap<NodeId, usize> = BTreeMap::new();
+	let mut delays = vec![0; graph.edges.len()];
 
 	for id in &order {
 		let node = nodes.get(id).expect("a node in the order");
-		let mut port_latencies: Vec<Option<usize>> = vec![None; node.kind.inputs.len()];
 
-		for edge in &graph.edges {
-			if edge.to.0 != *id {
-				continue;
-			}
+		// The longest input wins; the shorter ones are delayed to meet it, so a
+		// diamond does not have to be built out of equal-length paths.
+		let target = graph
+			.edges
+			.iter()
+			.filter(|edge| edge.to.0 == *id)
+			.map(|edge| latency[&edge.from.0])
+			.max()
+			.unwrap_or(0);
 
-			let from = *latency.get(&edge.from.0).expect("an earlier node");
-			let slot = &mut port_latencies[edge.to.1];
-
-			match slot {
-				Some(existing) if *existing != from => {
-					return Err(CompileError::UnequalLatency {
-						node: *id,
-						latencies: [*existing, from],
-					});
-				}
-				Some(_) => {}
-				None => *slot = Some(from),
+		for (index, edge) in graph.edges.iter().enumerate() {
+			if edge.to.0 == *id {
+				let source = latency
+					.get(&edge.from.0)
+					.copied()
+					.expect("an earlier node");
+				delays[index] = target - source;
 			}
 		}
 
-		// Every input of the same node has to arrive at the same frame, not
-		// only the edges that share one port.
-		let mut inputs = port_latencies.iter().flatten().copied();
-		let first = inputs.next().unwrap_or(0);
-		let last = inputs.fold(first, |a, b| a.max(b));
-
-		if first != last {
-			return Err(CompileError::UnequalLatency {
-				node: *id,
-				latencies: [first.min(last), last],
-			});
-		}
-
-		latency.insert(*id, last + node.kind.latency);
+		latency.insert(*id, target + node.kind.latency);
 	}
 
 	Ok(Plan {
 		order,
 		latency,
 		modulations: graph.modulations.clone(),
+		delays,
 		retrigger: group.into_iter().collect(),
 	})
 }
@@ -492,7 +471,7 @@ mod tests {
 	}
 
 	#[test]
-	fn inputs_must_arrive_at_the_same_frame() {
+	fn a_short_path_is_delayed_to_meet_the_long_one() {
 		let mut graph = Graph::new();
 		let generator = graph.add_node("gen:additive", (0.0, 0.0)).expect("gen");
 		let delay = graph.add_node("delay", (100.0, 0.0)).expect("delay");
@@ -501,10 +480,10 @@ mod tests {
 		graph.connect((generator, 0), (delay, 0));
 		graph.connect((delay, 0), (mixer, 1));
 
-		assert!(matches!(
-			compile(&graph),
-			Err(CompileError::UnequalLatency { latencies: [0, 64], .. })
-		));
+		let plan = compile(&graph).expect("the short path is delayed");
+		assert_eq!(plan.latency[&mixer], 64);
+		// Edges in graph order: generator to mixer, generator to delay, delay to mixer.
+		assert_eq!(plan.delays, vec![64, 0, 0]);
 	}
 
 	#[test]
