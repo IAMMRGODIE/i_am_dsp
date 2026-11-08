@@ -25,8 +25,30 @@
 
   const cards = {};
 
+  function sourceName(id) {
+    const source = nodeOf(id);
+    const kind = source ? kindOf(source.kind) : null;
+    return kind ? kind.name : "source";
+  }
+
+  function modsOf(id) {
+    return patch.mods
+      .map((mod, index) => ({ slot: index, from: mod.from, to: mod.to, depth: mod.depth }))
+      .filter((mod) => mod.to[0] === id);
+  }
+
   function filterCard(node, kind, w, h) {
     let entry = cards[node.id];
+    const mods = modsOf(node.id);
+    const key = JSON.stringify(
+      mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000)]),
+    );
+
+    if (entry && entry.key !== key) {
+      entry.host.remove();
+      delete cards[node.id];
+      entry = null;
+    }
 
     if (entry) {
       entry.host.style.setProperty(
@@ -40,21 +62,37 @@
       const specs = (kind.controls && kind.controls.length ? kind.controls : [
         { id: "cutoff", label: "Cutoff", kind: "float", min: 20, max: 20000, default: 1000, unit: "hz", log: true },
         { id: "q", label: "Resonance", kind: "float", min: 0.01, max: 10, default: 0.707 },
-      ]).map((control) => ({
-        id: control.id,
-        label: control.label,
-        kind: control.kind,
-        unit: control.unit,
-        min: control.min,
-        max: control.max,
-        default: control.default,
-        log: control.log,
-        bipolar: control.bipolar,
-        step: control.step,
-        widget: control.widget,
-        size: control.size,
-        choices: control.choices,
-      }));
+      ]).map((control) => {
+        const range = Math.max(1e-9, control.max - control.min);
+        const assignments = mods
+          .filter((mod) => mod.to[1] === control.id)
+          .map((mod) => ({
+            slot: mod.slot,
+            label: sourceName(mod.from[0]),
+            depth: mod.depth / range,
+            mode: "frombase",
+          }));
+
+        return {
+          id: control.id,
+          label: control.label,
+          kind: control.kind,
+          unit: control.unit,
+          min: control.min,
+          max: control.max,
+          default: control.default,
+          log: control.log,
+          bipolar: control.bipolar,
+          step: control.step,
+          widget: control.widget,
+          size: control.size,
+          choices: control.choices,
+          modulations: assignments,
+          onModulation: (slot, next) => {
+            op({ op: "mod_depth", index: slot, depth: next * range }, false);
+          },
+        };
+      });
 
       const host = document.createElement("div");
       host.className = "card-host";
@@ -66,8 +104,6 @@
       const card = window.IAmCard.create({
         title: "Filter",
         accent: kind.accent || "#e07a2f",
-        // The product's own picture: the response curve now, and the live
-        // spectrum once the canvas can hand it a scope.
         hero: kind.hero || "spectrum",
         mode: kind.mode || null,
         header: kind.header || [],
@@ -84,7 +120,7 @@
       });
       scale.appendChild(card);
       host.appendChild(scale);
-      entry = { host };
+      entry = { host, key };
       cards[node.id] = entry;
       entry.host.style.setProperty(
         "--k",
