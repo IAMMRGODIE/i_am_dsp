@@ -1,0 +1,13 @@
+[package]
+name = "i_am_patch"
+version = "0.1.0"
+edition = "2024"
+
+# The patch graph's shared building blocks: the crossover, the modulation
+# sources and anything else the rack and the patcher both need.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+i_am_dsp = { workspace = true }
+serde = { version = "1.0.229", features = ["derive"] }

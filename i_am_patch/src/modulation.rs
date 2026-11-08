@@ -11,7 +11,7 @@ use i_am_dsp::prelude::{
 	EditableLfo, NoteEvent, PitchTracker, ProcessInfos, SyncedTime, WaveTable,
 };
 
-use crate::state::{SourceKind, SourceSettings, SourceSlot};
+use crate::sources::{SourceKind, SourceSettings, SourceSlot};
 
 /// How many samples one modulation update covers.
 pub const CONTROL_INTERVAL: usize = 64;
@@ -213,7 +213,7 @@ impl SourceRuntime {
 }
 
 /// The live source set.
-pub(crate) struct Modulation {
+pub struct Modulation {
 	rate: usize,
 	counter: usize,
 	sources: Vec<SourceRuntime>,

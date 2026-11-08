@@ -115,7 +115,7 @@ impl Crossover {
 }
 
 /// Keeps the split points inside the band the filters can be designed for.
-pub(crate) fn sanitize(sample_rate: usize, low_hz: f32, high_hz: f32) -> (f32, f32) {
+pub fn sanitize(sample_rate: usize, low_hz: f32, high_hz: f32) -> (f32, f32) {
 	let nyquist = sample_rate as f32 * 0.49;
 	let low_hz = low_hz.clamp(20.0, nyquist * 0.25);
 	let high_hz = high_hz.clamp(low_hz * 1.5, nyquist);

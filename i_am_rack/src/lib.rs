@@ -13,9 +13,13 @@
 //! comparison and the macro names are part of the state itself, so a project
 //! save carries them without adding a single host parameter.
 
-mod crossover;
+pub mod crossover {
+	pub use i_am_patch::crossover::*;
+}
 mod engine;
-mod modulation;
+pub(crate) mod modulation {
+	pub(crate) use i_am_patch::modulation::*;
+}
 mod module;
 mod script;
 mod shared;
