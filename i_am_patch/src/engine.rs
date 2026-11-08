@@ -55,6 +55,7 @@ pub struct Engine {
 	controls: Vec<Vec<f32>>,
 	base: Vec<BTreeMap<&'static str, f32>>,
 	output_step: Option<usize>,
+	latency: usize,
 }
 
 impl Engine {
@@ -121,6 +122,11 @@ impl Engine {
 			edges[to].push((edge.to.1, from, edge.from.1));
 		}
 
+		let latency = output_step
+			.and_then(|step| plan.latency.get(&plan.order[step]))
+			.copied()
+			.unwrap_or(0);
+
 		let links: Vec<Link> = plan
 			.modulations
 			.iter()
@@ -174,7 +180,13 @@ impl Engine {
 			controls,
 			base,
 			output_step,
+			latency,
 		})
+	}
+
+	/// How many frames the graph itself delays its output.
+	pub fn latency(&self) -> usize {
+		self.latency
 	}
 
 	/// Writes one node's output block, before the plan runs.
@@ -498,6 +510,32 @@ mod tests {
 		graph.modulate((lfo, 0), (filter, "cutoff"), 400.0);
 
 		graph
+	}
+
+	#[test]
+	fn a_delay_node_reports_its_latency() {
+		let chain = |delays: usize| {
+			let mut graph = Graph::new();
+			let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+			let mut last = input;
+			let mut x = 100.0;
+
+			for _ in 0..delays {
+				let delay = graph.add_node("delay", (x, 0.0)).expect("delay");
+				graph.connect((last, 0), (delay, 0));
+				last = delay;
+				x += 100.0;
+			}
+
+			let out = graph.add_node("out:audio", (x, 0.0)).expect("out");
+			graph.connect((last, 0), (out, 0));
+
+			Engine::new(&graph, 48_000).expect("builds").latency()
+		};
+
+		assert_eq!(chain(0), 0);
+		assert_eq!(chain(1), 64);
+		assert_eq!(chain(2), 128);
 	}
 
 	#[test]

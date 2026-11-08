@@ -30,6 +30,7 @@ pub struct Poly {
 	voice_graph: Graph,
 	rate: usize,
 	out: NodeId,
+	voice_latency: usize,
 	voices: Vec<Voice>,
 }
 
@@ -120,13 +121,23 @@ impl Poly {
 			}
 		}
 
+		let voice_latency = crate::compile::compile(&voice_graph)
+			.map(|plan| plan.latency.get(&out_id).copied().unwrap_or(0))
+			.unwrap_or(0);
+
 		Ok(Self {
 			outer: Engine::new(&outer, rate)?,
 			voice_graph,
 			rate,
 			out,
+			voice_latency,
 			voices: Vec::new(),
 		})
+	}
+
+	/// How many frames the outer graph and the voice graph delay the output.
+	pub fn latency(&self) -> usize {
+		self.outer.latency() + self.voice_latency
 	}
 
 	/// Runs one block: notes start voices, the voices are summed and the outer

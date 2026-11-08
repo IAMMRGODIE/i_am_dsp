@@ -17,6 +17,8 @@ pub struct PatcherShared {
 	pub graph: Mutex<Graph>,
 	pub generation: AtomicU64,
 	pub rate: AtomicUsize,
+	/// What the graph delays its output, plus the block buffer.
+	pub latency: AtomicUsize,
 }
 
 impl Default for PatcherShared {
@@ -25,6 +27,7 @@ impl Default for PatcherShared {
 			graph: Mutex::new(demo()),
 			generation: AtomicU64::new(1),
 			rate: AtomicUsize::new(48_000),
+			latency: AtomicUsize::new(0),
 		}
 	}
 }
@@ -49,6 +52,11 @@ impl PatcherShared {
 		*self.graph.lock().expect("the graph lock") = graph;
 		self.bump();
 		true
+	}
+
+	/// The latency a host should compensate for.
+	pub fn latency(&self) -> usize {
+		self.latency.load(Ordering::Relaxed)
 	}
 
 	/// Tells the audio thread the graph changed.
@@ -94,7 +102,7 @@ pub struct Body {
 impl Body {
 	/// A body over the shared graph.
 	pub fn new(shared: Arc<PatcherShared>) -> Self {
-		Self {
+		let mut body = Self {
 			shared,
 			engine: None,
 			poly: None,
@@ -103,7 +111,11 @@ impl Body {
 			output: vec![[0.0; 2]; BLOCK],
 			index: 0,
 			events: Vec::new(),
-		}
+		};
+		// The host asks for the latency before the first block.
+		body.rebuild();
+
+		body
 	}
 
 	fn rebuild(&mut self) {
@@ -118,6 +130,16 @@ impl Body {
 			self.engine = None;
 		}
 
+		let latency = self
+			.poly
+			.as_ref()
+			.map(|poly| poly.latency())
+			.or_else(|| self.engine.as_ref().map(|engine| engine.latency()))
+			.unwrap_or(0);
+
+		self.shared
+			.latency
+			.store(latency + BLOCK, Ordering::Relaxed);
 		self.built = self.shared.generation.load(Ordering::Relaxed);
 	}
 

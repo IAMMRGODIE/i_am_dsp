@@ -105,7 +105,7 @@ macro_rules! product {
 			}
 
 			fn delay(&self) -> usize {
-				i_am_patch::block::BLOCK
+				self.0.shared.latency()
 			}
 
 			fn on_message(&self, _: Self::Message) {}
@@ -200,6 +200,13 @@ mod tests {
 		};
 
 		String::from_utf8(bytes.clone()).expect("utf-8")
+	}
+
+	#[test]
+	fn the_host_is_told_the_latency() {
+		let effect = PatcherEffect::default();
+
+		assert_eq!(effect.delay(), i_am_patch::block::BLOCK);
 	}
 
 	#[test]
