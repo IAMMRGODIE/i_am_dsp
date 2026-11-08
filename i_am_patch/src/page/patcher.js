@@ -488,55 +488,123 @@
     menu.style.display = "none";
   }
 
-  function openMenu(clientX, clientY, world) {
-    const groups = new Map();
+  function placeMenu(clientX, clientY) {
+    menu.style.display = "block";
+    menu.style.left = `${Math.min(clientX, window.innerWidth - 260)}px`;
+    menu.style.top = `${Math.min(clientY, window.innerHeight - 320)}px`;
+  }
 
-    for (const kind of catalog) {
-      const category = categoryOf(kind);
-      if (!groups.has(category)) groups.set(category, []);
-      groups.get(category).push(kind);
-    }
+  function menuButton(label, action) {
+    const item = document.createElement("button");
+    item.className = "menu-item";
+    item.textContent = label;
+    item.onclick = action;
 
+    return item;
+  }
+
+  /// Right-clicking a node offers what can be done to it.
+  function openNodeMenu(nodeId, clientX, clientY) {
+    menu.innerHTML = "";
+    menu.appendChild(menuButton("Duplicate", () => {
+      op({ op: "duplicate", id: nodeId });
+      closeMenu();
+    }));
+    menu.appendChild(menuButton("Delete", () => {
+      op({ op: "remove", id: nodeId });
+      closeMenu();
+    }));
+
+    placeMenu(clientX, clientY);
+  }
+
+  /// Right-clicking the canvas offers the library, with a search box.
+  function openAddMenu(clientX, clientY, world) {
     menu.innerHTML = "";
 
-    for (const category of [...groups.keys()].sort((a, b) => a.localeCompare(b))) {
-      const items = groups.get(category).sort((a, b) => a.name.localeCompare(b.name));
-      const row = document.createElement("div");
-      row.className = "menu-cat";
-      const label = document.createElement("span");
-      label.textContent = category;
-      const arrow = document.createElement("span");
-      arrow.className = "menu-arrow";
-      arrow.textContent = "\u25B8";
-      row.appendChild(label);
-      row.appendChild(arrow);
+    const search = document.createElement("input");
+    search.className = "menu-search";
+    search.placeholder = "Search nodes";
+    menu.appendChild(search);
 
-      const sub = document.createElement("div");
-      sub.className = "menu-sub";
+    const list = document.createElement("div");
+    list.className = "menu-list";
+    menu.appendChild(list);
 
-      for (const kind of items) {
-        const item = document.createElement("button");
-        item.className = "menu-item";
-        item.textContent = kind.name;
-        item.onclick = () => {
-          op({ op: "add", kind: kind.id, x: Math.round(world.x), y: Math.round(world.y) });
-          closeMenu();
-        };
-        sub.appendChild(item);
+    const addAt = (kind) => {
+      op({ op: "add", kind, x: Math.round(world.x), y: Math.round(world.y) });
+      closeMenu();
+    };
+
+    const render = (query) => {
+      list.innerHTML = "";
+      list.classList.toggle("flat", !!query);
+
+      if (query) {
+        const matches = catalog
+          .filter((kind) => kind.name.toLowerCase().includes(query))
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        for (const kind of matches) {
+          list.appendChild(menuButton(kind.name, () => addAt(kind.id)));
+        }
+
+        return;
       }
 
-      row.appendChild(sub);
-      menu.appendChild(row);
-    }
+      const groups = new Map();
 
-    menu.style.display = "block";
-    menu.style.left = `${Math.min(clientX, window.innerWidth - 200)}px`;
-    menu.style.top = `${Math.min(clientY, window.innerHeight - 280)}px`;
+      for (const kind of catalog) {
+        const category = categoryOf(kind);
+        if (!groups.has(category)) groups.set(category, []);
+        groups.get(category).push(kind);
+      }
+
+      for (const category of [...groups.keys()].sort((a, b) => a.localeCompare(b))) {
+        const items = groups.get(category).sort((a, b) => a.name.localeCompare(b.name));
+        const row = document.createElement("div");
+        row.className = "menu-cat";
+        const label = document.createElement("span");
+        label.textContent = category;
+        const arrow = document.createElement("span");
+        arrow.className = "menu-arrow";
+        arrow.textContent = "\u25B8";
+        row.appendChild(label);
+        row.appendChild(arrow);
+
+        const sub = document.createElement("div");
+        sub.className = "menu-sub";
+
+        for (const kind of items) {
+          sub.appendChild(menuButton(kind.name, () => addAt(kind.id)));
+        }
+
+        row.appendChild(sub);
+        list.appendChild(row);
+      }
+    };
+
+    search.oninput = () => render(search.value.trim().toLowerCase());
+    search.onkeydown = (event) => {
+      if (event.key !== "Enter") return;
+      const first = list.querySelector(".menu-item");
+      if (first) first.click();
+    };
+
+    render("");
+    placeMenu(clientX, clientY);
+    search.focus();
   }
 
   svg.addEventListener("contextmenu", (event) => {
     event.preventDefault();
-    openMenu(event.clientX, event.clientY, toWorld(event));
+    const nodeEl = event.target.closest("[data-node]");
+
+    if (nodeEl) {
+      openNodeMenu(Number(nodeEl.getAttribute("data-node")), event.clientX, event.clientY);
+    } else {
+      openAddMenu(event.clientX, event.clientY, toWorld(event));
+    }
   });
 
   document.addEventListener("pointerdown", (event) => {

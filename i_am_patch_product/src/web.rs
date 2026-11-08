@@ -201,6 +201,24 @@ fn op(shared: &PatcherShared, body: &str) -> Value {
 			graph.remove_modulation(value["index"].as_u64().unwrap_or(u64::MAX) as usize);
 			json!({ "ok": true })
 		}
+		"duplicate" => {
+			let source = id(&value["id"]);
+			let Some(node) = graph.get(source).cloned() else {
+				return json!({ "error": "no node" });
+			};
+			let new_id = graph.add_node(
+				node.kind.id,
+				(node.position.0 + 40.0, node.position.1 + 40.0),
+			);
+
+			if let Some(new_id) = new_id {
+				for (key, value) in &node.params {
+					graph.set_param(new_id, key, *value);
+				}
+			}
+
+			json!({ "ok": true, "id": new_id.map(|id| id.0) })
+		}
 		"remove" => {
 			graph.remove_node(id(&value["id"]));
 			json!({ "ok": true })
