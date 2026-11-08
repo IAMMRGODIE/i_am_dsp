@@ -54,44 +54,17 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 .card-value{fill:var(--text1);font-size:10px;font-variant-numeric:tabular-nums;font-family:var(--mono)}
 .scale-handle{fill:var(--accent);stroke:var(--bg);stroke-width:2;cursor:nwse-resize}
 
-.card-host{width:100%; height:100%; --scale:1}
+.card-host{
+  width:100%; height:100%; display:flex;
+  align-items:center; justify-content:center; overflow:hidden;
+}
+/* The card is a faceplate with its own proportions: it scales uniformly to fit
+   the box, so a tall or narrow box letterboxes instead of squeezing the header. */
+.card-host .card-scale{
+  width:520px; height:420px; flex:0 0 520px;
+  transform:scale(var(--k, 1)); transform-origin:center center;
+}
 .card-host .mcard{width:100%; height:100%}
-/* The card is a window: every metric follows --scale and the layout fills the
-   box, the way the product faceplate does. */
-.card-host .mcard-head{
-  min-height:calc(36px * var(--scale));
-  padding:calc(6px * var(--scale)) calc(10px * var(--scale));
-  gap:calc(8px * var(--scale));
-}
-.card-host .mcard-name{font-size:calc(14px * var(--scale))}
-.card-host .mcard-power{
-  width:calc(20px * var(--scale)); height:calc(20px * var(--scale));
-  flex:0 0 calc(20px * var(--scale));
-}
-.card-host .mcard-power svg{width:100%; height:100%}
-.card-host .mcard-collapse{
-  width:calc(20px * var(--scale)); height:calc(20px * var(--scale));
-  font-size:calc(12px * var(--scale));
-}
-.card-host .mcard-select{
-  height:calc(22px * var(--scale));
-  padding:0 calc(20px * var(--scale)) 0 calc(9px * var(--scale));
-  font-size:calc(11px * var(--scale));
-  max-width:calc(110px * var(--scale));
-}
-.card-host .mcard-mode{max-width:calc(110px * var(--scale))}
-.card-host .mcard-hero{
-  flex:1 1 0; height:auto; min-height:calc(60px * var(--scale));
-  margin:calc(8px * var(--scale)) calc(10px * var(--scale)) 0;
-}
-.card-host .mcard-body{
-  flex:0 0 auto;
-  padding:calc(14px * var(--scale)) calc(8px * var(--scale)) calc(16px * var(--scale));
-  gap:calc(8px * var(--scale));
-}
-.card-host .knob svg{width:calc(56px * var(--scale)); height:calc(56px * var(--scale))}
-.card-host .knob-label{font-size:calc(11px * var(--scale))}
-.card-host .knob-value{font-size:calc(12px * var(--scale))}
  * (i_am_web_gui/src/page/card.css), which the build concatenates in front. */
 :root{
   --bg:#1e1e1e; --card:#272727; --header:#2e2e2e; --hero:#1a1a1a;
@@ -156,3 +129,8 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
   transform:scale(var(--k, 1)); transform-origin:center center;
 }
 .card-host .mcard{width:100%; height:100%}
+
+/* A narrow card keeps the header readable: the mode and slope selects stay,
+   their labels step aside. */
+.card-host.compact .mcard-head .label{display:none}
+.card-host.compact .mcard-select{max-width:none; flex:1 1 auto}

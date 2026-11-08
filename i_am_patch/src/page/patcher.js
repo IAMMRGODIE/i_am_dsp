@@ -30,9 +30,10 @@
 
     if (entry) {
       entry.host.style.setProperty(
-        "--scale",
-        String(Math.max(0.3, Math.min(w / 520, h / 420))),
+        "--k",
+        String(Math.max(0.2, Math.min(w / 520, h / 420))),
       );
+      entry.host.classList.toggle("compact", w < 430);
     }
 
     if (!entry) {
@@ -57,6 +58,8 @@
 
       const host = document.createElement("div");
       host.className = "card-host";
+      const scale = document.createElement("div");
+      scale.className = "card-scale";
       const card = window.IAmCard.create({
         title: "Filter",
         accent: kind.accent || "#e07a2f",
@@ -74,13 +77,15 @@
           op({ op: "param", id: node.id, key: identifier, value });
         },
       });
-      host.appendChild(card);
+      scale.appendChild(card);
+      host.appendChild(scale);
       entry = { host };
       cards[node.id] = entry;
       entry.host.style.setProperty(
-        "--scale",
-        String(Math.max(0.3, Math.min(w / 520, h / 420))),
+        "--k",
+        String(Math.max(0.2, Math.min(w / 520, h / 420))),
       );
+      entry.host.classList.toggle("compact", w < 430);
     }
 
     return entry.host;
