@@ -31,7 +31,7 @@
     if (entry) {
       entry.host.style.setProperty(
         "--scale",
-        String(Math.min(2, Math.max(0.5, Math.min(w / BASE_W, h / 420)))),
+        String(Math.max(0.3, Math.min(w / 520, h / 420))),
       );
     }
 
@@ -79,7 +79,7 @@
       cards[node.id] = entry;
       entry.host.style.setProperty(
         "--scale",
-        String(Math.min(2, Math.max(0.5, Math.min(w / BASE_W, h / 420)))),
+        String(Math.max(0.3, Math.min(w / 520, h / 420))),
       );
     }
 
@@ -104,8 +104,12 @@
     };
   }
 
-  // A product card is taller than the plain ones: the filter's six controls
-  // need the room its own faceplate gives them.
+  // A product card is wider and taller than the plain ones: the filter's six
+  // controls need the room its own faceplate gives them.
+  function baseWidth(node) {
+    return node.kind === "filter" ? 520 : BASE_W;
+  }
+
   function baseHeight(node) {
     return node.kind === "filter" ? 420 : BASE_H;
   }
@@ -113,7 +117,7 @@
   function size(node) {
     const scale = scaleOf(node.id);
     return {
-      w: BASE_W * scale.x,
+      w: baseWidth(node) * scale.x,
       h: baseHeight(node) * scale.y,
       sx: scale.x,
       sy: scale.y,
@@ -580,8 +584,8 @@
       draw();
     } else if (drag.kind === "scale") {
       const point = toWorld(event);
-      const sx = Math.min(2.2, Math.max(0.45, drag.start.x * (1 + (point.x - drag.from.x) / 160)));
-      const sy = Math.min(2.2, Math.max(0.45, drag.start.y * (1 + (point.y - drag.from.y) / 120)));
+      const sx = Math.max(0.3, drag.start.x * (1 + (point.x - drag.from.x) / 160));
+      const sy = Math.max(0.3, drag.start.y * (1 + (point.y - drag.from.y) / 120));
       scales[drag.id] = { x: sx, y: sy };
       draw();
     } else if (drag.kind === "pan") {

@@ -23,8 +23,8 @@ fn demo() -> Graph {
 	let generator = graph.add_node("gen:additive", (680.0, 120.0)).expect("gen");
 	let filter = graph.add_node("filter", (1020.0, 120.0)).expect("filter");
 	let lfo = graph.add_node("lfo", (1020.0, 580.0)).expect("lfo");
-	let voice_out = graph.add_node("voice:out", (1360.0, 120.0)).expect("voice out");
-	let out = graph.add_node("out:audio", (1700.0, 120.0)).expect("out");
+	let voice_out = graph.add_node("voice:out", (1620.0, 120.0)).expect("voice out");
+	let out = graph.add_node("out:audio", (1960.0, 120.0)).expect("out");
 	graph.connect((midi, 0), (voice_in, 0));
 	graph.connect((voice_in, 0), (generator, 0));
 	graph.connect((generator, 0), (filter, 0));
