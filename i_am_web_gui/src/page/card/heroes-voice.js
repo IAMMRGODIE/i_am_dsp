@@ -581,7 +581,7 @@
   /// A spectrum-first additive voice: the bars are the partial amplitudes the
   /// tilt, odd/even and formant controls make. Unlike the bent saw, every ratio
   /// is an integer, so the oscillator plays this whole sum from one table.
-  function spectrumHero(values) {
+  function sinesHero(values) {
     var count = Math.round(clamp(valueOf(values, "oscillator.num_sines", 64), 1, 128));
     var tilt = valueOf(values, "oscillator.freq_gen.tilt", 1);
     var odd = clamp(valueOf(values, "oscillator.freq_gen.odd", 0), 0, 1);
@@ -628,7 +628,7 @@
   /// controls. Bars are placed by partial ratio and sized by amplitude.
   function additiveHero(values, context) {
     if (Object.prototype.hasOwnProperty.call(values, "oscillator.freq_gen.tilt")) {
-      return spectrumHero(values);
+      return sinesHero(values);
     }
 
     var script = context && context.script;
@@ -1313,7 +1313,7 @@
   /// The drawn spectrum: the wave Morph makes right now, the levels of the page
   /// it sits on, and that page's start phases. Pages are what Morph fades
   /// between, so the page being edited follows the knob.
-  function spectrumHero(values, context) {
+  function morphSpectrumHero(values, context) {
     var state = context && context.spectrum;
     var frames = state && state.frames;
 
@@ -1411,7 +1411,7 @@
       if (state.set) state.set("oscillator.morph", value);
       else {
         spectrum.generation = (spectrum.generation || 0) + 1;
-        el.innerHTML = spectrumHero(values, { spectrum: spectrum });
+        el.innerHTML = morphSpectrumHero(values, { spectrum: spectrum });
         wireSpectrum(el, "spectrum", values, state);
       }
     };
@@ -1434,7 +1434,7 @@
 
     var redraw = function () {
       spectrum.generation = (spectrum.generation || 0) + 1;
-      el.innerHTML = spectrumHero(values, { spectrum: spectrum });
+      el.innerHTML = morphSpectrumHero(values, { spectrum: spectrum });
       wireSpectrum(el, "spectrum", values, state);
     };
 
