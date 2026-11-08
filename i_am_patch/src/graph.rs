@@ -352,6 +352,13 @@ impl Graph {
 		self.edges.push(Edge { from, to });
 	}
 
+	/// Removes one modulation link by its index.
+	pub fn remove_modulation(&mut self, index: usize) {
+		if index < self.modulations.len() {
+			self.modulations.remove(index);
+		}
+	}
+
 	/// Removes one edge by its index in the edge list.
 	pub fn remove_edge(&mut self, index: usize) {
 		if index < self.edges.len() {

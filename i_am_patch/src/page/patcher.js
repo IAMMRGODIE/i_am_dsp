@@ -8,6 +8,8 @@
   let catalog = [];
   let patch = { nodes: [], edges: [], mods: [] };
   let selected = null;
+  let selectedEdge = null;
+  let selectedMod = null;
   let view = { x: 210, y: 40, zoom: 1 };
   let drag = null;
 
@@ -80,11 +82,13 @@
       const a = portXY(from, fromKind.outputs[edge.from[1]], true);
       const b = portXY(to, toKind.inputs[edge.to[1]], false);
       const mid = (a.x + b.x) / 2;
-      const path = el("path", {
-        d: `M ${a.x} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${b.x} ${b.y}`,
-        class: "wire",
-      });
-      world.appendChild(path);
+      const d = `M ${a.x} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${b.x} ${b.y}`;
+
+      world.appendChild(el("path", { d, class: "wire-hit", "data-edge": patch.edges.indexOf(edge) }));
+      world.appendChild(el("path", {
+        d,
+        class: "wire" + (selectedEdge === patch.edges.indexOf(edge) ? " selected" : ""),
+      }));
     }
 
     for (const mod of patch.mods) {
@@ -95,11 +99,13 @@
       const toKind = kindOf(to.kind);
       const a = portXY(from, fromKind.outputs[mod.from[1]], true);
       const b = { x: to.x + 60, y: to.y + nodeSize(to).h - 4 };
-      const path = el("path", {
-        d: `M ${a.x} ${a.y} C ${a.x + 60} ${a.y}, ${b.x} ${b.y - 40}, ${b.x} ${b.y}`,
-        class: "mod",
-      });
-      world.appendChild(path);
+      const d = `M ${a.x} ${a.y} C ${a.x + 60} ${a.y}, ${b.x} ${b.y - 40}, ${b.x} ${b.y}`;
+
+      world.appendChild(el("path", { d, class: "mod-hit", "data-mod": patch.mods.indexOf(mod) }));
+      world.appendChild(el("path", {
+        d,
+        class: "mod" + (selectedMod === patch.mods.indexOf(mod) ? " selected" : ""),
+      }));
     }
 
     for (const node of patch.nodes) {
@@ -136,6 +142,23 @@
         label.textContent = port.name;
         group.appendChild(label);
       });
+
+      if (drag && drag.kind === "port" && drag.control && drag.output && node.id !== drag.id) {
+        kind.params.forEach(([key, value], row) => {
+          const y = h + 6 + row * 16;
+          group.appendChild(el("rect", {
+            class: "drop-row", x: -6, y, width: w + 12, height: 14, rx: 3,
+          }));
+          const text = el("text", { class: "drop-label", x: 6, y: y + 11 });
+          text.textContent = key;
+          group.appendChild(text);
+          const id = `${node.id}:${key}:${value}`;
+          const hit = el("rect", {
+            x: -6, y, width: w + 12, height: 14, fill: "transparent", "data-mod-target": id,
+          });
+          group.appendChild(hit);
+        });
+      }
 
       world.appendChild(group);
     }
@@ -189,6 +212,25 @@
   }
 
   svg.addEventListener("pointerdown", (event) => {
+    const wire = event.target.closest("[data-edge]");
+    const mod = event.target.closest("[data-mod]");
+
+    if (wire) {
+      selected = null;
+      selectedEdge = Number(wire.getAttribute("data-edge"));
+      selectedMod = null;
+      draw();
+      return;
+    }
+
+    if (mod) {
+      selected = null;
+      selectedEdge = null;
+      selectedMod = Number(mod.getAttribute("data-mod"));
+      draw();
+      return;
+    }
+
     const port = event.target.closest("[data-port]");
     const nodeEl = event.target.closest("[data-node]");
 
@@ -197,10 +239,12 @@
       drag = {
         kind: "port", id,
         output: port.getAttribute("data-port") === "out",
+        control: port.classList.contains("control"),
         index: Number(port.getAttribute("data-index")),
         start: toWorld(event),
         line: null,
       };
+      draw();
       return;
     }
 
@@ -234,6 +278,8 @@
       view.x = drag.vx + (event.clientX - drag.x);
       view.y = drag.vy + (event.clientY - drag.y);
       draw();
+    } else if (drag.kind === "port") {
+      draw();
     }
   });
 
@@ -246,6 +292,14 @@
       op({ op: "move", id: node.id, x: node.x, y: node.y });
     } else if (drag.kind === "pan") {
       // nothing to save
+    } else if (drag.kind === "port" && drag.control && drag.output) {
+      const target = event.target.closest("[data-mod-target]");
+
+      if (target) {
+        const [id, key, fallback] = target.getAttribute("data-mod-target").split(":");
+        const depth = Math.max(0.1, Math.abs(Number(fallback)) * 0.5);
+        op({ op: "modulate", from: [drag.id, drag.index], to: [Number(id), key], depth });
+      }
     } else if (drag.kind === "port") {
       const port = event.target.closest("[data-port]");
       if (port) {
@@ -277,7 +331,15 @@
   }, { passive: false });
 
   window.addEventListener("keydown", (event) => {
-    if ((event.key === "Delete" || event.key === "Backspace") && selected !== null) {
+    if (event.key !== "Delete" && event.key !== "Backspace") return;
+
+    if (selectedEdge !== null) {
+      op({ op: "disconnect", index: selectedEdge });
+      selectedEdge = null;
+    } else if (selectedMod !== null) {
+      op({ op: "unmodulate", index: selectedMod });
+      selectedMod = null;
+    } else if (selected !== null) {
       op({ op: "remove", id: selected });
       selected = null;
       params.style.display = "none";

@@ -183,6 +183,14 @@ fn op(graph: &Arc<Mutex<Graph>>, body: &str) -> Value {
 			graph.remove_node(id(&value["id"]));
 			json!({ "ok": true })
 		}
+		"disconnect" => {
+			graph.remove_edge(value["index"].as_u64().unwrap_or(u64::MAX) as usize);
+			json!({ "ok": true })
+		}
+		"unmodulate" => {
+			graph.remove_modulation(value["index"].as_u64().unwrap_or(u64::MAX) as usize);
+			json!({ "ok": true })
+		}
 		"param" => {
 			let id = id(&value["id"]);
 			let key = value["key"].as_str().unwrap_or("");
