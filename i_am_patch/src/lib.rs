@@ -12,3 +12,4 @@ pub mod crossover;
 pub mod graph;
 pub mod modulation;
 pub mod sources;
+pub mod text;
