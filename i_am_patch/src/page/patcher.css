@@ -1,49 +1,46 @@
-:root{
-  --bg:#121212; --panel:#1b1b1b; --line:#2c2c2c; --text:#d8d8d8; --text2:#8a8a8a;
-  --accent:#e07a2f; --node:#202020; --port:#6c6c6c; --wire:#4a3a2c;
-}
+/* The patcher page. The card and knob tokens come from the shared stylesheet
+ * (i_am_web_gui/src/page/card.css), which the build concatenates in front. */
+:root{--accent:#e07a2f;--mod:#9a7ac7;--wire:#4a3a2c;--port:#6c6c6c;--node:var(--card)}
+
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
-  font:13px/1.35 system-ui,Segoe UI,sans-serif;overflow:hidden}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text1);
+  font:13px/1.35 var(--font);overflow:hidden;user-select:none}
 header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
-  border-bottom:1px solid var(--line);background:#171717}
+  border-bottom:1px solid var(--border);background:var(--header)}
 .title{font-weight:600;letter-spacing:.02em}
-.hint{color:var(--text2);font-size:12px}
+.hint{color:var(--text3);font-size:12px}
 #stage{position:absolute;inset:40px 0 0 0;overflow:hidden}
 #graph{position:absolute;inset:0;width:100%;height:100%;background:
-  radial-gradient(circle at 1px 1px,#1e1e1e 1px,transparent 0) 0 0/24px 24px}
+  radial-gradient(circle at 1px 1px,#242424 1px,transparent 0) 0 0/24px 24px}
 #palette{position:absolute;left:10px;top:10px;width:190px;max-height:calc(100% - 20px);
-  overflow:auto;background:rgba(24,24,24,.94);border:1px solid var(--line);border-radius:6px;padding:8px}
-#palette h3{margin:0 0 6px;font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+  overflow:auto;background:var(--card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:8px}
+#palette h3{margin:0 0 6px;font-size:11px;color:var(--text3);font-weight:600;
+  text-transform:uppercase;letter-spacing:.08em}
 .kind{display:block;width:100%;text-align:left;padding:6px 8px;margin:2px 0;border-radius:4px;
-  border:1px solid transparent;background:#242424;color:var(--text);cursor:pointer;font-size:12px}
+  border:1px solid transparent;background:var(--raised);color:var(--text1);cursor:pointer;font-size:12px}
 .kind:hover{border-color:var(--accent)}
 #params{position:absolute;right:10px;top:10px;width:230px;max-height:calc(100% - 20px);overflow:auto;
-  background:rgba(24,24,24,.94);border:1px solid var(--line);border-radius:6px;padding:10px;display:none}
-#params h3{margin:0 0 8px;font-size:12px;color:var(--text)}
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:10px;display:none}
+#params h3{margin:0 0 8px;font-size:12px;color:var(--text1)}
 #params label{display:block;margin:8px 0 2px;color:var(--text2);font-size:11px}
 #params input[type=range]{width:100%}
-#params .value{color:var(--text);font-size:11px}
-.node{fill:var(--node);stroke:#333;stroke-width:1}
+#params .value{color:var(--text1);font-size:11px}
+.node{fill:var(--card);stroke:var(--border);stroke-width:1}
 .node.selected{stroke:var(--accent);stroke-width:1.6}
-.node-name{fill:var(--text);font-size:12px;font-weight:600}
-.node-kind{fill:var(--text2);font-size:10px}
-.port{fill:var(--port);stroke:var(--node);stroke-width:1.5;cursor:crosshair}
+.node-name{fill:var(--text1);font-size:12px;font-weight:600}
+.node-kind{fill:var(--text3);font-size:10px}
+.port{fill:var(--port);stroke:var(--card);stroke-width:1.5;cursor:crosshair}
 .port.audio{fill:#7aa7c7}
 .port.midi{fill:#c9a227}
 .port.control{fill:#9a7ac7}
-.port-label{fill:var(--text2);font-size:9px}
+.port-label{fill:var(--text3);font-size:9px}
 .wire{fill:none;stroke:var(--wire);stroke-width:2}
 .wire.selected{stroke:var(--accent)}
-.mod{fill:none;stroke:#9a7ac7;stroke-width:1.4;stroke-dasharray:4 3}
+.mod{fill:none;stroke:var(--mod);stroke-width:1.4;stroke-dasharray:4 3}
 .wire-hit,.mod-hit{fill:none;stroke:transparent;stroke-width:12;cursor:pointer}
-.drop-row{fill:#2a2030;stroke:#6a4a7a;stroke-width:1}
-.drop-label{fill:#e0d0e8;font-size:10px}
-.hover-wire{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:5 4}
-
-
-
-.card-head{fill:#232323}
-.card-param{fill:#8a8a8a;font-size:10px}
-.card-value{fill:#d8d8d8;font-size:10px;font-variant-numeric:tabular-nums}
-.scale-handle{fill:#e07a2f;stroke:#1c1c1c;stroke-width:2;cursor:nwse-resize}
+.card-head{fill:var(--header)}
+.card-param{fill:var(--text3);font-size:10px}
+.card-value{fill:var(--text1);font-size:10px;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+.scale-handle{fill:var(--accent);stroke:var(--bg);stroke-width:2;cursor:nwse-resize}

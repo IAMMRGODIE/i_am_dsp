@@ -1,12 +1,5 @@
-:root{
-  --bg:#1e1e1e; --card:#272727; --header:#2e2e2e; --hero:#1a1a1a;
-  --track:#2a2a2a; --border:#3d3d3d; --raised:#333;
-  --text1:#e0e0e0; --text2:#b0b0b0; --text3:#8a8a8a;
-  --accent:#8a6aff; --mod:#5ad1c8;
-  --radius:6px;
-  --font:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei",sans-serif;
-  --mono:"Cascadia Mono",Consolas,"SF Mono",monospace;
-}
+:root{--accent:#8a6aff}
+
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{

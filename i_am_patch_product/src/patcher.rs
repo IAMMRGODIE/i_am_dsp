@@ -19,7 +19,11 @@ pub const SIZE: (f32, f32) = (960.0, 640.0);
 const TITLE: &str = "I Am Patch";
 
 const PAGE_HTML: &str = include_str!("../../i_am_patch/src/page/index.html");
-const PAGE_CSS: &str = include_str!("../../i_am_patch/src/page/patcher.css");
+const PAGE_CSS: &str = concat!(
+	include_str!("../../i_am_web_gui/src/page/card.css"),
+	"\n",
+	include_str!("../../i_am_patch/src/page/patcher.css"),
+);
 const PAGE_JS: &str = include_str!("../../i_am_patch/src/page/patcher.js");
 
 /// What the two products share: the graph body, the shared state and the UI.

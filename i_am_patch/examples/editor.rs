@@ -10,6 +10,12 @@ use std::sync::{Arc, Mutex};
 use i_am_patch::graph::{CATALOG, Graph, NodeId, SignalKind};
 use serde_json::{Value, json};
 
+const PAGE_CSS: &str = concat!(
+	include_str!("../../i_am_web_gui/src/page/card.css"),
+	"\n",
+	include_str!("../src/page/patcher.css"),
+);
+
 fn demo() -> Graph {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 120.0)).expect("midi");
@@ -122,7 +128,7 @@ fn handle(mut stream: TcpStream, graph: &Arc<Mutex<Graph>>) {
 
 	let (status, content_type, payload) = match (method, path) {
 		("GET", "/") => ("200 OK", "text/html; charset=utf-8", include_str!("../src/page/index.html").to_string()),
-		("GET", "/patcher.css") | ("GET", "/kit.css") => ("200 OK", "text/css", include_str!("../src/page/patcher.css").to_string()),
+		("GET", "/patcher.css") | ("GET", "/kit.css") => ("200 OK", "text/css", PAGE_CSS.to_string()),
 		("GET", "/patcher.js") | ("GET", "/kit.js") => ("200 OK", "text/javascript", include_str!("../src/page/patcher.js").to_string()),
 		("GET", "/catalog") => (
 			"200 OK",
