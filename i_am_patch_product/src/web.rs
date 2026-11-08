@@ -1,6 +1,6 @@
 //! The routes the patcher page owns: the catalog, the graph and the ops.
 
-use i_am_patch::graph::{CATALOG, Graph, NodeId, SignalKind};
+use i_am_patch::graph::{Graph, NodeId, SignalKind, catalog};
 use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
 use serde_json::{Value, json};
 
@@ -39,7 +39,7 @@ pub fn catalog_json() -> String {
 		})
 	};
 
-	let kinds: Vec<Value> = CATALOG
+	let kinds: Vec<Value> = catalog()
 		.iter()
 		.map(|kind| {
 			// A kind that is a product takes its controls from the product's
@@ -105,11 +105,11 @@ pub fn catalog_json() -> String {
 }
 
 /// The effect catalog id of a node kind, when the kind is a product module.
-fn product_module(kind: &str) -> Option<&'static str> {
+fn product_module(kind: &str) -> Option<&str> {
 	match kind {
 		"filter" => Some("filter"),
 		"gain" => Some("gain"),
-		_ => None,
+		_ => kind.strip_prefix("mod:"),
 	}
 }
 

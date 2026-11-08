@@ -6,6 +6,8 @@
 
 use std::collections::BTreeMap;
 
+use i_am_dsp::prelude::Value;
+
 /// What flows through a port.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignalKind {
@@ -48,7 +50,7 @@ pub struct PortDesc {
 }
 
 /// One node kind.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NodeDesc {
 	/// The stable id a patch stores.
 	pub id: &'static str,
@@ -94,8 +96,8 @@ const fn optional(name: &'static str, kind: SignalKind) -> PortDesc {
 	}
 }
 
-/// Every node kind the patcher ships with.
-pub const CATALOG: &[NodeDesc] = &[
+/// The node kinds the patcher ships itself.
+const BUILTINS: &[NodeDesc] = &[
 	NodeDesc {
 		id: "input:midi",
 		name: "MIDI In",
@@ -220,9 +222,72 @@ pub const CATALOG: &[NodeDesc] = &[
 	},
 ];
 
+/// Every node kind: the built-ins and one `mod:<id>` per product module.
+pub fn catalog() -> &'static [NodeDesc] {
+	static CATALOG: std::sync::OnceLock<Vec<NodeDesc>> = std::sync::OnceLock::new();
+
+	CATALOG.get_or_init(|| {
+		let mut kinds = BUILTINS.to_vec();
+		kinds.extend(module_catalog());
+		kinds
+	})
+}
+
+/// The audio ports every product module gets.
+const MODULE_INPUTS: &[PortDesc] = &[PortDesc {
+	name: "audio",
+	kind: AUDIO,
+	optional: false,
+}];
+const MODULE_OUTPUTS: &[PortDesc] = &[PortDesc {
+	name: "audio",
+	kind: AUDIO,
+	optional: false,
+}];
+
+/// One kind per module in the effect catalog, with the module's own schema.
+fn module_catalog() -> Vec<NodeDesc> {
+	let mut kinds = Vec::new();
+
+	for module in i_am_effects::catalog::MODULES {
+		let id: &'static str = Box::leak(format!("mod:{}", module.id).into_boxed_str());
+		let latency = (module.build)(44_100).delay();
+		let mut params: Vec<(&'static str, f32)> = Vec::new();
+
+		for parameter in module.parameters() {
+			let name: &'static str = Box::leak(parameter.identifier.clone().into_boxed_str());
+			let value = match &parameter.value {
+				Value::Float { value, .. } => *value,
+				Value::Int { value, .. } => *value as f32,
+				Value::Bool(value) => {
+					if *value {
+						1.0
+					} else {
+						0.0
+					}
+				}
+				_ => continue,
+			};
+
+			params.push((name, value));
+		}
+
+		kinds.push(NodeDesc {
+			id,
+			name: module.name,
+			inputs: MODULE_INPUTS,
+			outputs: MODULE_OUTPUTS,
+			latency,
+			params: Box::leak(params.into_boxed_slice()),
+		});
+	}
+
+	kinds
+}
+
 /// The descriptor for a kind id.
 pub fn node(kind: &str) -> Option<&'static NodeDesc> {
-	CATALOG.iter().find(|desc| desc.id == kind)
+	catalog().iter().find(|desc| desc.id == kind)
 }
 
 /// A node's identity inside one graph.
@@ -427,6 +492,15 @@ impl Graph {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn the_catalog_includes_the_product_modules() {
+		let compressor = node("mod:compressor").expect("the compressor is a kind");
+		assert!(!compressor.params.is_empty(), "no parameters from the schema");
+		assert_eq!(compressor.inputs.len(), 1);
+		assert!(node("mod:distortion").is_some());
+		assert!(node("filter").is_some(), "the built-ins are still there");
+	}
 
 	#[test]
 	fn a_second_link_to_the_same_parameter_moves_the_depth() {

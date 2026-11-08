@@ -43,7 +43,7 @@
       .filter((mod) => mod.to[0] === id);
   }
 
-  function filterCard(node, kind, w, h) {
+  function productCard(node, kind, w, h) {
     let entry = cards[node.id];
     const mods = modsOf(node.id);
     const key = JSON.stringify(
@@ -111,7 +111,7 @@
       scale.style.height = `${baseHeight(node)}px`;
       scale.style.flexBasis = `${baseWidth(node)}px`;
       const card = window.IAmCard.create({
-        title: "Filter",
+        title: kind.name,
         accent: kind.accent || "#e07a2f",
         hero: kind.hero || "spectrum",
         mode: kind.mode || null,
@@ -313,9 +313,9 @@
         x: 0, y: 0, width: w, height: h, rx: 6,
       }));
 
-      if (node.kind === "filter" && window.IAmCard) {
+      if (window.IAmCard && kind.controls && kind.controls.length) {
         const foreign = el("foreignObject", { x: 0, y: 0, width: w, height: h });
-        const host = filterCard(node, kind, w, h);
+        const host = productCard(node, kind, w, h);
         foreign.appendChild(host);
         group.appendChild(foreign);
       } else {

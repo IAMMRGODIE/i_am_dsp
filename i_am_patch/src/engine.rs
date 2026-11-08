@@ -563,6 +563,29 @@ mod tests {
 	}
 
 	#[test]
+	fn a_module_node_passes_audio() {
+		let mut graph = Graph::new();
+		let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+		let compressor = graph.add_node("mod:compressor", (100.0, 0.0)).expect("compressor");
+		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+		graph.connect((input, 0), (compressor, 0));
+		graph.connect((compressor, 0), (out, 0));
+
+		let mut engine = Engine::new(&graph, 48_000).expect("builds");
+		let mut frames = Vec::new();
+
+		for _ in 0..4 {
+			let host = vec![[0.5f32; 2]; BLOCK];
+			let mut block = vec![[0.0f32; 2]; BLOCK];
+			engine.process(&host, &[], &mut block);
+			frames.extend(block);
+		}
+
+		let peak = frames.iter().flat_map(|frame| frame.iter()).fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+		assert!(peak > 1e-3, "the module node was silent");
+	}
+
+	#[test]
 	fn a_short_path_is_delayed_to_align() {
 		let mut graph = Graph::new();
 		let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");

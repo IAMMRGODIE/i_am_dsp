@@ -59,6 +59,10 @@ pub fn make(
 			param(params, "release", 100.0),
 		)),
 		"delay" => Box::new(Delay::new()),
+		kind if kind.starts_with("mod:") => {
+			let module = i_am_effects::catalog::get(&kind[4..])?;
+			Box::new(ProductNode::new((module.build)(rate)))
+		}
 		_ => return None,
 	};
 
@@ -172,6 +176,39 @@ impl BlockNode for Additive {
 				self.envelope *= self.release;
 			} else {
 				self.envelope *= self.decay;
+			}
+		}
+	}
+}
+
+/// A rack module, driven by its own product schema.
+struct ProductNode {
+	effect: Box<dyn Effect<2>>,
+}
+
+impl ProductNode {
+	fn new(effect: Box<dyn Effect<2>>) -> Self {
+		Self { effect }
+	}
+}
+
+impl BlockNode for ProductNode {
+	fn set_param(&mut self, name: &str, value: f32) {
+		self.effect.set_parameter(name, value.into());
+	}
+
+	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
+		let input = audio(inputs, 0);
+
+		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
+			out.clear();
+			out.frames = context.frames;
+
+			for frame in 0..context.frames {
+				let mut samples = [input.channels[0][frame], input.channels[1][frame]];
+				self.effect.process(&mut samples, &[], &mut context.context);
+				out.channels[0][frame] = samples[0];
+				out.channels[1][frame] = samples[1];
 			}
 		}
 	}

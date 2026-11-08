@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 
-use i_am_patch::graph::{CATALOG, Graph, NodeId, SignalKind};
+use i_am_patch::graph::{Graph, NodeId, SignalKind, catalog};
 use serde_json::{Value, json};
 
 const PAGE_CSS: &str = concat!(
@@ -36,11 +36,11 @@ fn demo() -> Graph {
 	graph
 }
 
-fn product_module(kind: &str) -> Option<&'static str> {
+fn product_module(kind: &str) -> Option<&str> {
 	match kind {
 		"filter" => Some("filter"),
 		"gain" => Some("gain"),
-		_ => None,
+		_ => kind.strip_prefix("mod:"),
 	}
 }
 
@@ -194,7 +194,7 @@ fn handle(mut stream: TcpStream, graph: &Arc<Mutex<Graph>>) {
 		("GET", "/catalog") => (
 			"200 OK",
 			"application/json",
-			json!(CATALOG.iter().map(kind_json).collect::<Vec<_>>()).to_string(),
+			json!(catalog().iter().map(kind_json).collect::<Vec<_>>()).to_string(),
 		),
 		("GET", "/patch") => (
 			"200 OK",
