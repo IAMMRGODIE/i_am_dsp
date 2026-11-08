@@ -35,7 +35,7 @@ pub fn make(
 		"input:audio" | "input:sidechain" => Box::new(Source),
 		"out:audio" => Box::new(Quiet),
 		"voice:in" => Box::new(Quiet),
-		"voice:out" => Box::new(Pass),
+		"voice:out" => Box::new(Quiet),
 		"gen:additive" => Box::new(Additive::new(rate, param(params, "decay", 1.0))),
 		"gain" => Box::new(Gain {
 			gain: param(params, "gain", 1.0),
@@ -70,24 +70,6 @@ fn audio(inputs: &[Buffer], port: usize) -> AudioBlock {
 
 /// A node with no work of its own.
 struct Quiet;
-
-/// Copies its first input to its first output.
-struct Pass;
-
-impl BlockNode for Pass {
-	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
-		let mut block = match inputs.first() {
-			Some(Buffer::Audio(audio)) => *audio,
-			_ => AudioBlock::silent(BLOCK),
-		};
-
-		block.frames = context.frames;
-
-		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
-			out.copy_from(&block);
-		}
-	}
-}
 
 impl BlockNode for Quiet {
 	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], _: &mut [Buffer]) {}

@@ -329,7 +329,7 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 /// First version: a single group, no nesting. Nodes reachable from the voice
 /// input and reaching the voice output belong to it; the boundaries themselves
 /// do not.
-fn voice_group(graph: &Graph) -> BTreeSet<NodeId> {
+pub(crate) fn voice_group(graph: &Graph) -> BTreeSet<NodeId> {
 	let Some(input) = graph
 		.nodes
 		.iter()

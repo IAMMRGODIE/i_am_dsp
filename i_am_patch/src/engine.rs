@@ -16,6 +16,8 @@ pub enum EngineError {
 	Compile(CompileError),
 	/// The catalog has no implementation for a kind.
 	UnknownKind(String),
+	/// The graph has no voice group to make polyphonic.
+	NoVoiceGroup,
 }
 
 impl From<CompileError> for EngineError {
@@ -44,6 +46,7 @@ pub struct Engine {
 	inputs: Vec<Vec<Buffer>>,
 	edges: Vec<Vec<(usize, usize, usize)>>,
 	links: Vec<Link>,
+	steps: std::collections::BTreeMap<NodeId, usize>,
 	retrigger: Vec<usize>,
 	controls: Vec<Vec<f32>>,
 	base: Vec<BTreeMap<&'static str, f32>>,
@@ -126,11 +129,12 @@ impl Engine {
 			})
 			.collect();
 
-		let retrigger = plan
+		let retrigger: Vec<usize> = plan
 			.retrigger
 			.iter()
 			.filter_map(|id| steps.get(id).copied())
 			.collect();
+		let step_map = steps.clone();
 
 		Ok(Self {
 			rate,
@@ -142,11 +146,24 @@ impl Engine {
 			inputs,
 			edges,
 			links,
+			steps: step_map,
 			retrigger,
 			controls,
 			base,
 			output_step,
 		})
+	}
+
+	/// Writes one node's output block, before the plan runs.
+	///
+	/// The poly wrapper uses this to place the summed voices on the voice
+	/// boundary; the boundary node itself does no work.
+	pub fn inject(&mut self, node: NodeId, block: AudioBlock) {
+		if let Some(step) = self.steps.get(&node)
+			&& let Some(Buffer::Audio(out)) = self.outputs[*step].first_mut()
+		{
+			*out = block;
+		}
 	}
 
 	/// Renders a graph offline: the agent's loop, without a host.
