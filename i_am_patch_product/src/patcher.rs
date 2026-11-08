@@ -7,7 +7,8 @@ use i_am_dsp::prelude::{Parameter, ParamMap, Processor, SetValue};
 use i_am_dsp::ProcessContext;
 use i_am_plugin::processor::EffectMessage;
 use i_am_plugin::{
-	AudioPort, Descriptor, Editor, MidiPort, Plugin, Tag, WindowOptions,
+	AspectRatioStrategy, AudioPort, Descriptor, Editor, GuiResizeHints, MidiPort, Plugin, Tag,
+	WindowOptions,
 };
 use i_am_web_gui::{Faceplate, PageAssets};
 
@@ -133,6 +134,11 @@ macro_rules! product {
 				WindowOptions::new()
 					.with_size((SIZE.0 as f64 / 0.92, SIZE.1 as f64 / 0.92))
 					.with_title(TITLE)
+					.with_resize_hints(GuiResizeHints {
+						can_resize_horizontally: true,
+						can_resize_vertically: true,
+						strategy: AspectRatioStrategy::Disregard,
+					})
 			}
 
 			fn on_activate(&mut self, sample_rate: usize) {

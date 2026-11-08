@@ -60,10 +60,11 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 .card-host .mcard-head{min-height:calc(36px * var(--scale)); padding:calc(6px * var(--scale)) calc(10px * var(--scale))}
 .card-host .mcard-name{font-size:calc(14px * var(--scale))}
 .card-host .mcard-hero{
-  height:calc(150px * var(--scale)); flex:0 0 calc(150px * var(--scale));
+  height:auto; flex:1 1 0; min-height:calc(60px * var(--scale));
   margin:calc(8px * var(--scale)) calc(10px * var(--scale)) 0;
 }
 .card-host .mcard-body{
+  flex:0 0 auto;
   padding:calc(14px * var(--scale)) calc(8px * var(--scale)) calc(16px * var(--scale));
   gap:calc(8px * var(--scale));
 }
