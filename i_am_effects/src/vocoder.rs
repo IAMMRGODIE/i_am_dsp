@@ -46,6 +46,13 @@ pub struct VocoderWeb {
 	meters: Arc<VocoderMeters>,
 }
 
+impl VocoderWeb {
+	/// The faceplate size this product declares to a host.
+	pub const fn size() -> (f32, f32) {
+		(700.0, 380.0)
+	}
+}
+
 impl Default for VocoderWeb {
 	fn default() -> Self {
 		let meters = Arc::new(VocoderMeters::default());

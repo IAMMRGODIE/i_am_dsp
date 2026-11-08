@@ -213,6 +213,13 @@ pub struct OttWeb {
 	meters: Arc<OttMeters>,
 }
 
+impl OttWeb {
+	/// The faceplate size this product declares to a host.
+	pub const fn size() -> (f32, f32) {
+		(640.0, 440.0)
+	}
+}
+
 impl Default for OttWeb {
 	fn default() -> Self {
 		let meters = Arc::new(OttMeters::default());

@@ -821,6 +821,11 @@ impl Default for ConvolverWeb {
 }
 
 impl ConvolverWeb {
+	/// The faceplate size this product declares to a host.
+	pub const fn size() -> (f32, f32) {
+		SIZE
+	}
+
 	/// The rate the effect inside is currently built for.
 	pub fn sample_rate(&self) -> usize {
 		self.processor.sample_rate()

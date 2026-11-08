@@ -364,6 +364,11 @@ macro_rules! web_plugin {
 		}
 
 		impl $name {
+			/// The faceplate size this product declares to a host.
+			pub const fn size() -> (f32, f32) {
+				$size
+			}
+
 			/// The rate the effect inside is currently built for.
 			pub fn sample_rate(&self) -> usize {
 				self.processor.sample_rate()

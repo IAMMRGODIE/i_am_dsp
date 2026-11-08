@@ -377,6 +377,13 @@ pub struct ScriptDistortionWeb {
 	worker: Arc<ScriptWorker<DistortionTable>>,
 }
 
+impl ScriptDistortionWeb {
+	/// The faceplate size this product declares to a host.
+	pub const fn size() -> (f32, f32) {
+		(700.0, 560.0)
+	}
+}
+
 impl Default for ScriptDistortionWeb {
 	fn default() -> Self {
 		let worker = distortion_worker();

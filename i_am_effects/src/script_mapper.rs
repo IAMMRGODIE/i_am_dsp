@@ -544,6 +544,13 @@ pub struct ScriptMapperWeb {
 	worker: Arc<ScriptWorker<MapperTable>>,
 }
 
+impl ScriptMapperWeb {
+	/// The faceplate size this product declares to a host.
+	pub const fn size() -> (f32, f32) {
+		(700.0, 560.0)
+	}
+}
+
 impl Default for ScriptMapperWeb {
 	fn default() -> Self {
 		let worker = mapper_worker();

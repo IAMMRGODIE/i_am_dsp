@@ -15,6 +15,13 @@ pub struct StftVocoderWeb {
 	scope: Arc<Scope>,
 }
 
+impl StftVocoderWeb {
+	/// The faceplate size this product declares to a host.
+	pub const fn size() -> (f32, f32) {
+		(700.0, 340.0)
+	}
+}
+
 impl Default for StftVocoderWeb {
 	fn default() -> Self {
 		Self {
