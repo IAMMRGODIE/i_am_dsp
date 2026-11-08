@@ -156,7 +156,7 @@ impl BlockNode for Additive {
 				let ratio = partial as f32 + 1.0;
 				let phase = (self.phases[partial] + self.frequency * ratio / self.rate).fract();
 				self.phases[partial] = phase;
-				sample += phase.sin() * self.gains[partial];
+				sample += (phase * TAU).sin() * self.gains[partial];
 			}
 
 			sample *= self.envelope * 0.1;

@@ -56,11 +56,24 @@ macro_rules! product {
 
 		impl Parameters for $name {
 			fn get_parameters(&self) -> Vec<Parameter> {
-				Vec::new()
+				// The graph is the state; it rides in a serialized parameter so the
+				// host's save and load carry it without a new extension.
+				vec![Parameter::new(
+					"patch",
+					Value::Serialized(self.0.shared.text().into_bytes()),
+				)]
 			}
 
-			fn set_parameter(&mut self, _: &str, _: SetValue) -> bool {
-				false
+			fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+				match (identifier, value) {
+					("patch", SetValue::Serialized(bytes)) => {
+						let Ok(text) = String::from_utf8(bytes) else {
+							return false;
+						};
+						self.0.shared.set_text(&text)
+					}
+					_ => false,
+				}
 			}
 		}
 
@@ -145,7 +158,7 @@ macro_rules! product {
 	};
 }
 
-use i_am_dsp::prelude::Parameters;
+use i_am_dsp::prelude::{Parameters, Value};
 
 product!(
 	PatcherEffect,
@@ -164,3 +177,39 @@ product!(
 	&[],
 	true
 );
+
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn patch_text(effect: &PatcherEffect) -> String {
+		let params = effect.get_parameters();
+		let Value::Serialized(bytes) = &params[0].value else {
+			panic!("the patch parameter is not serialized");
+		};
+
+		String::from_utf8(bytes.clone()).expect("utf-8")
+	}
+
+	#[test]
+	fn the_host_state_carries_the_graph() {
+		let mut effect = PatcherEffect::default();
+		let text = patch_text(&effect);
+
+		assert!(text.contains("gen:additive"), "{text}");
+		assert!(text.contains("voice:out"), "{text}");
+
+		let changed = text.replace("set 3 cutoff=1200", "set 3 cutoff=500");
+		assert!(effect.set_parameter("patch", SetValue::Serialized(changed.into_bytes())));
+		assert!(patch_text(&effect).contains("cutoff=500"));
+	}
+
+	#[test]
+	fn a_broken_state_is_refused() {
+		let mut effect = PatcherEffect::default();
+
+		assert!(!effect.set_parameter("patch", SetValue::Serialized(b"node nope".to_vec())));
+		assert!(patch_text(&effect).contains("gen:additive"));
+	}
+}

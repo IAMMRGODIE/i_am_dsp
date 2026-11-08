@@ -35,6 +35,22 @@ impl PatcherShared {
 		self.graph.lock().expect("the graph lock").clone()
 	}
 
+	/// The graph as the line patch text, which is what the host state saves.
+	pub fn text(&self) -> String {
+		i_am_patch::text::to_text(&self.graph.lock().expect("the graph lock"))
+	}
+
+	/// Replaces the graph from text; false when the text does not parse.
+	pub fn set_text(&self, text: &str) -> bool {
+		let Ok(graph) = i_am_patch::text::from_text(text) else {
+			return false;
+		};
+
+		*self.graph.lock().expect("the graph lock") = graph;
+		self.bump();
+		true
+	}
+
 	/// Tells the audio thread the graph changed.
 	pub fn bump(&self) {
 		self.generation.fetch_add(1, Ordering::Relaxed);

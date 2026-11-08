@@ -484,6 +484,27 @@ mod tests {
 	}
 
 	#[test]
+	fn the_voice_has_no_dc() {
+		let mut graph = Graph::new();
+		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+		graph.connect((midi, 0), (generator, 0));
+		graph.connect((generator, 0), (out, 0));
+
+		let frames = Engine::render_graph(
+			&graph,
+			48_000,
+			1.0,
+			&[(0, NoteEvent::NoteOn { channel: 0, note: 60, velocity: 1.0 })],
+		)
+		.expect("renders");
+		let mean: f64 = frames.iter().map(|frame| frame[0] as f64).sum::<f64>() / frames.len() as f64;
+
+		assert!(mean.abs() < 0.01, "the voice carries a DC offset: {mean}");
+	}
+
+	#[test]
 	fn the_offline_render_produces_a_note() {
 		let mut graph = Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
