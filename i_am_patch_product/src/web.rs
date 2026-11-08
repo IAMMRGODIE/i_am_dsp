@@ -42,17 +42,46 @@ pub fn catalog_json() -> String {
 	let kinds: Vec<Value> = CATALOG
 		.iter()
 		.map(|kind| {
+			// A kind that is a product takes its controls from the product's
+			// parameter schema, so the card and the DSP cannot drift apart.
+			let mut controls: Vec<Value> = Vec::new();
+			let mut hero: Option<String> = None;
+
+			if let Some(module) = product_module(kind.id)
+				&& let Some(descriptor) = i_am_effects::catalog::get(module)
+			{
+				let parameters = descriptor.parameters();
+				let sections = i_am_web_gui::sections(&parameters);
+				hero = sections.iter().find_map(|section| section.hero.clone());
+
+				for section in &sections {
+					for control in &section.controls {
+						controls.push(serde_json::to_value(control).unwrap_or(Value::Null));
+					}
+				}
+			}
+
 			json!({
 				"id": kind.id,
 				"name": kind.name,
 				"inputs": kind.inputs.iter().map(port).collect::<Vec<_>>(),
 				"outputs": kind.outputs.iter().map(port).collect::<Vec<_>>(),
 				"params": kind.params.iter().map(|(key, value)| json!([key, value])).collect::<Vec<_>>(),
+				"controls": controls,
+				"hero": hero,
 			})
 		})
 		.collect();
 
 	Value::Array(kinds).to_string()
+}
+
+/// The effect catalog id of a node kind, when the kind is a product module.
+fn product_module(kind: &str) -> Option<&'static str> {
+	match kind {
+		"filter" => Some("filter"),
+		_ => None,
+	}
 }
 
 /// The graph as the page reads it.

@@ -209,6 +209,7 @@ fn a_control_node_moves_and_an_envelope_follows() {
 		rate: 48_000,
 		block: 0,
 		events: Vec::new(),
+		context: Box::new(i_am_patch::block::PatchContext::new(48_000)),
 	};
 
 	lfo.process(&mut context, &[], &mut out);

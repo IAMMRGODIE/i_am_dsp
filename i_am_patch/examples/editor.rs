@@ -22,7 +22,7 @@ fn demo() -> Graph {
 	let voice_in = graph.add_node("voice:in", (340.0, 120.0)).expect("voice in");
 	let generator = graph.add_node("gen:additive", (680.0, 120.0)).expect("gen");
 	let filter = graph.add_node("filter", (1020.0, 120.0)).expect("filter");
-	let lfo = graph.add_node("lfo", (1020.0, 420.0)).expect("lfo");
+	let lfo = graph.add_node("lfo", (1020.0, 580.0)).expect("lfo");
 	let voice_out = graph.add_node("voice:out", (1360.0, 120.0)).expect("voice out");
 	let out = graph.add_node("out:audio", (1700.0, 120.0)).expect("out");
 	graph.connect((midi, 0), (voice_in, 0));
@@ -34,6 +34,13 @@ fn demo() -> Graph {
 	graph.set_param(filter, "cutoff", 1_200.0);
 
 	graph
+}
+
+fn product_module(kind: &str) -> Option<&'static str> {
+	match kind {
+		"filter" => Some("filter"),
+		_ => None,
+	}
 }
 
 fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
@@ -49,12 +56,30 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 		})
 	};
 
+	let mut controls: Vec<Value> = Vec::new();
+	let mut hero: Option<String> = None;
+
+	if let Some(module) = product_module(kind.id)
+		&& let Some(descriptor) = i_am_effects::catalog::get(module)
+	{
+		let sections = i_am_web_gui::sections(&descriptor.parameters());
+		hero = sections.iter().find_map(|section| section.hero.clone());
+
+		for section in &sections {
+			for control in &section.controls {
+				controls.push(serde_json::to_value(control).unwrap_or(Value::Null));
+			}
+		}
+	}
+
 	json!({
 		"id": kind.id,
 		"name": kind.name,
 		"inputs": kind.inputs.iter().map(port).collect::<Vec<_>>(),
 		"outputs": kind.outputs.iter().map(port).collect::<Vec<_>>(),
 		"params": kind.params.iter().map(|(key, value)| json!([key, value])).collect::<Vec<_>>(),
+		"controls": controls,
+		"hero": hero,
 	})
 }
 

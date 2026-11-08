@@ -15,3 +15,4 @@ serde_json = "1"
 
 [dev-dependencies]
 i_am_web_gui = { workspace = true }
+i_am_effects = { workspace = true }

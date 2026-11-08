@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use i_am_dsp::prelude::NoteEvent;
 
-use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
+use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer, PatchContext};
 use crate::compile::{CompileError, Plan, compile};
 use crate::graph::{Graph, NodeId, SignalKind};
 use crate::nodes::{BlockNode, make};
@@ -201,6 +201,7 @@ impl Engine {
 			rate: self.rate,
 			block: self.block,
 			events: events.to_vec(),
+			context: Box::new(PatchContext::new(self.rate)),
 		};
 
 		self.block = self.block.wrapping_add(1);

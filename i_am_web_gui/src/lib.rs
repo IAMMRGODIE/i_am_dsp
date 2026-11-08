@@ -39,7 +39,7 @@
 mod face;
 mod scope;
 
-pub use face::{Control, Faceplate, Kind, Page, Section, Switch};
+pub use face::{Control, Faceplate, Kind, Page, Section, Switch, sections};
 pub use scope::{Channels, Scope};
 
 use std::sync::Arc;

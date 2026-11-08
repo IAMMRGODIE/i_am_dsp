@@ -38,20 +38,39 @@
     });
   }
 
-  function filterCard(node) {
+  function filterCard(node, kind) {
     let entry = cards[node.id];
 
     if (!entry) {
+      const specs = (kind.controls && kind.controls.length ? kind.controls : [
+        { id: "cutoff", label: "Cutoff", kind: "float", min: 20, max: 20000, default: 1000, unit: "hz", log: true },
+        { id: "q", label: "Resonance", kind: "float", min: 0.01, max: 10, default: 0.707 },
+      ]).map((control) => ({
+        id: control.id,
+        label: control.label,
+        kind: control.kind,
+        unit: control.unit,
+        min: control.min,
+        max: control.max,
+        default: control.default,
+        log: control.log,
+        bipolar: control.bipolar,
+        step: control.step,
+        widget: control.widget,
+        size: control.size,
+        choices: control.choices,
+      }));
+
       const host = document.createElement("div");
       host.className = "card-host";
       const card = window.IAmCard.create({
         title: "Filter",
         accent: "#e07a2f",
+        // The product's spectrum hero wants a scope tap the canvas has not got
+        // yet; the response picture is the patch's own, the controls are the
+        // product's.
         hero: "patch-filter",
-        controls: [
-          { id: "cutoff", label: "Cutoff", kind: "float", min: 20, max: 20000, default: 2000, unit: "hz", log: true },
-          { id: "resonance", label: "Resonance", kind: "float", min: 0.3, max: 10, default: 0.707 },
-        ],
+        controls: specs,
         values: node.params,
         context: { rate: 48000 },
         onEdit: (identifier, value) => {
@@ -84,9 +103,15 @@
     };
   }
 
+  // A product card is taller than the plain ones: the filter's six controls
+  // need the room its own faceplate gives them.
+  function baseHeight(node) {
+    return node.kind === "filter" ? 420 : BASE_H;
+  }
+
   function size(node) {
     const scale = scaleOf(node.id);
-    return { w: BASE_W * scale, h: BASE_H * scale, scale };
+    return { w: BASE_W * scale, h: baseHeight(node) * scale, scale };
   }
 
   async function load() {
@@ -127,7 +152,7 @@
   // The biquad lowpass response, in dB, at a frequency.
   function filterMagnitude(state, frequency, rate) {
     const cutoff = Math.min(Math.max(state.cutoff ?? 2000, 20), rate * 0.45);
-    const q = Math.min(Math.max(state.resonance ?? 0.707, 0.3), 10);
+    const q = Math.min(Math.max(state.q ?? 0.707, 0.3), 10);
     const w0 = 2 * Math.PI * cutoff / rate;
     const alpha = Math.sin(w0) / (2 * q);
     const cos = Math.cos(w0);
@@ -192,6 +217,7 @@
       if (!kind) continue;
 
       const { w, h, scale } = size(node);
+      const baseH = h / scale;
       const group = el("g", {
         "data-node": node.id,
         transform: `translate(${node.x} ${node.y}) scale(${scale})`,
@@ -200,7 +226,7 @@
       // The card itself.
       group.appendChild(el("rect", {
         class: "node" + (selected === node.id ? " selected" : ""),
-        x: 0, y: 0, width: BASE_W, height: BASE_H, rx: 6,
+        x: 0, y: 0, width: BASE_W, height: baseH, rx: 6,
       }));
       group.appendChild(el("rect", {
         x: 0, y: 0, width: BASE_W, height: 22, rx: 6, class: "card-head",
@@ -215,8 +241,8 @@
       group.appendChild(tag);
 
       if (node.kind === "filter" && window.IAmCard) {
-        const foreign = el("foreignObject", { x: 0, y: 0, width: BASE_W, height: BASE_H });
-        const host = filterCard(node);
+        const foreign = el("foreignObject", { x: 0, y: 0, width: BASE_W, height: baseH });
+        const host = filterCard(node, kind);
         foreign.appendChild(host);
         group.appendChild(foreign);
       } else {
@@ -228,7 +254,7 @@
       // The scale handle, only on the selected card.
       if (selected === node.id) {
         group.appendChild(el("rect", {
-          class: "scale-handle", x: BASE_W - 14, y: BASE_H - 14, width: 12, height: 12, rx: 2,
+          class: "scale-handle", x: BASE_W - 14, y: baseH - 14, width: 12, height: 12, rx: 2,
         }));
       }
 

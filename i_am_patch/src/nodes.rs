@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 
-use i_am_dsp::prelude::NoteEvent;
+use i_am_dsp::prelude::{Effect, Multimode, NoteEvent, Parameters};
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
 
@@ -41,7 +41,7 @@ pub fn make(
 			gain: param(params, "gain", 1.0),
 			pan: param(params, "pan", 0.0),
 		}),
-		"filter" => Box::new(Filter::new(rate, param(params, "cutoff", 2_000.0))),
+		"filter" => Box::new(Filter::new(rate, params)),
 		"split:ms" => Box::new(SplitMs),
 		"mixer" => Box::new(Mixer {
 			a: param(params, "a", 1.0),
@@ -205,93 +205,42 @@ impl BlockNode for Gain {
 	}
 }
 
-/// A biquad lowpass, so the card can draw the response the DSP has.
+/// The product's filter: the card's controls and the DSP are the same schema.
 struct Filter {
-	rate: f32,
-	cutoff: f32,
-	q: f32,
-	coefficients: [f32; 5],
-	x1: [f32; 2],
-	x2: [f32; 2],
-	y1: [f32; 2],
-	y2: [f32; 2],
+	effect: Multimode,
 }
 
 impl Filter {
-	fn new(rate: usize, cutoff: f32) -> Self {
+	fn new(rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
 		let mut filter = Self {
-			rate: rate as f32,
-			cutoff,
-			q: 0.707,
-			coefficients: [0.0; 5],
-			x1: [0.0; 2],
-			x2: [0.0; 2],
-			y1: [0.0; 2],
-			y2: [0.0; 2],
+			effect: Multimode::new(rate, 1000.0, 0.707),
 		};
-		filter.update();
+
+		for (name, value) in params {
+			filter.effect.set_parameter(name, (*value).into());
+		}
 
 		filter
-	}
-
-	/// The RBJ lowpass coefficients for the current cutoff and Q.
-	fn update(&mut self) {
-		let cutoff = self.cutoff.clamp(20.0, self.rate * 0.45);
-		let w0 = TAU * cutoff / self.rate;
-		let alpha = w0.sin() / (2.0 * self.q.clamp(0.3, 10.0));
-		let cos = w0.cos();
-		let a0 = 1.0 + alpha;
-		let b0 = (1.0 - cos) * 0.5;
-		let b1 = 1.0 - cos;
-		let b2 = b0;
-
-		self.coefficients = [
-			b0 / a0,
-			b1 / a0,
-			b2 / a0,
-			-2.0 * cos / a0,
-			(1.0 - alpha) / a0,
-		];
 	}
 }
 
 impl BlockNode for Filter {
 	fn set_param(&mut self, name: &str, value: f32) {
-		match name {
-			"cutoff" => self.cutoff = value.clamp(20.0, 20_000.0),
-			"resonance" => self.q = value.clamp(0.3, 10.0),
-			_ => return,
-		}
-
-		self.update();
+		self.effect.set_parameter(name, value.into());
 	}
 
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
-		let [b0, b1, b2, a1, a2] = self.coefficients;
 
 		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
 			out.clear();
 			out.frames = context.frames;
 
-			for channel in 0..2 {
-				let (x1, x2, y1, y2) = (
-					&mut self.x1[channel],
-					&mut self.x2[channel],
-					&mut self.y1[channel],
-					&mut self.y2[channel],
-				);
-
-				for frame in 0..context.frames {
-					let x = input.channels[channel][frame];
-					let y = b0 * x + b1 * *x1 + b2 * *x2 - a1 * *y1 - a2 * *y2;
-
-					*x2 = *x1;
-					*x1 = x;
-					*y2 = *y1;
-					*y1 = y;
-					out.channels[channel][frame] = y;
-				}
+			for frame in 0..context.frames {
+				let mut samples = [input.channels[0][frame], input.channels[1][frame]];
+				self.effect.process(&mut samples, &[], &mut context.context);
+				out.channels[0][frame] = samples[0];
+				out.channels[1][frame] = samples[1];
 			}
 		}
 	}

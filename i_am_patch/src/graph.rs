@@ -166,7 +166,14 @@ pub const CATALOG: &[NodeDesc] = &[
 		inputs: &[port("audio", AUDIO)],
 		outputs: &[port("audio", AUDIO)],
 		latency: 0,
-		params: &[("cutoff", 2_000.0), ("resonance", 0.707)],
+		params: &[
+			("mode", 0.0),
+			("cutoff", 1_000.0),
+			("q", 0.707),
+			("stages", 0.0),
+			("gain_db", 0.0),
+			("slope", 1.0),
+		],
 	},
 	NodeDesc {
 		id: "split:ms",

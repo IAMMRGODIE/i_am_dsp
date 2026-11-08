@@ -1,6 +1,6 @@
 //! The block the engine runs on, and the buffers between nodes.
 
-use i_am_dsp::prelude::NoteEvent;
+use i_am_dsp::prelude::{NoteEvent, ProcessContext, ProcessInfos};
 
 /// How many frames one process call covers.
 pub const BLOCK: usize = 64;
@@ -113,4 +113,49 @@ pub struct BlockContext {
 	pub block: u64,
 	/// The note events of this block.
 	pub events: Vec<NoteEvent>,
+	/// The context a product effect is handed.
+	pub context: Box<dyn ProcessContext>,
+}
+
+/// A process context for an effect that only needs the sample rate.
+pub struct PatchContext {
+	infos: ProcessInfos,
+	events: Vec<NoteEvent>,
+}
+
+impl PatchContext {
+	/// A context at the given rate.
+	pub fn new(rate: usize) -> Self {
+		let mut infos = ProcessInfos::new();
+		infos.trustable = true;
+		infos.sample_rate = rate;
+		infos.playing = true;
+
+		Self {
+			infos,
+			events: Vec::new(),
+		}
+	}
+}
+
+impl ProcessContext for PatchContext {
+	fn infos(&self) -> &ProcessInfos {
+		&self.infos
+	}
+
+	fn next_event(&mut self) -> Option<NoteEvent> {
+		self.events.pop()
+	}
+
+	fn send_event(&mut self, event: NoteEvent) {
+		self.events.push(event);
+	}
+
+	fn events(&self) -> &[NoteEvent] {
+		&self.events
+	}
+
+	fn clear_events(&mut self) {
+		self.events.clear();
+	}
 }
