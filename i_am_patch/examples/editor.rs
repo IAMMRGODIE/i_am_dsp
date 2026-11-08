@@ -78,10 +78,8 @@ fn main() {
 	let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
 	println!("http://{}", listener.local_addr().expect("address"));
 
-	for stream in listener.incoming() {
-		if let Ok(stream) = stream {
-			handle(stream, &graph);
-		}
+	for stream in listener.incoming().flatten() {
+		handle(stream, &graph);
 	}
 }
 
@@ -124,8 +122,8 @@ fn handle(mut stream: TcpStream, graph: &Arc<Mutex<Graph>>) {
 
 	let (status, content_type, payload) = match (method, path) {
 		("GET", "/") => ("200 OK", "text/html; charset=utf-8", include_str!("../src/page/index.html").to_string()),
-		("GET", "/patcher.css") => ("200 OK", "text/css", include_str!("../src/page/patcher.css").to_string()),
-		("GET", "/patcher.js") => ("200 OK", "text/javascript", include_str!("../src/page/patcher.js").to_string()),
+		("GET", "/patcher.css") | ("GET", "/kit.css") => ("200 OK", "text/css", include_str!("../src/page/patcher.css").to_string()),
+		("GET", "/patcher.js") | ("GET", "/kit.js") => ("200 OK", "text/javascript", include_str!("../src/page/patcher.js").to_string()),
 		("GET", "/catalog") => (
 			"200 OK",
 			"application/json",

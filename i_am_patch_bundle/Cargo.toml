@@ -1,0 +1,19 @@
+[package]
+name = "i_am_patch_bundle"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+vst3 = ["i_am_plugin/vst3"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.i_am_dsp]
+name = "I Am Patch"
+vendor = "iamplugins"
+id = "iamdsp.patch"
+
+[dependencies]
+i_am_patch_product = { workspace = true }
+i_am_plugin = { workspace = true }

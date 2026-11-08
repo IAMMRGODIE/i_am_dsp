@@ -1,0 +1,152 @@
+//! What the audio thread and the page share.
+
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+
+use i_am_dsp::prelude::NoteEvent;
+use i_am_patch::block::BLOCK;
+use i_am_patch::compile::voice_group;
+use i_am_patch::engine::Engine;
+use i_am_patch::graph::Graph;
+use i_am_patch::poly::Poly;
+
+/// The graph, its generation and the rate, shared between the page and the
+/// audio thread. A page edit bumps the generation; the audio thread rebuilds
+/// the engine at the next block boundary.
+pub struct PatcherShared {
+	pub graph: Mutex<Graph>,
+	pub generation: AtomicU64,
+	pub rate: AtomicUsize,
+}
+
+impl Default for PatcherShared {
+	fn default() -> Self {
+		Self {
+			graph: Mutex::new(demo()),
+			generation: AtomicU64::new(1),
+			rate: AtomicUsize::new(48_000),
+		}
+	}
+}
+
+impl PatcherShared {
+	/// The current graph.
+	pub fn graph(&self) -> Graph {
+		self.graph.lock().expect("the graph lock").clone()
+	}
+
+	/// Tells the audio thread the graph changed.
+	pub fn bump(&self) {
+		self.generation.fetch_add(1, Ordering::Relaxed);
+	}
+}
+
+/// The graph a fresh instance starts with: the pluck, one voice, one LFO.
+pub fn demo() -> Graph {
+	let mut graph = Graph::new();
+	let midi = graph.add_node("input:midi", (0.0, 120.0)).expect("midi");
+	let voice_in = graph.add_node("voice:in", (180.0, 120.0)).expect("voice in");
+	let generator = graph.add_node("gen:additive", (360.0, 120.0)).expect("gen");
+	let filter = graph.add_node("filter", (540.0, 120.0)).expect("filter");
+	let lfo = graph.add_node("lfo", (540.0, 280.0)).expect("lfo");
+	let voice_out = graph.add_node("voice:out", (720.0, 120.0)).expect("voice out");
+	let out = graph.add_node("out:audio", (900.0, 120.0)).expect("out");
+	graph.connect((midi, 0), (voice_in, 0));
+	graph.connect((voice_in, 0), (generator, 0));
+	graph.connect((generator, 0), (filter, 0));
+	graph.connect((filter, 0), (voice_out, 0));
+	graph.connect((voice_out, 0), (out, 0));
+	graph.modulate((lfo, 0), (filter, "cutoff"), 800.0);
+	graph.set_param(filter, "cutoff", 1_200.0);
+
+	graph
+}
+
+/// The block buffering both products share: samples in, samples out, one
+/// block of latency, and a rebuild when the page edits the graph.
+pub struct Body {
+	shared: Arc<PatcherShared>,
+	engine: Option<Engine>,
+	poly: Option<Poly>,
+	built: u64,
+	input: Vec<[f32; 2]>,
+	output: Vec<[f32; 2]>,
+	index: usize,
+	events: Vec<NoteEvent>,
+}
+
+impl Body {
+	/// A body over the shared graph.
+	pub fn new(shared: Arc<PatcherShared>) -> Self {
+		Self {
+			shared,
+			engine: None,
+			poly: None,
+			built: 0,
+			input: vec![[0.0; 2]; BLOCK],
+			output: vec![[0.0; 2]; BLOCK],
+			index: 0,
+			events: Vec::new(),
+		}
+	}
+
+	fn rebuild(&mut self) {
+		let graph = self.shared.graph();
+		let rate = self.shared.rate.load(Ordering::Relaxed).max(1);
+
+		if voice_group(&graph).is_empty() {
+			self.engine = Engine::new(&graph, rate).ok();
+			self.poly = None;
+		} else {
+			self.poly = Poly::new(&graph, rate).ok();
+			self.engine = None;
+		}
+
+		self.built = self.shared.generation.load(Ordering::Relaxed);
+	}
+
+	/// Queues one note event for the next block.
+	pub fn push_event(&mut self, event: &NoteEvent) {
+		self.events.push(event.clone());
+	}
+
+	/// One sample: the output belongs to the block that ended one block ago.
+	pub fn process(&mut self, input: [f32; 2]) -> [f32; 2] {
+		if self.built != self.shared.generation.load(Ordering::Relaxed) {
+			self.rebuild();
+		}
+
+		let out = self.output[self.index];
+		self.input[self.index] = input;
+		self.index += 1;
+
+		if self.index >= BLOCK {
+			self.index = 0;
+
+			if let Some(poly) = &mut self.poly {
+				poly.process(&self.input, &self.events, &mut self.output);
+			} else if let Some(engine) = &mut self.engine {
+				engine.process(&self.input, &self.events, &mut self.output);
+			}
+
+			self.events.clear();
+		}
+
+		out
+	}
+}
+
+/// The bypass and scope the page and the products share.
+pub struct UiState {
+	pub bypass: Arc<AtomicBool>,
+	pub scope: Arc<i_am_web_gui::Scope>,
+}
+
+impl Default for UiState {
+	fn default() -> Self {
+		Self {
+			bypass: Arc::new(AtomicBool::new(false)),
+			scope: Arc::new(i_am_web_gui::Scope::default()),
+		}
+	}
+}

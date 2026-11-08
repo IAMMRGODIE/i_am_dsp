@@ -1,0 +1,17 @@
+[package]
+name = "i_am_patch_product"
+version = "0.1.0"
+edition = "2024"
+
+# The two patcher products: one effect and one generator over the same graph
+# engine. Separate from i_am_patch so that the library stays free of the host.
+
+[features]
+vst3 = ["i_am_plugin/vst3"]
+
+[dependencies]
+i_am_dsp = { workspace = true }
+i_am_patch = { workspace = true }
+i_am_plugin = { workspace = true }
+i_am_web_gui = { workspace = true }
+serde_json = "1"

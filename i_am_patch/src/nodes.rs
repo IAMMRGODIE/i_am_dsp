@@ -8,7 +8,7 @@ use i_am_dsp::prelude::NoteEvent;
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
 
 /// One node in the running graph.
-pub trait BlockNode: Send {
+pub trait BlockNode: Send + Sync {
 	/// Processes one block: reads the inputs, writes the outputs.
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]);
 
