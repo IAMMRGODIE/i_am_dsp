@@ -173,8 +173,14 @@ impl Engine {
 		}
 
 		for step in 0..self.order.len() {
+			// An input sums every edge into it, so two wires into one port add.
+			for buffer in &mut self.inputs[step] {
+				*buffer = buffer.silent_of(frames);
+			}
+
 			for (port, from, from_port) in &self.edges[step] {
-				self.inputs[step][*port] = self.outputs[*from][*from_port];
+				let source = self.outputs[*from][*from_port];
+				self.inputs[step][*port].add(&source);
 			}
 
 			let node = &mut self.nodes[step];

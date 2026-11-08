@@ -305,20 +305,21 @@ impl Envelope {
 impl BlockNode for Envelope {
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
-		let mut peak = 0.0f32;
 
+		// The follower smooths per sample and reports the block's last value;
+		// one step per block would make a ten millisecond attack take minutes.
 		for frame in 0..context.frames {
-			peak = peak
-				.max(input.channels[0][frame].abs())
+			let peak = input.channels[0][frame]
+				.abs()
 				.max(input.channels[1][frame].abs());
-		}
+			let coefficient = if peak > self.envelope {
+				self.attack
+			} else {
+				self.release
+			};
 
-		let coefficient = if peak > self.envelope {
-			self.attack
-		} else {
-			self.release
-		};
-		self.envelope += (peak - self.envelope) * coefficient;
+			self.envelope += (peak - self.envelope) * coefficient;
+		}
 
 		if let Some(Buffer::Control(value)) = outputs.first_mut() {
 			*value = self.envelope.clamp(0.0, 1.0);
@@ -350,14 +351,14 @@ impl BlockNode for Delay {
 			out.frames = context.frames;
 
 			for frame in 0..context.frames {
-				let read = (self.write + 1) % 64;
+				let read = self.write;
 
 				for channel in 0..2 {
 					out.channels[channel][frame] = self.buffer[read][channel];
-					self.buffer[self.write][channel] = input.channels[channel][frame];
+					self.buffer[read][channel] = input.channels[channel][frame];
 				}
 
-				self.write = read;
+				self.write = (self.write + 1) % 64;
 			}
 		}
 	}
