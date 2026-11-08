@@ -77,7 +77,9 @@
         values: node.params,
         context: { rate: 48000 },
         onEdit: (identifier, value) => {
-          op({ op: "param", id: node.id, key: identifier, value });
+          // The card already shows the value; rebuilding the graph here would
+          // take the focus away from the control being dragged.
+          op({ op: "param", id: node.id, key: identifier, value }, false);
         },
       });
       scale.appendChild(card);
@@ -145,7 +147,18 @@
     draw();
   }
 
-  async function op(body) {
+  // A control inside a card owns the focus while it is being used; the poll
+  // must not rebuild the page under it, or the select closes and the knob
+  // stops mid-drag.
+  let interacting = false;
+
+  function busy() {
+    if (drag || interacting) return true;
+    const active = document.activeElement;
+    return !!(active && active.closest && active.closest(".card-host"));
+  }
+
+  async function op(body, redraw = true) {
     const response = await fetch("/op", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -154,7 +167,7 @@
     const result = await response.json();
     if (result.error) console.warn(result.error);
     patch = await (await fetch("/patch")).json();
-    draw();
+    if (redraw) draw();
   }
 
   // The port circles sit on the card's edge, in base coordinates; the world
@@ -498,6 +511,10 @@
   }
 
   svg.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".card-host")) {
+      interacting = true;
+    }
+
     const knobEl = event.target.closest("[data-knob]");
     const wire = event.target.closest("[data-edge]");
     const mod = event.target.closest("[data-mod]");
@@ -675,6 +692,10 @@
     draw();
   }, { passive: false });
 
+  window.addEventListener("pointerup", () => {
+    interacting = false;
+  });
+
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Delete" && event.key !== "Backspace") return;
 
@@ -693,8 +714,10 @@
 
   load();
   setInterval(async () => {
-    if (drag) return;
-    patch = await (await fetch("/patch")).json();
+    if (busy()) return;
+    const next = await (await fetch("/patch")).json();
+    if (JSON.stringify(next) === JSON.stringify(patch)) return;
+    patch = next;
     draw();
   }, 1200);
 })();
