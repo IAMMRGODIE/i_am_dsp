@@ -61,12 +61,12 @@ impl PatcherShared {
 pub fn demo() -> Graph {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 120.0)).expect("midi");
-	let voice_in = graph.add_node("voice:in", (300.0, 120.0)).expect("voice in");
-	let generator = graph.add_node("gen:additive", (600.0, 120.0)).expect("gen");
-	let filter = graph.add_node("filter", (900.0, 120.0)).expect("filter");
-	let lfo = graph.add_node("lfo", (900.0, 360.0)).expect("lfo");
-	let voice_out = graph.add_node("voice:out", (1200.0, 120.0)).expect("voice out");
-	let out = graph.add_node("out:audio", (1500.0, 120.0)).expect("out");
+	let voice_in = graph.add_node("voice:in", (340.0, 120.0)).expect("voice in");
+	let generator = graph.add_node("gen:additive", (680.0, 120.0)).expect("gen");
+	let filter = graph.add_node("filter", (1020.0, 120.0)).expect("filter");
+	let lfo = graph.add_node("lfo", (1020.0, 420.0)).expect("lfo");
+	let voice_out = graph.add_node("voice:out", (1360.0, 120.0)).expect("voice out");
+	let out = graph.add_node("out:audio", (1700.0, 120.0)).expect("out");
 	graph.connect((midi, 0), (voice_in, 0));
 	graph.connect((voice_in, 0), (generator, 0));
 	graph.connect((generator, 0), (filter, 0));

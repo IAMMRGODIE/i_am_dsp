@@ -9,8 +9,8 @@
   const params = document.getElementById("params");
   const NS = "http://www.w3.org/2000/svg";
 
-  const BASE_W = 240;
-  const BASE_H = 170;
+  const BASE_W = 280;
+  const BASE_H = 300;
 
   let catalog = [];
   let patch = { nodes: [], edges: [], mods: [] };
@@ -20,6 +20,51 @@
   let view = { x: 230, y: 30, zoom: 1 };
   let drag = null;
   const scales = {};
+
+  const cards = {};
+
+  if (window.IAmCard) {
+    window.IAmCard.registerHero("patch-filter", (values) => {
+      const width = 520, height = 160;
+      const points = [];
+      for (let x = 0; x <= width; x += 4) {
+        const frequency = 20 * Math.pow(1000, x / width);
+        const db = filterMagnitude(values, frequency, 48000);
+        const y = height * (1 - (Math.max(-48, Math.min(6, db)) + 48) / 54);
+        points.push(`${x},${y.toFixed(1)}`);
+      }
+      return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">` +
+        `<path d="M ${points.join(" L ")}" fill="none" stroke="#4d9dff" stroke-width="2"/></svg>`;
+    });
+  }
+
+  function filterCard(node) {
+    let entry = cards[node.id];
+
+    if (!entry) {
+      const host = document.createElement("div");
+      host.className = "card-host";
+      const card = window.IAmCard.create({
+        title: "Filter",
+        accent: "#e07a2f",
+        hero: "patch-filter",
+        controls: [
+          { id: "cutoff", label: "Cutoff", kind: "float", min: 20, max: 20000, default: 2000, unit: "hz", log: true },
+          { id: "resonance", label: "Resonance", kind: "float", min: 0.3, max: 10, default: 0.707 },
+        ],
+        values: node.params,
+        context: { rate: 48000 },
+        onEdit: (identifier, value) => {
+          op({ op: "param", id: node.id, key: identifier, value });
+        },
+      });
+      host.appendChild(card);
+      entry = { host };
+      cards[node.id] = entry;
+    }
+
+    return entry.host;
+  }
 
   const kindOf = (id) => catalog.find((kind) => kind.id === id);
   const nodeOf = (id) => patch.nodes.find((node) => node.id === id);
@@ -169,7 +214,15 @@
       tag.textContent = node.kind;
       group.appendChild(tag);
 
-      drawBody(group, node, kind);
+      if (node.kind === "filter" && window.IAmCard) {
+        const foreign = el("foreignObject", { x: 0, y: 0, width: BASE_W, height: BASE_H });
+        const host = filterCard(node);
+        foreign.appendChild(host);
+        group.appendChild(foreign);
+      } else {
+        drawBody(group, node, kind);
+      }
+
       drawPorts(group, node, kind);
 
       // The scale handle, only on the selected card.
@@ -390,6 +443,10 @@
     const knobEl = event.target.closest("[data-knob]");
     const wire = event.target.closest("[data-edge]");
     const mod = event.target.closest("[data-mod]");
+
+    if (event.target.closest(".mcard .knob, .mcard button, .mcard select, .mcard input, .mcard .mcard-select")) {
+      return;
+    }
 
     if (knobEl) {
       const id = Number(knobEl.getAttribute("data-node"));

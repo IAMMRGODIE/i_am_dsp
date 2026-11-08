@@ -1,28 +1,389 @@
-/* The shared card and knob tokens.
- *
- * The rack, the patcher and the kit pages all draw cards from these: the same
- * background, header, hero and text levels, and the same knob. A page overrides
- * --accent with its own product colour.
- */
-:root{
-  --bg:#1e1e1e; --card:#272727; --header:#2e2e2e; --hero:#1a1a1a;
-  --track:#2a2a2a; --border:#3d3d3d; --raised:#333;
-  --text1:#e0e0e0; --text2:#b0b0b0; --text3:#8a8a8a;
-  --accent:#e07a2f; --mod:#5ad1c8;
-  --radius:6px;
-  --font:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei",sans-serif;
-  --mono:"Cascadia Mono",Consolas,"SF Mono",monospace;
+.mcard{
+  position:relative;
+  display:flex; flex-direction:column; min-width:0;
+  background:var(--card); border:1px solid #353535;
+  border-radius:8px; overflow:hidden;
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 10px 26px rgba(0,0,0,.28);
 }
+.mcard-head{
+  display:flex; align-items:center; gap:8px; padding:6px 10px;
+  overflow:hidden;
+  background:var(--header); border-bottom:1px solid #303030;
+  min-height:36px;
+}
+.mcard-power{
+  width:20px; height:20px; padding:0; margin-left:-2px; flex:0 0 20px;
+  display:flex; align-items:center; justify-content:center;
+  background:transparent; border:0; border-radius:50%; cursor:pointer;
+}
+.mcard-power:hover{background:rgba(255,255,255,.07)}
+.mcard-power:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+.mcard-power .dot{
+  width:10px; height:10px; border-radius:50%; display:block;
+  background:var(--accent); box-shadow:0 0 8px var(--accent);
+}
+.mcard-power.off .dot{background:#555; box-shadow:none}
+.mcard-name{font-weight:600; font-size:12px; white-space:nowrap}
+.mcard-badge{
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:24px; height:16px; padding:1px 5px 0; border-radius:8px;
+  background:#333; color:var(--text3); font-family:var(--mono);
+  font-size:9px; line-height:1; letter-spacing:.04em;
+}
+.mcard-spacer{flex:1}
+.mcard-note-badge{
+  display:inline-flex; align-items:center; justify-content:center;
+  height:16px; padding:0 6px; border-radius:8px;
+  background:var(--accent); color:#111;
+  font-family:var(--mono); font-size:9px; line-height:1; letter-spacing:.04em;
+  white-space:nowrap;
+}
+.mcard-setting{display:flex; align-items:center; gap:5px; margin-left:6px; min-width:0; flex:0 1 auto}
+.mcard-setting-label{
+  font-size:8px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--text3); min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.mcard-select{
+  appearance:none; -webkit-appearance:none;
+  min-width:0; flex:0 1 auto;
+  height:22px; padding:0 20px 0 9px;
+  border:1px solid var(--border); border-radius:5px;
+  background:#222;
+  transition:border-color .12s, background-color .12s;
+  background-image:linear-gradient(45deg,transparent 50%,#8a8a8a 50%),
+    linear-gradient(135deg,#8a8a8a 50%,transparent 50%);
+  background-position:calc(100% - 12px) 50%, calc(100% - 8px) 50%;
+  background-size:4px 4px, 4px 4px;
+  background-repeat:no-repeat;
+  color:var(--text1); font:inherit; font-size:10px;
+  color-scheme:dark; cursor:pointer;
+}
+.mcard-select:hover{border-color:#5a5a5a; background-color:#2a2a2a}
+.mcard-select:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+.mcard-mode{max-width:110px}
+.mcard-kind{max-width:130px}
+.mcard.has-remove .mcard-head{padding-right:30px}
+.mcard-remove{
+  position:absolute; top:6px; right:6px; z-index:2;
+  width:20px; height:20px; padding:0; font:inherit; font-size:15px; line-height:1;
+  color:var(--text3); background:transparent; border:0; border-radius:4px;
+  cursor:pointer;
+}
+.mcard-remove:hover{color:#ff7a7a; background:rgba(255,255,255,.07)}
+.mcard.has-duplicate .mcard-head{padding-right:30px}
+.mcard.has-remove.has-duplicate .mcard-head{padding-right:54px}
+.mcard-duplicate{
+  position:absolute; top:6px; right:6px; z-index:2;
+  width:20px; height:20px; padding:0; font:inherit; font-size:13px; line-height:1;
+  color:var(--text3); background:transparent; border:0; border-radius:4px;
+  cursor:pointer;
+}
+.mcard.has-remove .mcard-duplicate{right:30px}
+.mcard-duplicate:hover{color:var(--text1); background:rgba(255,255,255,.07)}
+.mcard-drag{
+  width:14px; flex:0 0 14px; text-align:center;
+  font-size:13px; line-height:1; color:var(--text3);
+  cursor:grab; user-select:none;
+}
+.mcard-drag:active{cursor:grabbing}
+.mcard.dragging{opacity:.55}
+.mcard-collapse{
+  width:20px; height:20px; padding:0; font:inherit; font-size:13px; line-height:1;
+  color:var(--text2); background:transparent; border:0; border-radius:4px;
+  cursor:pointer;
+}
+.mcard-collapse:hover{background:rgba(255,255,255,.07); color:var(--text1)}
+.mcard.bypassed .mcard-hero,
+.mcard.bypassed .mcard-body{opacity:.45}
+.mcard.collapsed .mcard-hero,
+.mcard.collapsed .mcard-body,
+.mcard.collapsed .mcard-script{display:none}
+.mcard-hero{
+  position:relative;
+  height:150px; flex:0 0 150px; margin:8px 10px 0; padding:0;
+  background:var(--hero, #1a1a1a); border:1px solid var(--border);
+  border-radius:4px; overflow:hidden;
+}
+.mcard-graph{width:100%; height:100%; display:block}
+.mcard-body{
+  display:flex; flex-wrap:wrap; justify-content:center; align-items:flex-start;
+  gap:8px 8px; padding:14px 8px 16px; min-height:96px;
+}
+.mcard-row{
+  display:flex; align-items:center; gap:8px; align-self:center;
+  padding:0 6px;
+}
+.mcard-row-label{font-size:11px; color:var(--text2); white-space:nowrap}
+.mcard-toggle{
+  padding:3px 10px; font:inherit; font-size:10px;
+  color:var(--text2); background:var(--raised); border:1px solid #454545;
+  border-radius:10px; cursor:pointer;
+  transition:background .12s, border-color .12s, color .12s;
+}
+.mcard-toggle:hover{background:#3a3a3a; border-color:#555; color:var(--text1)}
+.mcard-toggle[aria-pressed="true"]{color:#111; background:var(--accent); border-color:var(--accent)}
+.knob-wrap{width:88px; text-align:center; min-width:0}
 .knob{
-  display:flex; flex-direction:column; align-items:center; gap:3px;
-  padding:2px 4px 3px; border-radius:5px;
+  width:68px; height:68px; margin:0 auto;
+  border-radius:50%; cursor:ns-resize; touch-action:none; outline:none;
   transition:background .12s ease;
 }
 .knob:hover{background:rgba(255,255,255,.028)}
-.knob svg{display:block; cursor:ns-resize; touch-action:none}
-.knob:hover .knob-label{color:var(--text1)}
-.knob-label{font-size:11px; color:var(--text2); line-height:1.15; white-space:nowrap}
+.knob:hover .knob-bg{stroke:#4a4a4a}
+.knob svg{width:100%; height:100%; overflow:visible; display:block}
+.knob-bg{fill:#232323; stroke:#3a3a3a; stroke-width:1.5}
+.knob-track{fill:none; stroke:#343434; stroke-width:4; stroke-linecap:round}
+.knob-arc{fill:none; stroke:var(--accent); stroke-width:4; stroke-linecap:round}
+.knob-edit{
+  position:fixed; z-index:100; display:flex; align-items:center; gap:4px;
+  padding:3px 5px; background:#1b1b1b; border:1px solid #4a4a4a;
+  border-radius:5px; box-shadow:0 6px 18px rgba(0,0,0,.5);
+}
+.knob-edit input{
+  width:64px; height:20px; padding:0 4px; outline:none;
+  color:var(--text1); background:#0b0b0b; border:1px solid #3a3a3a;
+  border-radius:3px; font:inherit; font-size:11px;
+}
+.knob-edit input:focus{border-color:var(--accent)}
+.knob-edit .unit{font-size:9px; color:var(--text3)}
+.knob.drop-target{
+  outline:1px dashed var(--mod); outline-offset:3px; border-radius:50%;
+}
+.knob-mod{fill:none; stroke:var(--mod,#5ad1c8); stroke-width:3; stroke-linecap:round; opacity:.7}
+.knob-hand{stroke:#f0f0f0; stroke-width:2.5; stroke-linecap:round}
+.knob:focus-visible .knob-bg{stroke:var(--accent)}
+.knob-label{
+  margin-top:5px; color:var(--text2); font-size:11px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
 .knob-value{
-  font-size:12px; line-height:1.15; color:var(--text1); white-space:nowrap;
-  font-family:var(--mono); font-variant-numeric:tabular-nums;
+  margin-top:1px; color:var(--text1); font-family:var(--mono);
+  font-size:11px; white-space:nowrap;
+}
+
+.mcard-switch{
+  width:30px; height:16px; padding:0; flex:0 0 auto; position:relative;
+  border-radius:9px; border:1px solid var(--border); background:var(--track);
+  cursor:pointer; transition:background .12s, border-color .12s, box-shadow .12s;
+}
+.mcard-switch:not(.on):hover{border-color:#5a5a5a; box-shadow:0 0 0 2px rgba(255,255,255,.035)}
+.mcard-switch.on:hover{border-color:color-mix(in srgb, var(--accent) 70%, #222); box-shadow:0 0 0 2px rgba(255,255,255,.035)}
+.mcard-switch i{
+  position:absolute; top:2px; left:2px; width:10px; height:10px;
+  border-radius:50%; background:var(--text3);
+  transition:left .12s, background .12s;
+}
+.mcard-switch.on{
+  background:color-mix(in srgb, var(--accent) 45%, #222);
+  border-color:color-mix(in srgb, var(--accent) 55%, #222);
+}
+.mcard-switch.on i{left:16px; background:var(--text1)}
+.mcard-switch:focus-visible{outline:1px solid var(--accent); outline-offset:2px}
+
+.mcard-notes{
+  display:flex; width:100%; gap:3px; padding:0 2px; align-items:stretch;
+}
+.mcard-note{
+  flex:1 1 0; min-width:0; height:34px; padding:0 1px; font:inherit; font-size:10px;
+  color:var(--text2); background:var(--raised); border:1px solid #414141;
+  border-radius:4px; cursor:pointer;
+  transition:background .12s, border-color .12s, color .12s;
+}
+.mcard-note.sharp{background:#202020; color:var(--text3)}
+.mcard-note:hover{background:#303030; border-color:#585858; color:var(--text1)}
+.mcard-note.on{background:var(--accent); border-color:var(--accent); color:#111}
+.mcard-note:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+
+.mcard-slider{
+  width:150px; min-width:0; display:flex; flex-direction:column; gap:5px;
+}
+.mcard-slider-top{
+  display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+}
+.mcard-slider-value{
+  color:var(--text1); font-family:var(--mono); font-size:10px;
+  white-space:nowrap;
+}
+.mcard-slider-track{
+  position:relative; height:6px; border-radius:3px; background:var(--track);
+  cursor:ew-resize; touch-action:none; outline:none;
+  transition:background .12s;
+}
+.mcard-slider-track:hover{background:#3a3a3a}
+.mcard-slider:hover .mcard-slider-handle{
+  transform:scale(1.15);
+  box-shadow:0 0 0 2px var(--card), 0 0 8px rgba(255,255,255,.15);
+}
+.mcard-slider-track:focus-visible{outline:1px solid var(--accent); outline-offset:3px}
+.mcard-slider-fill{
+  position:absolute; top:0; bottom:0; border-radius:3px; background:var(--accent);
+}
+.mcard-slider-handle{
+  position:absolute; top:50%; width:12px; height:12px; margin:-6px 0 0 -6px;
+  border-radius:50%; background:var(--text1); box-shadow:0 0 0 2px var(--card);
+  transition:transform .12s, box-shadow .12s;
+}
+
+.mcard-hero .hero-badge{
+  position:absolute; top:5px; right:7px; z-index:1;
+  font:9px/1.2 var(--mono); color:var(--text3); letter-spacing:.02em;
+  background:rgba(20,20,20,.5); padding:1px 4px; border-radius:3px;
+  pointer-events:none; white-space:nowrap;
+}
+.mcard-hero .hero-label{
+  position:absolute; left:8px; z-index:1; max-width:calc(100% - 16px);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font:9px/1.2 var(--mono); color:var(--text3); pointer-events:none;
+}
+.mcard-hero .hero-actions{
+  pointer-events:auto; z-index:3;
+  position:absolute; left:8px; bottom:4px; z-index:2;
+  display:flex; align-items:center; gap:12px;
+}
+.mcard-hero .hero-action{
+  padding:2px 0;
+  font:9px/1.2 var(--mono); color:var(--text3); background:none; border:0;
+  padding:0; cursor:pointer; letter-spacing:.02em;
+}
+.mcard-hero .hero-action:hover{color:var(--text1)}
+.mcard-hero .hero-empty{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font:10px/1.2 var(--font); color:var(--text3); pointer-events:none;
+  text-align:center; padding:0 14px;
+}
+
+/* The convolver's picture is its file picker. */
+.mcard-hero.ir-target{cursor:pointer}
+.mcard-hero.ir-target:hover{outline:1px solid var(--accent); outline-offset:-1px}
+
+/* The scripted products' editor, under the card head. */
+.mcard-script{
+  display:flex; flex-direction:column; gap:6px;
+  padding:8px 10px; border-bottom:1px solid #303030; background:#191919;
+}
+.mcard-script-text{
+  width:100%; min-height:96px; resize:vertical;
+  background:#111; color:var(--text1); border:1px solid #353535; border-radius:4px;
+  font:11px/1.5 var(--mono); padding:6px 8px; tab-size:2;
+}
+.mcard-script-text:focus{outline:1px solid var(--accent); outline-offset:0}
+/* The editor scrolls like the rack's panes: an 8px thumb on a transparent
+   track, rather than the platform's native scrollbar. */
+.mcard-script-text::-webkit-scrollbar{width:8px; height:8px}
+.mcard-script-text::-webkit-scrollbar-track{background:transparent}
+.mcard-script-text::-webkit-scrollbar-thumb{background:#3a3a3a; border-radius:4px}
+.mcard-script-text::-webkit-scrollbar-thumb:hover{background:#555}
+.mcard-script-text::-webkit-scrollbar-corner{background:transparent}
+.mcard-script-actions{display:flex; justify-content:flex-end; gap:6px}
+.mcard-script-apply{
+  font:inherit; font-size:10px; padding:3px 10px; border-radius:4px; cursor:pointer;
+  color:#111; background:var(--accent); border:1px solid var(--accent);
+}
+.mcard-script-toggle{
+  font:inherit; font-size:9px; font-family:var(--mono); padding:1px 5px;
+  color:var(--text2); background:transparent; border:1px solid #3a3a3a; border-radius:4px;
+  cursor:pointer;
+}
+.mcard-script-toggle:hover{color:var(--text1); border-color:#585858}
+
+.mcard-script-error{
+  color:var(--negative, #ff7a6b); font:10px/1.4 var(--mono);
+  white-space:pre-wrap; word-break:break-word;
+}
+
+/* The depth a source is adding, shown while Alt is held. */
+.knob-mod-hint{
+  position:absolute; left:50%; bottom:calc(100% - 4px); transform:translateX(-50%);
+  font:9px/1 var(--mono); color:#111; background:var(--accent);
+  padding:3px 6px; border-radius:8px; white-space:nowrap; pointer-events:none;
+  z-index:3;
+}
+.knob-wrap{position:relative}
+
+/* Where the modulation has the parameter right now: a second, lighter needle
+   beside the one a person set. */
+.knob-live{stroke:var(--text1); stroke-width:1.5; stroke-linecap:round; opacity:.9}
+.knob.mod-selected{outline:1px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset:2px; border-radius:50%}
+
+/* A card sizes its knobs by the room it has. The default (68px) is the largest
+   size there is; a narrow card gets smaller ones, and so does a short window. */
+@container (max-width: 400px) {
+  .knob{width:60px; height:60px}
+  .knob-wrap{width:80px}
+  .mcard-body{gap:6px 6px; padding:12px 6px 14px}
+}
+@container (max-width: 340px) {
+  .knob{width:50px; height:50px}
+  .knob-wrap{width:70px}
+  .mcard-body{gap:6px 6px; padding:10px 4px 12px}
+}
+@media (max-height: 620px) {
+  .knob{width:56px; height:56px}
+  .knob-wrap{width:78px}
+  .mcard-body{gap:6px 6px; padding:12px 8px 14px}
+}
+
+/* Alt + right click: the depths of every source on this knob. */
+.knob-depths{
+  position:fixed; z-index:120; display:flex; flex-direction:column; gap:6px;
+  min-width:220px; padding:8px 10px; background:#1b1b1b; border:1px solid #4a4a4a;
+  border-radius:6px; box-shadow:0 8px 24px rgba(0,0,0,.55);
+}
+.knob-depth{display:grid; grid-template-columns:1fr 90px 34px; align-items:center; gap:6px}
+.knob-depth span{font-size:10px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.knob-depth input{width:100%; accent-color:var(--accent)}
+.knob-depth-value{font-family:var(--mono); font-size:9px; color:var(--text1); text-align:right}
+
+/* A dynamics picture keeps its transfer square on the left and lets the
+   envelope take the rest. These rules lived only in the product page's
+   stylesheet, so in the rack the two SVGs stacked and stretched. */
+.mcard-hero .compressor-hero{
+  display:flex; height:100%; gap:8px; padding:4px;
+}
+.mcard-hero .transfer-box{
+  flex:0 0 auto; height:100%; aspect-ratio:1 / 1; display:flex;
+  align-items:center; justify-content:flex-start;
+}
+.mcard-hero .transfer-box svg{height:100%; width:auto; max-width:100%}
+.mcard-hero .env-box{
+  flex:1 1 auto; min-width:0; height:100%; position:relative;
+  display:flex; align-items:stretch; cursor:ns-resize;
+}
+.mcard-hero .env-box svg{width:100%; height:100%}
+.mcard-hero .env-box .hero-badge{
+  position:absolute; top:4px; right:6px;
+  font:9px/1.2 var(--mono); color:var(--text3);
+  background:rgba(20,20,20,.55); padding:1px 4px; border-radius:3px;
+  pointer-events:none; white-space:nowrap;
+}
+.mcard-hero .unison-hero{display:flex; height:100%; gap:8px; padding:4px}
+.mcard-hero .canvas-hero{display:flex; align-items:center; justify-content:center; height:100%; padding:4px}
+.mcard-hero .canvas-box{height:100%; aspect-ratio:1 / 1; max-width:100%; position:relative}
+.mcard-hero .canvas-box svg{display:block; width:100%; height:100%}
+.mcard-hero .unison-voices{
+  flex:0 0 auto; height:100%; aspect-ratio:1 / 1; position:relative;
+  display:flex; align-items:center; justify-content:flex-start;
+}
+.mcard-hero .unison-voices svg{height:100%; width:auto; max-width:100%}
+.mcard-hero .unison-wave{flex:1 1 auto; min-width:0; height:100%; position:relative}
+.mcard-hero .unison-wave svg{display:block; width:100%; height:100%}
+
+/* The EQ's band nodes: HTML, so the picture's stretch cannot squash them. */
+.hero-dot{
+  position:absolute; transform:translate(-50%,-50%); border-radius:50%;
+  border:1px solid #151515; box-sizing:border-box; cursor:move;
+  pointer-events:auto; z-index:1;
+}
+
+/* A narrow header belongs to the module type and the two buttons; the mode
+   setting steps aside first, then its label. */
+@container (max-width: 420px) {
+  .mcard-setting-label{display:none}
+}
+@container (max-width: 320px) {
+  .mcard-badge{display:none}
+}
+@container (max-width: 300px) {
+  .mcard-setting{display:none}
 }

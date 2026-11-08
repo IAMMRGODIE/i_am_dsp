@@ -1,6 +1,15 @@
 /* The patcher page. The card and knob tokens come from the shared stylesheet
  * (i_am_web_gui/src/page/card.css), which the build concatenates in front. */
-:root{--accent:#e07a2f;--mod:#9a7ac7;--wire:#4a3a2c;--port:#6c6c6c;--node:var(--card)}
+:root{
+  --bg:#1e1e1e; --card:#272727; --header:#2e2e2e; --hero:#1a1a1a;
+  --track:#2a2a2a; --border:#3d3d3d; --raised:#333;
+  --text1:#e0e0e0; --text2:#b0b0b0; --text3:#8a8a8a;
+  --accent:#e07a2f; --mod:#9a7ac7; --negative:#9a8fbf;
+  --radius:6px; --scale:1;
+  --font:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei",sans-serif;
+  --mono:"Cascadia Mono",Consolas,"SF Mono",monospace;
+  --wire:#4a3a2c; --port:#6c6c6c; --node:var(--card);
+}
 
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text1);
@@ -44,3 +53,6 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 .card-param{fill:var(--text3);font-size:10px}
 .card-value{fill:var(--text1);font-size:10px;font-variant-numeric:tabular-nums;font-family:var(--mono)}
 .scale-handle{fill:var(--accent);stroke:var(--bg);stroke-width:2;cursor:nwse-resize}
+
+.card-host{width:100%; height:100%; --scale:1}
+.card-host .mcard{width:100%; height:100%}

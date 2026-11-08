@@ -19,12 +19,12 @@ const PAGE_CSS: &str = concat!(
 fn demo() -> Graph {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 120.0)).expect("midi");
-	let voice_in = graph.add_node("voice:in", (300.0, 120.0)).expect("voice in");
-	let generator = graph.add_node("gen:additive", (600.0, 120.0)).expect("gen");
-	let filter = graph.add_node("filter", (900.0, 120.0)).expect("filter");
-	let lfo = graph.add_node("lfo", (900.0, 360.0)).expect("lfo");
-	let voice_out = graph.add_node("voice:out", (1200.0, 120.0)).expect("voice out");
-	let out = graph.add_node("out:audio", (1500.0, 120.0)).expect("out");
+	let voice_in = graph.add_node("voice:in", (340.0, 120.0)).expect("voice in");
+	let generator = graph.add_node("gen:additive", (680.0, 120.0)).expect("gen");
+	let filter = graph.add_node("filter", (1020.0, 120.0)).expect("filter");
+	let lfo = graph.add_node("lfo", (1020.0, 420.0)).expect("lfo");
+	let voice_out = graph.add_node("voice:out", (1360.0, 120.0)).expect("voice out");
+	let out = graph.add_node("out:audio", (1700.0, 120.0)).expect("out");
 	graph.connect((midi, 0), (voice_in, 0));
 	graph.connect((voice_in, 0), (generator, 0));
 	graph.connect((generator, 0), (filter, 0));
@@ -129,6 +129,8 @@ fn handle(mut stream: TcpStream, graph: &Arc<Mutex<Graph>>) {
 	let (status, content_type, payload) = match (method, path) {
 		("GET", "/") => ("200 OK", "text/html; charset=utf-8", include_str!("../src/page/index.html").to_string()),
 		("GET", "/patcher.css") | ("GET", "/kit.css") => ("200 OK", "text/css", PAGE_CSS.to_string()),
+		("GET", "/card.css") => ("200 OK", "text/css", i_am_web_gui::CARD_STYLE.to_string()),
+		("GET", "/card.js") => ("200 OK", "text/javascript", i_am_web_gui::CARD_SCRIPT.to_string()),
 		("GET", "/patcher.js") | ("GET", "/kit.js") => ("200 OK", "text/javascript", include_str!("../src/page/patcher.js").to_string()),
 		("GET", "/catalog") => (
 			"200 OK",

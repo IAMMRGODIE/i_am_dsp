@@ -55,11 +55,7 @@ const WIDTH: f32 = 1_000.0;
 const HEIGHT: f32 = 700.0;
 
 const PAGE_HTML: &str = include_str!("page/rack.html");
-const PAGE_CSS: &str = concat!(
-	include_str!("../../i_am_web_gui/src/page/card.css"),
-	"\n",
-	include_str!("page/rack.css"),
-);
+const PAGE_CSS: &str = include_str!("page/rack.css");
 
 /// The page's script, one IIFE split over the files in page/rack.
 ///
