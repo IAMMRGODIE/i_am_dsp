@@ -211,6 +211,236 @@
     }
   }
 
+  let card = null;
+
+  function openCard(id) {
+    card = id;
+    drawCard();
+  }
+
+  function closeCard() {
+    card = null;
+    document.getElementById("card").style.display = "none";
+  }
+
+  /// The biquad lowpass response, in dB, at a frequency.
+  function filterMagnitude(node, frequency, rate) {
+    const cutoff = Math.min(Math.max(node.params.cutoff ?? 2000, 20), rate * 0.45);
+    const q = Math.min(Math.max(node.params.resonance ?? 0.707, 0.3), 10);
+    const w0 = 2 * Math.PI * cutoff / rate;
+    const alpha = Math.sin(w0) / (2 * q);
+    const cos = Math.cos(w0);
+    const a0 = 1 + alpha;
+    const b0 = (1 - cos) / 2 / a0;
+    const b1 = (1 - cos) / a0;
+    const b2 = b0;
+    const a1 = -2 * cos / a0;
+    const a2 = (1 - alpha) / a0;
+    const w = 2 * Math.PI * frequency / rate;
+    const c1 = Math.cos(w), s1 = Math.sin(w);
+    const c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
+    const numRe = b0 + b1 * c1 + b2 * c2;
+    const numIm = -(b1 * s1 + b2 * s2);
+    const denRe = 1 + a1 * c1 + a2 * c2;
+    const denIm = -(a1 * s1 + a2 * s2);
+    const num = Math.hypot(numRe, numIm);
+    const den = Math.hypot(denRe, denIm);
+    return 20 * Math.log10(num / Math.max(den, 1e-9));
+  }
+
+  function knob(label, value, min, max, step, format, onInput) {
+    const wrap = document.createElement("div");
+    wrap.className = "knob";
+
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("width", "64");
+    svg.setAttribute("height", "64");
+    svg.setAttribute("viewBox", "0 0 64 64");
+
+    const ring = document.createElementNS(NS, "circle");
+    ring.setAttribute("cx", "32");
+    ring.setAttribute("cy", "32");
+    ring.setAttribute("r", "24");
+    ring.setAttribute("fill", "none");
+    ring.setAttribute("stroke", "#333");
+    ring.setAttribute("stroke-width", "4");
+    svg.appendChild(ring);
+
+    const arc = document.createElementNS(NS, "circle");
+    arc.setAttribute("cx", "32");
+    arc.setAttribute("cy", "32");
+    arc.setAttribute("r", "24");
+    arc.setAttribute("fill", "none");
+    arc.setAttribute("stroke", "#e07a2f");
+    arc.setAttribute("stroke-width", "4");
+    arc.setAttribute("stroke-linecap", "round");
+    arc.setAttribute("transform", "rotate(135 32 32)");
+    svg.appendChild(arc);
+
+    const text = document.createElement("div");
+    text.className = "knob-label";
+    text.textContent = label;
+
+    const readout = document.createElement("div");
+    readout.className = "knob-value";
+
+    const paint = (value) => {
+      const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
+      const dash = 2 * Math.PI * 24 * 0.75;
+      arc.setAttribute("stroke-dasharray", `${dash * t} ${dash}`);
+      readout.textContent = format(value);
+    };
+
+    paint(value);
+
+    svg.addEventListener("pointerdown", (start) => {
+      start.preventDefault();
+      const y0 = start.clientY;
+      const v0 = value;
+
+      const move = (event) => {
+        const span = max - min;
+        let next = v0 + ((y0 - event.clientY) / 140) * span;
+        next = Math.min(max, Math.max(min, next));
+        if (step > 0) next = Math.round(next / step) * step;
+        value = next;
+        paint(next);
+        onInput(next);
+      };
+
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
+
+    wrap.appendChild(svg);
+    wrap.appendChild(text);
+    wrap.appendChild(readout);
+
+    return wrap;
+  }
+
+  function drawCard() {
+    const panel = document.getElementById("card");
+
+    if (card === null) {
+      panel.style.display = "none";
+      return;
+    }
+
+    const node = nodeOf(card);
+    const kind = node ? kindOf(node.kind) : null;
+
+    if (!node || !kind) {
+      closeCard();
+      return;
+    }
+
+    panel.innerHTML = "";
+    panel.style.display = "block";
+
+    const head = document.createElement("header");
+    const title = document.createElement("span");
+    title.className = "card-title";
+    title.textContent = kind.name;
+    head.appendChild(title);
+
+    const close = document.createElement("button");
+    close.textContent = "×";
+    close.onclick = closeCard;
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    const body = document.createElement("div");
+    body.className = "card-body";
+
+    if (node.kind === "filter") {
+      const curve = document.createElementNS(NS, "svg");
+      curve.setAttribute("class", "card-curve");
+      curve.setAttribute("viewBox", "0 0 460 150");
+
+      const width = 460, height = 150;
+      let state = {
+        cutoff: node.params.cutoff ?? 2000,
+        resonance: node.params.resonance ?? 0.707,
+      };
+
+      const path = document.createElementNS(NS, "path");
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "#4d9dff");
+      path.setAttribute("stroke-width", "2");
+      curve.appendChild(path);
+
+      const repaint = () => {
+        const points = [];
+        for (let x = 0; x <= width; x += 2) {
+          const frequency = 20 * Math.pow(1000, x / width);
+          const db = filterMagnitude({ params: state }, frequency, 48000);
+          const y = height * (1 - (Math.max(-48, Math.min(6, db)) + 48) / 54);
+          points.push(`${x},${y.toFixed(1)}`);
+        }
+        path.setAttribute("d", "M " + points.join(" L "));
+      };
+
+      repaint();
+      body.appendChild(curve);
+
+      const knobs = document.createElement("div");
+      knobs.className = "card-knobs";
+
+      knobs.appendChild(knob(
+        "Cutoff",
+        state.cutoff,
+        20,
+        20000,
+        1,
+        (value) => (value >= 1000 ? (value / 1000).toFixed(2) + " kHz" : Math.round(value) + " Hz"),
+        (value) => {
+          state.cutoff = value;
+          repaint();
+          op({ op: "param", id: node.id, key: "cutoff", value });
+        },
+      ));
+      knobs.appendChild(knob(
+        "Resonance",
+        state.resonance,
+        0.3,
+        10,
+        0.01,
+        (value) => value.toFixed(2),
+        (value) => {
+          state.resonance = value;
+          repaint();
+          op({ op: "param", id: node.id, key: "resonance", value });
+        },
+      ));
+      body.appendChild(knobs);
+    } else {
+      body.className += " card-generic";
+
+      for (const [key, fallback] of kind.params) {
+        const label = document.createElement("label");
+        label.textContent = key;
+        body.appendChild(label);
+
+        const input = document.createElement("input");
+        input.type = "range";
+        input.min = "0";
+        input.max = String(Math.max(2, Math.abs(fallback) * 4));
+        input.step = "0.001";
+        input.value = String(node.params[key] ?? fallback);
+        input.onchange = () => op({ op: "param", id: node.id, key, value: Number(input.value) });
+        body.appendChild(input);
+      }
+    }
+
+    panel.appendChild(body);
+  }
+
   function drawModParams(index) {
     const mod = patch.mods[index];
     const target = mod ? nodeOf(mod.to[0]) : null;
@@ -257,6 +487,12 @@
     params.appendChild(input);
     params.appendChild(readout);
   }
+
+  svg.addEventListener("dblclick", (event) => {
+    const nodeEl = event.target.closest("[data-node]");
+
+    if (nodeEl) openCard(Number(nodeEl.getAttribute("data-node")));
+  });
 
   svg.addEventListener("pointerdown", (event) => {
     const wire = event.target.closest("[data-edge]");

@@ -205,44 +205,92 @@ impl BlockNode for Gain {
 	}
 }
 
-/// A one-pole lowpass.
+/// A biquad lowpass, so the card can draw the response the DSP has.
 struct Filter {
-	coefficient: f32,
-	state: [f32; 2],
 	rate: f32,
+	cutoff: f32,
+	q: f32,
+	coefficients: [f32; 5],
+	x1: [f32; 2],
+	x2: [f32; 2],
+	y1: [f32; 2],
+	y2: [f32; 2],
 }
 
 impl Filter {
 	fn new(rate: usize, cutoff: f32) -> Self {
-		Self {
-			coefficient: 1.0 - (-TAU * cutoff / rate as f32).exp(),
-			state: [0.0; 2],
+		let mut filter = Self {
 			rate: rate as f32,
-		}
+			cutoff,
+			q: 0.707,
+			coefficients: [0.0; 5],
+			x1: [0.0; 2],
+			x2: [0.0; 2],
+			y1: [0.0; 2],
+			y2: [0.0; 2],
+		};
+		filter.update();
+
+		filter
+	}
+
+	/// The RBJ lowpass coefficients for the current cutoff and Q.
+	fn update(&mut self) {
+		let cutoff = self.cutoff.clamp(20.0, self.rate * 0.45);
+		let w0 = TAU * cutoff / self.rate;
+		let alpha = w0.sin() / (2.0 * self.q.clamp(0.3, 10.0));
+		let cos = w0.cos();
+		let a0 = 1.0 + alpha;
+		let b0 = (1.0 - cos) * 0.5;
+		let b1 = 1.0 - cos;
+		let b2 = b0;
+
+		self.coefficients = [
+			b0 / a0,
+			b1 / a0,
+			b2 / a0,
+			-2.0 * cos / a0,
+			(1.0 - alpha) / a0,
+		];
 	}
 }
 
 impl BlockNode for Filter {
 	fn set_param(&mut self, name: &str, value: f32) {
-		if name == "cutoff" {
-			self.coefficient = 1.0 - (-TAU * value.clamp(20.0, 20_000.0) / self.rate).exp();
+		match name {
+			"cutoff" => self.cutoff = value.clamp(20.0, 20_000.0),
+			"resonance" => self.q = value.clamp(0.3, 10.0),
+			_ => return,
 		}
+
+		self.update();
 	}
 
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
-		let coefficient = self.coefficient;
+		let [b0, b1, b2, a1, a2] = self.coefficients;
 
 		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
 			out.clear();
 			out.frames = context.frames;
 
 			for channel in 0..2 {
-				let state = &mut self.state[channel];
+				let (x1, x2, y1, y2) = (
+					&mut self.x1[channel],
+					&mut self.x2[channel],
+					&mut self.y1[channel],
+					&mut self.y2[channel],
+				);
 
 				for frame in 0..context.frames {
-					*state += coefficient * (input.channels[channel][frame] - *state);
-					out.channels[channel][frame] = *state;
+					let x = input.channels[channel][frame];
+					let y = b0 * x + b1 * *x1 + b2 * *x2 - a1 * *y1 - a2 * *y2;
+
+					*x2 = *x1;
+					*x1 = x;
+					*y2 = *y1;
+					*y1 = y;
+					out.channels[channel][frame] = y;
 				}
 			}
 		}
