@@ -121,6 +121,22 @@ pub const CATALOG: &[NodeDesc] = &[
 		params: &[],
 	},
 	NodeDesc {
+		id: "voice:in",
+		name: "Voice In",
+		inputs: &[port("midi", SignalKind::Midi)],
+		outputs: &[port("midi", SignalKind::Midi)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
+		id: "voice:out",
+		name: "Voice Out",
+		inputs: &[port("audio", AUDIO)],
+		outputs: &[port("audio", AUDIO)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
 		id: "out:audio",
 		name: "Audio Out",
 		inputs: &[port("audio", AUDIO)],

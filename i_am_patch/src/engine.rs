@@ -44,6 +44,7 @@ pub struct Engine {
 	inputs: Vec<Vec<Buffer>>,
 	edges: Vec<Vec<(usize, usize, usize)>>,
 	links: Vec<Link>,
+	retrigger: Vec<usize>,
 	controls: Vec<Vec<f32>>,
 	base: Vec<BTreeMap<&'static str, f32>>,
 	output_step: Option<usize>,
@@ -125,6 +126,12 @@ impl Engine {
 			})
 			.collect();
 
+		let retrigger = plan
+			.retrigger
+			.iter()
+			.filter_map(|id| steps.get(id).copied())
+			.collect();
+
 		Ok(Self {
 			rate,
 			block: 0,
@@ -135,6 +142,7 @@ impl Engine {
 			inputs,
 			edges,
 			links,
+			retrigger,
 			controls,
 			base,
 			output_step,
@@ -179,6 +187,22 @@ impl Engine {
 		};
 
 		self.block = self.block.wrapping_add(1);
+
+		// A note starts the voice group from scratch: the LFO, the filter and
+		// the generator inside it all begin again, which is what makes a pluck
+		// per note. Mono for now: the newest note takes the group over.
+		if events
+			.iter()
+			.any(|event| matches!(event, NoteEvent::NoteOn { .. }))
+		{
+			for step in self.retrigger.clone() {
+				if let Some(node) = make(self.kinds[step], self.rate, &self.base[step]) {
+					self.nodes[step] = node;
+				}
+
+				self.controls[step].fill(0.0);
+			}
+		}
 
 		// The audio input node is the host's buffer; the sidechain is silence
 		// unless the wrapper fills it.
@@ -271,6 +295,34 @@ mod tests {
 	use super::*;
 	use crate::graph::Graph;
 
+	fn note_event(note: usize) -> NoteEvent {
+		NoteEvent::NoteOn {
+			channel: 0,
+			note,
+			velocity: 1.0,
+		}
+	}
+
+	fn render_blocks(graph: &Graph, blocks: usize, notes: &[(u64, NoteEvent)]) -> Vec<[f32; 2]> {
+		let mut engine = Engine::new(graph, 48_000).expect("the graph builds");
+		let mut out = Vec::new();
+
+		for block in 0..blocks as u64 {
+			let events: Vec<NoteEvent> = notes
+				.iter()
+				.filter(|(at, _)| *at == block)
+				.map(|(_, event)| event.clone())
+				.collect();
+			let input = vec![[0.0f32; 2]; BLOCK];
+			let mut frame = vec![[0.0f32; 2]; BLOCK];
+
+			engine.process(&input, &events, &mut frame);
+			out.extend(frame);
+		}
+
+		out
+	}
+
 	fn render(graph: &Graph) -> f32 {
 		let mut engine = Engine::new(graph, 48_000).expect("the graph builds");
 		let mut peak = 0.0f32;
@@ -332,6 +384,39 @@ mod tests {
 		let peak = render(&graph);
 
 		assert!(peak > 1e-3, "the split/mixer chain was silent: {peak}");
+	}
+
+	fn voice_patch() -> Graph {
+		let mut graph = Graph::new();
+		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+		let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
+		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+		let filter = graph.add_node("filter", (200.0, 0.0)).expect("filter");
+		let lfo = graph.add_node("lfo", (200.0, 100.0)).expect("lfo");
+		let voice_out = graph.add_node("voice:out", (300.0, 0.0)).expect("voice out");
+		let out = graph.add_node("out:audio", (400.0, 0.0)).expect("out");
+		graph.connect((midi, 0), (voice_in, 0));
+		graph.connect((voice_in, 0), (generator, 0));
+		graph.connect((generator, 0), (filter, 0));
+		graph.connect((filter, 0), (voice_out, 0));
+		graph.connect((voice_out, 0), (out, 0));
+		graph.modulate((lfo, 0), (filter, "cutoff"), 400.0);
+
+		graph
+	}
+
+	#[test]
+	fn a_voice_group_restarts_with_the_note() {
+		let graph = voice_patch();
+		let frames = render_blocks(
+			&graph,
+			8,
+			&[(0, note_event(60)), (4, note_event(60))],
+		);
+
+		// The LFO, the filter and the generator all start again on the second
+		// note, so the first block after each note is the same samples.
+		assert_eq!(&frames[0..BLOCK], &frames[BLOCK * 4..BLOCK * 5]);
 	}
 
 	#[test]
