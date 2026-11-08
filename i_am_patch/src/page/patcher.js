@@ -25,21 +25,6 @@
 
   const cards = {};
 
-  if (window.IAmCard) {
-    window.IAmCard.registerHero("patch-filter", (values) => {
-      const width = 520, height = 160;
-      const points = [];
-      for (let x = 0; x <= width; x += 4) {
-        const frequency = 20 * Math.pow(1000, x / width);
-        const db = filterMagnitude(values, frequency, 48000);
-        const y = height * (1 - (Math.max(-48, Math.min(6, db)) + 48) / 54);
-        points.push(`${x},${y.toFixed(1)}`);
-      }
-      return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">` +
-        `<path d="M ${points.join(" L ")}" fill="none" stroke="#4d9dff" stroke-width="2"/></svg>`;
-    });
-  }
-
   function filterCard(node, kind, w, h) {
     let entry = cards[node.id];
 
@@ -75,10 +60,9 @@
       const card = window.IAmCard.create({
         title: "Filter",
         accent: kind.accent || "#e07a2f",
-        // The product's spectrum hero wants a scope tap the canvas has not got
-        // yet; the response picture is the patch's own, the controls are the
-        // product's.
-        hero: "patch-filter",
+        // The product's own picture: the response curve now, and the live
+        // spectrum once the canvas can hand it a scope.
+        hero: kind.hero || "spectrum",
         mode: kind.mode || null,
         header: kind.header || [],
         visible: kind.visible || null,
