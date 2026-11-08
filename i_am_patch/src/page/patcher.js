@@ -5,8 +5,7 @@
 // to /catalog, /patch and /op; the graph stays the truth.
 (() => {
   const svg = document.getElementById("graph");
-  const palette = document.getElementById("palette");
-  const params = document.getElementById("params");
+  const menu = document.getElementById("menu");
   const NS = "http://www.w3.org/2000/svg";
 
   const BASE_W = 280;
@@ -349,7 +348,6 @@
       world.appendChild(group);
     }
 
-    drawPalette();
   }
 
   function drawBody(group, node, kind) {
@@ -461,99 +459,89 @@
     });
   }
 
-  function drawPalette() {
-    palette.innerHTML = "<h3>Add node</h3>";
+  // A right-click opens the node library: categories, then the nodes inside
+  // them, alphabetically. No list takes space from the graph until it is asked.
+  function categoryOf(kind) {
+    const id = kind.id;
+
+    if (id.startsWith("mod:")) {
+      const name = id.slice(4);
+      if (/compressor|limiter|gate|expander|ott|transient|tape_stop/.test(name)) return "Dynamics";
+      if (/reverb|schroeder|convolver|ir_reverb|comb|allpass/.test(name)) return "Reverb & Space";
+      if (/chorus|flanger|phaser|disperser|unstablizer/.test(name)) return "Modulation";
+      if (/filter|eq|formant|resonator/.test(name)) return "Filters";
+      if (/distortion|crusher/.test(name)) return "Distortion";
+      if (/pitch|autotune|spectral|shifter|vocoder|stft/.test(name)) return "Pitch & Voice";
+      if (/width|balance|particle|router/.test(name)) return "Stereo";
+      if (/script/.test(name)) return "Script";
+      return "Other";
+    }
+
+    if (id.startsWith("input:") || id === "out:audio") return "Input & Output";
+    if (id.startsWith("voice:")) return "Voice";
+    if (id.startsWith("gen:")) return "Generators";
+
+    return "Utilities";
+  }
+
+  function closeMenu() {
+    menu.style.display = "none";
+  }
+
+  function openMenu(clientX, clientY, world) {
+    const groups = new Map();
 
     for (const kind of catalog) {
-      const button = document.createElement("button");
-      button.className = "kind";
-      button.textContent = kind.name;
-      button.onclick = () => {
-        const rect = svg.getBoundingClientRect();
-        const x = (rect.width / 2 - view.x) / view.zoom - BASE_W / 2;
-        const y = (rect.height / 2 - view.y) / view.zoom - BASE_H / 2;
-        op({ op: "add", kind: kind.id, x: Math.round(x), y: Math.round(y) });
-      };
-      palette.appendChild(button);
+      const category = categoryOf(kind);
+      if (!groups.has(category)) groups.set(category, []);
+      groups.get(category).push(kind);
     }
+
+    menu.innerHTML = "";
+
+    for (const category of [...groups.keys()].sort((a, b) => a.localeCompare(b))) {
+      const items = groups.get(category).sort((a, b) => a.name.localeCompare(b.name));
+      const row = document.createElement("div");
+      row.className = "menu-cat";
+      const label = document.createElement("span");
+      label.textContent = category;
+      const arrow = document.createElement("span");
+      arrow.className = "menu-arrow";
+      arrow.textContent = "\u25B8";
+      row.appendChild(label);
+      row.appendChild(arrow);
+
+      const sub = document.createElement("div");
+      sub.className = "menu-sub";
+
+      for (const kind of items) {
+        const item = document.createElement("button");
+        item.className = "menu-item";
+        item.textContent = kind.name;
+        item.onclick = () => {
+          op({ op: "add", kind: kind.id, x: Math.round(world.x), y: Math.round(world.y) });
+          closeMenu();
+        };
+        sub.appendChild(item);
+      }
+
+      row.appendChild(sub);
+      menu.appendChild(row);
+    }
+
+    menu.style.display = "block";
+    menu.style.left = `${Math.min(clientX, window.innerWidth - 200)}px`;
+    menu.style.top = `${Math.min(clientY, window.innerHeight - 280)}px`;
   }
 
-  function drawParams(node) {
-    params.innerHTML = "";
-    const kind = kindOf(node.kind);
+  svg.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    openMenu(event.clientX, event.clientY, toWorld(event));
+  });
 
-    if (!kind) {
-      params.style.display = "none";
-      return;
-    }
-
-    params.style.display = "block";
-    const title = document.createElement("h3");
-    title.textContent = kind.name;
-    params.appendChild(title);
-
-    for (const [key, fallback] of kind.params) {
-      const label = document.createElement("label");
-      label.textContent = key;
-      params.appendChild(label);
-
-      const input = document.createElement("input");
-      input.type = "range";
-      input.min = "0";
-      input.max = String(Math.max(2, Math.abs(fallback) * 4));
-      input.step = "0.001";
-      input.value = String(node.params[key] ?? fallback);
-      input.onchange = () => op({ op: "param", id: node.id, key, value: Number(input.value) });
-      params.appendChild(input);
-    }
-  }
-
-  function drawModParams(index) {
-    const mod = patch.mods[index];
-    const target = mod ? nodeOf(mod.to[0]) : null;
-
-    if (!mod || !target) {
-      params.style.display = "none";
-      return;
-    }
-
-    const kind = kindOf(target.kind);
-    const found = kind.params.find(([key]) => key === mod.to[1]);
-    const fallback = found ? Math.abs(found[1]) : 1;
-    const max = Math.max(0.5, fallback * 2);
-
-    params.innerHTML = "";
-    params.style.display = "block";
-
-    const title = document.createElement("h3");
-    title.textContent = "Modulation";
-    params.appendChild(title);
-
-    const where = document.createElement("div");
-    where.className = "value";
-    where.textContent = `${kind.name}.${mod.to[1]}`;
-    params.appendChild(where);
-
-    const label = document.createElement("label");
-    label.textContent = "depth";
-    params.appendChild(label);
-
-    const input = document.createElement("input");
-    input.type = "range";
-    input.min = String(-max);
-    input.max = String(max);
-    input.step = "0.01";
-    input.value = String(mod.depth);
-
-    const readout = document.createElement("span");
-    readout.className = "value";
-    readout.textContent = input.value;
-
-    input.oninput = () => { readout.textContent = input.value; };
-    input.onchange = () => op({ op: "mod_depth", index, depth: Number(input.value) });
-    params.appendChild(input);
-    params.appendChild(readout);
-  }
+  document.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest("#menu")) closeMenu();
+  });
 
   svg.addEventListener("pointerdown", (event) => {
     if (event.target.closest(".card-host")) {
@@ -596,7 +584,6 @@
       selectedEdge = null;
       selectedMod = Number(mod.getAttribute("data-mod"));
       draw();
-      drawModParams(selectedMod);
       return;
     }
 
@@ -624,7 +611,6 @@
 
       selected = id;
       draw();
-      drawParams(node);
 
       // The scale handle scales the card, not moves it.
       if (event.target.closest(".scale-handle")) {
@@ -637,7 +623,6 @@
     }
 
     selected = null;
-    params.style.display = "none";
     drag = { kind: "pan", x: event.clientX, y: event.clientY, vx: view.x, vy: view.y };
     draw();
   });
@@ -742,6 +727,11 @@
   });
 
   window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeMenu();
+      return;
+    }
+
     if (event.key !== "Delete" && event.key !== "Backspace") return;
 
     if (selectedEdge !== null) {
@@ -753,7 +743,6 @@
     } else if (selected !== null) {
       op({ op: "remove", id: selected });
       selected = null;
-      params.style.display = "none";
     }
   });
 
