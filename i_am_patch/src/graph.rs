@@ -4,6 +4,8 @@
 //! string id resolved against the catalog, so a saved patch never depends on the
 //! order of an enum.
 
+use std::collections::BTreeMap;
+
 /// What flows through a port.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignalKind {
@@ -205,7 +207,7 @@ pub fn node(kind: &str) -> Option<&'static NodeDesc> {
 pub struct NodeId(pub u32);
 
 /// One node placed in a graph.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct NodeInstance {
 	/// Its id within the graph.
 	pub id: NodeId,
@@ -213,6 +215,15 @@ pub struct NodeInstance {
 	pub kind: &'static NodeDesc,
 	/// Where the page draws it.
 	pub position: (f32, f32),
+	/// The node's controls, keyed by the catalog's names.
+	pub params: BTreeMap<&'static str, f32>,
+}
+
+impl NodeInstance {
+	/// One parameter's value.
+	pub fn param(&self, name: &str) -> f32 {
+		self.params.get(name).copied().unwrap_or(0.0)
+	}
 }
 
 /// One connection: an output port into an input port.
@@ -250,10 +261,13 @@ impl Graph {
 				.map_or(0, |id| id + 1),
 		);
 
+		let params = desc.params.iter().copied().collect();
+
 		self.nodes.push(NodeInstance {
 			id,
 			kind: desc,
 			position,
+			params,
 		});
 
 		Some(id)
@@ -262,6 +276,29 @@ impl Graph {
 	/// The node with the given id.
 	pub fn get(&self, id: NodeId) -> Option<&NodeInstance> {
 		self.nodes.iter().find(|node| node.id == id)
+	}
+
+	/// Sets one node's parameter, if the kind has it.
+	pub fn set_param(&mut self, id: NodeId, name: &str, value: f32) -> bool {
+		let Some(node) = self.nodes.iter_mut().find(|node| node.id == id) else {
+			return false;
+		};
+
+		if !node.params.contains_key(name) {
+			return false;
+		}
+
+		node.params.insert(
+			node.kind
+				.params
+				.iter()
+				.find(|(key, _)| *key == name)
+				.map(|(key, _)| *key)
+				.expect("the key came from this node's params"),
+			value,
+		);
+
+		true
 	}
 
 	/// Connects one port to another without checking it.

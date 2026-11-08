@@ -1,5 +1,6 @@
 //! The node implementations the catalog names.
 
+use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 
 use i_am_dsp::prelude::NoteEvent;
@@ -12,19 +13,38 @@ pub trait BlockNode: Send {
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]);
 }
 
+/// One parameter, or the fallback when the node does not have it.
+fn param(params: &BTreeMap<&'static str, f32>, name: &str, fallback: f32) -> f32 {
+	params.get(name).copied().unwrap_or(fallback)
+}
+
 /// Builds the node for a catalog kind at a sample rate.
-pub fn make(kind: &str, rate: usize) -> Option<Box<dyn BlockNode>> {
+pub fn make(
+	kind: &str,
+	rate: usize,
+	params: &BTreeMap<&'static str, f32>,
+) -> Option<Box<dyn BlockNode>> {
 	let node: Box<dyn BlockNode> = match kind {
 		"input:midi" => Box::new(Quiet),
 		"input:audio" | "input:sidechain" => Box::new(Source),
 		"out:audio" => Box::new(Quiet),
-		"gen:additive" => Box::new(Additive::new(rate)),
-		"gain" => Box::new(Gain { gain: 1.0, pan: 0.0 }),
-		"filter" => Box::new(Filter::new(rate, 2_000.0)),
+		"gen:additive" => Box::new(Additive::new(rate, param(params, "decay", 1.0))),
+		"gain" => Box::new(Gain {
+			gain: param(params, "gain", 1.0),
+			pan: param(params, "pan", 0.0),
+		}),
+		"filter" => Box::new(Filter::new(rate, param(params, "cutoff", 2_000.0))),
 		"split:ms" => Box::new(SplitMs),
-		"mixer" => Box::new(Mixer),
-		"lfo" => Box::new(Lfo::new(rate, 1.0)),
-		"envelope" => Box::new(Envelope::new(rate)),
+		"mixer" => Box::new(Mixer {
+			a: param(params, "a", 1.0),
+			b: param(params, "b", 1.0),
+		}),
+		"lfo" => Box::new(Lfo::new(rate, param(params, "rate", 1.0))),
+		"envelope" => Box::new(Envelope::new(
+			rate,
+			param(params, "attack", 10.0),
+			param(params, "release", 100.0),
+		)),
 		"delay" => Box::new(Delay::new()),
 		_ => return None,
 	};
@@ -65,7 +85,8 @@ struct Additive {
 }
 
 impl Additive {
-	fn new(rate: usize) -> Self {
+	fn new(rate: usize, t60: f32) -> Self {
+		let decay = 10f32.powf(-3.0 / (t60.clamp(0.05, 30.0) * rate as f32));
 		let mut gains = [0.0; 16];
 
 		for (index, gain) in gains.iter_mut().enumerate() {
@@ -78,7 +99,7 @@ impl Additive {
 			phases: [0.0; 16],
 			gains,
 			envelope: 0.0,
-			decay: 0.999,
+			decay,
 		}
 	}
 }
@@ -89,7 +110,6 @@ impl BlockNode for Additive {
 			if let NoteEvent::NoteOn { note, velocity, .. } = event {
 				self.frequency = 440.0 * 2f32.powf((*note as f32 - 69.0) / 12.0);
 				self.envelope = velocity.clamp(0.0, 1.0);
-				self.decay = 10f32.powf(-3.0 / (1.2 * self.rate / 48_000.0));
 				self.phases.fill(0.0);
 			}
 		}
@@ -211,8 +231,11 @@ impl BlockNode for SplitMs {
 	}
 }
 
-/// Sums its inputs.
-struct Mixer;
+/// Sums its inputs, with a gain each.
+struct Mixer {
+	a: f32,
+	b: f32,
+}
 
 impl BlockNode for Mixer {
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
@@ -225,8 +248,8 @@ impl BlockNode for Mixer {
 
 			for channel in 0..2 {
 				for frame in 0..context.frames {
-					out.channels[channel][frame] =
-						a.channels[channel][frame] + b.channels[channel][frame];
+					out.channels[channel][frame] = a.channels[channel][frame] * self.a
+						+ b.channels[channel][frame] * self.b;
 				}
 			}
 		}
@@ -260,14 +283,20 @@ impl BlockNode for Lfo {
 
 /// An envelope follower.
 struct Envelope {
-	coefficient: f32,
+	attack: f32,
+	release: f32,
 	envelope: f32,
 }
 
 impl Envelope {
-	fn new(rate: usize) -> Self {
+	fn new(rate: usize, attack_ms: f32, release_ms: f32) -> Self {
+		let coefficient = |milliseconds: f32| {
+			1.0 - (-1000.0 / (milliseconds.clamp(0.1, 2000.0) * rate as f32)).exp()
+		};
+
 		Self {
-			coefficient: 1.0 - (-TAU * 10.0 / rate as f32).exp(),
+			attack: coefficient(attack_ms),
+			release: coefficient(release_ms),
 			envelope: 0.0,
 		}
 	}
@@ -284,7 +313,12 @@ impl BlockNode for Envelope {
 				.max(input.channels[1][frame].abs());
 		}
 
-		self.envelope += (peak - self.envelope) * self.coefficient;
+		let coefficient = if peak > self.envelope {
+			self.attack
+		} else {
+			self.release
+		};
+		self.envelope += (peak - self.envelope) * coefficient;
 
 		if let Some(Buffer::Control(value)) = outputs.first_mut() {
 			*value = self.envelope.clamp(0.0, 1.0);

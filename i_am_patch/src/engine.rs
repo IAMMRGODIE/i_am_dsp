@@ -59,7 +59,10 @@ impl Engine {
 				.expect("the plan only names nodes in the graph");
 			let kind = instance.kind;
 			kinds.push(kind.id);
-			nodes.push(make(kind.id, rate).ok_or_else(|| EngineError::UnknownKind(kind.id.to_string()))?);
+			nodes.push(
+				make(kind.id, rate, &instance.params)
+					.ok_or_else(|| EngineError::UnknownKind(kind.id.to_string()))?,
+			);
 
 			let mut node_outputs = Vec::with_capacity(kind.outputs.len());
 			for port in kind.outputs {
@@ -103,6 +106,33 @@ impl Engine {
 			edges,
 			output_step,
 		})
+	}
+
+	/// Renders a graph offline: the agent's loop, without a host.
+	pub fn render_graph(
+		graph: &Graph,
+		rate: usize,
+		seconds: f32,
+		events: &[(u64, NoteEvent)],
+	) -> Result<Vec<[f32; 2]>, EngineError> {
+		let mut engine = Self::new(graph, rate)?;
+		let blocks = (seconds.max(0.01) * rate as f32 / BLOCK as f32).ceil() as u64;
+		let mut out = Vec::with_capacity(blocks as usize * BLOCK);
+
+		for block in 0..blocks {
+			let due: Vec<NoteEvent> = events
+				.iter()
+				.filter(|(at, _)| *at == block)
+				.map(|(_, event)| event.clone())
+				.collect();
+			let input = vec![[0.0f32; 2]; BLOCK];
+			let mut frame = vec![[0.0f32; 2]; BLOCK];
+
+			engine.process(&input, &due, &mut frame);
+			out.extend(frame);
+		}
+
+		Ok(out)
 	}
 
 	/// Runs one block: the host input goes in, the graph's output comes out.
@@ -235,6 +265,58 @@ mod tests {
 		let peak = render(&graph);
 
 		assert!(peak > 1e-3, "the split/mixer chain was silent: {peak}");
+	}
+
+	#[test]
+	fn the_gain_parameter_is_heard() {
+		let chain = |gain: f32| {
+			let mut graph = Graph::new();
+			let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+			let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+			let gain_node = graph.add_node("gain", (200.0, 0.0)).expect("gain");
+			let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+			graph.connect((midi, 0), (generator, 0));
+			graph.connect((generator, 0), (gain_node, 0));
+			graph.connect((gain_node, 0), (out, 0));
+			assert!(graph.set_param(gain_node, "gain", gain));
+
+			render(&graph)
+		};
+
+		assert!(chain(0.0) < 1e-6, "a zero gain still sounded");
+		assert!(chain(0.5) < chain(1.0) * 0.7, "the gain did nothing");
+	}
+
+	#[test]
+	fn the_offline_render_produces_a_note() {
+		let mut graph = Graph::new();
+		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+		graph.connect((midi, 0), (generator, 0));
+		graph.connect((generator, 0), (out, 0));
+
+		let frames = Engine::render_graph(
+			&graph,
+			48_000,
+			0.1,
+			&[(
+				0,
+				NoteEvent::NoteOn {
+					channel: 0,
+					note: 60,
+					velocity: 1.0,
+				},
+			)],
+		)
+		.expect("the graph renders");
+
+		let peak = frames
+			.iter()
+			.flat_map(|frame| frame.iter())
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+
+		assert!(peak > 1e-3);
 	}
 
 	#[test]
