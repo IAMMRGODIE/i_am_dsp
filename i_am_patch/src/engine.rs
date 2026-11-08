@@ -47,6 +47,9 @@ pub struct Engine {
 	edges: Vec<Vec<(usize, usize, usize)>>,
 	links: Vec<Link>,
 	steps: std::collections::BTreeMap<NodeId, usize>,
+	previous: Vec<Vec<f32>>,
+	delta: Vec<Vec<f32>>,
+	pure_control: Vec<bool>,
 	retrigger: Vec<usize>,
 	controls: Vec<Vec<f32>>,
 	base: Vec<BTreeMap<&'static str, f32>>,
@@ -136,6 +139,21 @@ impl Engine {
 			.collect();
 		let step_map = steps.clone();
 
+		let previous = controls.clone();
+		let delta = controls.clone();
+		let pure_control: Vec<bool> = plan
+			.order
+			.iter()
+			.map(|id| {
+				let kind = graph.get(*id).expect("a planned node").kind;
+				kind.inputs.is_empty()
+					&& kind
+						.outputs
+						.iter()
+						.any(|port| port.kind == SignalKind::Control)
+			})
+			.collect();
+
 		Ok(Self {
 			rate,
 			block: 0,
@@ -147,6 +165,9 @@ impl Engine {
 			edges,
 			links,
 			steps: step_map,
+			previous,
+			delta,
+			pure_control,
 			retrigger,
 			controls,
 			base,
@@ -247,29 +268,74 @@ impl Engine {
 			}
 		}
 
-		// Apply the modulations with the control values of the previous block:
-		// a control is one value per block, so it can only steer the next one.
-		for step in 0..self.order.len() {
-			let mut updates: Vec<(&'static str, f32)> = Vec::new();
+		// What the block started with: a ramp needs both ends.
+		for (previous, controls) in self.previous.iter_mut().zip(&self.controls) {
+			previous.copy_from_slice(controls);
+		}
 
-			for (name, base) in self.base[step].clone() {
-				let mut value = base;
+		// A control source with no audio input can run before the audio path, so
+		// its value for this block is known while the parameters are set. The
+		// modulation then ramps across the block instead of holding the last one.
+		let mut done = vec![false; self.order.len()];
 
-				for link in &self.links {
-					if link.target == step && link.param == name {
-						value += link.depth * self.controls[link.source][link.port];
-					}
+		for (step, pure) in self.pure_control.iter().copied().enumerate() {
+			if !pure {
+				continue;
+			}
+
+			let node = &mut self.nodes[step];
+			let inputs = &self.inputs[step];
+			let outputs = &mut self.outputs[step];
+
+			node.process(&mut context, inputs, outputs);
+
+			for (port, buffer) in self.outputs[step].iter().enumerate() {
+				if let Buffer::Control(value) = buffer {
+					self.controls[step][port] = *value;
 				}
-
-				updates.push((name, value));
 			}
 
-			for (name, value) in updates {
-				self.nodes[step].set_param(name, value);
-			}
+			done[step] = true;
 		}
 
 		for step in 0..self.order.len() {
+			let mut updates: Vec<(&'static str, f32, f32)> = Vec::new();
+
+			for (name, base) in self.base[step].clone() {
+				let mut start = base;
+				let mut end = base;
+
+				for link in &self.links {
+					if link.target == step && link.param == name {
+						let last = self.previous[link.source][link.port];
+						let now = if done[link.source] {
+							self.controls[link.source][link.port]
+						} else {
+							// An audio-driven source (the envelope) cannot run
+							// before its input; the last step is the best estimate
+							// of where it is going, clamped so a jump cannot
+							// overshoot the block.
+							last + self.delta[link.source][link.port].clamp(-0.25, 0.25)
+						};
+
+						start += link.depth * last;
+						end += link.depth * now;
+					}
+				}
+
+				updates.push((name, start, end));
+			}
+
+			for (name, start, end) in updates {
+				self.nodes[step].set_param_block(name, start, end, frames);
+			}
+		}
+
+		for (step, finished) in done.iter().copied().enumerate() {
+			if finished {
+				continue;
+			}
+
 			// An input sums every edge into it, so two wires into one port add.
 			for buffer in &mut self.inputs[step] {
 				*buffer = buffer.silent_of(frames);

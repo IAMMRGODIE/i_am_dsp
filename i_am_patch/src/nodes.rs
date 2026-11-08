@@ -17,6 +17,14 @@ pub trait BlockNode: Send + Sync {
 	/// The engine calls this for every parameter every block, so a modulation
 	/// only has to move the value it is assigned to.
 	fn set_param(&mut self, _name: &str, _value: f32) {}
+
+	/// Applies a parameter that moves over the block: from `start` to `end`.
+	///
+	/// A node that can ramp does so per sample or per sub-block; the default
+	/// takes the end value and leaves the parameter where it was for the block.
+	fn set_param_block(&mut self, name: &str, _start: f32, end: f32, _frames: usize) {
+		self.set_param(name, end);
+	}
 }
 
 /// One parameter, or the fallback when the node does not have it.
@@ -172,12 +180,14 @@ impl BlockNode for Additive {
 /// The product's gain: one knob, and the DSP the product ships.
 struct GainNode {
 	effect: Gain,
+	ramp: Option<(f32, f32)>,
 }
 
 impl GainNode {
 	fn new(params: &BTreeMap<&'static str, f32>) -> Self {
 		let mut node = Self {
 			effect: Gain::new(1.0),
+			ramp: None,
 		};
 
 		for (name, value) in params {
@@ -193,14 +203,28 @@ impl BlockNode for GainNode {
 		self.effect.set_parameter(name, value.into());
 	}
 
+	fn set_param_block(&mut self, name: &str, start: f32, end: f32, _frames: usize) {
+		if name == "gain" {
+			self.ramp = Some((start, end));
+		} else {
+			self.set_param(name, end);
+		}
+	}
+
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
 
 		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
 			out.clear();
 			out.frames = context.frames;
+			let frames = context.frames.max(1);
 
 			for frame in 0..context.frames {
+				if let Some((from, to)) = self.ramp {
+					let t = (frame + 1) as f32 / frames as f32;
+					self.effect.gain = from + (to - from) * t;
+				}
+
 				let mut samples = [input.channels[0][frame], input.channels[1][frame]];
 				self.effect.process(&mut samples, &[], &mut context.context);
 				out.channels[0][frame] = samples[0];
@@ -213,12 +237,16 @@ impl BlockNode for GainNode {
 /// The product's filter: the card's controls and the DSP are the same schema.
 struct Filter {
 	effect: Multimode,
+	cutoff: Option<(f32, f32)>,
+	q: Option<(f32, f32)>,
 }
 
 impl Filter {
 	fn new(rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
 		let mut filter = Self {
 			effect: Multimode::new(rate, 1000.0, 0.707),
+			cutoff: None,
+			q: None,
 		};
 
 		for (name, value) in params {
@@ -234,18 +262,43 @@ impl BlockNode for Filter {
 		self.effect.set_parameter(name, value.into());
 	}
 
+	fn set_param_block(&mut self, name: &str, start: f32, end: f32, _frames: usize) {
+		match name {
+			"cutoff" => self.cutoff = Some((start, end)),
+			"q" => self.q = Some((start, end)),
+			_ => self.set_param(name, end),
+		}
+	}
+
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
+		const STEPS: usize = 8;
 		let input = audio(inputs, 0);
+		let frames = context.frames;
 
 		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
 			out.clear();
-			out.frames = context.frames;
+			out.frames = frames;
 
-			for frame in 0..context.frames {
-				let mut samples = [input.channels[0][frame], input.channels[1][frame]];
-				self.effect.process(&mut samples, &[], &mut context.context);
-				out.channels[0][frame] = samples[0];
-				out.channels[1][frame] = samples[1];
+			let step = frames.div_ceil(STEPS).max(1);
+
+			for start in (0..frames).step_by(step) {
+				let t = start as f32 / frames.max(1) as f32;
+
+				if let Some((from, to)) = self.cutoff {
+					self.effect
+						.set_parameter("cutoff", (from + (to - from) * t).into());
+				}
+
+				if let Some((from, to)) = self.q {
+					self.effect.set_parameter("q", (from + (to - from) * t).into());
+				}
+
+				for frame in start..(start + step).min(frames) {
+					let mut samples = [input.channels[0][frame], input.channels[1][frame]];
+					self.effect.process(&mut samples, &[], &mut context.context);
+					out.channels[0][frame] = samples[0];
+					out.channels[1][frame] = samples[1];
+				}
 			}
 		}
 	}

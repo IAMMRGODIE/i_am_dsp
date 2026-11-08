@@ -159,6 +159,40 @@ fn the_delay_lands_one_block_late() {
 }
 
 #[test]
+fn a_modulation_ramps_across_the_block() {
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+	graph.connect((input, 0), (gain, 0));
+	graph.connect((gain, 0), (out, 0));
+
+	let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
+	graph.set_param(lfo, "rate", 100.0);
+	graph.modulate((lfo, 0), (gain, "gain"), 0.5);
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let mut frames = Vec::new();
+
+	for _ in 0..8 {
+		let host = vec![[0.5f32; 2]; BLOCK];
+		let mut block = vec![[0.0f32; 2]; BLOCK];
+		engine.process(&host, &[], &mut block);
+		frames.extend(block);
+	}
+
+	// A staircase leaves a constant input constant inside a block; a ramp moves
+	// it, because the parameter is between the two ends of the block.
+	let start = 4 * BLOCK;
+	let first = frames[start][0];
+	let moved = frames[start..start + BLOCK]
+		.iter()
+		.any(|frame| (frame[0] - first).abs() > 1e-4);
+
+	assert!(moved, "the modulation was still a per-block staircase");
+}
+
+#[test]
 fn the_render_length_follows_the_seconds() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
