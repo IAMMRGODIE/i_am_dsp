@@ -6,7 +6,7 @@ use i_am_dsp::prelude::NoteEvent;
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer, PatchContext};
 use crate::compile::{CompileError, Plan, compile};
-use crate::graph::{Graph, NodeId, SignalKind};
+use crate::graph::{Graph, ModulationMode, NodeId, SignalKind};
 use crate::nodes::{BlockNode, make};
 
 /// Why an engine could not be built.
@@ -33,6 +33,7 @@ struct Link {
 	target: usize,
 	param: &'static str,
 	depth: f32,
+	mode: ModulationMode,
 }
 
 /// One running patch.
@@ -129,6 +130,7 @@ impl Engine {
 				target: steps[&link.target.0],
 				param: link.target.1,
 				depth: link.depth,
+				mode: link.mode,
 			})
 			.collect();
 
@@ -318,8 +320,17 @@ impl Engine {
 							last + self.delta[link.source][link.port].clamp(-0.25, 0.25)
 						};
 
-						start += link.depth * last;
-						end += link.depth * now;
+						// Centered swings both ways around the base; from-base
+						// only rises, so a bipolar source is folded into 0..1.
+						let bipolar = self.kinds[link.source] != "envelope";
+						let unit = |value: f32| match link.mode {
+							ModulationMode::Centered => value,
+							ModulationMode::FromBase if bipolar => (value + 1.0) * 0.5,
+							ModulationMode::FromBase => value,
+						};
+
+						start += link.depth * unit(last);
+						end += link.depth * unit(now);
 					}
 				}
 
@@ -487,6 +498,44 @@ mod tests {
 		graph.modulate((lfo, 0), (filter, "cutoff"), 400.0);
 
 		graph
+	}
+
+	#[test]
+	fn a_modulation_mode_moves_where_the_swing_starts() {
+		fn render(mode: ModulationMode) -> (f32, f32) {
+			let mut graph = Graph::new();
+			let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+			let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+			let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+			graph.connect((input, 0), (gain, 0));
+			graph.connect((gain, 0), (out, 0));
+
+			let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
+			graph.set_param(lfo, "rate", 100.0);
+			graph.modulate((lfo, 0), (gain, "gain"), 0.5);
+			graph.set_modulation_mode(0, mode);
+
+			let mut engine = Engine::new(&graph, 48_000).expect("builds");
+			let mut frames = Vec::new();
+
+			for _ in 0..16 {
+				let host = vec![[0.5f32; 2]; BLOCK];
+				let mut block = vec![[0.0f32; 2]; BLOCK];
+				engine.process(&host, &[], &mut block);
+				frames.extend(block);
+			}
+
+			let min = frames.iter().map(|frame| frame[0]).fold(f32::INFINITY, f32::min);
+			let max = frames.iter().map(|frame| frame[0]).fold(0.0f32, f32::max);
+
+			(min, max)
+		}
+
+		let (centered_min, centered_max) = render(ModulationMode::Centered);
+		let (base_min, base_max) = render(ModulationMode::FromBase);
+
+		assert!(centered_min < 0.45 && centered_max > 0.55, "centered: {centered_min}..{centered_max}");
+		assert!(base_min > 0.49 && base_max > 0.55, "from base: {base_min}..{base_max}");
 	}
 
 	#[test]

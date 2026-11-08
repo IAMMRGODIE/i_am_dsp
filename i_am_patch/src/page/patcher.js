@@ -33,7 +33,13 @@
 
   function modsOf(id) {
     return patch.mods
-      .map((mod, index) => ({ slot: index, from: mod.from, to: mod.to, depth: mod.depth }))
+      .map((mod, index) => ({
+        slot: index,
+        from: mod.from,
+        to: mod.to,
+        depth: mod.depth,
+        mode: mod.mode || "center",
+      }))
       .filter((mod) => mod.to[0] === id);
   }
 
@@ -41,7 +47,7 @@
     let entry = cards[node.id];
     const mods = modsOf(node.id);
     const key = JSON.stringify(
-      mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000)]),
+      mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
     );
 
     if (entry && entry.key !== key) {
@@ -70,7 +76,7 @@
             slot: mod.slot,
             label: sourceName(mod.from[0]),
             depth: mod.depth / range,
-            mode: "frombase",
+            mode: mod.mode === "base" ? "frombase" : "centered",
           }));
 
         return {
@@ -90,6 +96,9 @@
           modulations: assignments,
           onModulation: (slot, next) => {
             op({ op: "mod_depth", index: slot, depth: next * range }, false);
+          },
+          onModeToggle: (slots, next) => {
+            op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
           },
         };
       });

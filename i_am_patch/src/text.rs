@@ -62,12 +62,17 @@ pub fn to_text(graph: &Graph) -> String {
 		let from = graph.get(link.source.0).expect("a link names a node");
 		let _ = writeln!(
 			out,
-			"mod {}.{} -> {}.{} depth={}",
+			"mod {}.{} -> {}.{} depth={}{}",
 			link.source.0 .0,
 			from.kind.outputs[link.source.1].name,
 			link.target.0 .0,
 			link.target.1,
-			link.depth
+			link.depth,
+			if link.mode == crate::graph::ModulationMode::FromBase {
+				" mode=frombase"
+			} else {
+				""
+			}
 		);
 	}
 
@@ -165,6 +170,11 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 				let depth = depth
 					.strip_prefix("depth=")
 					.ok_or_else(|| error(line, "mod needs depth="))?;
+				let mode = match words.next() {
+					Some("mode=frombase") => crate::graph::ModulationMode::FromBase,
+					Some("mode=center") | None => crate::graph::ModulationMode::Centered,
+					Some(_) => return Err(error(line, "mode is frombase or center")),
+				};
 				let (from_node, from_port) = resolve(&graph, from, line, true)?;
 				let (to_node, to_port) = resolve_param(&graph, to, line)?;
 
@@ -173,6 +183,10 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 					(to_node, to_port),
 					parse_f32(Some(depth), line)?,
 				);
+
+				if let Some(link) = graph.modulations.last_mut() {
+					link.mode = mode;
+				}
 			}
 			"set" => {
 				let id = parse_id(words.next(), line)?;
@@ -310,12 +324,14 @@ mod tests {
 		let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
 		let gain = graph.nodes[2].id;
 		graph.modulate((lfo, 0), (gain, "gain"), 0.4);
+		graph.set_modulation_mode(0, crate::graph::ModulationMode::FromBase);
 
 		let back = from_text(&to_text(&graph)).expect("the text parses");
 
 		assert_eq!(back.modulations.len(), 1);
 		assert_eq!(back.modulations[0].target.1, "gain");
 		assert!((back.modulations[0].depth - 0.4).abs() < 1e-6);
+		assert_eq!(back.modulations[0].mode, crate::graph::ModulationMode::FromBase);
 	}
 
 	#[test]

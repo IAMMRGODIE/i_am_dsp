@@ -258,6 +258,16 @@ pub struct Edge {
 	pub to: (NodeId, usize),
 }
 
+/// How a source moves the parameter it is assigned to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModulationMode {
+	/// Around the base value, ± the depth.
+	#[default]
+	Centered,
+	/// From the base value upward, 0..depth.
+	FromBase,
+}
+
 /// One control-to-parameter assignment.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ModulationLink {
@@ -267,6 +277,8 @@ pub struct ModulationLink {
 	pub target: (NodeId, &'static str),
 	/// How far the control moves the parameter, in parameter units.
 	pub depth: f32,
+	/// Where the movement starts.
+	pub mode: ModulationMode,
 }
 
 /// A patch: nodes and the edges between them.
@@ -335,7 +347,18 @@ impl Graph {
 			source,
 			target,
 			depth,
+			mode: ModulationMode::Centered,
 		});
+	}
+
+	/// Sets one modulation link's mode.
+	pub fn set_modulation_mode(&mut self, index: usize, mode: ModulationMode) -> bool {
+		let Some(link) = self.modulations.get_mut(index) else {
+			return false;
+		};
+
+		link.mode = mode;
+		true
 	}
 
 	/// Sets one modulation link's depth.

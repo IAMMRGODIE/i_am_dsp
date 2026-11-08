@@ -129,6 +129,11 @@ fn patch_json(graph: &Graph) -> Value {
 			"from": [link.source.0 .0, link.source.1],
 			"to": [link.target.0 .0, link.target.1],
 			"depth": link.depth,
+			"mode": if link.mode == i_am_patch::graph::ModulationMode::FromBase {
+				"base"
+			} else {
+				"center"
+			},
 		})).collect::<Vec<_>>(),
 	})
 }
@@ -246,6 +251,17 @@ fn op(graph: &Arc<Mutex<Graph>>, body: &str) -> Value {
 		"disconnect" => {
 			graph.remove_edge(value["index"].as_u64().unwrap_or(u64::MAX) as usize);
 			json!({ "ok": true })
+		}
+		"mod_mode" => {
+			let done = graph.set_modulation_mode(
+				value["index"].as_u64().unwrap_or(u64::MAX) as usize,
+				if value["mode"].as_str() == Some("base") {
+					i_am_patch::graph::ModulationMode::FromBase
+				} else {
+					i_am_patch::graph::ModulationMode::Centered
+				},
+			);
+			json!({ "ok": done })
 		}
 		"mod_depth" => {
 			let done = graph.set_modulation_depth(
