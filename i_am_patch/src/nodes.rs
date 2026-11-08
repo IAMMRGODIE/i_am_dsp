@@ -90,6 +90,9 @@ struct Additive {
 	gains: [f32; 16],
 	envelope: f32,
 	decay: f32,
+	release: f32,
+	releasing: bool,
+	note: usize,
 }
 
 impl Additive {
@@ -108,6 +111,10 @@ impl Additive {
 			gains,
 			envelope: 0.0,
 			decay,
+			// A release of 150 ms to -60 dB.
+			release: 10f32.powf(-3.0 / (0.15 * rate as f32)),
+			releasing: false,
+			note: 0,
 		}
 	}
 }
@@ -121,10 +128,18 @@ impl BlockNode for Additive {
 
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
 		for event in &context.events {
-			if let NoteEvent::NoteOn { note, velocity, .. } = event {
-				self.frequency = 440.0 * 2f32.powf((*note as f32 - 69.0) / 12.0);
-				self.envelope = velocity.clamp(0.0, 1.0);
-				self.phases.fill(0.0);
+			match event {
+				NoteEvent::NoteOn { note, velocity, .. } => {
+					self.frequency = 440.0 * 2f32.powf((*note as f32 - 69.0) / 12.0);
+					self.envelope = velocity.clamp(0.0, 1.0);
+					self.phases.fill(0.0);
+					self.note = *note;
+					self.releasing = false;
+				}
+				NoteEvent::NoteOff { note, .. } if *note == self.note => {
+					self.releasing = true;
+				}
+				_ => {}
 			}
 		}
 
@@ -147,7 +162,12 @@ impl BlockNode for Additive {
 			sample *= self.envelope * 0.1;
 			out.channels[0][frame] = sample;
 			out.channels[1][frame] = sample;
-			self.envelope *= self.decay;
+
+			if self.releasing {
+				self.envelope *= self.release;
+			} else {
+				self.envelope *= self.decay;
+			}
 		}
 	}
 }

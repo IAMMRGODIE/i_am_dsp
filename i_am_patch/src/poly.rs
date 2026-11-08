@@ -19,7 +19,9 @@ pub const POLYPHONY: usize = 8;
 struct Voice {
 	engine: Engine,
 	pending: Vec<NoteEvent>,
+	note: usize,
 	age: u64,
+	silent: u32,
 }
 
 /// A polyphonic patch: one voice group and the graph around it.
@@ -133,18 +135,28 @@ impl Poly {
 		let frames = input.len().min(BLOCK).min(out.len());
 
 		for event in events {
-			if matches!(event, NoteEvent::NoteOn { .. }) {
-				if self.voices.len() >= POLYPHONY {
-					self.voices.remove(0);
-				}
+			match event {
+				NoteEvent::NoteOn { note, .. } => {
+					if self.voices.len() >= POLYPHONY {
+						self.voices.remove(0);
+					}
 
-				if let Ok(engine) = Engine::new(&self.voice_graph, self.rate) {
-					self.voices.push(Voice {
-						engine,
-						pending: vec![event.clone()],
-						age: 0,
-					});
+					if let Ok(engine) = Engine::new(&self.voice_graph, self.rate) {
+						self.voices.push(Voice {
+							engine,
+							pending: vec![event.clone()],
+							note: *note,
+							age: 0,
+							silent: 0,
+						});
+					}
 				}
+				NoteEvent::NoteOff { note, .. } => {
+					if let Some(voice) = self.voices.iter_mut().find(|voice| voice.note == *note) {
+						voice.pending.push(event.clone());
+					}
+				}
+				_ => {}
 			}
 		}
 
@@ -162,11 +174,26 @@ impl Poly {
 				mix.channels[0][frame] += sample[0];
 				mix.channels[1][frame] += sample[1];
 			}
+
+			// A released voice is retired once it has been quiet for a while.
+			let peak = buffer
+				.iter()
+				.take(frames)
+				.fold(0.0f32, |peak, frame| {
+					peak.max(frame[0].abs()).max(frame[1].abs())
+				});
+
+			if peak < 1e-4 {
+				voice.silent += 1;
+			} else {
+				voice.silent = 0;
+			}
 		}
 
 		// A voice lives until it has been silent for a while or the pool needs
 		// the slot; a note-off is not needed for the additive voice yet.
-		self.voices.retain(|voice| voice.age < 10_000);
+		self.voices
+			.retain(|voice| voice.age < 10_000 && voice.silent < 150);
 
 		self.outer.inject(self.out, mix);
 		self.outer.process(input, events, out);
@@ -239,6 +266,35 @@ mod tests {
 
 		assert!(both != first_only, "the second note was lost");
 		assert!(both != second_only, "the first note was lost");
+	}
+
+	#[test]
+	fn a_note_off_lets_the_voice_go_silent() {
+		let graph = voice_patch();
+		let mut poly = Poly::new(&graph, 48_000).expect("poly builds");
+		let frames = render(
+			&mut poly,
+			140,
+			&[
+				(0, note(60)),
+				(
+					8,
+					NoteEvent::NoteOff {
+						channel: 0,
+						note: 60,
+						velocity: 0.0,
+					},
+				),
+			],
+		);
+
+		let tail = &frames[(140 - 4) * BLOCK..];
+		let peak = tail
+			.iter()
+			.flat_map(|frame| frame.iter())
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+
+		assert!(peak < 1e-4, "the voice did not release: {peak}");
 	}
 
 	#[test]
