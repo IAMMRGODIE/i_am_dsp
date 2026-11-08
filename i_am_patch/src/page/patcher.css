@@ -56,3 +56,18 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 
 .card-host{width:100%; height:100%; --scale:1}
 .card-host .mcard{width:100%; height:100%}
+/* The card is a window: its face scales with the box, it is not stretched. */
+.card-host .mcard-head{min-height:calc(36px * var(--scale)); padding:calc(6px * var(--scale)) calc(10px * var(--scale))}
+.card-host .mcard-name{font-size:calc(14px * var(--scale))}
+.card-host .mcard-hero{
+  height:calc(150px * var(--scale)); flex:0 0 calc(150px * var(--scale));
+  margin:calc(8px * var(--scale)) calc(10px * var(--scale)) 0;
+}
+.card-host .mcard-body{
+  padding:calc(14px * var(--scale)) calc(8px * var(--scale)) calc(16px * var(--scale));
+  gap:calc(8px * var(--scale));
+}
+.card-host .knob svg{width:calc(56px * var(--scale)); height:calc(56px * var(--scale))}
+.card-host .knob-label{font-size:calc(11px * var(--scale))}
+.card-host .knob-value{font-size:calc(12px * var(--scale))}
+.card-host .mcard-select{font-size:calc(12px * var(--scale))}

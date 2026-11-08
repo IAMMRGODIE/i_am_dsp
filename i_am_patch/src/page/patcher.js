@@ -40,8 +40,15 @@
     });
   }
 
-  function filterCard(node, kind) {
+  function filterCard(node, kind, w, h) {
     let entry = cards[node.id];
+
+    if (entry) {
+      entry.host.style.setProperty(
+        "--scale",
+        String(Math.min(2, Math.max(0.5, Math.min(w / BASE_W, h / 420)))),
+      );
+    }
 
     if (!entry) {
       const specs = (kind.controls && kind.controls.length ? kind.controls : [
@@ -67,11 +74,15 @@
       host.className = "card-host";
       const card = window.IAmCard.create({
         title: "Filter",
-        accent: "#e07a2f",
+        accent: kind.accent || "#e07a2f",
         // The product's spectrum hero wants a scope tap the canvas has not got
         // yet; the response picture is the patch's own, the controls are the
         // product's.
         hero: "patch-filter",
+        mode: kind.mode || null,
+        header: kind.header || [],
+        visible: kind.visible || null,
+        switches: kind.switches || [],
         controls: specs,
         values: node.params,
         context: { rate: 48000 },
@@ -82,6 +93,10 @@
       host.appendChild(card);
       entry = { host };
       cards[node.id] = entry;
+      entry.host.style.setProperty(
+        "--scale",
+        String(Math.min(2, Math.max(0.5, Math.min(w / BASE_W, h / 420)))),
+      );
     }
 
     return entry.host;
@@ -223,45 +238,50 @@
       const kind = kindOf(node.kind);
       if (!kind) continue;
 
-      const { h, sx, sy } = size(node);
-      const baseH = h / sy;
+      const { w, h, sx, sy } = size(node);
+      const u = Math.min(sx, sy);
       const group = el("g", {
         "data-node": node.id,
-        transform: `translate(${node.x} ${node.y}) scale(${sx} ${sy})`,
+        transform: `translate(${node.x} ${node.y})`,
       });
 
-      // The card itself.
+      // The box resizes with the handle; the face inside keeps its proportions,
+      // so text and knobs are never stretched on one axis only.
       group.appendChild(el("rect", {
         class: "node" + (selected === node.id ? " selected" : ""),
-        x: 0, y: 0, width: BASE_W, height: baseH, rx: 6,
+        x: 0, y: 0, width: w, height: h, rx: 6,
       }));
-      group.appendChild(el("rect", {
-        x: 0, y: 0, width: BASE_W, height: 22, rx: 6, class: "card-head",
-      }));
-
-      const title = el("text", { class: "node-name", x: 10, y: 15 });
-      title.textContent = kind.name;
-      group.appendChild(title);
-
-      const tag = el("text", { class: "node-kind", x: BASE_W - 10, y: 15, "text-anchor": "end" });
-      tag.textContent = node.kind;
-      group.appendChild(tag);
 
       if (node.kind === "filter" && window.IAmCard) {
-        const foreign = el("foreignObject", { x: 0, y: 0, width: BASE_W, height: baseH });
-        const host = filterCard(node, kind);
+        const foreign = el("foreignObject", { x: 0, y: 0, width: w, height: h });
+        const host = filterCard(node, kind, w, h);
         foreign.appendChild(host);
         group.appendChild(foreign);
       } else {
-        drawBody(group, node, kind);
+        group.appendChild(el("rect", {
+          x: 0, y: 0, width: w, height: 22 * u, rx: 6, class: "card-head",
+        }));
+
+        const title = el("text", { class: "node-name", x: 10, y: 15 * u, "font-size": 12 * u });
+        title.textContent = kind.name;
+        group.appendChild(title);
+
+        const tag = el("text", {
+          class: "node-kind", x: w - 10, y: 15 * u, "font-size": 10 * u, "text-anchor": "end",
+        });
+        tag.textContent = node.kind;
+        group.appendChild(tag);
+
+        const content = el("g", { transform: `scale(${u})` });
+        drawBody(content, node, kind);
+        group.appendChild(content);
       }
 
-      drawPorts(group, node, kind);
+      drawPorts(group, kind, w, sy, u);
 
-      // The scale handle, only on the selected card.
       if (selected === node.id) {
         group.appendChild(el("rect", {
-          class: "scale-handle", x: BASE_W - 14, y: baseH - 14, width: 12, height: 12, rx: 2,
+          class: "scale-handle", x: w - 14, y: h - 14, width: 12, height: 12, rx: 2,
         }));
       }
 
@@ -354,25 +374,27 @@
     return value.toFixed(2);
   }
 
-  function drawPorts(group, node, kind) {
+  function drawPorts(group, kind, w, sy, u) {
     kind.inputs.forEach((port, index) => {
-      const y = portY(port, index);
+      const y = portY(port, index) * sy;
       group.appendChild(el("circle", {
         "data-port": "in", "data-index": index, cx: 0, cy: y, r: 5,
         class: "port " + port.kind,
       }));
-      const label = el("text", { class: "port-label", x: 8, y: y + 3 });
+      const label = el("text", { class: "port-label", x: 8, y: y + 3, "font-size": 9 * u });
       label.textContent = port.name;
       group.appendChild(label);
     });
 
     kind.outputs.forEach((port, index) => {
-      const y = portY(port, index);
+      const y = portY(port, index) * sy;
       group.appendChild(el("circle", {
-        "data-port": "out", "data-index": index, cx: BASE_W, cy: y, r: 5,
+        "data-port": "out", "data-index": index, cx: w, cy: y, r: 5,
         class: "port " + port.kind,
       }));
-      const label = el("text", { class: "port-label", x: BASE_W - 8, y: y + 3, "text-anchor": "end" });
+      const label = el("text", {
+        class: "port-label", x: w - 8, y: y + 3, "font-size": 9 * u, "text-anchor": "end",
+      });
       label.textContent = port.name;
       group.appendChild(label);
     });

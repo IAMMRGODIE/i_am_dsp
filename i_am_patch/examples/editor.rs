@@ -59,12 +59,30 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 
 	let mut controls: Vec<Value> = Vec::new();
 	let mut hero: Option<String> = None;
+	let mut mode: Option<&'static str> = None;
+	let mut header: &'static [&'static str] = &[];
+	let mut visible: Option<Vec<(i32, Vec<&'static str>)>> = None;
+	let mut switches: Vec<Value> = Vec::new();
+	let mut accent = "#e07a2f";
 
 	if let Some(module) = product_module(kind.id)
 		&& let Some(descriptor) = i_am_effects::catalog::get(module)
 	{
 		let sections = i_am_web_gui::sections(&descriptor.parameters());
 		hero = sections.iter().find_map(|section| section.hero.clone());
+		mode = descriptor.mode;
+		header = descriptor.header;
+		visible = descriptor.visible.map(|rows| {
+			rows.iter()
+				.map(|(mode, names)| (*mode, names.to_vec()))
+				.collect()
+		});
+		accent = descriptor.accent;
+		switches = descriptor
+			.switches
+			.iter()
+			.map(|row| json!({ "control": row.control, "on": row.on, "off": row.off }))
+			.collect::<Vec<Value>>();
 
 		for section in &sections {
 			for control in &section.controls {
@@ -81,6 +99,11 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 		"params": kind.params.iter().map(|(key, value)| json!([key, value])).collect::<Vec<_>>(),
 		"controls": controls,
 		"hero": hero,
+		"mode": mode,
+		"header": header,
+		"visible": visible,
+		"switches": switches,
+		"accent": accent,
 	})
 }
 
