@@ -307,18 +307,38 @@ impl Graph {
 		self.nodes.iter().find(|node| node.id == id)
 	}
 
-	/// Adds a control-to-parameter assignment without checking it.
+	/// Adds a control-to-parameter assignment, or moves the depth of one that
+	/// already drives the same parameter.
 	pub fn modulate(
 		&mut self,
 		source: (NodeId, usize),
 		target: (NodeId, &'static str),
 		depth: f32,
 	) {
+		if let Some(link) = self
+			.modulations
+			.iter_mut()
+			.find(|link| link.source == source && link.target == target)
+		{
+			link.depth = depth;
+			return;
+		}
+
 		self.modulations.push(ModulationLink {
 			source,
 			target,
 			depth,
 		});
+	}
+
+	/// Sets one modulation link's depth.
+	pub fn set_modulation_depth(&mut self, index: usize, depth: f32) -> bool {
+		let Some(link) = self.modulations.get_mut(index) else {
+			return false;
+		};
+
+		link.depth = depth;
+		true
 	}
 
 	/// Sets one node's parameter, if the kind has it.
@@ -370,5 +390,35 @@ impl Graph {
 	pub fn remove_node(&mut self, id: NodeId) {
 		self.nodes.retain(|node| node.id != id);
 		self.edges.retain(|edge| edge.from.0 != id && edge.to.0 != id);
+	}
+}
+
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_second_link_to_the_same_parameter_moves_the_depth() {
+		let mut graph = Graph::new();
+		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+		let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+		graph.modulate((lfo, 0), (gain, "gain"), 0.5);
+		graph.modulate((lfo, 0), (gain, "gain"), 0.9);
+
+		assert_eq!(graph.modulations.len(), 1);
+		assert!((graph.modulations[0].depth - 0.9).abs() < 1e-6);
+	}
+
+	#[test]
+	fn a_depth_can_be_set_by_index() {
+		let mut graph = Graph::new();
+		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+		let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+		graph.modulate((lfo, 0), (gain, "gain"), 0.5);
+
+		assert!(graph.set_modulation_depth(0, 0.25));
+		assert!(!graph.set_modulation_depth(9, 0.25));
+		assert!((graph.modulations[0].depth - 0.25).abs() < 1e-6);
 	}
 }

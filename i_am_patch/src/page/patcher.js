@@ -211,6 +211,53 @@
     }
   }
 
+  function drawModParams(index) {
+    const mod = patch.mods[index];
+    const target = mod ? nodeOf(mod.to[0]) : null;
+
+    if (!mod || !target) {
+      params.style.display = "none";
+      return;
+    }
+
+    const kind = kindOf(target.kind);
+    const found = kind.params.find(([key]) => key === mod.to[1]);
+    const fallback = found ? Math.abs(found[1]) : 1;
+    const max = Math.max(0.5, fallback * 2);
+
+    params.innerHTML = "";
+    params.style.display = "block";
+
+    const title = document.createElement("h3");
+    title.textContent = "Modulation";
+    params.appendChild(title);
+
+    const where = document.createElement("div");
+    where.className = "value";
+    where.textContent = `${kind.name}.${mod.to[1]}`;
+    params.appendChild(where);
+
+    const label = document.createElement("label");
+    label.textContent = "depth";
+    params.appendChild(label);
+
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = String(-max);
+    input.max = String(max);
+    input.step = "0.01";
+    input.value = String(mod.depth);
+
+    const readout = document.createElement("span");
+    readout.className = "value";
+    readout.textContent = input.value;
+
+    input.oninput = () => { readout.textContent = input.value; };
+    input.onchange = () => op({ op: "mod_depth", index, depth: Number(input.value) });
+    params.appendChild(input);
+    params.appendChild(readout);
+  }
+
   svg.addEventListener("pointerdown", (event) => {
     const wire = event.target.closest("[data-edge]");
     const mod = event.target.closest("[data-mod]");
@@ -228,6 +275,7 @@
       selectedEdge = null;
       selectedMod = Number(mod.getAttribute("data-mod"));
       draw();
+      drawModParams(selectedMod);
       return;
     }
 

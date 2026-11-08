@@ -185,6 +185,13 @@ fn op(graph: &Arc<Mutex<Graph>>, body: &str) -> Value {
 			graph.remove_edge(value["index"].as_u64().unwrap_or(u64::MAX) as usize);
 			json!({ "ok": true })
 		}
+		"mod_depth" => {
+			let done = graph.set_modulation_depth(
+				value["index"].as_u64().unwrap_or(u64::MAX) as usize,
+				value["depth"].as_f64().unwrap_or(0.0) as f32,
+			);
+			json!({ "ok": done })
+		}
 		"unmodulate" => {
 			graph.remove_modulation(value["index"].as_u64().unwrap_or(u64::MAX) as usize);
 			json!({ "ok": true })
