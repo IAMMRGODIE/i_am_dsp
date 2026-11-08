@@ -1356,6 +1356,7 @@ pub fn decode_click(bytes: &[u8]) -> Result<SampleData, String> {
 	};
 
 	Ok(SampleData {
+		right: None,
 		name: "click".to_string(),
 		rate: pcm.sample_rate as u32,
 		pcm: mono,
@@ -2694,6 +2695,7 @@ mod tests {
 	#[test]
 	fn an_imported_click_is_layered_over_the_kick() {
 		let sample = Arc::new(SampleData {
+			right: None,
 			name: "click".to_string(),
 			rate: 48_000,
 			pcm: vec![0.4; 480],
@@ -2729,6 +2731,7 @@ mod tests {
 		slots.set(
 			slot_drum("kick").expect("the kick's slot"),
 			Some(SampleData {
+				right: None,
 				name: "kick".to_string(),
 				rate: 48_000,
 				pcm: vec![1.0; 320],
@@ -2749,6 +2752,7 @@ mod tests {
 		slots.set(
 			slot_drum("snare").expect("the snare's slot"),
 			Some(SampleData {
+				right: None,
 				name: "snare".to_string(),
 				rate: 48_000,
 				pcm: vec![0.5; 2_400],

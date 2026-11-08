@@ -11,15 +11,17 @@ use crate::prelude::{
 	Oscillator, Parameter, ParameterMeta, Parameters, SetValue, Unit, Value, from_binary, to_binary,
 };
 
-/// The sample a voice plays: mono, at the rate it was imported at.
+/// The sample a voice plays: one or two channels, at the rate it was imported at.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SampleData {
 	/// The file name, for the interface.
 	pub name: String,
 	/// The rate the samples were captured at.
 	pub rate: u32,
-	/// The samples themselves.
+	/// The left channel, or the only channel of a mono file.
 	pub pcm: Vec<f32>,
+	/// The right channel, when the file had one.
+	pub right: Option<Vec<f32>>,
 }
 
 impl SampleData {
@@ -251,9 +253,14 @@ impl SamplerVoice {
 			.sample = sample.map(Arc::new);
 	}
 
-	/// Reads the sample at a fractional index, with a cubic interpolation.
-	fn read(&self, data: &SampleData, position: f32) -> f32 {
-		let len = data.pcm.len();
+	/// Reads one channel at a fractional index, with a cubic interpolation.
+	fn read(&self, data: &SampleData, position: f32, channel: usize) -> f32 {
+		let pcm = if channel == 0 {
+			&data.pcm
+		} else {
+			data.right.as_ref().unwrap_or(&data.pcm)
+		};
+		let len = pcm.len();
 
 		if len < 2 || !position.is_finite() || position < 0.0 || position >= (len - 1) as f32 {
 			return 0.0;
@@ -261,14 +268,10 @@ impl SamplerVoice {
 
 		let start = position.floor() as usize;
 		let frac = position - start as f32;
-		let before = if start == 0 { 0.0 } else { data.pcm[start - 1] };
-		let now = data.pcm[start];
-		let next = data.pcm[start + 1];
-		let after = if start + 2 < len {
-			data.pcm[start + 2]
-		} else {
-			0.0
-		};
+		let before = if start == 0 { 0.0 } else { pcm[start - 1] };
+		let now = pcm[start];
+		let next = pcm[start + 1];
+		let after = if start + 2 < len { pcm[start + 2] } else { 0.0 };
 
 		crate::tools::interpolate::cubic_interpolate(frac, [before, now, next, after])
 	}
@@ -282,7 +285,7 @@ impl SamplerVoice {
 
 	/// How the sample is played at the current time: pitched by the note, with a
 	/// forward or a pingpong loop.
-	fn play_sample(&self, data: &SampleData, elapsed: f32) -> f32 {
+	fn play_sample(&self, data: &SampleData, elapsed: f32, channel: usize) -> f32 {
 		let len = data.pcm.len() as f32;
 		let mut position = self.start.clamp(0.0, 1.0) * (len - 1.0)
 			+ elapsed * data.rate as f32 * self.speed * self.pitch_ratio();
@@ -311,17 +314,17 @@ impl SamplerVoice {
 			position = (len - 1.0) - position;
 		}
 
-		self.read(data, position)
+		self.read(data, position, channel)
 	}
 
 	/// Plays the slice the note picks, at its own speed. The loop options do not
 	/// apply here: a slice ends where the next one starts.
-	fn play_slice(&self, data: &SampleData, elapsed: f32) -> f32 {
+	fn play_slice(&self, data: &SampleData, elapsed: f32, channel: usize) -> f32 {
 		let len = data.pcm.len() as f32;
 		let marks = self.slices();
 
 		if marks.is_empty() {
-			return self.read(data, elapsed * data.rate as f32 * self.speed);
+			return self.read(data, elapsed * data.rate as f32 * self.speed, channel);
 		}
 
 		let count = marks.len();
@@ -338,7 +341,7 @@ impl SamplerVoice {
 			return 0.0;
 		}
 
-		self.read(data, position)
+		self.read(data, position, channel)
 	}
 
 	/// Plays a cloud of overlapping grains, walked through the sample and
@@ -370,12 +373,13 @@ impl SamplerVoice {
 
 			let window = 0.5 - 0.5 * (std::f32::consts::TAU * age / size).cos();
 			let position = base + hash(index) * spray + age * data.rate as f32 * ratio;
-			let value = self.read(data, position) * window;
+			let value_left = self.read(data, position, 0) * window;
+			let value_right = self.read(data, position, 1) * window;
 			let pan = (hash(index ^ 0x5bd1_e995) * 2.0 - 1.0) * spread;
 			let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
 
-			left += value * angle.cos() * std::f32::consts::SQRT_2;
-			right += value * angle.sin() * std::f32::consts::SQRT_2;
+			left += value_left * angle.cos() * std::f32::consts::SQRT_2;
+			right += value_right * angle.sin() * std::f32::consts::SQRT_2;
 		}
 
 		let norm = (GRAINS as f32).sqrt();
@@ -701,9 +705,15 @@ impl Oscillator<2> for SamplerVoice {
 		let pitch = if self.pitch > 1.0 { self.pitch } else { 1.0 };
 		let elapsed = time / pitch;
 		let voice = match self.mode {
-			1 => [self.play_slice(&data, elapsed); 2],
+			1 => [
+				self.play_slice(&data, elapsed, 0),
+				self.play_slice(&data, elapsed, 1),
+			],
 			2 => self.play_grains(&data, elapsed),
-			_ => [self.play_sample(&data, elapsed); 2],
+			_ => [
+				self.play_sample(&data, elapsed, 0),
+				self.play_sample(&data, elapsed, 1),
+			],
 		};
 		// Equal power panning, normalized so the middle is unity on both sides.
 		let angle = (self.pan.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
@@ -730,6 +740,7 @@ mod tests {
 
 	fn sample() -> SampleData {
 		SampleData {
+			right: None,
 			name: "test".into(),
 			rate: 48_000,
 			pcm: (0..4_800)
@@ -821,6 +832,7 @@ mod tests {
 		let ramp: Vec<f32> = (0..4_800).map(|index| index as f32 / 4_800.0).collect();
 
 		voice.set_sample(Some(SampleData {
+			right: None,
 			name: "ramp".into(),
 			rate: 48_000,
 			pcm: ramp,

@@ -466,7 +466,7 @@ fn peaks(pcm: &[f32]) -> Vec<f32> {
 	peaks
 }
 
-/// Reads a WAV into one mono sample, averaged across channels.
+/// Reads a WAV into a sample, keeping its channels.
 fn decode_sample(bytes: &[u8], name: &str) -> Result<SampleData, String> {
 	let mut reader =
 		WavReader::new(Cursor::new(bytes)).map_err(|error| format!("read wav: {error}"))?;
@@ -494,19 +494,25 @@ fn decode_sample(bytes: &[u8], name: &str) -> Result<SampleData, String> {
 		return Err("the file holds no samples".to_string());
 	}
 
-	let pcm: Vec<f32> = if channels == 1 {
-		interleaved
+	let (pcm, right) = if channels == 1 {
+		(interleaved, None)
 	} else {
-		interleaved
-			.chunks(channels)
-			.map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
-			.collect()
+		let mut left = Vec::with_capacity(interleaved.len() / channels);
+		let mut right = Vec::with_capacity(interleaved.len() / channels);
+
+		for frame in interleaved.chunks(channels) {
+			left.push(frame[0]);
+			right.push(frame.get(1).copied().unwrap_or(frame[0]));
+		}
+
+		(left, Some(right))
 	};
 
 	Ok(SampleData {
 		name: name.to_string(),
 		rate: spec.sample_rate,
 		pcm,
+		right,
 	})
 }
 
@@ -822,6 +828,7 @@ mod tests {
 
 		let mut plugin = SamplerWeb::new();
 		let sample = SampleData {
+			right: None,
 			name: "saved".into(),
 			rate: 48_000,
 			pcm: vec![0.25; 128],
