@@ -68,8 +68,8 @@ pub fn to_text(graph: &Graph) -> String {
 			link.target.0 .0,
 			link.target.1,
 			link.depth,
-			if link.mode == crate::graph::ModulationMode::FromBase {
-				" mode=frombase"
+			if link.mode == crate::graph::ModulationMode::Centered {
+				" mode=center"
 			} else {
 				""
 			}
@@ -171,8 +171,8 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 					.strip_prefix("depth=")
 					.ok_or_else(|| error(line, "mod needs depth="))?;
 				let mode = match words.next() {
-					Some("mode=frombase") => crate::graph::ModulationMode::FromBase,
-					Some("mode=center") | None => crate::graph::ModulationMode::Centered,
+					Some("mode=center") => crate::graph::ModulationMode::Centered,
+					Some("mode=frombase") | None => crate::graph::ModulationMode::FromBase,
 					Some(_) => return Err(error(line, "mode is frombase or center")),
 				};
 				let (from_node, from_port) = resolve(&graph, from, line, true)?;
@@ -324,14 +324,14 @@ mod tests {
 		let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
 		let gain = graph.nodes[2].id;
 		graph.modulate((lfo, 0), (gain, "gain"), 0.4);
-		graph.set_modulation_mode(0, crate::graph::ModulationMode::FromBase);
+		graph.set_modulation_mode(0, crate::graph::ModulationMode::Centered);
 
 		let back = from_text(&to_text(&graph)).expect("the text parses");
 
 		assert_eq!(back.modulations.len(), 1);
 		assert_eq!(back.modulations[0].target.1, "gain");
 		assert!((back.modulations[0].depth - 0.4).abs() < 1e-6);
-		assert_eq!(back.modulations[0].mode, crate::graph::ModulationMode::FromBase);
+		assert_eq!(back.modulations[0].mode, crate::graph::ModulationMode::Centered);
 	}
 
 	#[test]

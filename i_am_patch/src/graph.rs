@@ -262,9 +262,9 @@ pub struct Edge {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ModulationMode {
 	/// Around the base value, ± the depth.
-	#[default]
 	Centered,
 	/// From the base value upward, 0..depth.
+	#[default]
 	FromBase,
 }
 
@@ -347,7 +347,7 @@ impl Graph {
 			source,
 			target,
 			depth,
-			mode: ModulationMode::Centered,
+			mode: ModulationMode::default(),
 		});
 	}
 
