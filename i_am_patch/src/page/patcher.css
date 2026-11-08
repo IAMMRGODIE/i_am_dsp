@@ -1,0 +1,39 @@
+:root{
+  --bg:#121212; --panel:#1b1b1b; --line:#2c2c2c; --text:#d8d8d8; --text2:#8a8a8a;
+  --accent:#e07a2f; --node:#202020; --port:#6c6c6c; --wire:#4a3a2c;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:13px/1.35 system-ui,Segoe UI,sans-serif;overflow:hidden}
+header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
+  border-bottom:1px solid var(--line);background:#171717}
+.title{font-weight:600;letter-spacing:.02em}
+.hint{color:var(--text2);font-size:12px}
+#stage{position:absolute;inset:40px 0 0 0;overflow:hidden}
+#graph{position:absolute;inset:0;width:100%;height:100%;background:
+  radial-gradient(circle at 1px 1px,#1e1e1e 1px,transparent 0) 0 0/24px 24px}
+#palette{position:absolute;left:10px;top:10px;width:190px;max-height:calc(100% - 20px);
+  overflow:auto;background:rgba(24,24,24,.94);border:1px solid var(--line);border-radius:6px;padding:8px}
+#palette h3{margin:0 0 6px;font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+.kind{display:block;width:100%;text-align:left;padding:6px 8px;margin:2px 0;border-radius:4px;
+  border:1px solid transparent;background:#242424;color:var(--text);cursor:pointer;font-size:12px}
+.kind:hover{border-color:var(--accent)}
+#params{position:absolute;right:10px;top:10px;width:230px;max-height:calc(100% - 20px);overflow:auto;
+  background:rgba(24,24,24,.94);border:1px solid var(--line);border-radius:6px;padding:10px;display:none}
+#params h3{margin:0 0 8px;font-size:12px;color:var(--text)}
+#params label{display:block;margin:8px 0 2px;color:var(--text2);font-size:11px}
+#params input[type=range]{width:100%}
+#params .value{color:var(--text);font-size:11px}
+.node{fill:var(--node);stroke:#333;stroke-width:1}
+.node.selected{stroke:var(--accent);stroke-width:1.6}
+.node-name{fill:var(--text);font-size:12px;font-weight:600}
+.node-kind{fill:var(--text2);font-size:10px}
+.port{fill:var(--port);stroke:var(--node);stroke-width:1.5;cursor:crosshair}
+.port.audio{fill:#7aa7c7}
+.port.midi{fill:#c9a227}
+.port.control{fill:#9a7ac7}
+.port-label{fill:var(--text2);font-size:9px}
+.wire{fill:none;stroke:var(--wire);stroke-width:2}
+.wire.selected{stroke:var(--accent)}
+.mod{fill:none;stroke:#9a7ac7;stroke-width:1.4;stroke-dasharray:4 3}
+.hover-wire{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:5 4}

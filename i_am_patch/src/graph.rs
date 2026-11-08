@@ -352,6 +352,13 @@ impl Graph {
 		self.edges.push(Edge { from, to });
 	}
 
+	/// Removes one edge by its index in the edge list.
+	pub fn remove_edge(&mut self, index: usize) {
+		if index < self.edges.len() {
+			self.edges.remove(index);
+		}
+	}
+
 	/// Removes a node and every edge that touched it.
 	pub fn remove_node(&mut self, id: NodeId) {
 		self.nodes.retain(|node| node.id != id);
