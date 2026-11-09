@@ -199,6 +199,13 @@
     transpose: { min: -24, max: 24, step: 1 },
   };
 
+  // The rack's source cards put these choices in the header instead of a knob.
+  const GENERIC_HEADER = { lfo: ["shape"], table: ["shape"], midi: ["mode"] };
+  const GENERIC_CHOICES = {
+    shape: ["Sine", "Triangle", "Saw", "Square"],
+    mode: ["Note", "Velocity"],
+  };
+
   const NODE_NOTE = {
     "input:midi": "Host MIDI input",
     "input:audio": "Host audio input",
@@ -390,16 +397,18 @@
 
     const specs = (kind.params || []).map(([id, fallback]) => {
       const range = PARAM_RANGES[id] || {};
+      const choices = GENERIC_CHOICES[id] || null;
       const span = Math.max(0.001, Math.abs(fallback) || 1);
       const control = {
         id,
         label: labelOf(id),
-        kind: range.step === 1 ? "int" : "float",
+        kind: choices || range.step === 1 ? "int" : "float",
         min: range.min ?? -span * 2,
-        max: range.max ?? span * 2,
+        max: choices ? choices.length - 1 : range.max ?? span * 2,
         default: fallback,
         log: !!range.log,
-        step: range.step,
+        step: choices ? 1 : range.step,
+        choices,
       };
 
       return { ...control, ...modulationSpec(node, control) };
@@ -417,6 +426,7 @@
       title: kind.name,
       accent: kind.accent || "#e07a2f",
       hero: CARD_HEROES[kind.id] || null,
+      header: GENERIC_HEADER[kind.id] || [],
       controls: specs,
       values: { ...node.params, points: JSON.stringify(node.points || []) },
       context: { rate: 48000 },

@@ -170,6 +170,17 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 		}
 	}
 
+	// The control sources keep the rack's colours.
+	accent = match kind.id {
+		"lfo" => "#4c8dff",
+		"envelope" => "#35c77a",
+		"random" => "#ff9a3d",
+		"table" => "#c8e04a",
+		"pitch" => "#b08cff",
+		"midi" => "#ff6f91",
+		_ => accent,
+	};
+
 	json!({
 		"id": kind.id,
 		"name": kind.name,

@@ -234,7 +234,7 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
-		params: &[("mode", 0.0), ("transpose", 0.0)],
+		params: &[("mode", 0.0), ("transpose", 0.0), ("fine", 0.0)],
 	},
 	NodeDesc {
 		id: "envelope",

@@ -438,6 +438,7 @@ struct Lfo {
 	phase: f32,
 	step: f32,
 	rate: f32,
+	shape: i32,
 	points: Option<EditableLfo>,
 }
 
@@ -447,6 +448,7 @@ impl Lfo {
 			phase: 0.0,
 			step: frequency / rate as f32,
 			rate: rate as f32,
+			shape: 0,
 			points: None,
 		};
 
@@ -477,7 +479,7 @@ impl BlockNode for Lfo {
 		if let Some(Buffer::Control(value)) = outputs.first_mut() {
 			*value = match &self.points {
 				Some(points) => points.sample(self.phase, 0) * 2.0 - 1.0,
-				None => (self.phase * TAU).sin(),
+				None => lfo_shape(self.shape, self.phase),
 			};
 		}
 	}
@@ -607,6 +609,21 @@ struct TableNode {
 	sample_rate: f32,
 }
 
+fn lfo_shape(shape: i32, phase: f32) -> f32 {
+	match shape.rem_euclid(4) {
+		1 => 1.0 - 4.0 * (phase - 0.5).abs(),
+		2 => phase * 2.0 - 1.0,
+		3 => {
+			if phase < 0.5 {
+				1.0
+			} else {
+				-1.0
+			}
+		}
+		_ => (phase * TAU).sin(),
+	}
+}
+
 fn table_shape(shape: i32, phase: f32) -> f32 {
 	match shape.rem_euclid(4) {
 		1 => 1.0 - 4.0 * (phase - 0.5).abs(),
@@ -711,6 +728,7 @@ impl BlockNode for PitchNode {
 struct MidiNode {
 	mode: i32,
 	transpose: f32,
+	fine: f32,
 	note: f32,
 	velocity: f32,
 }
@@ -720,6 +738,7 @@ impl MidiNode {
 		Self {
 			mode: param(params, "mode", 0.0) as i32,
 			transpose: param(params, "transpose", 0.0),
+			fine: param(params, "fine", 0.0),
 			note: 60.0,
 			velocity: 0.0,
 		}
@@ -731,6 +750,7 @@ impl BlockNode for MidiNode {
 		match name {
 			"mode" => self.mode = value as i32,
 			"transpose" => self.transpose = value,
+			"fine" => self.fine = value,
 			_ => {}
 		}
 	}
@@ -753,7 +773,7 @@ impl BlockNode for MidiNode {
 			*value = if self.mode == 1 {
 				self.velocity
 			} else {
-				((self.note + self.transpose) / 127.0).clamp(0.0, 1.0)
+				((self.note + self.transpose + self.fine / 100.0) / 127.0).clamp(0.0, 1.0)
 			};
 		}
 	}
