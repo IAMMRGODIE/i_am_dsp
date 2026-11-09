@@ -194,15 +194,11 @@ mod tests {
 			&mut rng,
 		);
 
-		let early: f32 = (0..240)
-			.map(|_| partial.next(1.0, 48_000.0).abs())
-			.sum();
+		let early: f32 = (0..240).map(|_| partial.next(1.0, 48_000.0).abs()).sum();
 		for _ in 0..4_320 {
 			partial.next(1.0, 48_000.0);
 		}
-		let late: f32 = (0..240)
-			.map(|_| partial.next(1.0, 48_000.0).abs())
-			.sum();
+		let late: f32 = (0..240).map(|_| partial.next(1.0, 48_000.0).abs()).sum();
 
 		assert!(early > late * 10.0, "{early} vs {late}");
 	}

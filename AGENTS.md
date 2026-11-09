@@ -63,7 +63,8 @@ cargo run -p i_am_dsp --features standalone           # egui + cpal 实时 demo
 
 ### 测试
 
-- 单元测试与实现同文件（`#[cfg(test)] mod tests`）；跨模块测试放 `src/tests.rs` 或 `src/tests/`。
+- 单元测试与实现同文件（`#[cfg(test)] mod tests`）；模块拆成目录后放同目录的 `tests.rs`
+  （`effects/delay/tests.rs`、`generators/drum/tests.rs`）；跨模块测试放 `src/tests.rs` 或 `src/tests/`。
 - 集成测试放各 crate 的 `tests/`。页面路由测试在 `i_am_rack/src/tests/` 和 `i_am_web_gui` 里，
   新增路由时照抄它们的请求/响应辅助函数。
 - 音频断言用确定性输入，避免依赖浮点边角；有阈值的测试写明为什么是这个阈值。
