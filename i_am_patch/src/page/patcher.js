@@ -461,27 +461,18 @@
 
   // A right-click opens the node library: categories, then the nodes inside
   // them, alphabetically. No list takes space from the graph until it is asked.
+  // Three groups, by what a node does to the signal: an effect processes audio,
+  // a generator makes it, and everything else (controls, the host ports, the
+  // voice boundaries) is wiring.
   function categoryOf(kind) {
     const id = kind.id;
 
-    if (id.startsWith("mod:")) {
-      const name = id.slice(4);
-      if (/compressor|limiter|gate|expander|ott|transient|tape_stop/.test(name)) return "Dynamics";
-      if (/reverb|schroeder|convolver|ir_reverb|comb|allpass/.test(name)) return "Reverb & Space";
-      if (/chorus|flanger|phaser|disperser|unstablizer/.test(name)) return "Modulation";
-      if (/filter|eq|formant|resonator/.test(name)) return "Filters";
-      if (/distortion|crusher/.test(name)) return "Distortion";
-      if (/pitch|autotune|spectral|shifter|vocoder|stft/.test(name)) return "Pitch & Voice";
-      if (/width|balance|particle|router/.test(name)) return "Stereo";
-      if (/script/.test(name)) return "Script";
-      return "Other";
-    }
+    if (id.startsWith("mod:")) return "Effect";
 
-    if (id.startsWith("input:") || id === "out:audio") return "Input & Output";
-    if (id.startsWith("voice:")) return "Voice";
-    if (id.startsWith("gen:")) return "Generators";
+    if (["filter", "gain", "mixer", "split:ms", "delay"].includes(id)) return "Effect";
+    if (id.startsWith("gen:")) return "Generator";
 
-    return "Utilities";
+    return "Control";
   }
 
   function closeMenu() {
