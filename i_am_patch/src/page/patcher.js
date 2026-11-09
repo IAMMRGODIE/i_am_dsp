@@ -43,6 +43,122 @@
       .filter((mod) => mod.to[0] === id);
   }
 
+  // The rack's source pictures, ported: a 300x70 drawing stretched over the
+  // card's hero, with the live trace and the playhead on top.
+  const SOURCE_KINDS = ["lfo", "envelope", "random", "table", "pitch", "midi"];
+
+  function rackNode(name, attrs) {
+    const node = document.createElementNS(NS, name);
+
+    for (const [key, value] of Object.entries(attrs || {})) {
+      node.setAttribute(key, String(value));
+    }
+
+    return node;
+  }
+
+  function rackShape(shape, phase) {
+    switch (shape % 4) {
+      case 1: return 1 - 4 * Math.abs(phase - 0.5);
+      case 2: return phase * 2 - 1;
+      case 3: return phase < 0.5 ? 1 : -1;
+      default: return Math.sin(phase * Math.PI * 2);
+    }
+  }
+
+  function drawSourceStatic(svg, node, kind) {
+    const color = "#3a3a3a";
+
+    svg.appendChild(rackNode("line", {
+      x1: 8, y1: 58, x2: 292, y2: 58,
+      stroke: color, "stroke-width": 1, "stroke-dasharray": "2 4",
+    }));
+
+    if (kind === "lfo") {
+      const points = (node.points || []).slice().sort((a, b) => a.time - b.time);
+
+      if (points.length >= 2) {
+        let path = "";
+
+        for (const point of points) {
+          path += (path ? " L " : "M ") + (8 + point.time * 284).toFixed(1) + " " +
+            (58 - point.value * 48).toFixed(1);
+        }
+
+        svg.appendChild(rackNode("path", {
+          d: path, fill: "none", stroke: "#2f4a6a", "stroke-width": 1.5,
+        }));
+
+        for (const point of points) {
+          svg.appendChild(rackNode("circle", {
+            cx: (8 + point.time * 284).toFixed(1), cy: (58 - point.value * 48).toFixed(1),
+            r: 2.5, fill: "#2f4a6a",
+          }));
+        }
+      } else {
+        const shape = Math.round(node.params.shape ?? 0);
+        let path = "";
+
+        for (let index = 0; index <= 120; index++) {
+          const t = index / 120;
+          const value = rackShape(shape, (t * 2) % 1);
+          path += (index ? " L " : "M ") + (8 + t * 284).toFixed(1) + " " +
+            (58 - (value * 0.5 + 0.5) * 48).toFixed(1);
+        }
+
+        svg.appendChild(rackNode("path", {
+          d: path, fill: "none", stroke: "#2f4a6a", "stroke-width": 1.5,
+        }));
+      }
+    }
+
+    if (kind === "table") {
+      const shape = Math.round(node.params.shape ?? 0);
+      const morph = Math.min(Math.max(node.params.morph ?? 0, 0), 1);
+      let path = "";
+
+      for (let index = 0; index <= 120; index++) {
+        const t = index / 120;
+        const phase = (t * 2) % 1;
+        const value = rackShape(shape, phase) * (1 - morph) + rackShape(shape + 1, phase) * morph;
+        path += (index ? " L " : "M ") + (8 + t * 284).toFixed(1) + " " +
+          (58 - (value * 0.5 + 0.5) * 48).toFixed(1);
+      }
+
+      svg.appendChild(rackNode("path", {
+        d: path, fill: "none", stroke: "#4a4a2a", "stroke-width": 1.5,
+      }));
+    }
+  }
+
+  function drawSourceLive(svg, node, kind, samples, phase, accent) {
+    if (!samples || samples.length < 2) return;
+
+    const bipolar = kind === "lfo" || kind === "random" || kind === "table";
+    let path = "";
+
+    for (let index = 0; index < samples.length; index++) {
+      const raw = samples[index][0];
+      const value = bipolar ? (raw * 0.5 + 0.5) : raw;
+      const x = 8 + index / (samples.length - 1) * 284;
+      const y = 58 - Math.min(Math.max(value, 0), 1) * 48;
+      path += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    svg.appendChild(rackNode("path", {
+      d: path, fill: "none", stroke: accent, "stroke-width": 1.5,
+      "stroke-linecap": "round", "vector-effect": "non-scaling-stroke",
+    }));
+
+    if ((kind === "lfo" || kind === "table") && typeof phase === "number") {
+      const x = (8 + phase * 284).toFixed(1);
+      svg.appendChild(rackNode("line", {
+        x1: x, y1: 10, x2: x, y2: 58, stroke: accent, "stroke-width": 1, opacity: 0.6,
+      }));
+      svg.appendChild(rackNode("circle", { cx: x, cy: 34, r: 3, fill: accent }));
+    }
+  }
+
   // The control sources' pictures, the ones the rack's modulation page draws:
   // a wave for the LFO, a stage shape for the envelope, a table and its morph,
   // and a smoothed random walk.
@@ -193,11 +309,33 @@
   }
 
   const CARD_HEROES = {
-    lfo: "patch-lfo",
-    envelope: "patch-envelope",
-    table: "patch-table",
-    random: "patch-random",
+    lfo: "patch-source",
+    envelope: "patch-source",
+    random: "patch-source",
+    table: "patch-source",
+    pitch: "patch-source",
+    midi: "patch-source",
   };
+
+  // The source hero is a drawing surface the page fills after every repaint.
+  if (window.IAmCard) {
+    window.IAmCard.registerHero("patch-source", () =>
+      '<svg viewBox="0 0 300 70" preserveAspectRatio="none" class="rack-hero"></svg>',
+    );
+  }
+
+  function drawSourceCard(entry) {
+    if (!entry || !entry.card || !entry.kind) return;
+
+    const svg = entry.card.querySelector(".mcard-hero svg");
+    if (!svg) return;
+
+    svg.textContent = "";
+    drawSourceStatic(svg, entry.node, entry.kind.id);
+
+    const accent = getComputedStyle(entry.card).getPropertyValue("--accent").trim() || "#e07a2f";
+    drawSourceLive(svg, entry.node, entry.kind.id, entry.samples, entry.phase, accent);
+  }
 
   // Ranges for the kinds that are not products: their catalog entry only has a
   // default, so the page gives the knob a sensible travel.
@@ -417,11 +555,14 @@
     }
 
     if (entry) {
+      entry.node = node;
+      entry.kind = kind;
       entry.host.style.setProperty(
         "--k",
         String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
       );
       entry.host.classList.toggle("compact", w < 430);
+      drawSourceCard(entry);
 
       return entry.host;
     }
@@ -483,8 +624,17 @@
 
     scale.appendChild(card);
     host.appendChild(scale);
-    entry = { host, key, context, card };
+    entry = { host, key, context, card, node, kind, samples: null, phase: null };
     cards[node.id] = entry;
+
+    if (SOURCE_KINDS.includes(kind.id)) {
+      const repaint = card.repaintHero;
+      card.repaintHero = function () {
+        repaint();
+        drawSourceCard(entry);
+      };
+      drawSourceCard(entry);
+    }
     entry.host.style.setProperty(
       "--k",
       String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
@@ -1129,14 +1279,13 @@
       const data = await (await fetch("/scopes", { cache: "no-store" })).json();
 
       for (const scope of data.scopes || []) {
-        drawScope(scope.node, scope.samples || []);
-
         const entry = cards[scope.node];
 
-        if (entry && entry.context && entry.card && typeof scope.phase === "number") {
-          entry.context.phase = scope.phase;
-          entry.card.repaintHero();
-        }
+        if (!entry || !SOURCE_KINDS.includes(entry.kind ? entry.kind.id : "")) continue;
+
+        entry.samples = scope.samples || [];
+        entry.phase = typeof scope.phase === "number" ? scope.phase : null;
+        drawSourceCard(entry);
       }
     } catch {
       // The next tick tries again.

@@ -242,3 +242,6 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 }
 .card-host .mcard-tab:hover{color:var(--text2)}
 .card-host .mcard-tab.active{color:var(--text1); border-bottom-color:var(--accent)}
+
+/* The source hero is a drawing surface the page fills (the rack's shapes). */
+.card-host .rack-hero{display:block; width:100%; height:100%}
