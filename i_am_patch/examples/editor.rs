@@ -379,8 +379,23 @@ fn op_graph(shared: &Shared, value: &Value) -> Value {
 		"connect" => {
 			let from = (id(&value["from"][0]), value["from"][1].as_u64().unwrap_or(0) as usize);
 			let to = (id(&value["to"][0]), value["to"][1].as_u64().unwrap_or(0) as usize);
+			let mut replaced = 0;
+
+			// A port takes one wire from the page: an older one into the same
+			// input gives way, so the drag does not stack duplicates.
+			let mut index = 0;
+
+			while index < graph.edges.len() {
+				if graph.edges[index].to == to {
+					graph.remove_edge(index);
+					replaced += 1;
+				} else {
+					index += 1;
+				}
+			}
+
 			graph.connect(from, to);
-			json!({ "ok": true })
+			json!({ "ok": true, "replaced": replaced })
 		}
 		"duplicate" => {
 			let source = id(&value["id"]);
