@@ -11,6 +11,27 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 	match (request.method, request.path) {
 		("GET", "/catalog") => Some(ProtocolResponse::json(catalog_json())),
 		("GET", "/patch") => Some(ProtocolResponse::json(patch_json(&shared.graph()))),
+		("GET", "/scope") => {
+			use std::sync::atomic::Ordering;
+
+			let node = request
+				.query
+				.unwrap_or("")
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("node="))
+				.and_then(|value| value.parse::<usize>().ok())
+				.unwrap_or(0);
+
+			shared.tap_node.store(node, Ordering::Relaxed);
+
+			Some(ProtocolResponse::json(
+				json!({
+					"rate": shared.rate.load(Ordering::Relaxed),
+					"samples": shared.scope.read(2048),
+				})
+				.to_string(),
+			))
+		}
 		("POST", "/op") => {
 			let body = std::str::from_utf8(request.body).unwrap_or("");
 			let result = op(shared, body);

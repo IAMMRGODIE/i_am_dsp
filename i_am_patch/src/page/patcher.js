@@ -870,6 +870,93 @@
     if (!event.target.closest("#menu")) closeMenu();
   });
 
+  // The selected node's last output, drawn along the bottom of its card.
+  let scopeTimer = null;
+  let scopeNode = null;
+  let scopeCanvas = null;
+
+  function stopScope() {
+    if (scopeTimer !== null) {
+      clearInterval(scopeTimer);
+      scopeTimer = null;
+    }
+
+    scopeNode = null;
+
+    if (scopeCanvas) {
+      scopeCanvas.remove();
+      scopeCanvas = null;
+    }
+
+    fetch("/scope?node=0").catch(() => {});
+  }
+
+  function startScope(id) {
+    if (scopeNode === id) return;
+
+    stopScope();
+    scopeNode = id;
+    scopeTimer = setInterval(() => pollScope(id), 120);
+    pollScope(id);
+  }
+
+  async function pollScope(id) {
+    try {
+      const response = await fetch(`/scope?node=${id}`, { cache: "no-store" });
+      const data = await response.json();
+      drawScope(id, data.samples || []);
+    } catch {
+      // The page closed or the node went away; the next tick tries again.
+    }
+  }
+
+  function drawScope(id, samples) {
+    const node = document.querySelector(`[data-node="${id}"]`);
+    const card = node && node.querySelector(".mcard");
+
+    if (!card) return;
+
+
+    if (!scopeCanvas || !scopeCanvas.isConnected) {
+      scopeCanvas = document.createElement("canvas");
+      scopeCanvas.className = "scope-canvas";
+      scopeCanvas.width = 512;
+      scopeCanvas.height = 88;
+      card.appendChild(scopeCanvas);
+    }
+
+    const context = scopeCanvas.getContext("2d");
+    const width = scopeCanvas.width;
+    const height = scopeCanvas.height;
+    context.clearRect(0, 0, width, height);
+
+    if (samples.length < 2) return;
+
+    let peak = 0.0001;
+
+    for (const [, right] of samples) {
+      peak = Math.max(peak, Math.abs(right));
+    }
+
+    const scale = Math.min(1, 0.5 / peak);
+    context.beginPath();
+    context.strokeStyle = "rgba(224,122,47,.9)";
+    context.lineWidth = 1.5;
+
+    const step = samples.length / width;
+
+    for (let x = 0; x < width; x++) {
+      const index = Math.floor(x * step);
+      const value = samples[index] ? samples[index][1] : 0;
+      const y = height / 2 - value * scale * (height / 2 - 4);
+
+      if (x === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    }
+
+    context.stroke();
+  }
+
   const lfoEditor = document.getElementById("lfo-editor");
   let lfoNode = null;
 
@@ -1078,6 +1165,7 @@
 
       selected = id;
       draw();
+      startScope(id);
 
       // The scale handle scales the card, not moves it.
       if (event.target.closest(".scale-handle")) {
@@ -1090,6 +1178,7 @@
     }
 
     selected = null;
+    stopScope();
     drag = { kind: "pan", x: event.clientX, y: event.clientY, vx: view.x, vy: view.y };
     draw();
   });

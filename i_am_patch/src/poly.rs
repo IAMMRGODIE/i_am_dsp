@@ -136,6 +136,21 @@ impl Poly {
 		})
 	}
 
+	/// The step a node ended up on, in the outer graph.
+	pub fn step_of(&self, id: NodeId) -> Option<usize> {
+		self.outer.step_of(id)
+	}
+
+	/// One outer node's last audio output, for the page's pictures.
+	pub fn output_block(&self, step: usize, port: usize) -> Option<&AudioBlock> {
+		self.outer.output_block(step, port)
+	}
+
+	/// One outer node's last output as a block.
+	pub fn tap_block(&self, step: usize) -> Option<AudioBlock> {
+		self.outer.tap_block(step)
+	}
+
 	/// How many frames the outer graph and the voice graph delay the output.
 	pub fn latency(&self) -> usize {
 		self.outer.latency() + self.voice_latency

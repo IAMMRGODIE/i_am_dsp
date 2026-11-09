@@ -220,6 +220,38 @@ impl Engine {
 		})
 	}
 
+	/// The step a node ended up on.
+	pub fn step_of(&self, id: NodeId) -> Option<usize> {
+		self.steps.get(&id).copied()
+	}
+
+	/// One node's last audio output, for the page's pictures.
+	pub fn output_block(&self, step: usize, port: usize) -> Option<&AudioBlock> {
+		match self.outputs.get(step)?.get(port)? {
+			Buffer::Audio(block) => Some(block),
+			_ => None,
+		}
+	}
+
+	/// One node's last output as a block: audio as it is, a control value
+	/// repeated across the block.
+	pub fn tap_block(&self, step: usize) -> Option<AudioBlock> {
+		match self.outputs.get(step)?.first()? {
+			Buffer::Audio(block) => Some(*block),
+			Buffer::Control(value) => {
+				let mut block = AudioBlock::silent(BLOCK);
+
+				for frame in 0..BLOCK {
+					block.channels[0][frame] = *value;
+					block.channels[1][frame] = *value;
+				}
+
+				Some(block)
+			}
+			_ => None,
+		}
+	}
+
 	/// How many frames the graph itself delays its output.
 	pub fn latency(&self) -> usize {
 		self.latency

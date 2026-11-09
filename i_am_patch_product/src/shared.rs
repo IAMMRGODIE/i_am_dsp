@@ -9,6 +9,7 @@ use i_am_patch::compile::voice_group;
 use i_am_patch::engine::Engine;
 use i_am_patch::graph::Graph;
 use i_am_patch::poly::Poly;
+use i_am_patch::scope::Scope;
 
 /// The graph, its generation and the rate, shared between the page and the
 /// audio thread. A page edit bumps the generation; the audio thread rebuilds
@@ -19,6 +20,10 @@ pub struct PatcherShared {
 	pub rate: AtomicUsize,
 	/// What the graph delays its output, plus the block buffer.
 	pub latency: AtomicUsize,
+	/// The node whose output the page is watching, or 0.
+	pub tap_node: AtomicUsize,
+	/// The frames of that node's output.
+	pub scope: Scope,
 }
 
 impl Default for PatcherShared {
@@ -28,6 +33,8 @@ impl Default for PatcherShared {
 			generation: AtomicU64::new(1),
 			rate: AtomicUsize::new(48_000),
 			latency: AtomicUsize::new(0),
+			tap_node: AtomicUsize::new(0),
+			scope: Scope::new(),
 		}
 	}
 }
@@ -52,6 +59,14 @@ impl PatcherShared {
 		*self.graph.lock().expect("the graph lock") = graph;
 		self.bump();
 		true
+	}
+
+	/// The node the page wants pictures of.
+	pub fn tap(&self) -> Option<i_am_patch::graph::NodeId> {
+		match self.tap_node.load(Ordering::Relaxed) {
+			0 => None,
+			id => Some(i_am_patch::graph::NodeId(id as u32)),
+		}
 	}
 
 	/// The latency a host should compensate for.
@@ -168,6 +183,27 @@ impl Body {
 			}
 
 			self.events.clear();
+
+			// One node's output is copied for the page, when it is watching one.
+			if let Some(id) = self.shared.tap() {
+				let step = self
+					.poly
+					.as_ref()
+					.and_then(|poly| poly.step_of(id))
+					.or_else(|| self.engine.as_ref().and_then(|engine| engine.step_of(id)));
+
+				if let Some(step) = step {
+					let block = self
+						.poly
+						.as_ref()
+						.and_then(|poly| poly.tap_block(step))
+						.or_else(|| self.engine.as_ref().and_then(|engine| engine.tap_block(step)));
+
+					if let Some(block) = block {
+						self.shared.scope.write(&block);
+					}
+				}
+			}
 		}
 
 		out

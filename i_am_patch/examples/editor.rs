@@ -5,7 +5,12 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+
+use i_am_dsp::prelude::NoteEvent;
+use i_am_patch::poly::Poly;
+use i_am_patch::scope::Scope;
 
 use i_am_patch::graph::{Graph, NodeId, SignalKind, catalog};
 use serde_json::{Value, json};
@@ -19,17 +24,17 @@ const PAGE_CSS: &str = concat!(
 fn demo() -> Graph {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 120.0)).expect("midi");
-	let voice_in = graph.add_node("voice:in", (340.0, 120.0)).expect("voice in");
-	let generator = graph.add_node("gen:additive", (680.0, 120.0)).expect("gen");
-	let filter = graph.add_node("filter", (1020.0, 120.0)).expect("filter");
-	let lfo = graph.add_node("lfo", (1020.0, 580.0)).expect("lfo");
-	let voice_out = graph.add_node("voice:out", (1620.0, 120.0)).expect("voice out");
-	let out = graph.add_node("out:audio", (1960.0, 120.0)).expect("out");
+	let voice_in = graph.add_node("voice:in", (300.0, 120.0)).expect("voice in");
+	let generator = graph.add_node("gen:additive", (560.0, 120.0)).expect("gen");
+	let voice_out = graph.add_node("voice:out", (860.0, 120.0)).expect("voice out");
+	let filter = graph.add_node("filter", (1180.0, 120.0)).expect("filter");
+	let lfo = graph.add_node("lfo", (1180.0, 580.0)).expect("lfo");
+	let out = graph.add_node("out:audio", (1760.0, 120.0)).expect("out");
 	graph.connect((midi, 0), (voice_in, 0));
 	graph.connect((voice_in, 0), (generator, 0));
-	graph.connect((generator, 0), (filter, 0));
-	graph.connect((filter, 0), (voice_out, 0));
-	graph.connect((voice_out, 0), (out, 0));
+	graph.connect((generator, 0), (voice_out, 0));
+	graph.connect((voice_out, 0), (filter, 0));
+	graph.connect((filter, 0), (out, 0));
 	graph.modulate((lfo, 0), (filter, "cutoff"), 800.0);
 	graph.set_param(filter, "cutoff", 1_200.0);
 
@@ -137,17 +142,100 @@ fn patch_json(graph: &Graph) -> Value {
 	})
 }
 
+/// What the server and the demo audio thread share.
+#[derive(Clone)]
+struct Shared {
+	graph: Arc<Mutex<Graph>>,
+	generation: Arc<AtomicU64>,
+	rate: usize,
+	scope: Arc<Scope>,
+	tap: Arc<AtomicUsize>,
+}
+
 fn main() {
-	let graph = Arc::new(Mutex::new(demo()));
+	let shared = Shared {
+		graph: Arc::new(Mutex::new(demo())),
+		generation: Arc::new(AtomicU64::new(1)),
+		rate: 48_000,
+		scope: Arc::new(Scope::new()),
+		tap: Arc::new(AtomicUsize::new(0)),
+	};
+	spawn_audio(shared.clone());
+
 	let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
 	println!("http://{}", listener.local_addr().expect("address"));
 
 	for stream in listener.incoming().flatten() {
-		handle(stream, &graph);
+		handle(stream, &shared);
 	}
 }
 
-fn handle(mut stream: TcpStream, graph: &Arc<Mutex<Graph>>) {
+/// Renders the demo graph on a stand-in clock, so the page's scope has audio.
+fn spawn_audio(shared: Shared) {
+	std::thread::spawn(move || {
+		let mut poly: Option<Poly> = None;
+		let mut built = 0u64;
+		let mut blocks = 0u32;
+
+		loop {
+			let generation = shared.generation.load(Ordering::Relaxed);
+
+			if generation != built {
+				let graph = shared.graph.lock().expect("graph").clone();
+
+				poly = match Poly::new(&graph, shared.rate) {
+					Ok(poly) => Some(poly),
+					Err(error) => {
+						eprintln!("the demo graph does not play: {error:?}");
+						None
+					}
+				};
+				built = generation;
+				blocks = 0;
+			}
+
+			let mut events = Vec::new();
+
+			// A note a second, so the voice group has something to play.
+			if blocks.is_multiple_of(750) {
+				events.push(NoteEvent::NoteOn {
+					channel: 0,
+					note: 60,
+					velocity: 0.8,
+				});
+			}
+
+			if blocks % 750 == 500 {
+				events.push(NoteEvent::NoteOff {
+					channel: 0,
+					note: 60,
+					velocity: 0.0,
+				});
+			}
+
+			let input = [[0.0f32; 2]; i_am_patch::block::BLOCK];
+			let mut output = [[0.0f32; 2]; i_am_patch::block::BLOCK];
+
+			if let Some(poly) = &mut poly {
+				poly.process(&input, &events, &mut output);
+
+				let tap = shared.tap.load(Ordering::Relaxed);
+
+				if tap != 0
+					&& let Some(step) = poly.step_of(NodeId(tap as u32))
+					&& let Some(block) = poly.tap_block(step)
+				{
+					shared.scope.write(&block);
+				}
+			}
+
+			blocks = blocks.wrapping_add(1);
+			std::thread::sleep(std::time::Duration::from_micros(1_300));
+		}
+	});
+}
+
+fn handle(mut stream: TcpStream, shared: &Shared) {
 	let mut request = Vec::new();
 	let mut buffer = [0u8; 4096];
 
@@ -198,9 +286,27 @@ fn handle(mut stream: TcpStream, graph: &Arc<Mutex<Graph>>) {
 		("GET", "/patch") => (
 			"200 OK",
 			"application/json",
-			patch_json(&graph.lock().expect("graph")).to_string(),
+			patch_json(&shared.graph.lock().expect("graph")).to_string(),
 		),
-		("POST", "/op") => ("200 OK", "application/json", op(graph, body).to_string()),
+		("GET", path) if path.starts_with("/scope") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<usize>().ok())
+				.unwrap_or(0);
+			shared.tap.store(node, Ordering::Relaxed);
+
+			(
+				"200 OK",
+				"application/json",
+				json!({
+					"rate": shared.rate,
+					"samples": shared.scope.read(2048),
+				})
+				.to_string(),
+			)
+		}
+		("POST", "/op") => ("200 OK", "application/json", op(shared, body).to_string()),
 		_ => ("404 Not Found", "text/plain", "not found".to_string()),
 	};
 
@@ -211,11 +317,21 @@ fn handle(mut stream: TcpStream, graph: &Arc<Mutex<Graph>>) {
 	let _ = stream.write_all(response.as_bytes());
 }
 
-fn op(graph: &Arc<Mutex<Graph>>, body: &str) -> Value {
+fn op(shared: &Shared, body: &str) -> Value {
 	let Ok(value) = serde_json::from_str::<Value>(body) else {
 		return json!({ "error": "bad json" });
 	};
-	let mut graph = graph.lock().expect("graph");
+	let result = op_graph(shared, &value);
+
+	if result.get("ok").and_then(Value::as_bool) == Some(true) {
+		shared.generation.fetch_add(1, Ordering::Relaxed);
+	}
+
+	result
+}
+
+fn op_graph(shared: &Shared, value: &Value) -> Value {
+	let mut graph = shared.graph.lock().expect("graph");
 	let id = |value: &Value| NodeId(value.as_u64().unwrap_or(u64::MAX) as u32);
 
 	match value["op"].as_str().unwrap_or("") {
