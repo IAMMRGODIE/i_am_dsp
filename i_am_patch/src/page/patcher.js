@@ -264,12 +264,22 @@
     if (!entry) {
       // A paged product shows one page's sections at a time; the tab lives in
       // the card's header, where the product's own header controls are.
+      const headerControls = (kind.header || []).flatMap((id) => {
+        const control = (kind.controls || []).find((item) => item.id === id);
+
+        return control ? [control] : [];
+      });
+
       const shown = pages.length
         ? (pages[activePage].sections || []).flatMap((name) => {
             const section = (kind.sections || []).find((item) => item.name === name);
 
             return section ? section.controls : [];
-          })
+          }).concat(headerControls.filter((control) =>
+            !(pages[activePage].sections || []).some((name) => {
+              const section = (kind.sections || []).find((item) => item.name === name);
+              return section && section.controls.some((item) => item.id === control.id);
+            })))
         : (kind.controls || []);
 
       const specs = shown.map((control) => ({

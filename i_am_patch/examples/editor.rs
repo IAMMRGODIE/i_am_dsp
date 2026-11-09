@@ -140,6 +140,7 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 					.collect::<Vec<Value>>()
 			})
 			.unwrap_or_default();
+		let hidden = faceplate.hidden.unwrap_or(&[]);
 		grouped = sections
 			.iter()
 			.map(|section| {
@@ -149,6 +150,7 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 					"controls": section
 						.controls
 						.iter()
+						.filter(|control| !hidden.contains(&control.id.as_str()))
 						.map(|control| serde_json::to_value(control).unwrap_or(Value::Null))
 						.collect::<Vec<Value>>(),
 				})
@@ -157,6 +159,10 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 
 		for section in &sections {
 			for control in &section.controls {
+				if hidden.contains(&control.id.as_str()) {
+					continue;
+				}
+
 				controls.push(serde_json::to_value(control).unwrap_or(Value::Null));
 			}
 		}
