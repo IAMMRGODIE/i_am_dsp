@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use i_am_dsp::prelude::Value;
+use i_am_dsp::prelude::{Parameter, Value};
 
 /// What flows through a port.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,6 +261,7 @@ pub fn catalog() -> &'static [NodeDesc] {
 	CATALOG.get_or_init(|| {
 		let mut kinds = BUILTINS.to_vec();
 		kinds.extend(module_catalog());
+		kinds.extend(synth_catalog());
 		kinds
 	})
 }
@@ -315,6 +316,45 @@ fn module_catalog() -> Vec<NodeDesc> {
 	}
 
 	kinds
+}
+
+/// One kind per synth product, with a notes input and the product's schema.
+fn synth_catalog() -> Vec<NodeDesc> {
+	let mut kinds = Vec::new();
+
+	for descriptor in crate::synths::ALL {
+		let id: &'static str = Box::leak(descriptor.kind().into_boxed_str());
+		let mut params: Vec<(&'static str, f32)> = Vec::new();
+
+		for parameter in (descriptor.parameters)() {
+			let name: &'static str = Box::leak(parameter.identifier.clone().into_boxed_str());
+
+			if let Some(value) = parameter_number(&parameter) {
+				params.push((name, value));
+			}
+		}
+
+		kinds.push(NodeDesc {
+			id,
+			name: descriptor.name,
+			inputs: Box::leak(vec![port("notes", SignalKind::Midi)].into_boxed_slice()),
+			outputs: Box::leak(vec![port("audio", AUDIO)].into_boxed_slice()),
+			latency: 0,
+			params: Box::leak(params.into_boxed_slice()),
+		});
+	}
+
+	kinds
+}
+
+/// The default a parameter carries, when it is a number.
+fn parameter_number(parameter: &Parameter) -> Option<f32> {
+	match &parameter.value {
+		Value::Float { value, .. } => Some(*value),
+		Value::Int { value, .. } => Some(*value as f32),
+		Value::Bool(value) => Some(if *value { 1.0 } else { 0.0 }),
+		_ => None,
+	}
 }
 
 /// The descriptor for a kind id.

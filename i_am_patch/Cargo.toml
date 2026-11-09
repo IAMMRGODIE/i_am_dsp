@@ -11,8 +11,10 @@ crate-type = ["rlib"]
 [dependencies]
 i_am_dsp = { workspace = true }
 i_am_effects = { workspace = true }
+i_am_plugin = { workspace = true }
+i_am_synths = { workspace = true }
+i_am_web_gui = { workspace = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
-i_am_web_gui = { workspace = true }

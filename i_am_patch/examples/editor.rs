@@ -98,6 +98,23 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 		}
 	}
 
+	// A synth product takes its card from its own faceplate and schema.
+	if let Some(synth) = kind.id.strip_prefix("synth:")
+		&& let Some(descriptor) = i_am_patch::synths::synth(synth)
+	{
+		let faceplate = (descriptor.faceplate)();
+		let sections = i_am_web_gui::sections(&(descriptor.parameters)());
+		hero = sections.iter().find_map(|section| section.hero.clone());
+		accent = faceplate.accent;
+		face = Some(faceplate.size);
+
+		for section in &sections {
+			for control in &section.controls {
+				controls.push(serde_json::to_value(control).unwrap_or(Value::Null));
+			}
+		}
+	}
+
 	json!({
 		"id": kind.id,
 		"name": kind.name,

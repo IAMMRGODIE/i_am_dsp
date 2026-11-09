@@ -10,6 +10,7 @@ pub mod engine;
 pub mod nodes;
 pub mod poly;
 pub mod scope;
+pub mod synths;
 pub mod crossover;
 pub mod graph;
 pub mod modulation;

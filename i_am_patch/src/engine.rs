@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 
 use i_am_dsp::prelude::NoteEvent;
 
+use i_am_dsp::ProcessContext;
+
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer, PatchContext};
 use crate::compile::{CompileError, Plan, compile};
 use crate::graph::{Graph, ModulationMode, NodeId, SignalKind};
@@ -299,12 +301,20 @@ impl Engine {
 	/// Runs one block: the host input goes in, the graph's output comes out.
 	pub fn process(&mut self, input: &[[f32; 2]], events: &[NoteEvent], out: &mut [[f32; 2]]) {
 		let frames = input.len().min(BLOCK).min(out.len());
+		// A product instrument reads the block's notes from the context, the
+		// same way a host hands them over.
+		let mut patch_context = PatchContext::new(self.rate);
+
+		for event in events {
+			patch_context.send_event(event.clone());
+		}
+
 		let mut context = BlockContext {
 			frames,
 			rate: self.rate,
 			block: self.block,
 			events: events.to_vec(),
-			context: Box::new(PatchContext::new(self.rate)),
+			context: Box::new(patch_context),
 		};
 
 		self.block = self.block.wrapping_add(1);
@@ -660,6 +670,42 @@ mod tests {
 
 			assert!(moved, "{kind} never moved");
 		}
+	}
+
+	#[test]
+	fn a_synth_node_plays() {
+		let mut graph = Graph::new();
+		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+		let synth = graph.add_node("synth:additive", (100.0, 0.0)).expect("synth");
+		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+		graph.connect((midi, 0), (synth, 0));
+		graph.connect((synth, 0), (out, 0));
+
+		let mut engine = Engine::new(&graph, 48_000).expect("builds");
+		let mut frames = Vec::new();
+
+		for block in 0..8 {
+			let events = if block == 0 {
+				vec![NoteEvent::NoteOn {
+					channel: 0,
+					note: 60,
+					velocity: 0.8,
+				}]
+			} else {
+				Vec::new()
+			};
+			let host = vec![[0.0f32; 2]; BLOCK];
+			let mut block_out = vec![[0.0f32; 2]; BLOCK];
+			engine.process(&host, &events, &mut block_out);
+			frames.extend(block_out);
+		}
+
+		let peak = frames
+			.iter()
+			.flat_map(|frame| frame.iter())
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+
+		assert!(peak > 1e-3, "the synth was silent: {peak}");
 	}
 
 	#[test]

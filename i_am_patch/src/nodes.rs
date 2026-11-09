@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 
 use i_am_dsp::prelude::{
-	EditableLfo, Effect, Gain, Multimode, NoteEvent, Parameters, PitchTracker, WaveTable,
+	EditableLfo, Effect, Gain, Message, Multimode, NoteEvent, Parameters, PitchTracker, WaveTable,
 };
+use i_am_plugin::Plugin;
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
 
@@ -66,6 +67,25 @@ pub fn make(
 			param(params, "release", 100.0),
 		)),
 		"delay" => Box::new(Delay::new()),
+		kind if kind.starts_with("synth:") => {
+			use i_am_synths::{
+				AdditiveWeb, CanvasWeb, DrummerWeb, FittedWeb, SamplerWeb, ScriptWeb, ShapesWeb,
+				SpectrumWeb, StringWeb,
+			};
+
+			match &kind[6..] {
+				"additive" => Box::new(SynthNode::<AdditiveWeb>::new(rate)),
+				"canvas" => Box::new(SynthNode::<CanvasWeb>::new(rate)),
+				"drummer" => Box::new(SynthNode::<DrummerWeb>::new(rate)),
+				"fitted" => Box::new(SynthNode::<FittedWeb>::new(rate)),
+				"sampler" => Box::new(SynthNode::<SamplerWeb>::new(rate)),
+				"script" => Box::new(SynthNode::<ScriptWeb>::new(rate)),
+				"shapes" => Box::new(SynthNode::<ShapesWeb>::new(rate)),
+				"spectrum" => Box::new(SynthNode::<SpectrumWeb>::new(rate)),
+				"strings" => Box::new(SynthNode::<StringWeb>::new(rate)),
+				_ => return None,
+			}
+		}
 		kind if kind.starts_with("mod:") => {
 			let module = i_am_effects::catalog::get(&kind[4..])?;
 			Box::new(ProductNode::new((module.build)(rate)))
@@ -459,6 +479,47 @@ impl BlockNode for Lfo {
 				Some(points) => points.sample(self.phase, 0) * 2.0 - 1.0,
 				None => (self.phase * TAU).sin(),
 			};
+		}
+	}
+}
+
+/// A synth product: its notes come from the block's events, its audio out the
+/// node's first port.
+struct SynthNode<P: Default + Plugin> {
+	inner: P,
+}
+
+impl<P: Default + Plugin> SynthNode<P> {
+	fn new(rate: usize) -> Self {
+		let mut inner = P::default();
+		inner.on_activate(rate);
+
+		Self { inner }
+	}
+}
+
+impl<P: Default + Plugin> BlockNode for SynthNode<P> {
+	fn set_param(&mut self, name: &str, value: f32) {
+		self.inner.set_parameter(name, value.into());
+	}
+
+	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
+		for event in &context.events {
+			self.inner
+				.on_message(<P::Message as Message>::from_note_event(event.clone()));
+		}
+
+		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
+			out.clear();
+			out.frames = context.frames;
+
+			for frame in 0..context.frames {
+				context.context.set_sample_offset(frame);
+				let mut samples = [0.0f32; 2];
+				self.inner.process(&mut samples, &[], &mut context.context);
+				out.channels[0][frame] = samples[0];
+				out.channels[1][frame] = samples[1];
+			}
 		}
 	}
 }

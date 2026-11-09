@@ -854,7 +854,7 @@
     if (["filter", "gain", "delay"].includes(id)) return null;
 
     if (["mixer", "split:ms"].includes(id)) return "Effect";
-    if (id.startsWith("gen:")) return "Generator";
+    if (id.startsWith("gen:") || id.startsWith("synth:")) return "Generator";
     if (["lfo", "envelope", "random", "table", "pitch", "midi"].includes(id)) return "Control";
 
     return "I/O";
