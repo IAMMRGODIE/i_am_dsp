@@ -82,6 +82,7 @@ pub fn catalog_json() -> String {
 			let mut face: Option<(f32, f32)> = None;
 			let mut pages: Vec<Value> = Vec::new();
 			let mut grouped: Vec<Value> = Vec::new();
+			let mut title: Option<String> = None;
 
 			if let Some(module) = product_module(kind.id)
 				&& let Some(descriptor) = i_am_effects::catalog::get(module)
@@ -120,6 +121,7 @@ pub fn catalog_json() -> String {
 				hero = sections.iter().find_map(|section| section.hero.clone());
 				accent = faceplate.accent;
 				face = Some(faceplate.size);
+				title = Some(faceplate.title.to_string());
 				mode = faceplate.mode;
 				header = faceplate.header.unwrap_or(&[]);
 				visible = faceplate.visible.map(|rows| {
@@ -193,6 +195,7 @@ pub fn catalog_json() -> String {
 				"switches": switches,
 				"accent": accent,
 				"face": face.map(|(width, height)| [width, height]),
+				"title": title,
 				"pages": pages,
 				"sections": grouped,
 			})

@@ -224,13 +224,13 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 
 /* The product's tabs, under the card's header: one page of a synth at a time. */
 .card-host .mcard-tabs{
-  display:flex; gap:20px; padding:8px 14px 0;
-  border-bottom:1px solid var(--border);
+  display:flex; align-items:stretch; gap:2px;
+  padding:0 12px; border-bottom:1px solid var(--border);
 }
 .card-host .mcard-tab{
-  padding:0 0 8px; background:none; border:0;
+  padding:7px 12px 6px; background:none; border:0;
   border-bottom:2px solid transparent;
-  color:var(--text3); font:inherit; font-size:10px; font-weight:600;
+  color:var(--text3); font:inherit; font-size:9px; font-weight:600;
   letter-spacing:.1em; text-transform:uppercase; cursor:pointer;
 }
 .card-host .mcard-tab:hover{color:var(--text2)}

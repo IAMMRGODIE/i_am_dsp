@@ -309,7 +309,7 @@
       const context = { rate: 48000, scope: { input: null, output: null }, spectra: {} };
       const pageHero = pages.length ? pages[activePage].hero : null;
       const card = window.IAmCard.create({
-        title: kind.name,
+        title: kind.title || kind.name,
         accent: kind.accent || "#e07a2f",
         hero: pageHero || kind.hero || "spectrum",
         mode: kind.mode || null,
