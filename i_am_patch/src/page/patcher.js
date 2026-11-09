@@ -461,18 +461,23 @@
 
   // A right-click opens the node library: categories, then the nodes inside
   // them, alphabetically. No list takes space from the graph until it is asked.
-  // Three groups, by what a node does to the signal: an effect processes audio,
-  // a generator makes it, and everything else (controls, the host ports, the
-  // voice boundaries) is wiring.
+  // Four groups: an effect processes audio, a generator makes it, a control
+  // steers a parameter, and the host ports and the voice boundaries are the
+  // wiring around them.
   function categoryOf(kind) {
     const id = kind.id;
 
     if (id.startsWith("mod:")) return "Effect";
 
-    if (["filter", "gain", "mixer", "split:ms", "delay"].includes(id)) return "Effect";
-    if (id.startsWith("gen:")) return "Generator";
+    // The bare filter, gain and delay are aliases of the modules, kept for old
+    // patches and the tests; the menu offers the modules themselves.
+    if (["filter", "gain", "delay"].includes(id)) return null;
 
-    return "Control";
+    if (["mixer", "split:ms"].includes(id)) return "Effect";
+    if (id.startsWith("gen:")) return "Generator";
+    if (id === "lfo" || id === "envelope") return "Control";
+
+    return "I/O";
   }
 
   function closeMenu() {
@@ -533,7 +538,7 @@
 
       if (query) {
         const matches = catalog
-          .filter((kind) => kind.name.toLowerCase().includes(query))
+          .filter((kind) => categoryOf(kind) && kind.name.toLowerCase().includes(query))
           .sort((a, b) => a.name.localeCompare(b.name));
 
         for (const kind of matches) {
@@ -547,6 +552,7 @@
 
       for (const kind of catalog) {
         const category = categoryOf(kind);
+        if (!category) continue;
         if (!groups.has(category)) groups.set(category, []);
         groups.get(category).push(kind);
       }
