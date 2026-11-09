@@ -294,6 +294,23 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			"application/json",
 			patch_json(&shared.graph.lock().expect("graph")).to_string(),
 		),
+		("GET", "/text") => (
+			"200 OK",
+			"application/json",
+			json!(i_am_patch::text::to_text(&shared.graph.lock().expect("graph"))).to_string(),
+		),
+		("POST", "/text") => match i_am_patch::text::from_text(body) {
+			Ok(graph) => {
+				*shared.graph.lock().expect("graph") = graph;
+				shared.generation.fetch_add(1, Ordering::Relaxed);
+				("200 OK", "application/json", json!({ "ok": true }).to_string())
+			}
+			Err(error) => (
+				"200 OK",
+				"application/json",
+				json!({ "error": error.to_string() }).to_string(),
+			),
+		},
 		("GET", path) if path.starts_with("/scope") => {
 			let node = path
 				.split_once('?')

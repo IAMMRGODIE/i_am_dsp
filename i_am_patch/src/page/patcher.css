@@ -18,6 +18,13 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
   border-bottom:1px solid var(--border);background:var(--header)}
 .title{font-weight:600;letter-spacing:.02em}
 .hint{color:var(--text3);font-size:12px}
+header .spacer{flex:1}
+.tb{
+  height:24px; padding:0 10px; font:inherit; font-size:11px;
+  color:var(--text2); background:var(--raised); border:1px solid #454545;
+  border-radius:5px; cursor:pointer;
+}
+.tb:hover{border-color:var(--accent); color:var(--text1)}
 #stage{position:absolute;inset:40px 0 0 0;overflow:hidden}
 #graph{position:absolute;inset:0;width:100%;height:100%;background:
   radial-gradient(circle at 1px 1px,#242424 1px,transparent 0) 0 0/24px 24px}

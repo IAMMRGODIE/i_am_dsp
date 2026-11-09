@@ -1394,6 +1394,33 @@
     }
   });
 
+  // The patch saves as the text the host state stores, and opens from one.
+  document.getElementById("save").onclick = async () => {
+    const text = await (await fetch("/text")).json();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    link.download = "patch.txt";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  document.getElementById("open").onclick = () => document.getElementById("file").click();
+
+  document.getElementById("file").onchange = async (event) => {
+    const file = event.target.files && event.target.files[0];
+
+    if (!file) return;
+
+    const text = await file.text();
+    const result = await (await fetch("/text", { method: "POST", body: text })).json();
+
+    if (result.error) console.warn(result.error);
+
+    patch = await (await fetch("/patch")).json();
+    draw();
+    event.target.value = "";
+  };
+
   load();
   setInterval(async () => {
     if (busy()) return;
