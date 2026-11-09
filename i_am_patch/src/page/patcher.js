@@ -1197,8 +1197,9 @@
     }
 
     const scale = Math.min(1, 0.5 / peak);
+    const accent = getComputedStyle(card).getPropertyValue("--accent").trim();
     context.beginPath();
-    context.strokeStyle = "rgba(224,122,47,.9)";
+    context.strokeStyle = accent || "rgba(224,122,47,.9)";
     context.lineWidth = 1.5;
 
     const step = samples.length / width;
