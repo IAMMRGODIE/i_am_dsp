@@ -97,13 +97,26 @@
     });
 
     window.IAmCard.registerHero("patch-envelope", (values) => {
+      // The envelope source follows the input: its picture is an input pulse
+      // with the follower riding on it, not an ADSR's decay.
       const attack = Math.max(values.attack ?? 10, 0.1);
       const release = Math.max(values.release ?? 100, 0.1);
       const total = attack + release;
-      const peakX = 20 + (attack / total) * 480;
-      const path = `M 20 140 L ${peakX.toFixed(1)} 30 L 500 140`;
+      const rise = Math.min(0.55, (attack / total) * 0.9);
+      const fall = Math.min(0.55, (release / total) * 0.9);
+      const on = 0.12;
+      const off = 1 - fall;
+      const top = 30;
+      const bottom = 140;
+      const x = (t) => (20 + t * 480).toFixed(1);
+      const y = (value) => (bottom - value * (bottom - top)).toFixed(1);
+      const path = `M ${x(0)} ${y(0)} L ${x(on)} ${y(0)} ` +
+        `L ${x(on + rise)} ${y(1)} L ${x(off)} ${y(1)} L ${x(1)} ${y(0)}`;
+      const pulse = `<rect x="${x(on)}" y="${y(1)}" width="${(off - on) * 480}" ` +
+        `height="${bottom - top}" fill="#2a2a2a"/>`;
 
       return heroSvg(
+        pulse +
         `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>`,
       );
     });
