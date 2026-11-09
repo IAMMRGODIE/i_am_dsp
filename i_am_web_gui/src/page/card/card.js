@@ -247,16 +247,23 @@
       var spec = byId[id];
       if (!spec) return;
       var control;
+
       if (spec.kind === "int" && spec.choices && spec.choices.length) {
         control = makeChoice(spec, values[id], function (_, value) {
           edited(id, value);
         });
+        head.appendChild(setting(spec.label, control));
+      } else if (spec.kind === "bool") {
+        control = makeHeaderDot(spec, values[id], function (_, value) {
+          edited(id, value);
+        });
+        head.appendChild(settingAfter(control, spec.label));
       } else {
         control = makeToggle(spec, values[id], function (_, value) {
           edited(id, value);
         });
+        head.appendChild(setting(spec.label, control));
       }
-      head.appendChild(setting(spec.label, control));
     });
 
     card.appendChild(head);

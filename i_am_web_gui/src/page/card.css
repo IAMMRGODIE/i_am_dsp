@@ -162,6 +162,19 @@
   font-size:11px; white-space:nowrap;
 }
 
+.mcard-dot{
+  width:20px; height:20px; padding:0; border:0; border-radius:50%;
+  background:transparent; display:flex; align-items:center; justify-content:center;
+  cursor:pointer; flex:0 0 auto;
+}
+.mcard-dot:hover{background:rgba(255,255,255,.06)}
+.mcard-dot:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
+.mcard-dot .dot{
+  width:8px; height:8px; border-radius:50%; background:#555;
+  transition:background .12s ease, box-shadow .12s ease;
+}
+.mcard-dot[aria-pressed="true"] .dot{background:var(--accent); box-shadow:0 0 8px var(--accent)}
+
 .mcard-switch{
   width:30px; height:16px; padding:0; flex:0 0 auto; position:relative;
   border-radius:9px; border:1px solid var(--border); background:var(--track);

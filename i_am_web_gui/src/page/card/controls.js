@@ -509,6 +509,34 @@
     return makeSwitch(spec, value, onEdit).el;
   }
 
+  /// A boolean in the header is a dot, like the bypass one: the product page
+  /// draws it that way and the caption sits to its right.
+  function makeHeaderDot(spec, value, onEdit) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "mcard-dot";
+    button.title = spec.label;
+    button.setAttribute("aria-label", spec.label);
+    var dot = document.createElement("span");
+    dot.className = "dot";
+    button.appendChild(dot);
+
+    var on = !!Number(value);
+
+    function paint() {
+      button.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+
+    button.addEventListener("click", function () {
+      on = !on;
+      paint();
+      if (onEdit) onEdit(spec.id, on ? 1 : 0);
+    });
+
+    paint();
+    return button;
+  }
+
   function makeNotePickerHandle(spec, value, onEdit) {
     var labels = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
     var mask = Math.round(Number(value) || 0) & 4095;
@@ -561,14 +589,34 @@
     }
 
     if (spec.kind === "bool") {
-      var row = document.createElement("div");
-      row.className = "mcard-row";
-      var toggleLabel = document.createElement("span");
-      toggleLabel.className = "mcard-row-label";
-      toggleLabel.textContent = spec.label;
-      row.appendChild(toggleLabel);
-      row.appendChild(makeSwitch(spec, value, onEdit).el);
-      return row;
+      // The product page draws a toggle as a column: switch, label, value.
+      var wrap = document.createElement("div");
+      wrap.className = "knob-wrap";
+
+      var label = document.createElement("div");
+      label.className = "knob-label";
+      label.textContent = spec.label;
+
+      var readout = document.createElement("div");
+      readout.className = "knob-value";
+
+      var on = !!Number(value);
+
+      function paintReadout() {
+        readout.textContent = on ? "On" : "Off";
+      }
+
+      var handle = makeSwitch(spec, value, function (id, next) {
+        on = !!Number(next);
+        paintReadout();
+        if (onEdit) onEdit(id, next);
+      });
+
+      paintReadout();
+      wrap.appendChild(handle.el);
+      wrap.appendChild(label);
+      wrap.appendChild(readout);
+      return wrap;
     }
 
     if (spec.widget === "slider") {
@@ -606,5 +654,17 @@
     name.textContent = label.toUpperCase();
     box.appendChild(name);
     box.appendChild(control);
+    return box;
+  }
+
+  /// The product page's header order: the control first, its caption after.
+  function settingAfter(control, label) {
+    var box = document.createElement("div");
+    box.className = "mcard-setting";
+    box.appendChild(control);
+    var name = document.createElement("span");
+    name.className = "mcard-setting-label";
+    name.textContent = label.toUpperCase();
+    box.appendChild(name);
     return box;
   }
