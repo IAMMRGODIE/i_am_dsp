@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 
-use i_am_dsp::prelude::{Effect, Gain, Multimode, NoteEvent, Parameters};
+use i_am_dsp::prelude::{Effect, Gain, Multimode, NoteEvent, Parameters, PitchTracker};
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
 
@@ -53,6 +53,10 @@ pub fn make(
 			b: param(params, "b", 1.0),
 		}),
 		"lfo" => Box::new(Lfo::new(rate, param(params, "rate", 1.0))),
+		"random" => Box::new(RandomNode::new(rate, params)),
+		"table" => Box::new(TableNode::new(rate, params)),
+		"pitch" => Box::new(PitchNode::new(rate, params)),
+		"midi" => Box::new(MidiNode::new(params)),
 		"envelope" => Box::new(Envelope::new(
 			rate,
 			param(params, "attack", 10.0),
@@ -435,6 +439,241 @@ impl BlockNode for Lfo {
 
 		if let Some(Buffer::Control(value)) = outputs.first_mut() {
 			*value = (self.phase * TAU).sin();
+		}
+	}
+}
+
+/// A sample-and-hold random source: a new value at its rate, smoothed.
+struct RandomNode {
+	rate: f32,
+	smooth: f32,
+	phase: f32,
+	value: f32,
+	target: f32,
+	seed: u32,
+	sample_rate: f32,
+	coefficient: f32,
+}
+
+impl RandomNode {
+	fn new(sample_rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
+		let mut node = Self {
+			rate: param(params, "rate", 4.0),
+			smooth: param(params, "smooth", 20.0),
+			phase: 0.0,
+			value: 0.0,
+			target: 0.0,
+			seed: 0x1234_5678,
+			sample_rate: sample_rate as f32,
+			coefficient: 0.0,
+		};
+		node.update();
+
+		node
+	}
+
+	fn update(&mut self) {
+		let smooth = self.smooth.clamp(0.1, 500.0) * 0.001;
+		self.coefficient = 1.0 - (-1.0 / (smooth * self.sample_rate)).exp();
+	}
+
+	fn next(&mut self) -> f32 {
+		let mut x = self.seed;
+		x ^= x << 13;
+		x ^= x >> 17;
+		x ^= x << 5;
+		self.seed = x;
+
+		(x as f32 / u32::MAX as f32) * 2.0 - 1.0
+	}
+}
+
+impl BlockNode for RandomNode {
+	fn set_param(&mut self, name: &str, value: f32) {
+		match name {
+			"rate" => self.rate = value.clamp(0.01, 200.0),
+			"smooth" => self.smooth = value.clamp(0.1, 500.0),
+			_ => return,
+		}
+
+		self.update();
+	}
+
+	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
+		self.phase += self.rate * context.frames as f32 / self.sample_rate;
+
+		while self.phase >= 1.0 {
+			self.phase -= 1.0;
+			self.target = self.next();
+		}
+
+		for _ in 0..context.frames {
+			self.value += (self.target - self.value) * self.coefficient;
+		}
+
+		if let Some(Buffer::Control(value)) = outputs.first_mut() {
+			*value = self.value;
+		}
+	}
+}
+
+/// A wavetable oscillator: the shape morphs toward the next one.
+struct TableNode {
+	rate: f32,
+	shape: i32,
+	morph: f32,
+	phase: f32,
+	sample_rate: f32,
+}
+
+fn table_shape(shape: i32, phase: f32) -> f32 {
+	match shape.rem_euclid(4) {
+		1 => 1.0 - 4.0 * (phase - 0.5).abs(),
+		2 => phase * 2.0 - 1.0,
+		3 => {
+			if phase < 0.5 {
+				1.0
+			} else {
+				-1.0
+			}
+		}
+		_ => (phase * TAU).sin(),
+	}
+}
+
+impl TableNode {
+	fn new(sample_rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
+		Self {
+			rate: param(params, "rate", 1.0),
+			shape: param(params, "shape", 0.0) as i32,
+			morph: param(params, "morph", 0.0),
+			phase: 0.0,
+			sample_rate: sample_rate as f32,
+		}
+	}
+}
+
+impl BlockNode for TableNode {
+	fn set_param(&mut self, name: &str, value: f32) {
+		match name {
+			"rate" => self.rate = value.clamp(0.01, 200.0),
+			"shape" => self.shape = value as i32,
+			"morph" => self.morph = value.clamp(0.0, 1.0),
+			_ => {}
+		}
+	}
+
+	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
+		self.phase = (self.phase + self.rate * context.frames as f32 / self.sample_rate).fract();
+
+		if let Some(Buffer::Control(value)) = outputs.first_mut() {
+			let first = table_shape(self.shape, self.phase);
+			let second = table_shape(self.shape + 1, self.phase);
+			*value = first + (second - first) * self.morph;
+		}
+	}
+}
+
+/// A mono pitch tracker on the input, reported as a note in 0..1.
+struct PitchNode {
+	tracker: PitchTracker,
+	clarity: f32,
+	glide: f32,
+	value: f32,
+	sample_rate: f32,
+}
+
+impl PitchNode {
+	fn new(sample_rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
+		Self {
+			tracker: PitchTracker::new(sample_rate, 2_048),
+			clarity: param(params, "clarity", 0.5),
+			glide: param(params, "glide", 20.0),
+			value: 0.0,
+			sample_rate: sample_rate as f32,
+		}
+	}
+}
+
+impl BlockNode for PitchNode {
+	fn set_param(&mut self, name: &str, value: f32) {
+		match name {
+			"clarity" => self.clarity = value.clamp(0.0, 1.0),
+			"glide" => self.glide = value.clamp(0.1, 1000.0),
+			_ => {}
+		}
+	}
+
+	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
+		let input = audio(inputs, 0);
+
+		for frame in 0..context.frames {
+			let mono = (input.channels[0][frame] + input.channels[1][frame]) * 0.5;
+			self.tracker.process_sample(mono);
+
+			if let Some(estimate) = self.tracker.last()
+				&& estimate.clarity >= self.clarity
+			{
+				let target = (estimate.midi_note / 127.0).clamp(0.0, 1.0);
+				let coefficient = 1.0 - (-1.0 / (self.glide * 0.001 * self.sample_rate)).exp();
+				self.value += (target - self.value) * coefficient;
+			}
+		}
+
+		if let Some(Buffer::Control(value)) = outputs.first_mut() {
+			*value = self.value;
+		}
+	}
+}
+
+/// The last MIDI note or velocity.
+struct MidiNode {
+	mode: i32,
+	transpose: f32,
+	note: f32,
+	velocity: f32,
+}
+
+impl MidiNode {
+	fn new(params: &BTreeMap<&'static str, f32>) -> Self {
+		Self {
+			mode: param(params, "mode", 0.0) as i32,
+			transpose: param(params, "transpose", 0.0),
+			note: 60.0,
+			velocity: 0.0,
+		}
+	}
+}
+
+impl BlockNode for MidiNode {
+	fn set_param(&mut self, name: &str, value: f32) {
+		match name {
+			"mode" => self.mode = value as i32,
+			"transpose" => self.transpose = value,
+			_ => {}
+		}
+	}
+
+	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
+		for event in &context.events {
+			match event {
+				NoteEvent::NoteOn { note, velocity, .. } => {
+					self.note = *note as f32;
+					self.velocity = velocity.clamp(0.0, 1.0);
+				}
+				NoteEvent::NoteOff { .. }
+				| NoteEvent::Stop { .. }
+				| NoteEvent::ImmediateStop => self.velocity = 0.0,
+				_ => {}
+			}
+		}
+
+		if let Some(Buffer::Control(value)) = outputs.first_mut() {
+			*value = if self.mode == 1 {
+				self.velocity
+			} else {
+				((self.note + self.transpose) / 127.0).clamp(0.0, 1.0)
+			};
 		}
 	}
 }

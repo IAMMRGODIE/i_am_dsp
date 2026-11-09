@@ -475,7 +475,7 @@
 
     if (["mixer", "split:ms"].includes(id)) return "Effect";
     if (id.startsWith("gen:")) return "Generator";
-    if (id === "lfo" || id === "envelope") return "Control";
+    if (["lfo", "envelope", "random", "table", "pitch", "midi"].includes(id)) return "Control";
 
     return "I/O";
   }

@@ -563,6 +563,42 @@ mod tests {
 	}
 
 	#[test]
+	fn the_control_sources_move() {
+		for kind in ["random", "table", "midi"] {
+			let params = std::collections::BTreeMap::new();
+			let mut node = make(kind, 48_000, &params).expect("a control source");
+			let mut out = vec![Buffer::Control(0.0)];
+			let mut context = BlockContext {
+				frames: BLOCK,
+				rate: 48_000,
+				block: 0,
+				events: vec![NoteEvent::NoteOn { channel: 0, note: 60, velocity: 0.8 }],
+				context: Box::new(PatchContext::new(48_000)),
+			};
+
+			node.set_param("rate", 100.0);
+			node.set_param("shape", 0.0);
+
+			let mut moved = false;
+
+			for block in 0..8 {
+				context.block = block;
+				context.events.clear();
+				if block == 0 {
+					context.events.push(NoteEvent::NoteOn { channel: 0, note: 60, velocity: 0.8 });
+				}
+				node.process(&mut context, &[], &mut out);
+
+				if let Buffer::Control(value) = out[0] {
+					moved |= value.abs() > 1e-4;
+				}
+			}
+
+			assert!(moved, "{kind} never moved");
+		}
+	}
+
+	#[test]
 	fn a_module_node_passes_audio() {
 		let mut graph = Graph::new();
 		let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
