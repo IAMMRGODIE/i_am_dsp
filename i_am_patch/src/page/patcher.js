@@ -23,6 +23,7 @@
   const scales = {};
 
   const cards = {};
+  const pagesOf = {};
 
   function sourceName(id) {
     const source = nodeOf(id);
@@ -237,9 +238,14 @@
   function productCard(node, kind, w, h) {
     let entry = cards[node.id];
     const mods = modsOf(node.id);
-    const key = JSON.stringify(
+    const pages = kind.pages || [];
+    const activePage = pages.length
+      ? Math.min(pagesOf[node.id] ?? 0, pages.length - 1)
+      : 0;
+    const key = JSON.stringify([
       mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
-    );
+      activePage,
+    ]);
 
     if (entry && entry.key !== key) {
       entry.host.remove();
@@ -256,7 +262,17 @@
     }
 
     if (!entry) {
-      const specs = (kind.controls && kind.controls.length ? kind.controls : []).map((control) => ({
+      // A paged product shows one page's sections at a time; the tab lives in
+      // the card's header, where the product's own header controls are.
+      const shown = pages.length
+        ? (pages[activePage].sections || []).flatMap((name) => {
+            const section = (kind.sections || []).find((item) => item.name === name);
+
+            return section ? section.controls : [];
+          })
+        : (kind.controls || []);
+
+      const specs = shown.map((control) => ({
         id: control.id,
         label: control.label,
         kind: control.kind,
@@ -298,6 +314,30 @@
           op({ op: "param", id: node.id, key: identifier, value }, false);
         },
       });
+      if (pages.length > 1) {
+        const head = card.querySelector(".mcard-head");
+
+        if (head) {
+          const select = document.createElement("select");
+          select.className = "mcard-select mcard-page";
+
+          pages.forEach((page, index) => {
+            const option = document.createElement("option");
+            option.value = String(index);
+            option.textContent = page.name;
+            select.appendChild(option);
+          });
+
+          select.value = String(activePage);
+          select.onchange = (event) => {
+            pagesOf[node.id] = Number(event.target.value);
+            delete cards[node.id];
+            draw();
+          };
+          head.appendChild(select);
+        }
+      }
+
       scale.appendChild(card);
       host.appendChild(scale);
       entry = { host, key, context, card };

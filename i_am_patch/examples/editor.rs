@@ -70,6 +70,8 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 	let mut switches: Vec<Value> = Vec::new();
 	let mut accent = "#e07a2f";
 	let mut face: Option<(f32, f32)> = None;
+	let mut pages: Vec<Value> = Vec::new();
+	let mut grouped: Vec<Value> = Vec::new();
 
 	if let Some(module) = product_module(kind.id)
 		&& let Some(descriptor) = i_am_effects::catalog::get(module)
@@ -107,6 +109,41 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 		hero = sections.iter().find_map(|section| section.hero.clone());
 		accent = faceplate.accent;
 		face = Some(faceplate.size);
+		mode = faceplate.mode;
+		header = faceplate.header.unwrap_or(&[]);
+		visible = faceplate.visible.map(|rows| {
+			rows.iter()
+				.map(|(mode, names)| (*mode, names.to_vec()))
+				.collect()
+		});
+		switches = faceplate
+			.switches
+			.unwrap_or(&[])
+			.iter()
+			.map(|row| json!({ "control": row.control, "on": row.on, "off": row.off }))
+			.collect::<Vec<Value>>();
+		pages = faceplate
+			.pages
+			.map(|pages| {
+				pages
+					.iter()
+					.map(|page| json!({ "name": page.name, "sections": page.sections }))
+					.collect::<Vec<Value>>()
+			})
+			.unwrap_or_default();
+		grouped = sections
+			.iter()
+			.map(|section| {
+				json!({
+					"name": section.name.clone().unwrap_or_default(),
+					"controls": section
+						.controls
+						.iter()
+						.map(|control| serde_json::to_value(control).unwrap_or(Value::Null))
+						.collect::<Vec<Value>>(),
+				})
+			})
+			.collect::<Vec<Value>>();
 
 		for section in &sections {
 			for control in &section.controls {
@@ -129,6 +166,8 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 		"switches": switches,
 		"accent": accent,
 		"face": face.map(|(width, height)| [width, height]),
+		"pages": pages,
+		"sections": grouped,
 	})
 }
 
