@@ -42,6 +42,104 @@
       .filter((mod) => mod.to[0] === id);
   }
 
+  // The control sources' pictures, the ones the rack's modulation page draws:
+  // a wave for the LFO, a stage shape for the envelope, a table and its morph,
+  // and a smoothed random walk.
+  if (window.IAmCard) {
+    const heroSvg = (inner) =>
+      `<svg viewBox="0 0 520 160" preserveAspectRatio="none">${inner}</svg>`;
+
+    const shapeAt = (shape, phase) => {
+      switch (shape % 4) {
+        case 1: return 1 - 4 * Math.abs(phase - 0.5);
+        case 2: return phase * 2 - 1;
+        case 3: return phase < 0.5 ? 1 : -1;
+        default: return Math.sin(phase * Math.PI * 2);
+      }
+    };
+
+    window.IAmCard.registerHero("patch-lfo", (values) => {
+      const shape = Math.round(values.shape ?? 0);
+      let path = "";
+
+      for (let index = 0; index <= 240; index++) {
+        const t = index / 240;
+        const value = shapeAt(shape, (t * 2) % 1);
+        path += (index ? " L " : "M ") + (20 + t * 480).toFixed(1) + " " +
+          (80 - value * 55).toFixed(1);
+      }
+
+      return heroSvg(
+        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+        `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>`,
+      );
+    });
+
+    window.IAmCard.registerHero("patch-envelope", (values) => {
+      const attack = Math.max(values.attack ?? 10, 0.1);
+      const release = Math.max(values.release ?? 100, 0.1);
+      const total = attack + release;
+      const peakX = 20 + (attack / total) * 480;
+      const path = `M 20 140 L ${peakX.toFixed(1)} 30 L 500 140`;
+
+      return heroSvg(
+        `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>`,
+      );
+    });
+
+    window.IAmCard.registerHero("patch-table", (values) => {
+      const shape = Math.round(values.shape ?? 0);
+      const morph = Math.min(Math.max(values.morph ?? 0, 0), 1);
+      let path = "";
+
+      for (let index = 0; index <= 240; index++) {
+        const phase = (index / 240) % 1;
+        const value = shapeAt(shape, phase) * (1 - morph) + shapeAt(shape + 1, phase) * morph;
+        path += (index ? " L " : "M ") + (20 + (index / 240) * 480).toFixed(1) + " " +
+          (80 - value * 55).toFixed(1);
+      }
+
+      return heroSvg(
+        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+        `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>`,
+      );
+    });
+
+    window.IAmCard.registerHero("patch-random", (values) => {
+      const smooth = Math.max(values.smooth ?? 20, 1);
+      let seed = 0x1f3d5b79;
+      let value = 0;
+      let target = 0;
+      let path = "";
+      const rows = 48;
+
+      for (let index = 0; index <= rows; index++) {
+        if (index % 6 === 0) {
+          seed ^= seed << 13;
+          seed ^= seed >>> 17;
+          seed ^= seed << 5;
+          target = ((seed >>> 0) / 0xffffffff) * 2 - 1;
+        }
+
+        value += (target - value) * Math.min(1, 6 / smooth);
+        path += (index ? " L " : "M ") + (20 + (index / rows) * 480).toFixed(1) + " " +
+          (80 - value * 55).toFixed(1);
+      }
+
+      return heroSvg(
+        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+        `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>`,
+      );
+    });
+  }
+
+  const CARD_HEROES = {
+    lfo: "patch-lfo",
+    envelope: "patch-envelope",
+    table: "patch-table",
+    random: "patch-random",
+  };
+
   // Ranges for the kinds that are not products: their catalog entry only has a
   // default, so the page gives the knob a sensible travel.
   const PARAM_RANGES = {
@@ -233,6 +331,7 @@
     const card = window.IAmCard.create({
       title: kind.name,
       accent: kind.accent || "#e07a2f",
+      hero: CARD_HEROES[kind.id] || null,
       controls: specs,
       values: node.params,
       context: { rate: 48000 },
