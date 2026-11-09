@@ -31,6 +31,8 @@ pub struct Poly {
 	rate: usize,
 	out: NodeId,
 	voice_latency: usize,
+	tempo: Option<f32>,
+	position: Option<f32>,
 	voices: Vec<Voice>,
 }
 
@@ -132,6 +134,8 @@ impl Poly {
 			rate,
 			out,
 			voice_latency,
+			tempo: None,
+			position: None,
 			voices: Vec::new(),
 		})
 	}
@@ -168,6 +172,17 @@ impl Poly {
 		}
 
 		sum
+	}
+
+	/// The host's tempo and song position, for the voices and the outer graph.
+	pub fn set_transport(&mut self, tempo: Option<f32>, position: Option<f32>) {
+		self.tempo = tempo;
+		self.position = position;
+		self.outer.set_transport(tempo, position);
+
+		for voice in &mut self.voices {
+			voice.engine.set_transport(tempo, position);
+		}
 	}
 
 	/// How many frames the outer graph and the voice graph delay the output.

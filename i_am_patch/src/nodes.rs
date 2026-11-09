@@ -436,9 +436,11 @@ impl BlockNode for Mixer {
 /// A control-rate sine.
 struct Lfo {
 	phase: f32,
-	step: f32,
 	rate: f32,
+	frequency: f32,
 	shape: i32,
+	sync: bool,
+	beats: f32,
 	points: Option<EditableLfo>,
 }
 
@@ -446,9 +448,11 @@ impl Lfo {
 	fn new(rate: usize, frequency: f32, points: &[crate::graph::Point]) -> Self {
 		let mut lfo = Self {
 			phase: 0.0,
-			step: frequency / rate as f32,
 			rate: rate as f32,
+			frequency,
 			shape: 0,
+			sync: false,
+			beats: 1.0,
 			points: None,
 		};
 
@@ -468,13 +472,24 @@ impl Lfo {
 
 impl BlockNode for Lfo {
 	fn set_param(&mut self, name: &str, value: f32) {
-		if name == "rate" {
-			self.step = value.clamp(0.01, 100.0) / self.rate;
+		match name {
+			"rate" => self.frequency = value.clamp(0.01, 200.0),
+			"shape" => self.shape = value as i32,
+			"sync" => self.sync = value != 0.0,
+			"beats" => self.beats = value.clamp(0.03125, 32.0),
+			_ => {}
 		}
 	}
 
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
-		self.phase = (self.phase + self.step * context.frames as f32).fract();
+		let tempo = context.context.infos().tempo.unwrap_or(120.0);
+		let frequency = if self.sync {
+			tempo / 60.0 / self.beats.max(0.01)
+		} else {
+			self.frequency
+		};
+
+		self.phase = (self.phase + frequency / self.rate * context.frames as f32).fract();
 
 		if let Some(Buffer::Control(value)) = outputs.first_mut() {
 			*value = match &self.points {
@@ -530,6 +545,8 @@ impl<P: Default + Plugin> BlockNode for SynthNode<P> {
 struct RandomNode {
 	rate: f32,
 	smooth: f32,
+	sync: bool,
+	beats: f32,
 	phase: f32,
 	value: f32,
 	target: f32,
@@ -543,6 +560,8 @@ impl RandomNode {
 		let mut node = Self {
 			rate: param(params, "rate", 4.0),
 			smooth: param(params, "smooth", 20.0),
+			sync: param(params, "sync", 0.0) != 0.0,
+			beats: param(params, "beats", 1.0),
 			phase: 0.0,
 			value: 0.0,
 			target: 0.0,
@@ -576,6 +595,8 @@ impl BlockNode for RandomNode {
 		match name {
 			"rate" => self.rate = value.clamp(0.01, 200.0),
 			"smooth" => self.smooth = value.clamp(0.1, 500.0),
+			"sync" => self.sync = value != 0.0,
+			"beats" => self.beats = value.clamp(0.03125, 32.0),
 			_ => return,
 		}
 
@@ -583,7 +604,14 @@ impl BlockNode for RandomNode {
 	}
 
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
-		self.phase += self.rate * context.frames as f32 / self.sample_rate;
+		let tempo = context.context.infos().tempo.unwrap_or(120.0);
+		let rate = if self.sync {
+			tempo / 60.0 / self.beats.max(0.01)
+		} else {
+			self.rate
+		};
+
+		self.phase += rate * context.frames as f32 / self.sample_rate;
 
 		while self.phase >= 1.0 {
 			self.phase -= 1.0;
@@ -605,6 +633,8 @@ struct TableNode {
 	rate: f32,
 	shape: i32,
 	morph: f32,
+	sync: bool,
+	beats: f32,
 	phase: f32,
 	sample_rate: f32,
 }
@@ -645,6 +675,8 @@ impl TableNode {
 			rate: param(params, "rate", 1.0),
 			shape: param(params, "shape", 0.0) as i32,
 			morph: param(params, "morph", 0.0),
+			sync: param(params, "sync", 0.0) != 0.0,
+			beats: param(params, "beats", 1.0),
 			phase: 0.0,
 			sample_rate: sample_rate as f32,
 		}
@@ -657,12 +689,21 @@ impl BlockNode for TableNode {
 			"rate" => self.rate = value.clamp(0.01, 200.0),
 			"shape" => self.shape = value as i32,
 			"morph" => self.morph = value.clamp(0.0, 1.0),
+			"sync" => self.sync = value != 0.0,
+			"beats" => self.beats = value.clamp(0.03125, 32.0),
 			_ => {}
 		}
 	}
 
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
-		self.phase = (self.phase + self.rate * context.frames as f32 / self.sample_rate).fract();
+		let tempo = context.context.infos().tempo.unwrap_or(120.0);
+		let rate = if self.sync {
+			tempo / 60.0 / self.beats.max(0.01)
+		} else {
+			self.rate
+		};
+
+		self.phase = (self.phase + rate * context.frames as f32 / self.sample_rate).fract();
 
 		if let Some(Buffer::Control(value)) = outputs.first_mut() {
 			let first = table_shape(self.shape, self.phase);

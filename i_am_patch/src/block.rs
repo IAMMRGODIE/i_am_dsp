@@ -136,6 +136,12 @@ impl PatchContext {
 			events: Vec::new(),
 		}
 	}
+
+	/// The host's tempo and song position, for the sources that sync.
+	pub fn set_transport(&mut self, tempo: Option<f32>, position_beats: Option<f32>) {
+		self.infos.tempo = tempo;
+		self.infos.position_beats = position_beats.map(|value| value as f64);
+	}
 }
 
 impl ProcessContext for PatchContext {

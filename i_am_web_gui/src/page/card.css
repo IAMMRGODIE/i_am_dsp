@@ -162,6 +162,19 @@
   font-size:11px; white-space:nowrap;
 }
 
+.mcard-pill{
+  height:22px; padding:0 10px; font:inherit; font-size:10px;
+  color:var(--text2); background:var(--raised); border:1px solid var(--border);
+  border-radius:11px; cursor:pointer; flex:0 0 auto;
+  transition:background .12s, border-color .12s, color .12s;
+}
+.mcard-pill:hover{color:var(--text1); border-color:#5a5a5a}
+.mcard-pill.on{
+  color:var(--text1); border-color:var(--accent);
+  background:color-mix(in srgb, var(--accent) 22%, #222);
+}
+.mcard-pill:focus-visible{outline:1px solid var(--accent); outline-offset:2px}
+
 .mcard-dot{
   width:20px; height:20px; padding:0; border:0; border-radius:50%;
   background:transparent; display:flex; align-items:center; justify-content:center;

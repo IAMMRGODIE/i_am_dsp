@@ -5,7 +5,7 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::NoteEvent;
@@ -170,6 +170,16 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 		}
 	}
 
+	// A source with a Sync switch trades its free rate for beats.
+	switches = match kind.id {
+		"lfo" | "random" | "table" => vec![json!({
+			"control": "sync",
+			"on": ["beats"],
+			"off": ["rate"],
+		})],
+		_ => switches,
+	};
+
 	// The control sources keep the rack's colours.
 	accent = match kind.id {
 		"lfo" => "#4c8dff",
@@ -232,14 +242,34 @@ fn patch_json(graph: &Graph) -> Value {
 	})
 }
 
+/// The watched nodes and their rings.
+type Taps = Arc<Mutex<Vec<(u32, Arc<Scope>)>>>;
+
 /// What the server and the demo audio thread share.
 #[derive(Clone)]
 struct Shared {
 	graph: Arc<Mutex<Graph>>,
 	generation: Arc<AtomicU64>,
 	rate: usize,
-	scope: Arc<Scope>,
-	tap: Arc<AtomicUsize>,
+	taps: Taps,
+}
+
+impl Shared {
+	fn tap_for(&self, node: u32) -> Arc<Scope> {
+		let mut taps = self.taps.lock().expect("taps");
+
+		if let Some((_, scope)) = taps.iter().find(|(id, _)| *id == node) {
+			return scope.clone();
+		}
+
+		let scope = Arc::new(Scope::new());
+		taps.push((node, scope.clone()));
+		scope
+	}
+
+	fn tap_snapshot(&self) -> Vec<(u32, Arc<Scope>)> {
+		self.taps.lock().expect("taps").clone()
+	}
 }
 
 fn main() {
@@ -247,8 +277,7 @@ fn main() {
 		graph: Arc::new(Mutex::new(demo())),
 		generation: Arc::new(AtomicU64::new(1)),
 		rate: 48_000,
-		scope: Arc::new(Scope::new()),
-		tap: Arc::new(AtomicUsize::new(0)),
+		taps: Arc::new(Mutex::new(Vec::new())),
 	};
 	spawn_audio(shared.clone());
 
@@ -307,17 +336,20 @@ fn spawn_audio(shared: Shared) {
 			let mut output = [[0.0f32; 2]; i_am_patch::block::BLOCK];
 
 			if let Some(poly) = &mut poly {
+				poly.set_transport(
+					Some(120.0),
+					Some(blocks as f32 * i_am_patch::block::BLOCK as f32 / shared.rate as f32 * 2.0),
+				);
 				poly.process(&input, &events, &mut output);
 
-				let tap = shared.tap.load(Ordering::Relaxed);
-
-				if tap != 0
-					&& let Some(block) = poly
-						.step_of(NodeId(tap as u32))
+				for (node, scope) in shared.tap_snapshot() {
+					if let Some(block) = poly
+						.step_of(NodeId(node))
 						.and_then(|step| poly.tap_block(step))
-						.or_else(|| poly.tap_voice_block(NodeId(tap as u32)))
-				{
-					shared.scope.write(&block);
+						.or_else(|| poly.tap_voice_block(NodeId(node)))
+					{
+						scope.write(&block);
+					}
 				}
 			}
 
@@ -397,22 +429,41 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				json!({ "error": error.to_string() }).to_string(),
 			),
 		},
-		("GET", path) if path.starts_with("/scope") => {
+		("GET", path) if path == "/scope" || path.starts_with("/scope?") => {
 			let node = path
 				.split_once('?')
 				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
 				.and_then(|value| value.parse::<usize>().ok())
 				.unwrap_or(0);
-			shared.tap.store(node, Ordering::Relaxed);
+			let scope = shared.tap_for(node as u32);
 
 			(
 				"200 OK",
 				"application/json",
 				json!({
 					"rate": shared.rate,
-					"samples": shared.scope.read(2048),
+					"samples": scope.read(2048),
 				})
 				.to_string(),
+			)
+		}
+		("GET", "/scopes") => {
+			let graph = shared.graph.lock().expect("graph");
+			let mut scopes = Vec::new();
+
+			for node in &graph.nodes {
+				if !matches!(node.kind.id, "lfo" | "envelope" | "random" | "table" | "pitch" | "midi") {
+					continue;
+				}
+
+				let scope = shared.tap_for(node.id.0);
+				scopes.push(json!({ "node": node.id.0, "samples": scope.read(1024) }));
+			}
+
+			(
+				"200 OK",
+				"application/json",
+				json!({ "rate": shared.rate, "scopes": scopes }).to_string(),
 			)
 		}
 		("POST", "/op") => ("200 OK", "application/json", op(shared, body).to_string()),

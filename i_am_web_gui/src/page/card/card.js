@@ -253,6 +253,11 @@
           edited(id, value);
         });
         head.appendChild(setting(spec.label, control));
+      } else if (spec.kind === "bool" && spec.widget === "pill") {
+        control = makePill(spec, values[id], function (_, value) {
+          edited(id, value);
+        });
+        head.appendChild(control);
       } else if (spec.kind === "bool") {
         control = makeHeaderDot(spec, values[id], function (_, value) {
           edited(id, value);

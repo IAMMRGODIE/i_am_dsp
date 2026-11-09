@@ -82,6 +82,8 @@ pub struct Engine {
 	points: Vec<Vec<crate::graph::Point>>,
 	output_step: Option<usize>,
 	latency: usize,
+	tempo: Option<f32>,
+	position: Option<f32>,
 }
 
 impl Engine {
@@ -219,7 +221,15 @@ impl Engine {
 			points,
 			output_step,
 			latency,
+			tempo: None,
+			position: None,
 		})
+	}
+
+	/// The host's tempo and song position, for the sources that sync.
+	pub fn set_transport(&mut self, tempo: Option<f32>, position: Option<f32>) {
+		self.tempo = tempo;
+		self.position = position;
 	}
 
 	/// The step a node ended up on.
@@ -304,6 +314,7 @@ impl Engine {
 		// A product instrument reads the block's notes from the context, the
 		// same way a host hands them over.
 		let mut patch_context = PatchContext::new(self.rate);
+		patch_context.set_transport(self.tempo, self.position);
 
 		for event in events {
 			patch_context.send_event(event.clone());

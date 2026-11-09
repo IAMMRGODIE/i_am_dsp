@@ -202,7 +202,7 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
-		params: &[("rate", 1.0), ("shape", 0.0)],
+		params: &[("rate", 1.0), ("shape", 0.0), ("sync", 0.0), ("beats", 1.0)],
 	},
 	NodeDesc {
 		id: "random",
@@ -210,7 +210,7 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
-		params: &[("rate", 4.0), ("smooth", 20.0)],
+		params: &[("rate", 4.0), ("smooth", 20.0), ("sync", 0.0), ("beats", 1.0)],
 	},
 	NodeDesc {
 		id: "table",
@@ -218,7 +218,7 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
-		params: &[("rate", 1.0), ("shape", 0.0), ("morph", 0.0)],
+		params: &[("rate", 1.0), ("shape", 0.0), ("morph", 0.0), ("sync", 0.0), ("beats", 1.0)],
 	},
 	NodeDesc {
 		id: "pitch",

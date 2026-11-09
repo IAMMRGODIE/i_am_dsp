@@ -509,6 +509,32 @@
     return makeSwitch(spec, value, onEdit).el;
   }
 
+  /// The rack's source cards put a Sync pill in the header: a text button that
+  /// lights up when the source follows the host's tempo.
+  function makePill(spec, value, onEdit) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "mcard-pill";
+    button.textContent = spec.label;
+    button.setAttribute("aria-pressed", "false");
+
+    var on = !!Number(value);
+
+    function paint() {
+      button.classList.toggle("on", on);
+      button.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+
+    button.addEventListener("click", function () {
+      on = !on;
+      paint();
+      if (onEdit) onEdit(spec.id, on ? 1 : 0);
+    });
+
+    paint();
+    return button;
+  }
+
   /// A boolean in the header is a dot, like the bypass one: the product page
   /// draws it that way and the caption sits to its right.
   function makeHeaderDot(spec, value, onEdit) {

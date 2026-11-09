@@ -20,10 +20,16 @@ pub struct PatcherShared {
 	pub rate: AtomicUsize,
 	/// What the graph delays its output, plus the block buffer.
 	pub latency: AtomicUsize,
-	/// The node whose output the page is watching, or 0.
-	pub tap_node: AtomicUsize,
-	/// The frames of that node's output.
-	pub scope: Scope,
+	/// The nodes whose output the page is watching, one ring each.
+	pub taps: Mutex<Vec<Tap>>,
+}
+
+/// One watched node and the ring its output goes into.
+pub struct Tap {
+	/// The node id.
+	pub node: u32,
+	/// The frames of its output.
+	pub scope: Arc<Scope>,
 }
 
 impl Default for PatcherShared {
@@ -33,8 +39,7 @@ impl Default for PatcherShared {
 			generation: AtomicU64::new(1),
 			rate: AtomicUsize::new(48_000),
 			latency: AtomicUsize::new(0),
-			tap_node: AtomicUsize::new(0),
-			scope: Scope::new(),
+			taps: Mutex::new(Vec::new()),
 		}
 	}
 }
@@ -61,12 +66,27 @@ impl PatcherShared {
 		true
 	}
 
-	/// The node the page wants pictures of.
-	pub fn tap(&self) -> Option<i_am_patch::graph::NodeId> {
-		match self.tap_node.load(Ordering::Relaxed) {
-			0 => None,
-			id => Some(i_am_patch::graph::NodeId(id as u32)),
+	/// The ring for a watched node, made on first use.
+	pub fn tap_for(&self, node: u32) -> Arc<Scope> {
+		let mut taps = self.taps.lock().expect("the tap lock");
+
+		if let Some(tap) = taps.iter().find(|tap| tap.node == node) {
+			return tap.scope.clone();
 		}
+
+		let scope = Arc::new(Scope::new());
+		taps.push(Tap { node, scope: scope.clone() });
+		scope
+	}
+
+	/// The watched nodes, for the audio thread's copy.
+	pub fn tap_snapshot(&self) -> Vec<(u32, Arc<Scope>)> {
+		self.taps
+			.lock()
+			.expect("the tap lock")
+			.iter()
+			.map(|tap| (tap.node, tap.scope.clone()))
+			.collect()
 	}
 
 	/// The latency a host should compensate for.
@@ -112,6 +132,8 @@ pub struct Body {
 	output: Vec<[f32; 2]>,
 	index: usize,
 	events: Vec<NoteEvent>,
+	tempo: Option<f32>,
+	position: Option<f32>,
 }
 
 impl Body {
@@ -126,6 +148,8 @@ impl Body {
 			output: vec![[0.0; 2]; BLOCK],
 			index: 0,
 			events: Vec::new(),
+			tempo: None,
+			position: None,
 		};
 		// The host asks for the latency before the first block.
 		body.rebuild();
@@ -158,6 +182,12 @@ impl Body {
 		self.built = self.shared.generation.load(Ordering::Relaxed);
 	}
 
+	/// The host's tempo and song position.
+	pub fn set_transport(&mut self, tempo: Option<f32>, position: Option<f32>) {
+		self.tempo = tempo;
+		self.position = position;
+	}
+
 	/// Queues one note event for the next block.
 	pub fn push_event(&mut self, event: &NoteEvent) {
 		self.events.push(event.clone());
@@ -177,15 +207,18 @@ impl Body {
 			self.index = 0;
 
 			if let Some(poly) = &mut self.poly {
+				poly.set_transport(self.tempo, self.position);
 				poly.process(&self.input, &self.events, &mut self.output);
 			} else if let Some(engine) = &mut self.engine {
+				engine.set_transport(self.tempo, self.position);
 				engine.process(&self.input, &self.events, &mut self.output);
 			}
 
 			self.events.clear();
 
-			// One node's output is copied for the page, when it is watching one.
-			if let Some(id) = self.shared.tap() {
+			// Every watched node's output is copied for the page.
+			for (node, scope) in self.shared.tap_snapshot() {
+				let id = i_am_patch::graph::NodeId(node);
 				let block = self
 					.poly
 					.as_ref()
@@ -201,7 +234,7 @@ impl Body {
 					});
 
 				if let Some(block) = block {
-					self.shared.scope.write(&block);
+					scope.write(&block);
 				}
 			}
 		}

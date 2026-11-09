@@ -100,6 +100,11 @@ macro_rules! product {
 					self.0.body.push_event(event);
 				}
 
+				let infos = context.infos();
+				self.0
+					.body
+					.set_transport(infos.tempo, infos.position_beats.map(|value| value as f32));
+
 				let input = if $generator { [0.0; 2] } else { *samples };
 				*samples = self.0.body.process(input);
 			}

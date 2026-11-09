@@ -28,13 +28,35 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				.find_map(|pair| pair.strip_prefix("node="))
 				.and_then(|value| value.parse::<usize>().ok())
 				.unwrap_or(0);
-
-			shared.tap_node.store(node, Ordering::Relaxed);
+			let scope = shared.tap_for(node as u32);
 
 			Some(ProtocolResponse::json(
 				json!({
 					"rate": shared.rate.load(Ordering::Relaxed),
-					"samples": shared.scope.read(2048),
+					"samples": scope.read(2048),
+				})
+				.to_string(),
+			))
+		}
+		("GET", "/scopes") => {
+			use std::sync::atomic::Ordering;
+
+			let graph = shared.graph();
+			let mut scopes = Vec::new();
+
+			for node in &graph.nodes {
+				if !matches!(node.kind.id, "lfo" | "envelope" | "random" | "table" | "pitch" | "midi") {
+					continue;
+				}
+
+				let scope = shared.tap_for(node.id.0);
+				scopes.push(json!({ "node": node.id.0, "samples": scope.read(1024) }));
+			}
+
+			Some(ProtocolResponse::json(
+				json!({
+					"rate": shared.rate.load(Ordering::Relaxed),
+					"scopes": scopes,
 				})
 				.to_string(),
 			))
@@ -181,7 +203,27 @@ pub fn catalog_json() -> String {
 				}
 			}
 
-			// The control sources keep the rack's colours.
+			// A source with a Sync switch trades its free rate for beats.
+			switches = match kind.id {
+				"lfo" | "random" | "table" => vec![json!({
+					"control": "sync",
+					"on": ["beats"],
+					"off": ["rate"],
+				})],
+				_ => switches,
+			};
+
+			// A source with a Sync switch trades its free rate for beats.
+	switches = match kind.id {
+		"lfo" | "random" | "table" => vec![json!({
+			"control": "sync",
+			"on": ["beats"],
+			"off": ["rate"],
+		})],
+		_ => switches,
+	};
+
+	// The control sources keep the rack's colours.
 			accent = match kind.id {
 				"lfo" => "#4c8dff",
 				"envelope" => "#35c77a",

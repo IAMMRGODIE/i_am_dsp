@@ -178,6 +178,8 @@
   // Ranges for the kinds that are not products: their catalog entry only has a
   // default, so the page gives the knob a sensible travel.
   const PARAM_RANGES = {
+    beats: { min: 0.125, max: 8, log: true },
+    sync: { min: 0, max: 1, step: 1 },
     rate: { min: 0.01, max: 200, log: true },
     smooth: { min: 0.1, max: 500, log: true },
     shape: { min: 0, max: 3, step: 1 },
@@ -200,7 +202,12 @@
   };
 
   // The rack's source cards put these choices in the header instead of a knob.
-  const GENERIC_HEADER = { lfo: ["shape"], table: ["shape"], midi: ["mode"] };
+  const GENERIC_HEADER = {
+    lfo: ["shape", "sync"],
+    table: ["shape", "sync"],
+    random: ["sync"],
+    midi: ["mode"],
+  };
   const GENERIC_CHOICES = {
     shape: ["Sine", "Triangle", "Saw", "Square"],
     mode: ["Note", "Velocity"],
@@ -402,13 +409,14 @@
       const control = {
         id,
         label: labelOf(id),
-        kind: choices || range.step === 1 ? "int" : "float",
-        min: range.min ?? -span * 2,
-        max: choices ? choices.length - 1 : range.max ?? span * 2,
+        kind: id === "sync" ? "bool" : choices || range.step === 1 ? "int" : "float",
+        min: id === "sync" ? 0 : range.min ?? -span * 2,
+        max: id === "sync" ? 1 : choices ? choices.length - 1 : range.max ?? span * 2,
         default: fallback,
         log: !!range.log,
         step: choices ? 1 : range.step,
         choices,
+        widget: id === "sync" ? "pill" : undefined,
       };
 
       return { ...control, ...modulationSpec(node, control) };
@@ -427,6 +435,7 @@
       accent: kind.accent || "#e07a2f",
       hero: CARD_HEROES[kind.id] || null,
       header: GENERIC_HEADER[kind.id] || [],
+      switches: kind.switches || [],
       controls: specs,
       values: { ...node.params, points: JSON.stringify(node.points || []) },
       context: { rate: 48000 },
@@ -1077,6 +1086,29 @@
     pollScope(id);
   }
 
+  // The control sources' histories: the engine keeps a ring for each of them,
+  // and the page draws every one, whether it is selected or not.
+  let scopesTimer = null;
+
+  function startScopes() {
+    if (scopesTimer !== null) return;
+
+    scopesTimer = setInterval(pollScopes, 160);
+    pollScopes();
+  }
+
+  async function pollScopes() {
+    try {
+      const data = await (await fetch("/scopes", { cache: "no-store" })).json();
+
+      for (const scope of data.scopes || []) {
+        drawScope(scope.node, scope.samples || []);
+      }
+    } catch {
+      // The next tick tries again.
+    }
+  }
+
   async function pollScope(id) {
     try {
       const response = await fetch(`/scope?node=${id}`, { cache: "no-store" });
@@ -1572,6 +1604,8 @@
     draw();
     event.target.value = "";
   };
+
+  startScopes();
 
   load();
   setInterval(async () => {
