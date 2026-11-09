@@ -186,22 +186,22 @@ impl Body {
 
 			// One node's output is copied for the page, when it is watching one.
 			if let Some(id) = self.shared.tap() {
-				let step = self
+				let block = self
 					.poly
 					.as_ref()
-					.and_then(|poly| poly.step_of(id))
-					.or_else(|| self.engine.as_ref().and_then(|engine| engine.step_of(id)));
+					.and_then(|poly| {
+						poly.step_of(id)
+							.and_then(|step| poly.tap_block(step))
+							.or_else(|| poly.tap_voice_block(id))
+					})
+					.or_else(|| {
+						self.engine
+							.as_ref()
+							.and_then(|engine| engine.step_of(id).and_then(|step| engine.tap_block(step)))
+					});
 
-				if let Some(step) = step {
-					let block = self
-						.poly
-						.as_ref()
-						.and_then(|poly| poly.tap_block(step))
-						.or_else(|| self.engine.as_ref().and_then(|engine| engine.tap_block(step)));
-
-					if let Some(block) = block {
-						self.shared.scope.write(&block);
-					}
+				if let Some(block) = block {
+					self.shared.scope.write(&block);
 				}
 			}
 		}

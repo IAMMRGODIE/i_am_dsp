@@ -222,8 +222,10 @@ fn spawn_audio(shared: Shared) {
 				let tap = shared.tap.load(Ordering::Relaxed);
 
 				if tap != 0
-					&& let Some(step) = poly.step_of(NodeId(tap as u32))
-					&& let Some(block) = poly.tap_block(step)
+					&& let Some(block) = poly
+						.step_of(NodeId(tap as u32))
+						.and_then(|step| poly.tap_block(step))
+						.or_else(|| poly.tap_voice_block(NodeId(tap as u32)))
 				{
 					shared.scope.write(&block);
 				}

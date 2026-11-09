@@ -151,6 +151,25 @@ impl Poly {
 		self.outer.tap_block(step)
 	}
 
+	/// A node inside the voice group, summed across the voices that are
+	/// playing it. The page watches one picture, not one per voice.
+	pub fn tap_voice_block(&self, id: NodeId) -> Option<AudioBlock> {
+		let mut sum: Option<AudioBlock> = None;
+
+		for voice in &self.voices {
+			if let Some(step) = voice.engine.step_of(id)
+				&& let Some(block) = voice.engine.tap_block(step)
+			{
+				match &mut sum {
+					Some(total) => total.add(&block),
+					None => sum = Some(block),
+				}
+			}
+		}
+
+		sum
+	}
+
 	/// How many frames the outer graph and the voice graph delay the output.
 	pub fn latency(&self) -> usize {
 		self.outer.latency() + self.voice_latency
@@ -338,4 +357,38 @@ mod tests {
 			Err(EngineError::NoVoiceGroup)
 		));
 	}
+	#[test]
+	fn a_voice_node_can_be_watched() {
+		let mut graph = crate::graph::Graph::new();
+		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+		let voice_in = graph.add_node("voice:in", (100.0, 0.0)).expect("voice in");
+		let generator = graph.add_node("gen:additive", (200.0, 0.0)).expect("generator");
+		let gain = graph.add_node("gain", (300.0, 0.0)).expect("gain");
+		let voice_out = graph.add_node("voice:out", (400.0, 0.0)).expect("voice out");
+		let out = graph.add_node("out:audio", (500.0, 0.0)).expect("out");
+		graph.connect((midi, 0), (voice_in, 0));
+		graph.connect((voice_in, 0), (generator, 0));
+		graph.connect((generator, 0), (gain, 0));
+		graph.connect((gain, 0), (voice_out, 0));
+		graph.connect((voice_out, 0), (out, 0));
+
+		let mut poly = Poly::new(&graph, 48_000).expect("a poly");
+		let input = [[0.0f32; 2]; crate::block::BLOCK];
+		let mut output = [[0.0f32; 2]; crate::block::BLOCK];
+		let event = NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 0.8,
+		};
+
+		poly.process(&input, &[event], &mut output);
+
+		let block = poly.tap_voice_block(gain).expect("the gain inside the voice");
+		let peak = block.channels[0]
+			.iter()
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+
+		assert!(peak > 1e-4, "the voice node was silent: {peak}");
+	}
+
 }
