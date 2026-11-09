@@ -42,6 +42,66 @@
       .filter((mod) => mod.to[0] === id);
   }
 
+  // Ranges for the kinds that are not products: their catalog entry only has a
+  // default, so the page gives the knob a sensible travel.
+  const PARAM_RANGES = {
+    rate: { min: 0.01, max: 200, log: true },
+    smooth: { min: 0.1, max: 500, log: true },
+    shape: { min: 0, max: 3, step: 1 },
+    morph: { min: 0, max: 1 },
+    partials: { min: 1, max: 64, step: 1 },
+    spread: { min: 0, max: 1 },
+    decay: { min: 0.05, max: 30, log: true },
+    gain: { min: 0, max: 2, log: true },
+    pan: { min: -1, max: 1 },
+    a: { min: 0, max: 2 },
+    b: { min: 0, max: 2 },
+    time: { min: 1, max: 1000 },
+    feedback: { min: 0, max: 0.95 },
+    attack: { min: 0.1, max: 2000, log: true },
+    release: { min: 0.1, max: 2000, log: true },
+    clarity: { min: 0, max: 1 },
+    glide: { min: 0.1, max: 1000, log: true },
+    mode: { min: 0, max: 1, step: 1 },
+    transpose: { min: -24, max: 24, step: 1 },
+  };
+
+  const NODE_NOTE = {
+    "input:midi": "Host MIDI input",
+    "input:audio": "Host audio input",
+    "input:sidechain": "Host sidechain input",
+    "out:audio": "Host audio output",
+    "voice:in": "A note starts the voice group here",
+    "voice:out": "The voice group's audio leaves here",
+  };
+
+  function labelOf(key) {
+    return key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  /// The modulation ring and the two gestures a knob takes, for one parameter.
+  function modulationSpec(node, control) {
+    const range = Math.max(1e-9, control.max - control.min);
+    const modulations = modsOf(node.id)
+      .filter((mod) => mod.to[1] === control.id)
+      .map((mod) => ({
+        slot: mod.slot,
+        label: sourceName(mod.from[0]),
+        depth: mod.depth / range,
+        mode: mod.mode === "base" ? "frombase" : "centered",
+      }));
+
+    return {
+      modulations,
+      onModulation: (slot, next) => {
+        op({ op: "mod_depth", index: slot, depth: next * range }, false);
+      },
+      onModeToggle: (slots, next) => {
+        op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
+      },
+    };
+  }
+
   function productCard(node, kind, w, h) {
     let entry = cards[node.id];
     const mods = modsOf(node.id);
@@ -64,43 +124,22 @@
     }
 
     if (!entry) {
-      const specs = (kind.controls && kind.controls.length ? kind.controls : [
-        { id: "cutoff", label: "Cutoff", kind: "float", min: 20, max: 20000, default: 1000, unit: "hz", log: true },
-        { id: "q", label: "Resonance", kind: "float", min: 0.01, max: 10, default: 0.707 },
-      ]).map((control) => {
-        const range = Math.max(1e-9, control.max - control.min);
-        const assignments = mods
-          .filter((mod) => mod.to[1] === control.id)
-          .map((mod) => ({
-            slot: mod.slot,
-            label: sourceName(mod.from[0]),
-            depth: mod.depth / range,
-            mode: mod.mode === "base" ? "frombase" : "centered",
-          }));
-
-        return {
-          id: control.id,
-          label: control.label,
-          kind: control.kind,
-          unit: control.unit,
-          min: control.min,
-          max: control.max,
-          default: control.default,
-          log: control.log,
-          bipolar: control.bipolar,
-          step: control.step,
-          widget: control.widget,
-          size: control.size,
-          choices: control.choices,
-          modulations: assignments,
-          onModulation: (slot, next) => {
-            op({ op: "mod_depth", index: slot, depth: next * range }, false);
-          },
-          onModeToggle: (slots, next) => {
-            op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
-          },
-        };
-      });
+      const specs = (kind.controls && kind.controls.length ? kind.controls : []).map((control) => ({
+        id: control.id,
+        label: control.label,
+        kind: control.kind,
+        unit: control.unit,
+        min: control.min,
+        max: control.max,
+        default: control.default,
+        log: control.log,
+        bipolar: control.bipolar,
+        step: control.step,
+        widget: control.widget,
+        size: control.size,
+        choices: control.choices,
+        ...modulationSpec(node, control),
+      }));
 
       const host = document.createElement("div");
       host.className = "card-host";
@@ -136,6 +175,93 @@
       );
       entry.host.classList.toggle("compact", w < 430);
     }
+
+    return entry.host;
+  }
+
+
+  /// A card for a kind that is not a product: knobs from its catalog params,
+  /// and a line of text when it has none.
+  function genericCard(node, kind, w, h) {
+    let entry = cards[node.id];
+    const mods = modsOf(node.id);
+    const key = JSON.stringify(
+      mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
+    );
+
+    if (entry && entry.key !== key) {
+      entry.host.remove();
+      delete cards[node.id];
+      entry = null;
+    }
+
+    if (entry) {
+      entry.host.style.setProperty(
+        "--k",
+        String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
+      );
+      entry.host.classList.toggle("compact", w < 430);
+
+      return entry.host;
+    }
+
+    const specs = (kind.params || []).map(([id, fallback]) => {
+      const range = PARAM_RANGES[id] || {};
+      const span = Math.max(0.001, Math.abs(fallback) || 1);
+      const control = {
+        id,
+        label: labelOf(id),
+        kind: range.step === 1 ? "int" : "float",
+        min: range.min ?? -span * 2,
+        max: range.max ?? span * 2,
+        default: fallback,
+        log: !!range.log,
+        step: range.step,
+      };
+
+      return { ...control, ...modulationSpec(node, control) };
+    });
+
+    const host = document.createElement("div");
+    host.className = "card-host";
+    const scale = document.createElement("div");
+    scale.className = "card-scale";
+    scale.style.width = `${baseWidth(node)}px`;
+    scale.style.height = `${baseHeight(node)}px`;
+    scale.style.flexBasis = `${baseWidth(node)}px`;
+
+    const card = window.IAmCard.create({
+      title: kind.name,
+      accent: kind.accent || "#e07a2f",
+      controls: specs,
+      values: node.params,
+      context: { rate: 48000 },
+      onEdit: (identifier, value) => {
+        op({ op: "param", id: node.id, key: identifier, value }, false);
+      },
+    });
+
+    if (!specs.length) {
+      const body = card.querySelector(".mcard-body");
+      const note = NODE_NOTE[kind.id];
+
+      if (body && note) {
+        const row = document.createElement("div");
+        row.className = "card-note";
+        row.textContent = note;
+        body.appendChild(row);
+      }
+    }
+
+    scale.appendChild(card);
+    host.appendChild(scale);
+    entry = { host, key };
+    cards[node.id] = entry;
+    entry.host.style.setProperty(
+      "--k",
+      String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
+    );
+    entry.host.classList.toggle("compact", w < 430);
 
     return entry.host;
   }
@@ -312,9 +438,11 @@
         x: 0, y: 0, width: w, height: h, rx: 6,
       }));
 
-      if (window.IAmCard && kind.controls && kind.controls.length) {
+      if (window.IAmCard) {
         const foreign = el("foreignObject", { x: 0, y: 0, width: w, height: h });
-        const host = productCard(node, kind, w, h);
+        const host = kind.controls && kind.controls.length
+          ? productCard(node, kind, w, h)
+          : genericCard(node, kind, w, h);
         foreign.appendChild(host);
         group.appendChild(foreign);
       } else {

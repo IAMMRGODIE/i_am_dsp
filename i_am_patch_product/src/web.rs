@@ -51,7 +51,7 @@ pub fn catalog_json() -> String {
 			let mut visible: Option<Vec<(i32, Vec<&'static str>)>> = None;
 			let mut switches: Vec<Value> = Vec::new();
 			let mut accent = "#e07a2f";
-			let mut face: (f32, f32) = (520.0, 330.0);
+			let mut face: Option<(f32, f32)> = None;
 
 			if let Some(module) = product_module(kind.id)
 				&& let Some(descriptor) = i_am_effects::catalog::get(module)
@@ -67,9 +67,7 @@ pub fn catalog_json() -> String {
 						.collect()
 				});
 				accent = descriptor.accent;
-				if let Some(size) = i_am_effects::catalog::face(descriptor.id) {
-					face = size;
-				}
+				face = i_am_effects::catalog::face(descriptor.id);
 				switches = descriptor
 					.switches
 					.iter()
@@ -96,7 +94,7 @@ pub fn catalog_json() -> String {
 				"visible": visible,
 				"switches": switches,
 				"accent": accent,
-				"face": [face.0, face.1],
+				"face": face.map(|(width, height)| [width, height]),
 			})
 		})
 		.collect();
