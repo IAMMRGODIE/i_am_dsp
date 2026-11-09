@@ -386,25 +386,4 @@ fn set_error(status: &Arc<Mutex<ScriptStatus>>, error: String) {
 }
 
 /// Escapes a string for JSON.
-pub(crate) fn json_escape(value: &str) -> String {
-	let mut out = String::with_capacity(value.len());
-
-	for character in value.chars() {
-		match character {
-			'"' => out.push_str("\\\""),
-			'\\' => out.push_str("\\\\"),
-			'\n' => out.push_str("\\n"),
-			'\r' => out.push_str("\\r"),
-			'\t' => out.push_str("\\t"),
-			character if (character as u32) < 0x20 => {
-				let _ = std::fmt::Write::write_fmt(
-					&mut out,
-					format_args!("\\u{:04x}", character as u32),
-				);
-			}
-			character => out.push(character),
-		}
-	}
-
-	out
-}
+pub(crate) use i_am_web_gui::json_escape;

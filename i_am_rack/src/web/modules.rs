@@ -118,29 +118,7 @@ pub(super) fn module_ir(
 }
 
 /// Decodes the percent escapes a page sends in a query value.
-pub(super) fn percent_decode(value: &str) -> String {
-	let bytes = value.as_bytes();
-	let mut out = Vec::with_capacity(bytes.len());
-	let mut index = 0;
-
-	while index < bytes.len() {
-		if bytes[index] == b'%' && index + 2 < bytes.len() {
-			let high = (bytes[index + 1] as char).to_digit(16);
-			let low = (bytes[index + 2] as char).to_digit(16);
-
-			if let (Some(high), Some(low)) = (high, low) {
-				out.push((high * 16 + low) as u8);
-				index += 3;
-				continue;
-			}
-		}
-
-		out.push(bytes[index]);
-		index += 1;
-	}
-
-	String::from_utf8_lossy(&out).to_string()
-}
+pub(super) use i_am_web_gui::percent_decode;
 
 /// The script a scripted module runs: a GET describes it, a POST replaces it
 /// and asks the worker to render for the parameters the module currently has.

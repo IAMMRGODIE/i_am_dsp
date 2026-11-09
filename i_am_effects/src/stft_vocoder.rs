@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use i_am_dsp::prelude::{ParamMap, Parameter, ProcessContext, SetValue, StftVocoderEffect};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
-use i_am_plugin::{AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions};
+use i_am_plugin::{Descriptor, Editor, Plugin, WindowOptions};
 use i_am_web_gui::Scope;
 
 /// The product.
@@ -96,16 +96,7 @@ impl Plugin for StftVocoderWeb {
 	}
 
 	fn window_options() -> WindowOptions {
-		const FACE_FRACTION: f64 = 0.85;
-
-		WindowOptions::new()
-			.with_size((700.0 / FACE_FRACTION, 340.0 / FACE_FRACTION))
-			.with_title("I Am STFT Vocoder")
-			.with_resize_hints(GuiResizeHints {
-				can_resize_horizontally: true,
-				can_resize_vertically: true,
-				strategy: AspectRatioStrategy::Disregard,
-			})
+		i_am_web_gui::window_options((700.0, 340.0), "I Am STFT Vocoder")
 	}
 
 	fn param_map(&self) -> ParamMap {

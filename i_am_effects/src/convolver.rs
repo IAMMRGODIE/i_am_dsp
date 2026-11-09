@@ -17,7 +17,7 @@ use i_am_dsp::tools::pcm_data::{load_from_bytes, resample};
 use i_am_dsp_derive::Parameters;
 use i_am_plugin::processor::EffectMessage;
 use i_am_plugin::processor::EffectProcessor;
-use i_am_plugin::{AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions};
+use i_am_plugin::{Descriptor, Editor, Plugin, WindowOptions};
 use i_am_web_gui::{ProtocolRequest, ProtocolResponse, Scope};
 use serde::{Deserialize, Serialize};
 
@@ -743,55 +743,10 @@ fn query_value<'a>(query: &'a str, key: &str) -> Option<&'a str> {
 }
 
 /// Decodes `%20`-style escapes; the page sends names with `encodeURIComponent`.
-fn percent_decode(value: &str) -> String {
-	let bytes = value.as_bytes();
-	let mut out = Vec::with_capacity(bytes.len());
-	let mut index = 0;
-
-	while index < bytes.len() {
-		if bytes[index] == b'%' && index + 2 < bytes.len() {
-			// Decode from the bytes rather than a string slice: an unencoded
-			// multibyte character could put a slice boundary inside a character.
-			let high = (bytes[index + 1] as char).to_digit(16);
-			let low = (bytes[index + 2] as char).to_digit(16);
-
-			if let (Some(high), Some(low)) = (high, low) {
-				out.push((high * 16 + low) as u8);
-				index += 3;
-				continue;
-			}
-		}
-
-		out.push(bytes[index]);
-		index += 1;
-	}
-
-	String::from_utf8_lossy(&out).to_string()
-}
+use i_am_web_gui::percent_decode;
 
 /// Escapes a string for the page's JSON.
-fn json_escape(value: &str) -> String {
-	let mut out = String::with_capacity(value.len());
-
-	for character in value.chars() {
-		match character {
-			'"' => out.push_str("\\\""),
-			'\\' => out.push_str("\\\\"),
-			'\n' => out.push_str("\\n"),
-			'\r' => out.push_str("\\r"),
-			'\t' => out.push_str("\\t"),
-			character if (character as u32) < 0x20 => {
-				let _ = std::fmt::Write::write_fmt(
-					&mut out,
-					format_args!("\\u{:04x}", character as u32),
-				);
-			}
-			character => out.push(character),
-		}
-	}
-
-	out
-}
+use i_am_web_gui::json_escape;
 
 /// The product.
 pub struct ConvolverWeb {
@@ -914,16 +869,7 @@ impl Plugin for ConvolverWeb {
 	}
 
 	fn window_options() -> WindowOptions {
-		const FACE_FRACTION: f64 = 0.85;
-
-		WindowOptions::new()
-			.with_size((SIZE.0 as f64 / FACE_FRACTION, SIZE.1 as f64 / FACE_FRACTION))
-			.with_title("I Am Convolver")
-			.with_resize_hints(GuiResizeHints {
-				can_resize_horizontally: true,
-				can_resize_vertically: true,
-				strategy: AspectRatioStrategy::Disregard,
-			})
+		i_am_web_gui::window_options((SIZE.0, SIZE.1), "I Am Convolver")
 	}
 
 	fn param_map(&self) -> ParamMap {

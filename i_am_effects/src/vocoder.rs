@@ -7,7 +7,7 @@ use i_am_dsp::prelude::{
 	ParamMap, Parameter, ProcessContext, SetValue, VocoderEffect, VocoderMeters,
 };
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
-use i_am_plugin::{AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions};
+use i_am_plugin::{Descriptor, Editor, Plugin, WindowOptions};
 use i_am_web_gui::{ProtocolRequest, ProtocolResponse, Scope};
 
 fn route(request: &ProtocolRequest<'_>, meters: &VocoderMeters) -> Option<ProtocolResponse> {
@@ -132,16 +132,7 @@ impl Plugin for VocoderWeb {
 	}
 
 	fn window_options() -> WindowOptions {
-		const FACE_FRACTION: f64 = 0.85;
-
-		WindowOptions::new()
-			.with_size((700.0 / FACE_FRACTION, 380.0 / FACE_FRACTION))
-			.with_title("I Am Vocoder")
-			.with_resize_hints(GuiResizeHints {
-				can_resize_horizontally: true,
-				can_resize_vertically: true,
-				strategy: AspectRatioStrategy::Disregard,
-			})
+		i_am_web_gui::window_options((700.0, 380.0), "I Am Vocoder")
 	}
 
 	fn param_map(&self) -> ParamMap {

@@ -8,7 +8,7 @@ use i_am_dsp::prelude::{
 };
 use i_am_dsp_derive::Parameters;
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
-use i_am_plugin::{AspectRatioStrategy, Descriptor, Editor, GuiResizeHints, Plugin, WindowOptions};
+use i_am_plugin::{Descriptor, Editor, Plugin, WindowOptions};
 use i_am_web_gui::{Page, ProtocolRequest, ProtocolResponse, Scope};
 
 /// The OTT's two pages: the compressor and the three bands, each with the meter.
@@ -295,16 +295,7 @@ impl Plugin for OttWeb {
 	}
 
 	fn window_options() -> WindowOptions {
-		const FACE_FRACTION: f64 = 0.85;
-
-		WindowOptions::new()
-			.with_size((640.0 / FACE_FRACTION, 440.0 / FACE_FRACTION))
-			.with_title("I Am OTT")
-			.with_resize_hints(GuiResizeHints {
-				can_resize_horizontally: true,
-				can_resize_vertically: true,
-				strategy: AspectRatioStrategy::Disregard,
-			})
+		i_am_web_gui::window_options((640.0, 440.0), "I Am OTT")
 	}
 
 	fn param_map(&self) -> ParamMap {
