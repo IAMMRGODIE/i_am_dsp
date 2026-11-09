@@ -49,6 +49,9 @@ header .spacer{flex:1}
 .card-host{
   width:100%; height:100%; display:flex;
   align-items:center; justify-content:center; overflow:hidden;
+  /* The card's own sizes are its own: the page's window scale must not reach
+     the knobs, or the same patch would look different in a bigger window. */
+  --scale:1;
 }
 /* The card is a faceplate with its own proportions: it scales uniformly to fit
    the box, so a tall or narrow box letterboxes instead of squeezing the header. */
