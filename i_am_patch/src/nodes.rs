@@ -28,6 +28,11 @@ pub trait BlockNode: Send + Sync {
 	fn set_param_block(&mut self, name: &str, _start: f32, end: f32, _frames: usize) {
 		self.set_param(name, end);
 	}
+
+	/// Where a source's cycle is, for the card's playhead.
+	fn phase(&self) -> Option<f32> {
+		None
+	}
 }
 
 /// One parameter, or the fallback when the node does not have it.
@@ -498,6 +503,10 @@ impl BlockNode for Lfo {
 			};
 		}
 	}
+
+	fn phase(&self) -> Option<f32> {
+		Some(self.phase)
+	}
 }
 
 /// A synth product: its notes come from the block's events, its audio out the
@@ -710,6 +719,10 @@ impl BlockNode for TableNode {
 			let second = table_shape(self.shape + 1, self.phase);
 			*value = first + (second - first) * self.morph;
 		}
+	}
+
+	fn phase(&self) -> Option<f32> {
+		Some(self.phase)
 	}
 }
 

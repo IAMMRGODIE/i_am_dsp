@@ -140,6 +140,21 @@ impl Poly {
 		})
 	}
 
+	/// Where a source's cycle is: the outer graph's, or the first voice's.
+	pub fn control_phase(&self, id: NodeId) -> Option<f32> {
+		self.outer
+			.step_of(id)
+			.and_then(|step| self.outer.control_phase(step))
+			.or_else(|| {
+				self.voices.iter().find_map(|voice| {
+					voice
+						.engine
+						.step_of(id)
+						.and_then(|step| voice.engine.control_phase(step))
+				})
+			})
+	}
+
 	/// The step a node ended up on, in the outer graph.
 	pub fn step_of(&self, id: NodeId) -> Option<usize> {
 		self.outer.step_of(id)

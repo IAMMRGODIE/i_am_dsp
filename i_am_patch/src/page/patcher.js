@@ -59,8 +59,17 @@
       }
     };
 
-    window.IAmCard.registerHero("patch-lfo", (values) => {
+    window.IAmCard.registerHero("patch-lfo", (values, context) => {
       const table = values.points ? JSON.parse(values.points) : [];
+      const phase = context && typeof context.phase === "number" ? context.phase : null;
+      const playhead = (value, y) => {
+        if (phase === null) return "";
+
+        const x = (20 + phase * 480).toFixed(1);
+
+        return `<line x1="${x}" y1="20" x2="${x}" y2="140" stroke="var(--accent)" stroke-width="1" opacity=".5"/>` +
+          `<circle cx="${x}" cy="${y.toFixed(1)}" r="4" fill="var(--accent)"/>`;
+      };
 
       if (table.length >= 2) {
         let line = "";
@@ -74,10 +83,22 @@
           `<circle cx="${(20 + time * 480).toFixed(1)}" cy="${(140 - value * 120).toFixed(1)}" r="2.5" fill="var(--accent)"/>`,
         ).join("");
 
+        let value = 0;
+
+        if (phase !== null) {
+          for (let index = 0; index + 1 < table.length; index++) {
+            if (phase >= table[index][0] && phase <= table[index + 1][0]) {
+              const span = table[index + 1][0] - table[index][0] || 1;
+              value = table[index][1] + (table[index + 1][1] - table[index][1]) *
+                ((phase - table[index][0]) / span);
+            }
+          }
+        }
+
         return heroSvg(
           '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
           `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>` +
-          dots,
+          dots + playhead(value, 140 - value * 120),
         );
       }
 
@@ -91,9 +112,12 @@
           (80 - value * 55).toFixed(1);
       }
 
+      const value = phase === null ? 0 : shapeAt(shape, phase);
+
       return heroSvg(
         '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
-        `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>`,
+        `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>` +
+        playhead(value, 80 - value * 55),
       );
     });
 
@@ -402,6 +426,7 @@
       return entry.host;
     }
 
+    const context = { rate: 48000 };
     const specs = (kind.params || []).map(([id, fallback]) => {
       const range = PARAM_RANGES[id] || {};
       const choices = GENERIC_CHOICES[id] || null;
@@ -438,7 +463,7 @@
       switches: kind.switches || [],
       controls: specs,
       values: { ...node.params, points: JSON.stringify(node.points || []) },
-      context: { rate: 48000 },
+      context,
       onEdit: (identifier, value) => {
         op({ op: "param", id: node.id, key: identifier, value }, false);
       },
@@ -458,7 +483,7 @@
 
     scale.appendChild(card);
     host.appendChild(scale);
-    entry = { host, key };
+    entry = { host, key, context, card };
     cards[node.id] = entry;
     entry.host.style.setProperty(
       "--k",
@@ -1103,6 +1128,13 @@
 
       for (const scope of data.scopes || []) {
         drawScope(scope.node, scope.samples || []);
+
+        const entry = cards[scope.node];
+
+        if (entry && entry.context && entry.card && typeof scope.phase === "number") {
+          entry.context.phase = scope.phase;
+          entry.card.repaintHero();
+        }
       }
     } catch {
       // The next tick tries again.

@@ -252,6 +252,7 @@ struct Shared {
 	generation: Arc<AtomicU64>,
 	rate: usize,
 	taps: Taps,
+	phases: Arc<Mutex<Vec<(u32, f32)>>>,
 }
 
 impl Shared {
@@ -270,6 +271,25 @@ impl Shared {
 	fn tap_snapshot(&self) -> Vec<(u32, Arc<Scope>)> {
 		self.taps.lock().expect("taps").clone()
 	}
+
+	fn set_phase(&self, node: u32, phase: f32) {
+		let mut phases = self.phases.lock().expect("phases");
+
+		if let Some(entry) = phases.iter_mut().find(|(id, _)| *id == node) {
+			entry.1 = phase;
+		} else {
+			phases.push((node, phase));
+		}
+	}
+
+	fn phase_for(&self, node: u32) -> Option<f32> {
+		self.phases
+			.lock()
+			.expect("phases")
+			.iter()
+			.find(|(id, _)| *id == node)
+			.map(|(_, phase)| *phase)
+	}
 }
 
 fn main() {
@@ -278,6 +298,7 @@ fn main() {
 		generation: Arc::new(AtomicU64::new(1)),
 		rate: 48_000,
 		taps: Arc::new(Mutex::new(Vec::new())),
+		phases: Arc::new(Mutex::new(Vec::new())),
 	};
 	spawn_audio(shared.clone());
 
@@ -349,6 +370,10 @@ fn spawn_audio(shared: Shared) {
 						.or_else(|| poly.tap_voice_block(NodeId(node)))
 					{
 						scope.write(&block);
+					}
+
+					if let Some(phase) = poly.control_phase(NodeId(node)) {
+						shared.set_phase(node, phase);
 					}
 				}
 			}
@@ -457,7 +482,11 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				}
 
 				let scope = shared.tap_for(node.id.0);
-				scopes.push(json!({ "node": node.id.0, "samples": scope.read(1024) }));
+				scopes.push(json!({
+					"node": node.id.0,
+					"samples": scope.read(1024),
+					"phase": shared.phase_for(node.id.0),
+				}));
 			}
 
 			(

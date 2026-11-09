@@ -232,6 +232,11 @@ impl Engine {
 		self.position = position;
 	}
 
+	/// Where a source's cycle is, for the page's playhead.
+	pub fn control_phase(&self, step: usize) -> Option<f32> {
+		self.nodes.get(step).and_then(|node| node.phase())
+	}
+
 	/// The step a node ended up on.
 	pub fn step_of(&self, id: NodeId) -> Option<usize> {
 		self.steps.get(&id).copied()

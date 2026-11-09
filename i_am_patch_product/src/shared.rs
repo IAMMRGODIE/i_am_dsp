@@ -22,6 +22,8 @@ pub struct PatcherShared {
 	pub latency: AtomicUsize,
 	/// The nodes whose output the page is watching, one ring each.
 	pub taps: Mutex<Vec<Tap>>,
+	/// The phase each watched source is at, for the card's playhead.
+	pub phases: Mutex<Vec<(u32, f32)>>,
 }
 
 /// One watched node and the ring its output goes into.
@@ -40,6 +42,7 @@ impl Default for PatcherShared {
 			rate: AtomicUsize::new(48_000),
 			latency: AtomicUsize::new(0),
 			taps: Mutex::new(Vec::new()),
+			phases: Mutex::new(Vec::new()),
 		}
 	}
 }
@@ -77,6 +80,27 @@ impl PatcherShared {
 		let scope = Arc::new(Scope::new());
 		taps.push(Tap { node, scope: scope.clone() });
 		scope
+	}
+
+	/// Records where a source's cycle is.
+	pub fn set_phase(&self, node: u32, phase: f32) {
+		let mut phases = self.phases.lock().expect("the phase lock");
+
+		if let Some(entry) = phases.iter_mut().find(|(id, _)| *id == node) {
+			entry.1 = phase;
+		} else {
+			phases.push((node, phase));
+		}
+	}
+
+	/// Where a source's cycle is, if the page is watching it.
+	pub fn phase_for(&self, node: u32) -> Option<f32> {
+		self.phases
+			.lock()
+			.expect("the phase lock")
+			.iter()
+			.find(|(id, _)| *id == node)
+			.map(|(_, phase)| *phase)
 	}
 
 	/// The watched nodes, for the audio thread's copy.
@@ -235,6 +259,20 @@ impl Body {
 
 				if let Some(block) = block {
 					scope.write(&block);
+				}
+
+				let phase = self
+					.poly
+					.as_ref()
+					.and_then(|poly| poly.control_phase(id))
+					.or_else(|| {
+						self.engine
+							.as_ref()
+							.and_then(|engine| engine.step_of(id).and_then(|step| engine.control_phase(step)))
+					});
+
+				if let Some(phase) = phase {
+					self.shared.set_phase(node, phase);
 				}
 			}
 		}

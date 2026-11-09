@@ -50,7 +50,11 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				}
 
 				let scope = shared.tap_for(node.id.0);
-				scopes.push(json!({ "node": node.id.0, "samples": scope.read(1024) }));
+				scopes.push(json!({
+					"node": node.id.0,
+					"samples": scope.read(1024),
+					"phase": shared.phase_for(node.id.0),
+				}));
 			}
 
 			Some(ProtocolResponse::json(
