@@ -673,6 +673,44 @@ mod tests {
 	}
 
 	#[test]
+	fn a_negative_modulation_does_not_blow_up() {
+		let mut graph = Graph::new();
+		let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+		let filter = graph.add_node("filter", (100.0, 0.0)).expect("filter");
+		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+		graph.connect((input, 0), (filter, 0));
+		graph.connect((filter, 0), (out, 0));
+
+		let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
+		graph.set_param(lfo, "rate", 3.0);
+		graph.set_param(filter, "cutoff", 228.0);
+		graph.modulate((lfo, 0), (filter, "cutoff"), -800.0);
+
+		let mut engine = Engine::new(&graph, 48_000).expect("builds");
+		let mut frames = Vec::new();
+
+		for block in 0..200 {
+			let mut host = vec![[0.0f32; 2]; BLOCK];
+
+			for (index, frame) in host.iter_mut().enumerate() {
+				let time = (block * BLOCK + index) as f32 / 48_000.0;
+				let value = (time * 440.0 * std::f32::consts::TAU).sin() * 0.5;
+				*frame = [value, value];
+			}
+
+			let mut block_out = vec![[0.0f32; 2]; BLOCK];
+			engine.process(&host, &[], &mut block_out);
+			frames.extend(block_out);
+		}
+
+		let peak = frames.iter().flat_map(|frame| frame.iter()).fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+		let mean: f32 = frames.iter().map(|frame| frame[0]).sum::<f32>() / frames.len() as f32;
+
+		assert!(peak < 2.0, "the peak blew up: {peak}");
+		assert!(mean.abs() < 0.01, "the output has DC: {mean}");
+	}
+
+	#[test]
 	fn a_synth_node_plays() {
 		let mut graph = Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");

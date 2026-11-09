@@ -297,10 +297,11 @@
       scale.style.height = `${baseHeight(node)}px`;
       scale.style.flexBasis = `${baseWidth(node)}px`;
       const context = { rate: 48000, scope: { input: null, output: null }, spectra: {} };
+      const pageHero = pages.length ? pages[activePage].hero : null;
       const card = window.IAmCard.create({
         title: kind.name,
         accent: kind.accent || "#e07a2f",
-        hero: kind.hero || "spectrum",
+        hero: pageHero || kind.hero || "spectrum",
         mode: kind.mode || null,
         header: kind.header || [],
         visible: kind.visible || null,
@@ -315,27 +316,25 @@
         },
       });
       if (pages.length > 1) {
-        const head = card.querySelector(".mcard-head");
+        const tabs = document.createElement("div");
+        tabs.className = "mcard-tabs";
 
-        if (head) {
-          const select = document.createElement("select");
-          select.className = "mcard-select mcard-page";
-
-          pages.forEach((page, index) => {
-            const option = document.createElement("option");
-            option.value = String(index);
-            option.textContent = page.name;
-            select.appendChild(option);
-          });
-
-          select.value = String(activePage);
-          select.onchange = (event) => {
-            pagesOf[node.id] = Number(event.target.value);
+        pages.forEach((page, index) => {
+          const tab = document.createElement("button");
+          tab.className = "mcard-tab" + (index === activePage ? " active" : "");
+          tab.textContent = page.name;
+          tab.onclick = () => {
+            pagesOf[node.id] = index;
             delete cards[node.id];
             draw();
           };
-          head.appendChild(select);
-        }
+          tabs.appendChild(tab);
+        });
+
+        const head = card.querySelector(".mcard-head");
+
+        if (head) head.after(tabs);
+        else card.insertBefore(tabs, card.firstChild);
       }
 
       scale.appendChild(card);

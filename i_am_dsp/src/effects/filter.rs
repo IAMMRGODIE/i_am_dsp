@@ -441,6 +441,8 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 
 	/// Set the filter to a RBJ lowpass filter. You can use [`Self::Q1`] as a starting point for the Q value.
 	pub fn set_to_lowpass(&mut self, cutoff: f32, q: f32) {
+				let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 / 2.0);
+		let q = q.max(0.01);
 		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
 		let alpha = omega_0.sin() / (2.0 * q);
 
@@ -457,6 +459,8 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 
 	/// Set the filter to a RBJ highpass filter. You can use [`Self::Q1`] as a starting point for the Q value.
 	pub fn set_to_highpass(&mut self, cutoff: f32, q: f32) {
+				let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 / 2.0);
+		let q = q.max(0.01);
 		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
 		let alpha = omega_0.sin() / (2.0 * q);
 

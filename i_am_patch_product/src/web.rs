@@ -138,7 +138,16 @@ pub fn catalog_json() -> String {
 					.map(|pages| {
 						pages
 							.iter()
-							.map(|page| json!({ "name": page.name, "sections": page.sections }))
+							.map(|page| {
+								let hero = page.sections.iter().find_map(|name| {
+									sections
+										.iter()
+										.find(|section| section.name.as_deref() == Some(*name))
+										.and_then(|section| section.hero.clone())
+								});
+
+								json!({ "name": page.name, "sections": page.sections, "hero": hero })
+							})
 							.collect::<Vec<Value>>()
 					})
 					.unwrap_or_default();
@@ -147,6 +156,7 @@ pub fn catalog_json() -> String {
 					.map(|section| {
 						json!({
 							"name": section.name.clone().unwrap_or_default(),
+							"hero": section.hero.clone(),
 							"controls": section
 								.controls
 								.iter()

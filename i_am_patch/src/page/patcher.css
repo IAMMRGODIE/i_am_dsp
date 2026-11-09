@@ -221,3 +221,17 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 .card-host .knob-wrap.mod-hover{
   outline:2px solid var(--accent) !important; outline-offset:2px;
 }
+
+/* The product's tabs, under the card's header: one page of a synth at a time. */
+.card-host .mcard-tabs{
+  display:flex; gap:20px; padding:8px 14px 0;
+  border-bottom:1px solid var(--border);
+}
+.card-host .mcard-tab{
+  padding:0 0 8px; background:none; border:0;
+  border-bottom:2px solid transparent;
+  color:var(--text3); font:inherit; font-size:10px; font-weight:600;
+  letter-spacing:.1em; text-transform:uppercase; cursor:pointer;
+}
+.card-host .mcard-tab:hover{color:var(--text2)}
+.card-host .mcard-tab.active{color:var(--text1); border-bottom-color:var(--accent)}
