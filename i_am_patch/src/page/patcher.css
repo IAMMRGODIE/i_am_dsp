@@ -181,6 +181,10 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
    gap under its knobs. */
 .card-host .mcard-body{flex:1; align-content:center}
 
+/* The product page sizes a knob to its row (auto, 64px minimum); the card's
+   fixed 88px made a face that fits nine knobs wrap the last one. */
+.card-host .knob-wrap{width:auto; min-width:64px}
+
 /* The selected node's live output: over the hero when the card has one (the
    rack's live trace), along the bottom otherwise. */
 .card-host .scope-canvas{
