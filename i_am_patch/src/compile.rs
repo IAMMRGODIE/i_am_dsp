@@ -568,6 +568,7 @@ mod tests {
 			kind: crate::graph::node("filter").expect("filter"),
 			position: (0.0, 0.0),
 			params: std::collections::BTreeMap::new(),
+			points: Vec::new(),
 		});
 
 		assert_eq!(compile(&graph), Err(CompileError::DuplicateId(gain)));

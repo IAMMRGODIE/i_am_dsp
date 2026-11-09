@@ -77,6 +77,7 @@ pub struct Engine {
 	retrigger: Vec<usize>,
 	controls: Vec<Vec<f32>>,
 	base: Vec<BTreeMap<&'static str, f32>>,
+	points: Vec<Vec<crate::graph::Point>>,
 	output_step: Option<usize>,
 	latency: usize,
 }
@@ -101,6 +102,7 @@ impl Engine {
 			(0..plan.order.len()).map(|_| Vec::new()).collect();
 		let mut controls = Vec::with_capacity(plan.order.len());
 		let mut base = Vec::with_capacity(plan.order.len());
+		let mut points = Vec::with_capacity(plan.order.len());
 		let mut output_step = None;
 
 		for (step, id) in plan.order.iter().enumerate() {
@@ -110,7 +112,7 @@ impl Engine {
 			let kind = instance.kind;
 			kinds.push(kind.id);
 			nodes.push(
-				make(kind.id, rate, &instance.params)
+				make(kind.id, rate, &instance.params, &instance.points)
 					.ok_or_else(|| EngineError::UnknownKind(kind.id.to_string()))?,
 			);
 
@@ -125,6 +127,7 @@ impl Engine {
 			outputs.push(node_outputs);
 			controls.push(vec![0.0; kind.outputs.len()]);
 			base.push(instance.params.clone());
+			points.push(instance.points.clone());
 
 			let mut node_inputs = Vec::with_capacity(kind.inputs.len());
 			for port in kind.inputs {
@@ -211,6 +214,7 @@ impl Engine {
 			retrigger,
 			controls,
 			base,
+			points,
 			output_step,
 			latency,
 		})
@@ -281,7 +285,7 @@ impl Engine {
 			.any(|event| matches!(event, NoteEvent::NoteOn { .. }))
 		{
 			for step in self.retrigger.clone() {
-				if let Some(node) = make(self.kinds[step], self.rate, &self.base[step]) {
+				if let Some(node) = make(self.kinds[step], self.rate, &self.base[step], &self.points[step]) {
 					self.nodes[step] = node;
 				}
 
@@ -563,10 +567,38 @@ mod tests {
 	}
 
 	#[test]
+	fn an_lfo_can_follow_points() {
+		let mut params = BTreeMap::new();
+		params.insert("rate", 375.0);
+		let points = [
+			crate::graph::Point { time: 0.0, value: 0.0, bend: 0.0 },
+			crate::graph::Point { time: 0.5, value: 1.0, bend: 0.0 },
+			crate::graph::Point { time: 1.0, value: 0.0, bend: 0.0 },
+		];
+		let mut lfo = make("lfo", 48_000, &params, &points).expect("lfo");
+		let mut out = vec![Buffer::Control(0.0)];
+		let mut context = BlockContext {
+			frames: BLOCK,
+			rate: 48_000,
+			block: 0,
+			events: Vec::new(),
+			context: Box::new(PatchContext::new(48_000)),
+		};
+
+		lfo.process(&mut context, &[], &mut out);
+
+		let Buffer::Control(value) = out[0] else {
+			panic!("the lfo wrote audio");
+		};
+
+		assert!((value - 1.0).abs() < 1e-3, "the point table: {value}");
+	}
+
+	#[test]
 	fn the_control_sources_move() {
 		for kind in ["random", "table", "midi"] {
 			let params = std::collections::BTreeMap::new();
-			let mut node = make(kind, 48_000, &params).expect("a control source");
+			let mut node = make(kind, 48_000, &params, &[]).expect("a control source");
 			let mut out = vec![Buffer::Control(0.0)];
 			let mut context = BlockContext {
 				frames: BLOCK,

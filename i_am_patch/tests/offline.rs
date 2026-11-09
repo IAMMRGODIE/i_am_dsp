@@ -233,7 +233,7 @@ fn the_text_round_trip_keeps_the_params() {
 #[test]
 fn a_control_node_moves_and_an_envelope_follows() {
 	let params = BTreeMap::new();
-	let mut lfo = make("lfo", 48_000, &params).expect("lfo");
+	let mut lfo = make("lfo", 48_000, &params, &[]).expect("lfo");
 	let mut out = vec![Buffer::Control(0.0)];
 	let mut context = BlockContext {
 		frames: BLOCK,
@@ -255,7 +255,7 @@ fn a_control_node_moves_and_an_envelope_follows() {
 	};
 	assert!(first != second, "{first} then {second}");
 
-	let mut envelope = make("envelope", 48_000, &params).expect("envelope");
+	let mut envelope = make("envelope", 48_000, &params, &[]).expect("envelope");
 	let mut input = vec![Buffer::Audio(AudioBlock::silent(BLOCK))];
 	if let Buffer::Audio(block) = &mut input[0] {
 		block.frames = BLOCK;

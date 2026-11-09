@@ -3,7 +3,9 @@
 use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 
-use i_am_dsp::prelude::{Effect, Gain, Multimode, NoteEvent, Parameters, PitchTracker};
+use i_am_dsp::prelude::{
+	EditableLfo, Effect, Gain, Multimode, NoteEvent, Parameters, PitchTracker, WaveTable,
+};
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
 
@@ -37,6 +39,7 @@ pub fn make(
 	kind: &str,
 	rate: usize,
 	params: &BTreeMap<&'static str, f32>,
+	points: &[crate::graph::Point],
 ) -> Option<Box<dyn BlockNode>> {
 	let node: Box<dyn BlockNode> = match kind {
 		"input:midi" => Box::new(Quiet),
@@ -52,7 +55,7 @@ pub fn make(
 			a: param(params, "a", 1.0),
 			b: param(params, "b", 1.0),
 		}),
-		"lfo" => Box::new(Lfo::new(rate, param(params, "rate", 1.0))),
+		"lfo" => Box::new(Lfo::new(rate, param(params, "rate", 1.0), points)),
 		"random" => Box::new(RandomNode::new(rate, params)),
 		"table" => Box::new(TableNode::new(rate, params)),
 		"pitch" => Box::new(PitchNode::new(rate, params)),
@@ -415,15 +418,29 @@ struct Lfo {
 	phase: f32,
 	step: f32,
 	rate: f32,
+	points: Option<EditableLfo>,
 }
 
 impl Lfo {
-	fn new(rate: usize, frequency: f32) -> Self {
-		Self {
+	fn new(rate: usize, frequency: f32, points: &[crate::graph::Point]) -> Self {
+		let mut lfo = Self {
 			phase: 0.0,
 			step: frequency / rate as f32,
 			rate: rate as f32,
+			points: None,
+		};
+
+		if !points.is_empty() {
+			let mut editable = EditableLfo::new();
+
+			for point in points {
+				editable.add_point(point.time, point.value, point.bend);
+			}
+
+			lfo.points = Some(editable);
 		}
+
+		lfo
 	}
 }
 
@@ -438,7 +455,10 @@ impl BlockNode for Lfo {
 		self.phase = (self.phase + self.step * context.frames as f32).fract();
 
 		if let Some(Buffer::Control(value)) = outputs.first_mut() {
-			*value = (self.phase * TAU).sin();
+			*value = match &self.points {
+				Some(points) => points.sample(self.phase, 0) * 2.0 - 1.0,
+				None => (self.phase * TAU).sin(),
+			};
 		}
 	}
 }

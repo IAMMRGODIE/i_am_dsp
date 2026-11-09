@@ -56,6 +56,15 @@ pub fn to_text(graph: &Graph) -> String {
 				let _ = writeln!(out, "set {} {}={}", node.id.0, key, value);
 			}
 		}
+
+		if !node.points.is_empty() {
+			let spec: Vec<String> = node
+				.points
+				.iter()
+				.map(|point| format!("{}:{}:{}", point.time, point.value, point.bend))
+				.collect();
+			let _ = writeln!(out, "points {} {}", node.id.0, spec.join(";"));
+		}
 	}
 
 	for link in &graph.modulations {
@@ -138,6 +147,7 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 					kind: desc,
 					position: (x, y),
 					params,
+					points: Vec::new(),
 				});
 			}
 			"connect" => {
@@ -186,6 +196,25 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 
 				if let Some(link) = graph.modulations.last_mut() {
 					link.mode = mode;
+				}
+			}
+			"points" => {
+				let id = parse_id(words.next(), line)?;
+				let spec = words
+					.next()
+					.ok_or_else(|| error(line, "points needs a spec"))?;
+				let mut points = Vec::new();
+
+				for part in spec.split(';').filter(|part| !part.is_empty()) {
+					let mut fields = part.split(':');
+					let time = parse_f32(fields.next(), line)?;
+					let value = parse_f32(fields.next(), line)?;
+					let bend = parse_f32(fields.next(), line).unwrap_or(0.0);
+					points.push(crate::graph::Point { time, value, bend });
+				}
+
+				if !graph.set_points(NodeId(id), points) {
+					return Err(error(line, format!("no node {id}")));
 				}
 			}
 			"set" => {
@@ -332,6 +361,26 @@ mod tests {
 		assert_eq!(back.modulations[0].target.1, "gain");
 		assert!((back.modulations[0].depth - 0.4).abs() < 1e-6);
 		assert_eq!(back.modulations[0].mode, crate::graph::ModulationMode::Centered);
+	}
+
+	#[test]
+	fn a_point_table_round_trips() {
+		let mut graph = Graph::new();
+		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+		graph.set_points(
+			lfo,
+			vec![
+				crate::graph::Point { time: 0.0, value: 0.5, bend: 0.0 },
+				crate::graph::Point { time: 1.0, value: 1.0, bend: 0.2 },
+			],
+		);
+
+		let back = from_text(&to_text(&graph)).expect("the text parses");
+		let node = back.get(lfo).expect("the lfo");
+
+		assert_eq!(node.points.len(), 2);
+		assert!((node.points[1].value - 1.0).abs() < 1e-6);
+		assert!((node.points[1].bend - 0.2).abs() < 1e-6);
 	}
 
 	#[test]

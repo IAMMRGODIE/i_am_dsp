@@ -89,6 +89,7 @@ impl Poly {
 			kind: sink,
 			position: (0.0, 0.0),
 			params: BTreeMap::new(),
+			points: Vec::new(),
 		});
 
 		for edge in &graph.edges {

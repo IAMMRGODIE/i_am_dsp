@@ -120,6 +120,7 @@ pub fn patch_json(graph: &Graph) -> String {
 			"x": node.position.0,
 			"y": node.position.1,
 			"params": node.params.iter().map(|(key, value)| (key.to_string(), json!(value))).collect::<serde_json::Map<_, _>>(),
+			"points": node.points.iter().map(|point| json!([point.time, point.value, point.bend])).collect::<Vec<_>>(),
 		})).collect::<Vec<_>>(),
 		"edges": graph.edges.iter().map(|edge| json!({
 			"from": [edge.from.0 .0, edge.from.1],
@@ -176,6 +177,22 @@ fn op(shared: &PatcherShared, body: &str) -> Value {
 		"disconnect" => {
 			graph.remove_edge(value["index"].as_u64().unwrap_or(u64::MAX) as usize);
 			json!({ "ok": true })
+		}
+		"set_points" => {
+			let id = id(&value["id"]);
+			let mut points = Vec::new();
+
+			if let Some(items) = value["points"].as_array() {
+				for item in items {
+					points.push(i_am_patch::graph::Point {
+						time: item[0].as_f64().unwrap_or(0.0) as f32,
+						value: item[1].as_f64().unwrap_or(0.0) as f32,
+						bend: item[2].as_f64().unwrap_or(0.0) as f32,
+					});
+				}
+			}
+
+			json!({ "ok": graph.set_points(id, points) })
 		}
 		"mod_mode" => {
 			let done = graph.set_modulation_mode(

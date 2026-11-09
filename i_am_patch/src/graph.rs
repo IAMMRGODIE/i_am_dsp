@@ -326,6 +326,18 @@ pub fn node(kind: &str) -> Option<&'static NodeDesc> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId(pub u32);
 
+/// One point of an editable LFO: time and value in 0..1, and the bend between
+/// this point and the next.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Point {
+	/// Where it sits in the cycle.
+	pub time: f32,
+	/// Its value.
+	pub value: f32,
+	/// How the line bends toward the next point.
+	pub bend: f32,
+}
+
 /// One node placed in a graph.
 #[derive(Debug, Clone)]
 pub struct NodeInstance {
@@ -337,6 +349,8 @@ pub struct NodeInstance {
 	pub position: (f32, f32),
 	/// The node's controls, keyed by the catalog's names.
 	pub params: BTreeMap<&'static str, f32>,
+	/// The points of an editable LFO, when the node is one.
+	pub points: Vec<Point>,
 }
 
 impl NodeInstance {
@@ -413,6 +427,7 @@ impl Graph {
 			kind: desc,
 			position,
 			params,
+			points: Vec::new(),
 		});
 
 		Some(id)
@@ -465,6 +480,16 @@ impl Graph {
 		};
 
 		link.depth = depth;
+		true
+	}
+
+	/// Replaces one node's LFO points.
+	pub fn set_points(&mut self, id: NodeId, points: Vec<Point>) -> bool {
+		let Some(node) = self.nodes.iter_mut().find(|node| node.id == id) else {
+			return false;
+		};
+
+		node.points = points;
 		true
 	}
 

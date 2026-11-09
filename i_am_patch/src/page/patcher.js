@@ -59,6 +59,27 @@
     };
 
     window.IAmCard.registerHero("patch-lfo", (values) => {
+      const table = values.points ? JSON.parse(values.points) : [];
+
+      if (table.length >= 2) {
+        let line = "";
+
+        for (const [time, value] of table) {
+          line += (line ? " L " : "M ") + (20 + time * 480).toFixed(1) + " " +
+            (140 - value * 120).toFixed(1);
+        }
+
+        const dots = table.map(([time, value]) =>
+          `<circle cx="${(20 + time * 480).toFixed(1)}" cy="${(140 - value * 120).toFixed(1)}" r="2.5" fill="var(--accent)"/>`,
+        ).join("");
+
+        return heroSvg(
+          '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+          `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>` +
+          dots,
+        );
+      }
+
       const shape = Math.round(values.shape ?? 0);
       let path = "";
 
@@ -283,9 +304,10 @@
   function genericCard(node, kind, w, h) {
     let entry = cards[node.id];
     const mods = modsOf(node.id);
-    const key = JSON.stringify(
+    const key = JSON.stringify([
       mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
-    );
+      node.points || [],
+    ]);
 
     if (entry && entry.key !== key) {
       entry.host.remove();
@@ -333,7 +355,7 @@
       accent: kind.accent || "#e07a2f",
       hero: CARD_HEROES[kind.id] || null,
       controls: specs,
-      values: node.params,
+      values: { ...node.params, points: JSON.stringify(node.points || []) },
       context: { rate: 48000 },
       onEdit: (identifier, value) => {
         op({ op: "param", id: node.id, key: identifier, value }, false);
@@ -835,6 +857,146 @@
     if (!event.target.closest("#menu")) closeMenu();
   });
 
+  const lfoEditor = document.getElementById("lfo-editor");
+  let lfoNode = null;
+
+  function closeLfoEditor() {
+    lfoNode = null;
+    lfoEditor.style.display = "none";
+  }
+
+  function postLfoPoints(node) {
+    const points = (node.points || [])
+      .slice()
+      .sort((a, b) => a.time - b.time)
+      .map((point) => [point.time, point.value, point.bend || 0]);
+
+    op({ op: "set_points", id: node.id, points }, false);
+  }
+
+  function openLfoEditor(id) {
+    const node = nodeOf(id);
+
+    if (!node) return;
+
+    lfoNode = id;
+
+    // A fresh LFO starts from the sine the rack's presets start from.
+    if (!node.points || node.points.length < 2) {
+      node.points = [
+        { time: 0, value: 0.5, bend: 0 },
+        { time: 0.25, value: 1, bend: 0 },
+        { time: 0.5, value: 0.5, bend: 0 },
+        { time: 0.75, value: 0, bend: 0 },
+        { time: 1, value: 0.5, bend: 0 },
+      ];
+      postLfoPoints(node);
+    }
+
+    lfoEditor.style.display = "block";
+    lfoEditor.innerHTML = "";
+
+    const head = document.createElement("header");
+    const title = document.createElement("span");
+    title.className = "lfo-title";
+    title.textContent = "LFO points";
+    const close = document.createElement("button");
+    close.textContent = "\u00D7";
+    close.onclick = closeLfoEditor;
+    head.appendChild(title);
+    head.appendChild(close);
+    lfoEditor.appendChild(head);
+
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 420 200");
+    svg.setAttribute("class", "lfo-points");
+    lfoEditor.appendChild(svg);
+
+    const toPoint = (event) => {
+      const rect = svg.getBoundingClientRect();
+      return {
+        time: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+        value: Math.min(1, Math.max(0, 1 - (event.clientY - rect.top) / rect.height)),
+      };
+    };
+
+    const paint = () => {
+      svg.textContent = "";
+      const points = node.points || [];
+      const sorted = points.slice().sort((a, b) => a.time - b.time);
+
+      svg.appendChild(el("line", { x1: 10, y1: 190, x2: 410, y2: 190, stroke: "#2a2a2a" }));
+      svg.appendChild(el("line", { x1: 10, y1: 100, x2: 410, y2: 100, stroke: "#222" }));
+
+      let line = "";
+
+      for (const point of sorted) {
+        line += (line ? " L " : "M ") + (10 + point.time * 400).toFixed(1) + " " +
+          (190 - point.value * 180).toFixed(1);
+      }
+
+      svg.appendChild(el("path", { d: line, fill: "none", stroke: "var(--accent)", "stroke-width": 2 }));
+
+      for (const point of points) {
+        svg.appendChild(el("circle", {
+          cx: (10 + point.time * 400).toFixed(1),
+          cy: (190 - point.value * 180).toFixed(1),
+          r: 5, fill: "var(--accent)", "data-point": points.indexOf(point),
+        }));
+      }
+    };
+
+    paint();
+
+    svg.addEventListener("pointerdown", (event) => {
+      const circle = event.target.closest("[data-point]");
+
+      if (!circle) return;
+
+      const index = Number(circle.getAttribute("data-point"));
+
+      const move = (moveEvent) => {
+        const point = toPoint(moveEvent);
+        node.points[index].time = point.time;
+        node.points[index].value = point.value;
+        paint();
+      };
+
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        postLfoPoints(node);
+      };
+
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      event.preventDefault();
+    });
+
+    svg.addEventListener("dblclick", (event) => {
+      const point = toPoint(event);
+      node.points = node.points || [];
+      node.points.push({ time: point.time, value: point.value, bend: 0 });
+      node.points.sort((a, b) => a.time - b.time);
+      paint();
+      postLfoPoints(node);
+    });
+
+    svg.addEventListener("contextmenu", (event) => {
+      const circle = event.target.closest("[data-point]");
+
+      if (!circle) return;
+
+      event.preventDefault();
+
+      if (node.points.length <= 2) return;
+
+      node.points.splice(Number(circle.getAttribute("data-point")), 1);
+      paint();
+      postLfoPoints(node);
+    });
+  }
+
   svg.addEventListener("pointerdown", (event) => {
     if (event.target.closest(".card-host")) {
       interacting = true;
@@ -1018,9 +1180,20 @@
     interacting = false;
   });
 
+  svg.addEventListener("dblclick", (event) => {
+    const nodeEl = event.target.closest("[data-node]");
+
+    if (!nodeEl) return;
+
+    const node = nodeOf(Number(nodeEl.getAttribute("data-node")));
+
+    if (node && node.kind === "lfo") openLfoEditor(node.id);
+  });
+
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeMenu();
+      closeLfoEditor();
       return;
     }
 
