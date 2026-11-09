@@ -511,6 +511,8 @@ impl Engine {
 
 #[cfg(test)]
 mod tests {
+	use crate::voice_patch;
+
 	use super::*;
 	use crate::graph::Graph;
 
@@ -604,26 +606,6 @@ mod tests {
 
 		assert!(peak > 1e-3, "the split/mixer chain was silent: {peak}");
 	}
-
-	fn voice_patch() -> Graph {
-		let mut graph = Graph::new();
-		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-		let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
-		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
-		let filter = graph.add_node("filter", (200.0, 0.0)).expect("filter");
-		let lfo = graph.add_node("lfo", (200.0, 100.0)).expect("lfo");
-		let voice_out = graph.add_node("voice:out", (300.0, 0.0)).expect("voice out");
-		let out = graph.add_node("out:audio", (400.0, 0.0)).expect("out");
-		graph.connect((midi, 0), (voice_in, 0));
-		graph.connect((voice_in, 0), (generator, 0));
-		graph.connect((generator, 0), (filter, 0));
-		graph.connect((filter, 0), (voice_out, 0));
-		graph.connect((voice_out, 0), (out, 0));
-		graph.modulate((lfo, 0), (filter, "cutoff"), 400.0);
-
-		graph
-	}
-
 	#[test]
 	fn an_lfo_can_follow_points() {
 		let mut params = BTreeMap::new();
