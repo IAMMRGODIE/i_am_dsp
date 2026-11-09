@@ -423,7 +423,7 @@
       activePage,
     ]);
 
-    if (entry && entry.key !== key) {
+    if (entry && (entry.key !== key || entry.kindId !== node.kind)) {
       entry.host.remove();
       delete cards[node.id];
       entry = null;
@@ -525,7 +525,7 @@
 
       scale.appendChild(card);
       host.appendChild(scale);
-      entry = { host, key, context, card };
+      entry = { host, key, kindId: node.kind, context, card };
       cards[node.id] = entry;
       entry.host.style.setProperty(
         "--k",
@@ -548,7 +548,7 @@
       node.points || [],
     ]);
 
-    if (entry && entry.key !== key) {
+    if (entry && (entry.key !== key || entry.kindId !== node.kind)) {
       entry.host.remove();
       delete cards[node.id];
       entry = null;
@@ -624,7 +624,7 @@
 
     scale.appendChild(card);
     host.appendChild(scale);
-    entry = { host, key, context, card, node, kind, samples: null, phase: null };
+    entry = { host, key, kindId: node.kind, context, card, node, kind, samples: null, phase: null };
     cards[node.id] = entry;
 
     if (SOURCE_KINDS.includes(kind.id)) {
@@ -1133,6 +1133,7 @@
     }));
     menu.appendChild(menuButton("Delete", () => {
       op({ op: "remove", id: nodeId });
+      delete cards[nodeId];
       closeMenu();
     }));
 
@@ -1758,6 +1759,7 @@
       selectedMod = null;
     } else if (selected !== null) {
       op({ op: "remove", id: selected });
+      delete cards[selected];
       selected = null;
     }
   });
