@@ -541,6 +541,41 @@
     return 20 * Math.log10(num / Math.max(den, 1e-9));
   }
 
+  // The voice group is one underlined stretch of the graph: a card inside it
+  // plays once per note.
+  function drawVoiceBox(world) {
+    const members = (patch.voice || []).map((id) => nodeOf(id)).filter(Boolean);
+
+    if (members.length < 1) return;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const node of members) {
+      const { w, h } = size(node);
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + w);
+      maxY = Math.max(maxY, node.y + h);
+    }
+
+    const pad = 18;
+    world.appendChild(el("rect", {
+      x: minX - pad,
+      y: minY - pad - 18,
+      width: maxX - minX + pad * 2,
+      height: maxY - minY + pad * 2 + 18,
+      rx: 10,
+      class: "voice-box",
+    }));
+
+    const label = el("text", { x: minX - pad + 12, y: minY - pad - 4, class: "voice-label" });
+    label.textContent = "VOICE";
+    world.appendChild(label);
+  }
+
   function draw() {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
@@ -548,6 +583,8 @@
       transform: `translate(${view.x} ${view.y}) scale(${view.zoom})`,
     });
     svg.appendChild(world);
+
+    drawVoiceBox(world);
 
     for (const edge of patch.edges) {
       const from = nodeOf(edge.from[0]);

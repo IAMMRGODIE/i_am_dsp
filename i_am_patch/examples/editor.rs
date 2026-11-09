@@ -125,6 +125,10 @@ fn patch_json(graph: &Graph) -> Value {
 			"params": node.params.iter().map(|(key, value)| (key.to_string(), json!(value))).collect::<serde_json::Map<_, _>>(),
 			"points": node.points.iter().map(|point| json!([point.time, point.value, point.bend])).collect::<Vec<_>>(),
 		})).collect::<Vec<_>>(),
+		"voice": i_am_patch::compile::voice_group(graph)
+			.iter()
+			.map(|id| id.0)
+			.collect::<Vec<_>>(),
 		"edges": graph.edges.iter().map(|edge| json!({
 			"from": [edge.from.0 .0, edge.from.1],
 			"to": [edge.to.0 .0, edge.to.1],
