@@ -16,7 +16,7 @@
   let selected = null;
   let selectedEdge = null;
   let selectedMod = null;
-  let view = { x: 230, y: 30, zoom: 1 };
+  let view = { x: 30, y: 30, zoom: 1 };
   let drag = null;
   // Each card scales by itself: x and y are independent, so a wide filter and
   // a narrow one can sit side by side at the sizes they need.
@@ -280,6 +280,7 @@
       scale.style.width = `${baseWidth(node)}px`;
       scale.style.height = `${baseHeight(node)}px`;
       scale.style.flexBasis = `${baseWidth(node)}px`;
+      const context = { rate: 48000, scope: { input: null, output: null }, spectra: {} };
       const card = window.IAmCard.create({
         title: kind.name,
         accent: kind.accent || "#e07a2f",
@@ -290,7 +291,7 @@
         switches: kind.switches || [],
         controls: specs,
         values: node.params,
-        context: { rate: 48000 },
+        context,
         onEdit: (identifier, value) => {
           // The card already shows the value; rebuilding the graph here would
           // take the focus away from the control being dragged.
@@ -299,7 +300,7 @@
       });
       scale.appendChild(card);
       host.appendChild(scale);
-      entry = { host, key };
+      entry = { host, key, context, card };
       cards[node.id] = entry;
       entry.host.style.setProperty(
         "--k",
@@ -904,7 +905,19 @@
     try {
       const response = await fetch(`/scope?node=${id}`, { cache: "no-store" });
       const data = await response.json();
-      drawScope(id, data.samples || []);
+      const samples = data.samples || [];
+      drawScope(id, samples);
+
+      // A product card's hero draws the same samples: the filter's spectrum
+      // sits on its response curve, the way the product page's does.
+      const entry = cards[id];
+
+      if (entry && entry.context && entry.card && samples.length > 1) {
+        const mono = samples.map(([left, right]) => (left + right) * 0.5);
+        entry.context.scope.input = mono;
+        entry.context.scope.output = mono;
+        entry.card.repaintHero();
+      }
     } catch {
       // The page closed or the node went away; the next tick tries again.
     }
