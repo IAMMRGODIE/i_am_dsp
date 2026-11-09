@@ -7,19 +7,15 @@ use std::sync::{Arc, Mutex};
 
 use hound::{SampleFormat, WavReader};
 use i_am_dsp::prelude::{
-	Adsr, EqualTemperament, GeneratorEffect, ParamMap, Parameter, Parameters, SampleData,
-	SampleSlot, SamplerVoice, SetValue,
+	Adsr, EqualTemperament, GeneratorEffect, ParamMap, SampleData, SampleSlot, SamplerVoice,
 };
-use i_am_dsp::{ProcessContext, Processor};
-use i_am_plugin::processor::{EffectMessage, EffectProcessor};
-use i_am_plugin::{
-	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
-};
+use i_am_plugin::processor::EffectProcessor;
+use i_am_plugin::{Descriptor, MidiPort, Plugin, Tag, WindowOptions};
 use i_am_web_gui::{
 	Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, Switch, editor_with,
 };
 
-use super::{json_escape, play_synth};
+use super::json_escape;
 
 /// The sampler face's design size, in points.
 const SAMPLER_SIZE: (f32, f32) = (820.0, 460.0);
@@ -517,29 +513,7 @@ fn decode_sample(bytes: &[u8], name: &str) -> Result<SampleData, String> {
 }
 
 /// Decodes %20 style escapes; the page sends names with encodeURIComponent.
-fn percent_decode(value: &str) -> String {
-	let bytes = value.as_bytes();
-	let mut out = Vec::with_capacity(bytes.len());
-	let mut index = 0;
-
-	while index < bytes.len() {
-		if bytes[index] == b'%' && index + 2 < bytes.len() {
-			let high = (bytes[index + 1] as char).to_digit(16);
-			let low = (bytes[index + 2] as char).to_digit(16);
-
-			if let (Some(high), Some(low)) = (high, low) {
-				out.push((high * 16 + low) as u8);
-				index += 3;
-				continue;
-			}
-		}
-
-		out.push(bytes[index]);
-		index += 1;
-	}
-
-	String::from_utf8_lossy(&out).to_string()
-}
+use i_am_web_gui::percent_decode;
 
 /// The sampler instrument, with a web faceplate.
 pub struct SamplerWeb {
@@ -594,43 +568,7 @@ impl SamplerWeb {
 	}
 }
 
-impl Parameters for SamplerWeb {
-	fn get_parameters(&self) -> Vec<Parameter> {
-		self.processor.parameters()
-	}
-
-	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		self.processor.set_parameter(identifier, value)
-	}
-}
-
-impl Processor for SamplerWeb {
-	type Message = EffectMessage;
-
-	fn delay(&self) -> usize {
-		Processor::delay(&self.processor)
-	}
-
-	fn process(
-		&mut self,
-		samples: &mut [f32; 2],
-		other: &[[f32; 2]],
-		process_context: &mut Box<dyn ProcessContext>,
-	) {
-		play_synth(
-			&mut self.processor,
-			&self.scope,
-			&self.bypass,
-			samples,
-			other,
-			process_context,
-		);
-	}
-
-	fn on_message(&self, message: Self::Message) {
-		Processor::on_message(&self.processor, message);
-	}
-}
+synth_product!(SamplerWeb);
 
 impl Plugin for SamplerWeb {
 	const DESCRIPTOR: Descriptor = Descriptor::new("iamdsp.synths.sampler.web", SAMPLER_TITLE)
@@ -648,19 +586,7 @@ impl Plugin for SamplerWeb {
 	}
 
 	fn window_options() -> WindowOptions {
-		const FACE_FRACTION: f64 = 0.85;
-
-		WindowOptions::new()
-			.with_size((
-				SAMPLER_SIZE.0 as f64 / FACE_FRACTION,
-				SAMPLER_SIZE.1 as f64 / FACE_FRACTION,
-			))
-			.with_title(SAMPLER_TITLE)
-			.with_resize_hints(GuiResizeHints {
-				can_resize_horizontally: true,
-				can_resize_vertically: true,
-				strategy: AspectRatioStrategy::Disregard,
-			})
+		i_am_web_gui::window_options((SAMPLER_SIZE.0, SAMPLER_SIZE.1), SAMPLER_TITLE)
 	}
 
 	fn param_map(&self) -> ParamMap {
@@ -693,33 +619,11 @@ impl Plugin for SamplerWeb {
 
 #[cfg(test)]
 mod tests {
+	use crate::wav;
+
+	use i_am_dsp::prelude::{Parameters, SetValue};
+
 	use super::*;
-	use hound::{WavSpec, WavWriter};
-
-	fn wav(samples: &[f32], rate: u32) -> Vec<u8> {
-		let spec = WavSpec {
-			channels: 1,
-			sample_rate: rate,
-			bits_per_sample: 16,
-			sample_format: SampleFormat::Int,
-		};
-		let mut cursor = Cursor::new(Vec::new());
-
-		{
-			let mut writer = WavWriter::new(&mut cursor, spec).expect("a writer");
-
-			for sample in samples {
-				writer
-					.write_sample((sample.clamp(-1.0, 1.0) * 32767.0) as i16)
-					.expect("a sample");
-			}
-
-			writer.finalize().expect("a finished file");
-		}
-
-		cursor.into_inner()
-	}
-
 	/// The route imports a WAV and describes it back to the page.
 	#[test]
 	fn the_route_imports_and_describes_a_sample() {

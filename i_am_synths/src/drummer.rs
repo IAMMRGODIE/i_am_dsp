@@ -12,14 +12,11 @@ use i_am_dsp::prelude::{
 	Samples, SetValue, SnareCurves, decode_click, default_amp_templates, from_binary, slot_drum,
 	to_binary,
 };
-use i_am_dsp::{ProcessContext, Processor};
-use i_am_plugin::processor::{EffectMessage, EffectProcessor};
+use i_am_plugin::processor::EffectProcessor;
 use i_am_plugin::{
 	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
 };
 use i_am_web_gui::{Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, editor_with};
-
-use super::play_synth;
 
 const SIZE: (f32, f32) = (620.0, 320.0);
 const TITLE: &str = "I Am Drummer";
@@ -27,9 +24,7 @@ const ACCENT: &str = "#c8793d";
 
 const PAGES: &[Page] = &[
 	Page::new("Kit", &["Kit"]),
-
 	Page::new("Samples", &["Samples"]),
-
 	Page::new("Kick", &["Kick"]),
 	Page::new("Snare", &["Snare"]),
 	Page::new("Hat", &["Hat"]),
@@ -151,33 +146,7 @@ impl Parameters for DrummerWeb {
 	}
 }
 
-impl Processor for DrummerWeb {
-	type Message = EffectMessage;
-
-	fn delay(&self) -> usize {
-		Processor::delay(&self.processor)
-	}
-
-	fn process(
-		&mut self,
-		samples: &mut [f32; 2],
-		other: &[[f32; 2]],
-		process_context: &mut Box<dyn ProcessContext>,
-	) {
-		play_synth(
-			&mut self.processor,
-			&self.scope,
-			&self.bypass,
-			samples,
-			other,
-			process_context,
-		);
-	}
-
-	fn on_message(&self, message: Self::Message) {
-		Processor::on_message(&self.processor, message);
-	}
-}
+synth_processor!(DrummerWeb);
 
 impl Plugin for DrummerWeb {
 	const DESCRIPTOR: Descriptor = Descriptor::new("iamdsp.synths.drummer.web", TITLE)
@@ -518,7 +487,6 @@ fn parse_pitch(text: &str) -> Option<Curve> {
 
 	Some(Curve::from_triples(triples))
 }
-
 
 #[cfg(test)]
 mod route_tests {

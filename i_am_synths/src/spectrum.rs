@@ -5,19 +5,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use i_am_dsp::prelude::{
-	Adsr, EqualTemperament, GeneratorEffect, ParamMap, Parameter, Parameters, SetValue,
-	SpectralFeed, SpectralFrame, TableBankOsc,
+	Adsr, EqualTemperament, GeneratorEffect, ParamMap, SpectralFeed, SpectralFrame, TableBankOsc,
 };
-use i_am_dsp::{ProcessContext, Processor};
-use i_am_plugin::processor::{EffectMessage, EffectProcessor};
-use i_am_plugin::{
-	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
-};
+use i_am_plugin::processor::EffectProcessor;
+use i_am_plugin::{Descriptor, MidiPort, Plugin, Tag, WindowOptions};
 use i_am_web_gui::{
 	Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, Switch, editor_with,
 };
 
-use super::{json_escape, play_synth};
+use super::json_escape;
 
 /// The spectrum face's design size, in points.
 const SPECTRUM_SIZE: (f32, f32) = (820.0, 420.0);
@@ -167,43 +163,7 @@ impl SpectrumWeb {
 	}
 }
 
-impl Parameters for SpectrumWeb {
-	fn get_parameters(&self) -> Vec<Parameter> {
-		self.processor.parameters()
-	}
-
-	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		self.processor.set_parameter(identifier, value)
-	}
-}
-
-impl Processor for SpectrumWeb {
-	type Message = EffectMessage;
-
-	fn delay(&self) -> usize {
-		Processor::delay(&self.processor)
-	}
-
-	fn process(
-		&mut self,
-		samples: &mut [f32; 2],
-		other: &[[f32; 2]],
-		process_context: &mut Box<dyn ProcessContext>,
-	) {
-		play_synth(
-			&mut self.processor,
-			&self.scope,
-			&self.bypass,
-			samples,
-			other,
-			process_context,
-		);
-	}
-
-	fn on_message(&self, message: Self::Message) {
-		Processor::on_message(&self.processor, message);
-	}
-}
+synth_product!(SpectrumWeb);
 
 impl Plugin for SpectrumWeb {
 	const DESCRIPTOR: Descriptor = Descriptor::new("iamdsp.synths.spectrum.web", SPECTRUM_TITLE)
@@ -223,19 +183,7 @@ impl Plugin for SpectrumWeb {
 	}
 
 	fn window_options() -> WindowOptions {
-		const FACE_FRACTION: f64 = 0.85;
-
-		WindowOptions::new()
-			.with_size((
-				SPECTRUM_SIZE.0 as f64 / FACE_FRACTION,
-				SPECTRUM_SIZE.1 as f64 / FACE_FRACTION,
-			))
-			.with_title(SPECTRUM_TITLE)
-			.with_resize_hints(GuiResizeHints {
-				can_resize_horizontally: true,
-				can_resize_vertically: true,
-				strategy: AspectRatioStrategy::Disregard,
-			})
+		i_am_web_gui::window_options((SPECTRUM_SIZE.0, SPECTRUM_SIZE.1), SPECTRUM_TITLE)
 	}
 
 	fn param_map(&self) -> ParamMap {

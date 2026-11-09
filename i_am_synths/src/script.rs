@@ -9,9 +9,7 @@ use i_am_dsp::prelude::{
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
-use i_am_plugin::{
-	AspectRatioStrategy, Descriptor, GuiResizeHints, MidiPort, Plugin, Tag, WindowOptions,
-};
+use i_am_plugin::{Descriptor, MidiPort, Plugin, Tag, WindowOptions};
 use i_am_web_gui::{
 	Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, Switch, editor_with,
 };
@@ -498,19 +496,7 @@ impl Plugin for ScriptWeb {
 	}
 
 	fn window_options() -> WindowOptions {
-		const FACE_FRACTION: f64 = 0.85;
-
-		WindowOptions::new()
-			.with_size((
-				SCRIPT_SIZE.0 as f64 / FACE_FRACTION,
-				SCRIPT_SIZE.1 as f64 / FACE_FRACTION,
-			))
-			.with_title(SCRIPT_TITLE)
-			.with_resize_hints(GuiResizeHints {
-				can_resize_horizontally: true,
-				can_resize_vertically: true,
-				strategy: AspectRatioStrategy::Disregard,
-			})
+		i_am_web_gui::window_options((SCRIPT_SIZE.0, SCRIPT_SIZE.1), SCRIPT_TITLE)
 	}
 
 	fn param_map(&self) -> ParamMap {

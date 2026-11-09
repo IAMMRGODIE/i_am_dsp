@@ -11,24 +11,87 @@
 //! and the names the bundle exports. The CLAP and VST3 entry points live in
 //! i_am_synths_bundle, because clap_entry is a global symbol.
 
+/// Implements the two traits every instrument forwards unchanged.
+///
+/// A product owns its window, its descriptor and its editor -- that is what it
+/// is -- and keeps its `processor`, `scope` and `bypass` fields. The parameter
+/// map a host reads and the note-to-sound path `play_synth` plays are the same
+/// for all of them, so they are written here once. A product with a custom
+/// parameter setter -- the drummer writes a kit's knobs when the kit changes --
+/// takes `synth_processor!` alone and keeps its own `Parameters` impl.
+///
+/// The macro has to stay above the `mod` declarations: a `macro_rules!` is
+/// visible only to the items that follow it.
+macro_rules! synth_processor {
+	($name:ident) => {
+		impl i_am_dsp::Processor for $name {
+			type Message = i_am_plugin::processor::EffectMessage;
+
+			fn delay(&self) -> usize {
+				i_am_dsp::Processor::delay(&self.processor)
+			}
+
+			fn process(
+				&mut self,
+				samples: &mut [f32; 2],
+				other: &[[f32; 2]],
+				process_context: &mut Box<dyn i_am_dsp::ProcessContext>,
+			) {
+				$crate::play_synth(
+					&mut self.processor,
+					&self.scope,
+					&self.bypass,
+					samples,
+					other,
+					process_context,
+				);
+			}
+
+			fn on_message(&self, message: Self::Message) {
+				i_am_dsp::Processor::on_message(&self.processor, message);
+			}
+		}
+	};
+}
+
+macro_rules! synth_product {
+	($name:ident) => {
+		impl i_am_dsp::prelude::Parameters for $name {
+			fn get_parameters(&self) -> Vec<i_am_dsp::prelude::Parameter> {
+				self.processor.parameters()
+			}
+
+			fn set_parameter(
+				&mut self,
+				identifier: &str,
+				value: i_am_dsp::prelude::SetValue,
+			) -> bool {
+				self.processor.set_parameter(identifier, value)
+			}
+		}
+
+		synth_processor!($name);
+	};
+}
+
 mod additive;
 mod canvas;
-mod script;
-mod shapes;
-mod sampler;
-mod spectrum;
 mod drummer;
 mod fitted;
+mod sampler;
+mod script;
+mod shapes;
+mod spectrum;
 mod strings;
 
 pub use additive::{AdditiveWeb, additive_faceplate};
 pub use canvas::{CanvasWeb, canvas_faceplate, canvas_shape};
-pub use script::{ScriptWeb, script_faceplate};
-pub use shapes::{ShapesWeb, shapes_faceplate};
-pub use sampler::{SamplerWeb, sampler_faceplate};
-pub use spectrum::{SpectrumWeb, spectrum_faceplate};
 pub use drummer::{DrummerWeb, faceplate as drummer_faceplate};
 pub use fitted::{FittedWeb, faceplate as fitted_faceplate};
+pub use sampler::{SamplerWeb, sampler_faceplate};
+pub use script::{ScriptWeb, script_faceplate};
+pub use shapes::{ShapesWeb, shapes_faceplate};
+pub use spectrum::{SpectrumWeb, spectrum_faceplate};
 pub use strings::{StringWeb, faceplate};
 
 use std::sync::atomic::Ordering;
@@ -37,25 +100,7 @@ use i_am_dsp::prelude::{ParamMap, Parameters, StringInstrument};
 use i_am_dsp::{NoteEvent, ProcessContext, Processor};
 use i_am_web_gui::Scope;
 
-fn json_escape(text: &str) -> String {
-	let mut output = String::with_capacity(text.len());
-
-	for character in text.chars() {
-		match character {
-			'"' => output.push_str("\\\""),
-			'\\' => output.push_str("\\\\"),
-			'\n' => output.push_str("\\n"),
-			'\r' => output.push_str("\\r"),
-			'\t' => output.push_str("\\t"),
-			character if (character as u32) < 0x20 => {
-				output.push_str(&format!("\\u{:04x}", character as u32));
-			}
-			character => output.push(character),
-		}
-	}
-
-	output
-}
+pub(crate) use i_am_web_gui::json_escape;
 
 /// The body every instrument shares: the note badge, the bypass and the audio.
 ///
@@ -134,3 +179,32 @@ fn apply_preset(map: &ParamMap, rate: usize, index: i32) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+/// A mono 16-bit WAV file, for the tests that import one.
+pub(crate) fn wav(samples: &[f32], rate: u32) -> Vec<u8> {
+	use hound::{SampleFormat, WavSpec, WavWriter};
+	use std::io::Cursor;
+
+	let spec = WavSpec {
+		channels: 1,
+		sample_rate: rate,
+		bits_per_sample: 16,
+		sample_format: SampleFormat::Int,
+	};
+	let mut cursor = Cursor::new(Vec::new());
+
+	{
+		let mut writer = WavWriter::new(&mut cursor, spec).expect("a writer");
+
+		for sample in samples {
+			writer
+				.write_sample((sample.clamp(-1.0, 1.0) * 32767.0) as i16)
+				.expect("a sample");
+		}
+
+		writer.finalize().expect("a finished file");
+	}
+
+	cursor.into_inner()
+}
