@@ -197,3 +197,27 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 .voice-label{
   fill:#9a7ac7; font-size:10px; font-weight:600; letter-spacing:.14em;
 }
+
+/* Dragging a port: the wire under the pointer, the ports it can land on, and
+   the knobs a control wire can land on. */
+.wire-temp{
+  fill:none; stroke:var(--accent); stroke-width:2; stroke-dasharray:5 4;
+  opacity:.95; pointer-events:none;
+}
+.wire-dot{fill:var(--accent); pointer-events:none}
+.port-target{
+  fill:rgba(224,122,47,.16); stroke:var(--accent); stroke-width:1.5;
+  pointer-events:none;
+}
+.port-target.hover{fill:var(--accent)}
+.mod-target-hint{
+  fill:none; stroke:var(--accent); stroke-width:1.2;
+  stroke-dasharray:4 4; opacity:.45; pointer-events:none;
+}
+.port:hover{stroke:var(--accent); stroke-width:2.5}
+#stage.connecting-control .card-host .knob-wrap{
+  outline:1px dashed rgba(224,122,47,.55); outline-offset:2px;
+}
+.card-host .knob-wrap.mod-hover{
+  outline:2px solid var(--accent) !important; outline-offset:2px;
+}

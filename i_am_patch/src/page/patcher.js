@@ -676,6 +676,58 @@
       world.appendChild(group);
     }
 
+    // A blade of wire follows the pointer while a port is dragged, and the
+    // ports it could land on light up.
+    if (drag && drag.kind === "port") {
+      const source = nodeOf(drag.id);
+      const kind = kindOf(source.kind);
+      const list = drag.output ? kind.outputs : kind.inputs;
+      const start = portXY(source, list[drag.index], drag.output);
+      const end = drag.point || start;
+      const mid = (start.x + end.x) / 2;
+
+      world.appendChild(el("path", {
+        d: `M ${start.x} ${start.y} C ${mid} ${start.y}, ${mid} ${end.y}, ${end.x} ${end.y}`,
+        class: "wire-temp",
+      }));
+      world.appendChild(el("circle", {
+        cx: end.x, cy: end.y, r: 4.5, class: "wire-dot",
+      }));
+
+      const signal = list[drag.index].kind;
+
+      for (const other of patch.nodes) {
+        if (other.id === drag.id) continue;
+        const otherKind = kindOf(other.kind);
+        const ports = drag.output ? otherKind.inputs : otherKind.outputs;
+
+        ports.forEach((port, index) => {
+          if (port.kind !== signal) return;
+          const at = portXY(other, port, !drag.output);
+          const hovered = drag.hoverPort && drag.hoverPort.id === other.id &&
+            drag.hoverPort.index === index && drag.hoverPort.output === !drag.output;
+
+          world.appendChild(el("circle", {
+            cx: at.x, cy: at.y, r: hovered ? 8 : 6,
+            class: "port-target" + (hovered ? " hover" : ""),
+          }));
+        });
+      }
+
+      // A control drag lands on a knob, so the cards that have one glow.
+      if (drag.control && drag.output) {
+        for (const other of patch.nodes) {
+          if (other.id === drag.id) continue;
+          const otherKind = kindOf(other.kind);
+          if (!otherKind.params || !otherKind.params.length) continue;
+          const { w, h } = size(other);
+          world.appendChild(el("rect", {
+            x: other.x - 3, y: other.y - 3, width: w + 6, height: h + 6,
+            rx: 9, class: "mod-target-hint",
+          }));
+        }
+      }
+    }
   }
 
   function drawBody(group, node, kind) {
@@ -1233,8 +1285,11 @@
         control: port.classList.contains("control"),
         index: Number(port.getAttribute("data-index")),
         start: toWorld(event),
-        line: null,
+        point: toWorld(event),
+        hoverPort: null,
+        hoverKnob: null,
       };
+      document.getElementById("stage").classList.toggle("connecting-control", drag.control && drag.output);
       draw();
       return;
     }
@@ -1292,6 +1347,43 @@
       view.y = drag.vy + (event.clientY - drag.y);
       draw();
     } else if (drag.kind === "port") {
+      drag.point = toWorld(event);
+
+      const source = nodeOf(drag.id);
+      const kind = kindOf(source.kind);
+      const signal = (drag.output ? kind.outputs : kind.inputs)[drag.index].kind;
+      let best = null;
+      let bestDistance = 18;
+
+      for (const other of patch.nodes) {
+        if (other.id === drag.id) continue;
+        const otherKind = kindOf(other.kind);
+        const ports = drag.output ? otherKind.inputs : otherKind.outputs;
+
+        ports.forEach((port, index) => {
+          if (port.kind !== signal) return;
+          const at = portXY(other, port, !drag.output);
+          const distance = Math.hypot(at.x - drag.point.x, at.y - drag.point.y);
+
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            best = { id: other.id, index, output: !drag.output };
+          }
+        });
+      }
+
+      drag.hoverPort = best;
+
+      if (drag.control && drag.output) {
+        const knobRow = event.target.closest("[data-mod-target]");
+
+        if (drag.hoverKnob !== knobRow) {
+          if (drag.hoverKnob) drag.hoverKnob.classList.remove("mod-hover");
+          drag.hoverKnob = knobRow || null;
+          if (drag.hoverKnob) drag.hoverKnob.classList.add("mod-hover");
+        }
+      }
+
       draw();
     }
   });
@@ -1329,23 +1421,24 @@
         op({ op: "modulate", from: [drag.id, drag.index], to: [id, key], depth });
       }
     } else if (drag.kind === "port") {
-      const port = event.target.closest("[data-port]");
+      const target = drag.hoverPort;
 
-      if (port) {
-        const nodeEl = event.target.closest("[data-node]");
-        const id = Number(nodeEl.getAttribute("data-node"));
-        const index = Number(port.getAttribute("data-index"));
-        const output = port.getAttribute("data-port") === "out";
-
-        if (output !== drag.output) {
-          const from = drag.output ? [drag.id, drag.index] : [id, index];
-          const to = drag.output ? [id, index] : [drag.id, drag.index];
-          op({ op: "connect", from, to });
-        }
+      if (target && target.output !== drag.output) {
+        const from = drag.output ? [drag.id, drag.index] : [target.id, target.index];
+        const to = drag.output ? [target.id, target.index] : [drag.id, drag.index];
+        op({ op: "connect", from, to });
       }
     }
 
+    if (drag.kind === "port") {
+      document.getElementById("stage").classList.remove("connecting-control");
+      if (drag.hoverKnob) drag.hoverKnob.classList.remove("mod-hover");
+    }
+
+    const wasPort = drag.kind === "port";
     drag = null;
+
+    if (wasPort) draw();
   });
 
   svg.addEventListener("wheel", (event) => {
