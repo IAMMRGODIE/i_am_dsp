@@ -426,14 +426,42 @@
     return kind && kind.face ? kind.face : null;
   }
 
-  function baseWidth(node) {
+  // The kinds with no product face get a size that fits what they draw: a note
+  // and a header for the host ports, a hero and its knobs for a source, knobs
+  // and nothing else for the small utilities.
+  const COMPACT_SIZES = {
+    "input:midi": [260, 150],
+    "input:audio": [260, 150],
+    "input:sidechain": [260, 150],
+    "out:audio": [260, 150],
+    "voice:in": [260, 150],
+    "voice:out": [260, 150],
+    lfo: [320, 330],
+    envelope: [320, 330],
+    random: [320, 330],
+    table: [320, 330],
+    pitch: [300, 210],
+    midi: [300, 210],
+    "gen:additive": [300, 210],
+    mixer: [280, 190],
+    "split:ms": [280, 160],
+    delay: [280, 210],
+  };
+
+  function baseSize(node) {
     const face = faceOf(node);
-    return face ? face[0] : BASE_W;
+
+    if (face) return face;
+
+    return COMPACT_SIZES[node.kind] || [BASE_W, BASE_H];
+  }
+
+  function baseWidth(node) {
+    return baseSize(node)[0];
   }
 
   function baseHeight(node) {
-    const face = faceOf(node);
-    return face ? face[1] : BASE_H;
+    return baseSize(node)[1];
   }
 
   function size(node) {
@@ -930,12 +958,15 @@
     if (!card) return;
 
 
-    if (!scopeCanvas || !scopeCanvas.isConnected) {
+    const hero = card.querySelector(".mcard-hero");
+    const host = hero || card;
+
+    if (!scopeCanvas || !scopeCanvas.isConnected || scopeCanvas.parentElement !== host) {
       scopeCanvas = document.createElement("canvas");
       scopeCanvas.className = "scope-canvas";
       scopeCanvas.width = 512;
-      scopeCanvas.height = 88;
-      card.appendChild(scopeCanvas);
+      scopeCanvas.height = hero ? 150 : 88;
+      host.appendChild(scopeCanvas);
     }
 
     const context = scopeCanvas.getContext("2d");

@@ -167,10 +167,17 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
   border-radius:0 0 8px 8px; touch-action:none;
 }
 
-/* The selected node's live output, along the bottom of its card. */
-.card-host .mcard{position:relative}
-.scope-canvas{
+/* The body takes the card's spare height, so a short card does not leave a
+   gap under its knobs. */
+.card-host .mcard-body{flex:1; align-content:center}
+
+/* The selected node's live output: over the hero when the card has one (the
+   rack's live trace), along the bottom otherwise. */
+.card-host .scope-canvas{
   position:absolute; left:0; right:0; bottom:0; width:100%; height:44px;
   pointer-events:none; opacity:.9;
   background:linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.45));
+}
+.card-host .mcard-hero .scope-canvas{
+  inset:0; width:100%; height:100%; background:none;
 }
