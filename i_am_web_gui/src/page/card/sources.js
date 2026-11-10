@@ -314,6 +314,10 @@
     svg.onpointerdown = function (event) {
       if (event.button !== 0) return;
 
+      // The card sits in the patch canvas: a drag on a point is not a canvas
+      // gesture, even if the canvas ever sees the event.
+      event.stopPropagation();
+
       var point = pointAt(event);
 
       if (point) {
