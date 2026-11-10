@@ -91,11 +91,6 @@ macro_rules! product {
 				other: &[[f32; 2]],
 				context: &mut Box<dyn ProcessContext>,
 			) {
-				if self.0.ui.bypass.load(Ordering::Relaxed) {
-					*samples = [0.0; 2];
-					return;
-				}
-
 				for event in context.events() {
 					self.0.body.push_event(event);
 				}
@@ -105,9 +100,18 @@ macro_rules! product {
 					.body
 					.set_transport(infos.tempo, infos.position_beats.map(|value| value as f32));
 
-				let input = if $generator { [0.0; 2] } else { *samples };
+				let bypassed = self.0.ui.bypass.load(Ordering::Relaxed);
+				let input = if $generator || bypassed {
+					[0.0; 2]
+				} else {
+					*samples
+				};
 				let sidechain = other.get(1).copied().unwrap_or([0.0; 2]);
-				*samples = self.0.body.process(input, sidechain);
+				let out = self.0.body.process(input, sidechain);
+
+				// A bypassed graph keeps running on silence, so the notes it was
+				// holding are released instead of sounding again on un-bypass.
+				*samples = if bypassed { [0.0; 2] } else { out };
 			}
 
 			fn delay(&self) -> usize {

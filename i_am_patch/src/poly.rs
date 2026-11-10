@@ -28,10 +28,12 @@ fn release_blocks(rate: usize) -> u32 {
 /// Whether a voice's slot can be reused.
 ///
 /// A note-off starts the release; the voice is retired when its graph goes
-/// quiet, when the release window runs out (a graph that ignores the note-off
+/// quiet after that, when the release window runs out (a graph that ignores the note-off
 /// must not hold the slot forever), or when it has simply lived too long.
 fn expired(age: u64, silent: u32, released: bool, release_age: u32, release_window: u32) -> bool {
-	age >= 10_000 || silent >= SILENT_BLOCKS || (released && release_age >= release_window)
+	age >= 10_000
+		|| (released && silent >= SILENT_BLOCKS)
+		|| (released && release_age >= release_window)
 }
 
 struct Voice {
@@ -271,8 +273,30 @@ impl Poly {
 						});
 					}
 				}
+				NoteEvent::Stop { note, .. } => {
+					// A host's immediate stop releases every voice playing that note.
+					for voice in self.voices.iter_mut().filter(|voice| voice.note == *note) {
+						voice.pending.push(event.clone());
+						voice.released = true;
+						voice.release_age = 0;
+					}
+				}
+				NoteEvent::ImmediateStop => {
+					for voice in &mut self.voices {
+						voice.pending.push(event.clone());
+						voice.released = true;
+						voice.release_age = 0;
+					}
+				}
 				NoteEvent::NoteOff { note, .. } => {
-					if let Some(voice) = self.voices.iter_mut().find(|voice| voice.note == *note) {
+					// The newest voice of that note is the one this off belongs to;
+					// an older one with the same note was released by its own off.
+					if let Some(voice) = self
+						.voices
+						.iter_mut()
+						.rev()
+						.find(|voice| voice.note == *note)
+					{
 						voice.pending.push(event.clone());
 						voice.released = true;
 						voice.release_age = 0;
@@ -341,9 +365,11 @@ mod tests {
 		assert!(super::expired(200, 0, true, 1_500, 1_500));
 		// Released but the window has not run out.
 		assert!(!super::expired(200, 0, true, 1_499, 1_500));
-		// Not released: only silence or age can retire it.
+		// A held note stays even when it is quiet: a long attack is not an end.
+		assert!(!super::expired(200, 150, false, 0, 1_500));
 		assert!(!super::expired(200, 0, false, 9_999, 1_500));
-		assert!(super::expired(200, 150, false, 0, 1_500));
+		// A released note goes quiet and is retired.
+		assert!(super::expired(200, 150, true, 0, 1_500));
 		assert!(super::expired(10_000, 0, false, 0, 1_500));
 	}
 
@@ -376,6 +402,46 @@ mod tests {
 		}
 
 		out
+	}
+
+	#[test]
+	fn an_immediate_stop_releases_every_voice() {
+		let graph = voice_patch();
+		let mut poly = Poly::new(&graph, 48_000).expect("poly builds");
+
+		let _ = render(
+			&mut poly,
+			8,
+			&[(0, note(60)), (2, note(67)), (4, NoteEvent::ImmediateStop)],
+		);
+
+		assert!(
+			poly.voices.iter().all(|voice| voice.released),
+			"a voice kept sounding after the stop"
+		);
+	}
+
+	#[test]
+	fn a_note_off_releases_the_note_that_started_last() {
+		let graph = voice_patch();
+		let mut poly = Poly::new(&graph, 48_000).expect("poly builds");
+		let off = |note: usize| NoteEvent::NoteOff {
+			channel: 0,
+			note,
+			velocity: 0.0,
+		};
+
+		// The same note twice, the second before the first has finished releasing.
+		let _ = render(
+			&mut poly,
+			8,
+			&[(0, note(60)), (2, off(60)), (3, note(60)), (5, off(60))],
+		);
+
+		assert!(
+			poly.voices.iter().all(|voice| voice.released),
+			"a retriggered note was left unreleased"
+		);
 	}
 
 	#[test]
