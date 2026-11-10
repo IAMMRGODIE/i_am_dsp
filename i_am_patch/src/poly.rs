@@ -16,12 +16,32 @@ use crate::graph::{Edge, Graph, NodeId, NodeInstance, node};
 /// How many notes can sound at once.
 pub const POLYPHONY: usize = 8;
 
+/// How many quiet blocks retire a voice whose graph has already faded out.
+const SILENT_BLOCKS: u32 = 150;
+
+/// How long a released voice may keep ringing before its slot is free again,
+/// in blocks: two seconds, so a long release still finishes.
+fn release_blocks(rate: usize) -> u32 {
+	(2 * rate / BLOCK).max(1) as u32
+}
+
+/// Whether a voice's slot can be reused.
+///
+/// A note-off starts the release; the voice is retired when its graph goes
+/// quiet, when the release window runs out (a graph that ignores the note-off
+/// must not hold the slot forever), or when it has simply lived too long.
+fn expired(age: u64, silent: u32, released: bool, release_age: u32, release_window: u32) -> bool {
+	age >= 10_000 || silent >= SILENT_BLOCKS || (released && release_age >= release_window)
+}
+
 struct Voice {
 	engine: Engine,
 	pending: Vec<NoteEvent>,
 	note: usize,
 	age: u64,
 	silent: u32,
+	released: bool,
+	release_age: u32,
 }
 
 /// A polyphonic patch: one voice group and the graph around it.
@@ -219,7 +239,13 @@ impl Poly {
 			match event {
 				NoteEvent::NoteOn { note, .. } => {
 					if self.voices.len() >= POLYPHONY {
-						self.voices.remove(0);
+						// A released voice is the one to lose; otherwise the oldest.
+						let position = self
+							.voices
+							.iter()
+							.position(|voice| voice.released)
+							.unwrap_or(0);
+						self.voices.remove(position);
 					}
 
 					if let Ok(engine) = Engine::new(&self.voice_graph, self.rate) {
@@ -229,12 +255,16 @@ impl Poly {
 							note: *note,
 							age: 0,
 							silent: 0,
+							released: false,
+							release_age: 0,
 						});
 					}
 				}
 				NoteEvent::NoteOff { note, .. } => {
 					if let Some(voice) = self.voices.iter_mut().find(|voice| voice.note == *note) {
 						voice.pending.push(event.clone());
+						voice.released = true;
+						voice.release_age = 0;
 					}
 				}
 				_ => {}
@@ -256,7 +286,12 @@ impl Poly {
 				mix.channels[1][frame] += sample[1];
 			}
 
-			// A released voice is retired once it has been quiet for a while.
+			// A released voice is retired once it has been quiet for a while, or
+			// when its release window runs out.
+			if voice.released {
+				voice.release_age += 1;
+			}
+
 			let peak = buffer.iter().take(frames).fold(0.0f32, |peak, frame| {
 				peak.max(frame[0].abs()).max(frame[1].abs())
 			});
@@ -268,10 +303,16 @@ impl Poly {
 			}
 		}
 
-		// A voice lives until it has been silent for a while or the pool needs
-		// the slot; a note-off is not needed for the additive voice yet.
-		self.voices
-			.retain(|voice| voice.age < 10_000 && voice.silent < 150);
+		let release_window = release_blocks(self.rate);
+		self.voices.retain(|voice| {
+			!expired(
+				voice.age,
+				voice.silent,
+				voice.released,
+				voice.release_age,
+				release_window,
+			)
+		});
 
 		self.outer.inject(self.out, mix);
 		self.outer.process(input, events, out);
@@ -280,6 +321,18 @@ impl Poly {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn a_released_voice_expires_even_when_it_keeps_sounding() {
+		// Released, still audible, past the two-second window.
+		assert!(super::expired(200, 0, true, 1_500, 1_500));
+		// Released but the window has not run out.
+		assert!(!super::expired(200, 0, true, 1_499, 1_500));
+		// Not released: only silence or age can retire it.
+		assert!(!super::expired(200, 0, false, 9_999, 1_500));
+		assert!(super::expired(200, 150, false, 0, 1_500));
+		assert!(super::expired(10_000, 0, false, 0, 1_500));
+	}
+
 	use crate::voice_patch;
 
 	use super::*;
