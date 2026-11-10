@@ -154,8 +154,9 @@ pub fn catalog_json() -> String {
 					}
 				}
 
-				// The product's own page lays its sections out side by side; the
-				// patch card needs the same split, so each section carries its hero.
+				// The product's own page splits into pages and sections; the
+				// patch card needs the same split, so each section carries its
+				// hero and the pages name the sections they show.
 				grouped = sections
 					.iter()
 					.map(|section| {
@@ -170,6 +171,22 @@ pub fn catalog_json() -> String {
 						})
 					})
 					.collect();
+				pages = match module {
+					"compressor" => i_am_effects::COMPRESSOR_PAGES
+						.iter()
+						.map(|page| {
+							let hero = page.sections.iter().find_map(|name| {
+								sections
+									.iter()
+									.find(|section| section.name.as_deref() == Some(*name))
+									.and_then(|section| section.hero.clone())
+							});
+
+							json!({ "name": page.name, "sections": page.sections, "hero": hero })
+						})
+						.collect::<Vec<Value>>(),
+					_ => Vec::new(),
+				};
 			}
 
 			// A synth product takes its card from its own faceplate and schema.

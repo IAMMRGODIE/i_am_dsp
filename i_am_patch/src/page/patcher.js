@@ -485,7 +485,7 @@
   }
 
   function productCard(node, kind, w, h) {
-    if (kind.sections && kind.sections.length > 1) {
+    if (kind.sections && kind.sections.length > 1 && !(kind.pages && kind.pages.length)) {
       return sectionedCard(node, kind, w, h);
     }
 
