@@ -87,7 +87,7 @@ pub const ALL: &[SynthDescriptor] = &[
 	},
 	SynthDescriptor {
 		id: "fitted",
-		name: "Fitted",
+		name: "Modal",
 		faceplate: i_am_synths::fitted_faceplate,
 		parameters: fitted_parameters,
 	},

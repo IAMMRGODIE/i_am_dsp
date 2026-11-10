@@ -121,6 +121,35 @@ fn the_input_passes_through_untouched() {
 }
 
 #[test]
+fn a_synth_parameter_reaches_the_dsp() {
+	// The tail, because the product smooths a gain change over its first blocks.
+	let tail = |gain: f32| {
+		let mut graph = Graph::new();
+		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+		let synth = graph
+			.add_node("synth:additive", (100.0, 0.0))
+			.expect("synth");
+		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+		graph.connect((midi, 0), (synth, 0));
+		graph.connect((synth, 0), (out, 0));
+		assert!(graph.set_param(synth, "gain", gain));
+
+		let frames = Engine::render_graph(&graph, 48_000, 0.5, &[(0, note(60))]).expect("renders");
+		peak(&frames[frames.len() - 4_800..])
+	};
+
+	let full = tail(1.0);
+	let silent = tail(0.0);
+
+	assert!(full > 1e-3, "the synth was silent at full gain: {full}");
+	// The gain is logarithmic and bottoms out at 0.01, so a little leaks by design.
+	assert!(
+		silent < full * 0.02,
+		"the gain parameter did nothing: {silent} vs {full}"
+	);
+}
+
+#[test]
 fn two_edges_into_one_input_sum() {
 	let mut graph = Graph::new();
 	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");

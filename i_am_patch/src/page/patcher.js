@@ -320,6 +320,7 @@
     const key = JSON.stringify([
       mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
       activePage,
+      node.params,
     ]);
 
     if (entry && (entry.key !== key || entry.kindId !== node.kind)) {
@@ -451,6 +452,7 @@
     const key = JSON.stringify([
       mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
       node.points || [],
+      node.params,
     ]);
 
     if (entry && (entry.key !== key || entry.kindId !== node.kind)) {

@@ -502,7 +502,11 @@ impl<P: Default + Plugin> SynthNode<P> {
 
 impl<P: Default + Plugin> BlockNode for SynthNode<P> {
 	fn set_param(&mut self, name: &str, value: f32) {
-		self.inner.set_parameter(name, value.into());
+		// A synth keeps its parameters in a shared map and reads them back on the
+		// next block: write the map, then push it into the effect.
+		let map = self.inner.param_map();
+		map.set(name, value, std::sync::atomic::Ordering::Relaxed);
+		self.inner.sync_params();
 	}
 
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
