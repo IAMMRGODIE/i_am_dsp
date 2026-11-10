@@ -630,3 +630,69 @@ fn a_unipolar_source_rises_from_zero() {
 		block[BLOCK - 1][0]
 	);
 }
+
+#[test]
+fn one_note_reaches_every_synth_node() {
+	// The graph broadcasts notes: two synth nodes both play the one key. That
+	// is the modular design, not a duplicated note.
+	let mut graph = Graph::new();
+	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+	let first = graph
+		.add_node("synth:additive", (100.0, 0.0))
+		.expect("first");
+	let second = graph
+		.add_node("synth:shapes", (100.0, 100.0))
+		.expect("second");
+	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+	graph.connect((midi, 0), (first, 0));
+	graph.connect((midi, 0), (second, 0));
+	graph.connect((first, 0), (out, 0));
+	graph.connect((second, 0), (out, 0));
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let host = vec![[0.0f32; 2]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+	engine.process(
+		&host,
+		&[NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 0.8,
+		}],
+		&mut block,
+	);
+	engine.process(&host, &[], &mut block);
+
+	let peak = |node| {
+		let step = engine.step_of(node).expect("a step");
+		let block = engine.tap_block(step).expect("a tap");
+
+		block.channels[0]
+			.iter()
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()))
+	};
+
+	assert!(peak(first) > 1e-4, "the first synth did not play");
+	assert!(peak(second) > 1e-4, "the second synth did not play");
+}
+
+#[test]
+fn the_output_gain_scales_the_mix() {
+	let render = |gain: f32| {
+		let mut graph = Graph::new();
+		let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+		let out = graph.add_node("out:audio", (100.0, 0.0)).expect("out");
+		graph.connect((input, 0), (out, 0));
+		assert!(graph.set_param(out, "gain", gain));
+
+		let mut engine = Engine::new(&graph, 48_000).expect("builds");
+		let host = vec![[0.5f32; 2]; BLOCK];
+		let mut block = vec![[0.0f32; 2]; BLOCK];
+		engine.process(&host, &[], &mut block);
+		block[BLOCK - 1][0]
+	};
+
+	assert!((render(1.0) - 0.5).abs() < 1e-6, "{}", render(1.0));
+	assert!((render(0.5) - 0.25).abs() < 1e-6, "{}", render(0.5));
+	assert!(render(0.0).abs() < 1e-6, "{}", render(0.0));
+}

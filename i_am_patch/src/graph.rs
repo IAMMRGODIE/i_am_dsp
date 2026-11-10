@@ -240,7 +240,7 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[port("audio", AUDIO)],
 		outputs: &[],
 		latency: 0,
-		params: &[],
+		params: &[param("gain", 1.0, 0.0, 2.0)],
 	},
 	NodeDesc {
 		id: "split:ms",

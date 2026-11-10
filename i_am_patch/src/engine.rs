@@ -549,8 +549,14 @@ impl Engine {
 		if let Some(step) = self.output_step
 			&& let Some(Buffer::Audio(block)) = self.inputs[step].first()
 		{
+			// The output node's gain is the patch's master level: the page sets
+			// it, the generation bump rebuilds the engine, and it lands here.
+			let gain = self.base[step].get("gain").copied().unwrap_or(1.0);
+
 			for (frame, sample) in out.iter_mut().take(frames).enumerate() {
 				*sample = block.frame(frame);
+				sample[0] *= gain;
+				sample[1] *= gain;
 			}
 		}
 
