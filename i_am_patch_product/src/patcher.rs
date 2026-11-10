@@ -200,6 +200,86 @@ product!(
 
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn the_product_path_matches_the_engine() {
+		use i_am_dsp::Processor;
+		use i_am_dsp::prelude::*;
+
+		struct Context {
+			info: ProcessInfos,
+			events: Vec<NoteEvent>,
+		}
+
+		impl ProcessContext for Context {
+			fn infos(&self) -> &ProcessInfos {
+				&self.info
+			}
+
+			fn next_event(&mut self) -> Option<NoteEvent> {
+				self.events.pop()
+			}
+
+			fn send_event(&mut self, event: NoteEvent) {
+				self.events.push(event);
+			}
+
+			fn clear_events(&mut self) {
+				self.events.clear();
+			}
+
+			fn events(&self) -> &[NoteEvent] {
+				&self.events
+			}
+		}
+
+		let text = "node 0 input:midi 0 0\nnode 1 synth:additive 100 0 random_phase=0 random_pan=0\nnode 2 out:audio 200 0\nconnect 0.midi -> 1.notes\nconnect 1.audio -> 2.audio\n";
+		let note = NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 0.8,
+		};
+
+		let mut product = PatcherEffect::default();
+		assert!(product.set_parameter("patch", SetValue::Serialized(text.as_bytes().to_vec())));
+
+		let mut info = ProcessInfos::default();
+		info.sample_rate = 48_000;
+		info.playing = true;
+		let mut context: Box<dyn ProcessContext> = Box::new(Context {
+			info,
+			events: vec![note.clone()],
+		});
+		let mut product_peak = 0.0f32;
+		let mut samples = [0.0f32; 2];
+
+		for sample in 0..4096 {
+			product.process(&mut samples, &[], &mut context);
+			product_peak = product_peak.max(samples[0].abs());
+
+			if sample == 0 {
+				context.clear_events();
+			}
+		}
+
+		let graph = i_am_patch::text::from_text(text).expect("parses");
+		let frames = i_am_patch::engine::Engine::render_graph(
+			&graph,
+			48_000,
+			4096.0 / 48_000.0,
+			&[(0, note)],
+		)
+		.expect("renders");
+		let engine_peak = frames
+			.iter()
+			.fold(0.0f32, |peak, frame| peak.max(frame[0].abs()));
+
+		assert!(
+			(product_peak - engine_peak).abs() < 0.2 * engine_peak,
+			"product {product_peak} vs engine {engine_peak}"
+		);
+	}
+
 	#[test]
 	fn the_effect_declares_its_sidechain() {
 		assert_eq!(PatcherEffect::INPUT_PORTS.len(), 2);
