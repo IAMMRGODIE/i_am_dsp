@@ -117,11 +117,96 @@ const MIME = {
 	".json": "application/json; charset=utf-8",
 };
 
+
+// The preview has no audio engine, so the live routes answer with noise: enough
+// for the heroes and meters to move while two pages are compared. The phase
+// drifts per request, so a meter follows the level instead of freezing.
+const NOISE_FRAMES = 1024;
+let noisePhase = 0;
+
+function noiseLevel() {
+	noisePhase += 0.05;
+	return 0.18 + 0.12 * Math.sin(noisePhase);
+}
+
+function noiseFrames(level) {
+	const data = new Float32Array(NOISE_FRAMES);
+	for (let index = 0; index < data.length; index++) {
+		data[index] = (Math.random() * 2 - 1) * level;
+	}
+	return data;
+}
+
+function binary(response, parts) {
+	const total = parts.reduce((sum, part) => sum + part.length, 0);
+	const body = Buffer.concat(parts.map((part) => Buffer.from(part.buffer, part.byteOffset, part.byteLength)));
+	response.writeHead(200, {
+		"content-type": "application/octet-stream",
+		"content-length": total,
+		"cache-control": "no-store",
+	});
+	response.end(body);
+}
+
+function dbOf(level) {
+	return 20 * Math.log10(Math.max(level, 1e-6));
+}
+
+// The live routes a faceplate polls; each answers with synthetic input.
+function liveRoute(url, response) {
+	const level = noiseLevel();
+
+	if (url === "/scope") {
+		const input = noiseFrames(level);
+		const output = noiseFrames(level * 0.6);
+		const sidechain = noiseFrames(level * 0.35);
+		binary(response, [input, output, sidechain]);
+		return true;
+	}
+
+	if (url === "/stereo") {
+		const left = noiseFrames(level);
+		const right = noiseFrames(level);
+		const outLeft = noiseFrames(level * 0.6);
+		const outRight = noiseFrames(level * 0.6);
+		binary(response, [left, right, outLeft, outRight]);
+		return true;
+	}
+
+	if (url === "/meter") {
+		const body = JSON.stringify({
+			input: dbOf(level),
+			output: dbOf(level * 0.6),
+			sidechain: dbOf(level * 0.35),
+		});
+		response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+		response.end(body);
+		return true;
+	}
+
+	if (url === "/note") {
+		response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+		response.end(JSON.stringify({ note: -1 }));
+		return true;
+	}
+
+	if (url === "/allowed") {
+		response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+		response.end(JSON.stringify({ notes: -1 }));
+		return true;
+	}
+
+	return false;
+}
+
 // Serves dir until the process is killed.
 function serve(dir, port, index = "index.html") {
 	const root = path.resolve(dir);
 	const server = createServer((request, response) => {
 		const url = decodeURIComponent((request.url || "/").split("?")[0]);
+
+		if (liveRoute(url, response)) return;
+
 		const relative = url === "/" ? "/" + index : url;
 		const file = path.join(root, relative);
 
