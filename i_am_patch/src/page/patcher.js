@@ -80,6 +80,19 @@
         shape: Math.round(params.shape ?? 0),
         morph: params.morph ?? 0,
       });
+    } else if (kind === "midi") {
+      // A mapping, not a value: the note (or velocity) goes in on the x axis
+      // and the control value comes out on the y, like the product's page.
+      svg.appendChild(rackNode("line", { x1: 8, y1: 60, x2: 292, y2: 60, stroke: "#333", "stroke-width": 1, "stroke-dasharray": "2 4" }));
+      svg.appendChild(rackNode("line", { x1: 8, y1: 8, x2: 8, y2: 60, stroke: "#333", "stroke-width": 1, "stroke-dasharray": "2 4" }));
+      svg.appendChild(rackNode("path", {
+        d: "M 8 60 L 292 8",
+        fill: "none",
+        stroke: "#ff6f91",
+        "stroke-width": 2,
+        "stroke-linecap": "round",
+        "vector-effect": "non-scaling-stroke",
+      }));
     } else {
       IAmCard.sources.drawPreview(svg, kind, {});
     }
@@ -94,6 +107,17 @@
     if (!layer) return;
 
     layer.textContent = "";
+
+    if (entry.kind.id === "midi") {
+      // The mapping's live dot: input equals output on the default curve.
+      const value = typeof entry.lastValue === "number" ? entry.lastValue : 0;
+      const x = (8 + value * 284).toFixed(1);
+      const y = (60 - value * 52).toFixed(1);
+
+      layer.appendChild(rackNode("line", { x1: x, y1: 60, x2: x, y2: y, stroke: "#ff6f91", "stroke-opacity": ".35", "stroke-width": 1 }));
+      layer.appendChild(rackNode("circle", { cx: x, cy: y, r: "3.5", fill: "#ffe1ea", stroke: "#ff6f91", "stroke-width": "1.5" }));
+      return;
+    }
 
     if (!entry.history || !entry.history.length) return;
 
@@ -330,7 +354,141 @@
     return key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
 
+
+  // A product whose faceplate splits into sections draws one hero per section,
+  // side by side, exactly as the product's own page does. The single-hero card
+  // would show only the first of them.
+  function sectionedCard(node, kind, w, h) {
+    let entry = cards[node.id];
+    const mods = modsOf(node.id);
+    const key = JSON.stringify([
+      mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
+      node.params,
+    ]);
+
+    if (entry && (entry.key !== key || entry.kindId !== node.kind)) {
+      entry.host.remove();
+      delete cards[node.id];
+      entry = null;
+    }
+
+    if (entry) {
+      entry.host.style.setProperty(
+        "--k",
+        String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
+      );
+      return entry.host;
+    }
+
+    const context = { rate: 48000, scope: { input: null, output: null }, spectra: {} };
+    const values = node.params;
+    const card = document.createElement("section");
+    card.className = "mcard";
+    card.style.setProperty("--accent", kind.accent || "#e07a2f");
+
+    const head = document.createElement("header");
+    head.className = "mcard-head";
+    const name = document.createElement("span");
+    name.className = "mcard-name";
+    name.textContent = kind.title || kind.name;
+    head.appendChild(name);
+
+    const edit = (identifier, value) => {
+      op({ op: "param", id: node.id, key: identifier, value }, false);
+    };
+
+    const byId = {};
+    (kind.controls || []).forEach((control) => { byId[control.id] = control; });
+
+    (kind.header || []).forEach((id) => {
+      const control = byId[id];
+
+      if (!control) return;
+
+      const handle = control.choices && control.choices.length
+        ? IAmCard.choiceHandle(control, values[id], (_, value) => edit(id, value))
+        : control.kind === "bool"
+          ? IAmCard.dotHandle(control, values[id], (_, value) => edit(id, value))
+          : null;
+
+      if (handle) head.appendChild(handle);
+    });
+
+    card.appendChild(head);
+
+    const sections = document.createElement("div");
+    sections.className = "mcard-sections";
+    const heroes = [];
+    const bodies = [];
+
+    (kind.sections || []).forEach((section) => {
+      const box = document.createElement("div");
+      box.className = "mcard-section";
+
+      if (section.hero) {
+        const hero = document.createElement("div");
+        hero.className = "mcard-hero";
+        hero.innerHTML = IAmCard.hero(section.hero, values, context);
+        box.appendChild(hero);
+        heroes.push({ el: hero, name: section.hero });
+      }
+
+      const body = document.createElement("div");
+      body.className = "mcard-body";
+
+      (section.controls || []).forEach((control) => {
+        if ((kind.header || []).indexOf(control.id) >= 0) return;
+
+        const range = Math.max(1e-9, control.max - control.min);
+        const assignments = mods
+          .filter((mod) => mod.to[1] === control.id)
+          .map((mod) => ({
+            slot: mod.slot,
+            label: sourceName(mod.from[0]),
+            depth: mod.depth / range,
+            mode: mod.mode === "base" ? "frombase" : "centered",
+          }));
+        const spec = IAmCard.modulate(control, {
+          assignments,
+          onDepth: (slot, next) => op({ op: "mod_depth", index: slot, depth: next * range }, false),
+          onMode: (slots, next) => op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false),
+          dropTarget: node.id + ":" + control.id,
+        });
+
+        body.appendChild(IAmCard.control(spec, values[control.id], edit));
+      });
+
+      box.appendChild(body);
+      sections.appendChild(box);
+      bodies.push(body);
+    });
+
+    card.appendChild(sections);
+    card.repaintHero = () => {
+      heroes.forEach((hero) => {
+        hero.el.innerHTML = IAmCard.hero(hero.name, values, context);
+      });
+    };
+
+    const host = document.createElement("div");
+    host.className = "card-host";
+    const scale = document.createElement("div");
+    scale.className = "card-scale";
+    scale.style.width = `${baseWidth(node)}px`;
+    scale.style.height = `${baseHeight(node)}px`;
+    scale.style.flexBasis = `${baseWidth(node)}px`;
+    scale.appendChild(card);
+    host.appendChild(scale);
+    entry = { host, key, kindId: node.kind, context, card, node, kind, samples: null, phase: null };
+    cards[node.id] = entry;
+    return host;
+  }
+
   function productCard(node, kind, w, h) {
+    if (kind.sections && kind.sections.length > 1) {
+      return sectionedCard(node, kind, w, h);
+    }
+
     let entry = cards[node.id];
     const mods = modsOf(node.id);
     const pages = kind.pages || [];

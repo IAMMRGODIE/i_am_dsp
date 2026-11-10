@@ -153,6 +153,23 @@ pub fn catalog_json() -> String {
 						controls.push(serde_json::to_value(control).unwrap_or(Value::Null));
 					}
 				}
+
+				// The product's own page lays its sections out side by side; the
+				// patch card needs the same split, so each section carries its hero.
+				grouped = sections
+					.iter()
+					.map(|section| {
+						json!({
+							"name": section.name.clone().unwrap_or_default(),
+							"hero": section.hero.clone(),
+							"controls": section
+								.controls
+								.iter()
+								.map(|control| serde_json::to_value(control).unwrap_or(Value::Null))
+								.collect::<Vec<Value>>(),
+						})
+					})
+					.collect();
 			}
 
 			// A synth product takes its card from its own faceplate and schema.
