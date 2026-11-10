@@ -413,3 +413,8 @@
 @container (max-width: 300px) {
   .mcard-setting{display:none}
 }
+
+/* A face with several sections draws one hero per section, side by side. */
+.mcard-sections{display:flex; gap:8px; min-height:0}
+.mcard-section{flex:1; min-width:0; display:flex; flex-direction:column; gap:4px}
+.mcard-section .mcard-hero{min-height:0}

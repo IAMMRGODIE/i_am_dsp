@@ -355,275 +355,6 @@
   }
 
 
-  // A product whose faceplate splits into sections draws one hero per section,
-  // side by side, exactly as the product's own page does. The single-hero card
-  // would show only the first of them.
-  function sectionedCard(node, kind, w, h) {
-    let entry = cards[node.id];
-    const mods = modsOf(node.id);
-    const key = JSON.stringify([
-      mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
-      node.params,
-    ]);
-
-    if (entry && (entry.key !== key || entry.kindId !== node.kind)) {
-      entry.host.remove();
-      delete cards[node.id];
-      entry = null;
-    }
-
-    if (entry) {
-      entry.host.style.setProperty(
-        "--k",
-        String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
-      );
-      return entry.host;
-    }
-
-    const context = { rate: 48000, scope: { input: null, output: null }, spectra: {} };
-    const values = node.params;
-    const card = document.createElement("section");
-    card.className = "mcard";
-    card.style.setProperty("--accent", kind.accent || "#e07a2f");
-
-    const head = document.createElement("header");
-    head.className = "mcard-head";
-    const name = document.createElement("span");
-    name.className = "mcard-name";
-    name.textContent = kind.title || kind.name;
-    head.appendChild(name);
-
-    const edit = (identifier, value) => {
-      op({ op: "param", id: node.id, key: identifier, value }, false);
-    };
-
-    const byId = {};
-    (kind.controls || []).forEach((control) => { byId[control.id] = control; });
-
-    (kind.header || []).forEach((id) => {
-      const control = byId[id];
-
-      if (!control) return;
-
-      const handle = control.choices && control.choices.length
-        ? IAmCard.choiceHandle(control, values[id], (_, value) => edit(id, value))
-        : control.kind === "bool"
-          ? IAmCard.dotHandle(control, values[id], (_, value) => edit(id, value))
-          : null;
-
-      if (handle) head.appendChild(handle);
-    });
-
-    card.appendChild(head);
-
-    const sections = document.createElement("div");
-    sections.className = "mcard-sections";
-    const heroes = [];
-    const bodies = [];
-
-    (kind.sections || []).forEach((section) => {
-      const box = document.createElement("div");
-      box.className = "mcard-section";
-
-      if (section.hero) {
-        const hero = document.createElement("div");
-        hero.className = "mcard-hero";
-        hero.innerHTML = IAmCard.hero(section.hero, values, context);
-        box.appendChild(hero);
-        heroes.push({ el: hero, name: section.hero });
-      }
-
-      const body = document.createElement("div");
-      body.className = "mcard-body";
-
-      (section.controls || []).forEach((control) => {
-        if ((kind.header || []).indexOf(control.id) >= 0) return;
-
-        const range = Math.max(1e-9, control.max - control.min);
-        const assignments = mods
-          .filter((mod) => mod.to[1] === control.id)
-          .map((mod) => ({
-            slot: mod.slot,
-            label: sourceName(mod.from[0]),
-            depth: mod.depth / range,
-            mode: mod.mode === "base" ? "frombase" : "centered",
-          }));
-        const spec = IAmCard.modulate(control, {
-          assignments,
-          onDepth: (slot, next) => op({ op: "mod_depth", index: slot, depth: next * range }, false),
-          onMode: (slots, next) => op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false),
-          dropTarget: node.id + ":" + control.id,
-        });
-
-        body.appendChild(IAmCard.control(spec, values[control.id], edit));
-      });
-
-      box.appendChild(body);
-      sections.appendChild(box);
-      bodies.push(body);
-    });
-
-    card.appendChild(sections);
-    card.repaintHero = () => {
-      heroes.forEach((hero) => {
-        hero.el.innerHTML = IAmCard.hero(hero.name, values, context);
-      });
-    };
-
-    const host = document.createElement("div");
-    host.className = "card-host";
-    const scale = document.createElement("div");
-    scale.className = "card-scale";
-    scale.style.width = `${baseWidth(node)}px`;
-    scale.style.height = `${baseHeight(node)}px`;
-    scale.style.flexBasis = `${baseWidth(node)}px`;
-    scale.appendChild(card);
-    host.appendChild(scale);
-    entry = { host, key, kindId: node.kind, context, card, node, kind, samples: null, phase: null };
-    cards[node.id] = entry;
-    return host;
-  }
-
-  function productCard(node, kind, w, h) {
-    if (kind.sections && kind.sections.length > 1 && !(kind.pages && kind.pages.length)) {
-      return sectionedCard(node, kind, w, h);
-    }
-
-    let entry = cards[node.id];
-    const mods = modsOf(node.id);
-    const pages = kind.pages || [];
-    const activePage = pages.length
-      ? Math.min(pagesOf[node.id] ?? 0, pages.length - 1)
-      : 0;
-    const key = JSON.stringify([
-      mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
-      activePage,
-      node.params,
-    ]);
-
-    if (entry && (entry.key !== key || entry.kindId !== node.kind)) {
-      entry.host.remove();
-      delete cards[node.id];
-      entry = null;
-    }
-
-    if (entry) {
-      entry.host.style.setProperty(
-        "--k",
-        String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
-      );
-      entry.host.classList.toggle("compact", w < 430);
-    }
-
-    if (!entry) {
-      // A paged product shows one page's sections at a time; the tab lives in
-      // the card's header, where the product's own header controls are.
-      const headerControls = (kind.header || []).flatMap((id) => {
-        const control = (kind.controls || []).find((item) => item.id === id);
-
-        return control ? [control] : [];
-      });
-
-      const shown = pages.length
-        ? (pages[activePage].sections || []).flatMap((name) => {
-            const section = (kind.sections || []).find((item) => item.name === name);
-
-            return section ? section.controls : [];
-          }).concat(headerControls.filter((control) =>
-            !(pages[activePage].sections || []).some((name) => {
-              const section = (kind.sections || []).find((item) => item.name === name);
-              return section && section.controls.some((item) => item.id === control.id);
-            })))
-        : (kind.controls || []);
-
-      const specs = shown.map((control) => {
-        const range = Math.max(1e-9, control.max - control.min);
-        const assignments = modsOf(node.id)
-          .filter((mod) => mod.to[1] === control.id)
-          .map((mod) => ({
-            slot: mod.slot,
-            label: sourceName(mod.from[0]),
-            depth: mod.depth / range,
-            mode: mod.mode === "base" ? "frombase" : "centered",
-          }));
-
-        return IAmCard.modulate(control, {
-          assignments,
-          onDepth: (slot, next) => {
-            op({ op: "mod_depth", index: slot, depth: next * range }, false);
-          },
-          onMode: (slots, next) => {
-            op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
-          },
-          dropTarget: node.id + ":" + control.id,
-        });
-      });
-
-      const host = document.createElement("div");
-      host.className = "card-host";
-      const scale = document.createElement("div");
-      scale.className = "card-scale";
-      scale.style.width = `${baseWidth(node)}px`;
-      scale.style.height = `${baseHeight(node)}px`;
-      scale.style.flexBasis = `${baseWidth(node)}px`;
-      const context = { rate: 48000, scope: { input: null, output: null }, spectra: {} };
-      const pageHero = pages.length ? pages[activePage].hero : null;
-      const card = window.IAmCard.create({
-        title: kind.title || kind.name,
-        accent: kind.accent || "#e07a2f",
-        hero: pageHero || kind.hero || "spectrum",
-        mode: kind.mode || null,
-        header: kind.header || [],
-        visible: kind.visible || null,
-        switches: kind.switches || [],
-        controls: specs,
-        values: node.params,
-        context,
-        onEdit: (identifier, value) => {
-          // The card already shows the value; rebuilding the graph here would
-          // take the focus away from the control being dragged.
-          op({ op: "param", id: node.id, key: identifier, value }, false);
-        },
-      });
-      if (pages.length > 1) {
-        const tabs = document.createElement("div");
-        tabs.className = "mcard-tabs";
-
-        pages.forEach((page, index) => {
-          const tab = document.createElement("button");
-          tab.className = "mcard-tab" + (index === activePage ? " active" : "");
-          tab.textContent = page.name;
-          tab.onclick = () => {
-            pagesOf[node.id] = index;
-            delete cards[node.id];
-            draw();
-          };
-          tabs.appendChild(tab);
-        });
-
-        const head = card.querySelector(".mcard-head");
-
-        if (head) head.after(tabs);
-        else card.insertBefore(tabs, card.firstChild);
-      }
-
-      scale.appendChild(card);
-      host.appendChild(scale);
-      entry = { host, key, kindId: node.kind, context, card };
-      cards[node.id] = entry;
-      entry.host.style.setProperty(
-        "--k",
-        String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
-      );
-      entry.host.classList.toggle("compact", w < 430);
-    }
-
-    return entry.host;
-  }
-
-
-  /// A card for a kind that is not a product: knobs from its catalog params,
-  /// and a line of text when it has none.
   function genericCard(node, kind, w, h) {
     let entry = cards[node.id];
     const mods = modsOf(node.id);
@@ -747,6 +478,92 @@
     );
     entry.host.classList.toggle("compact", w < 430);
 
+    return entry.host;
+  }
+
+  // A product card is the product's own face: the shared builder draws its
+  // sections, pages, heroes and controls, so the patch cannot drift from the
+  // product page. The patch adds the modulation rings around the controls.
+  function productCard(node, kind, w, h) {
+    let entry = cards[node.id];
+    const mods = modsOf(node.id);
+    const pages = kind.pages || [];
+    const activePage = pages.length
+      ? Math.min(pagesOf[node.id] ?? 0, pages.length - 1)
+      : 0;
+    const key = JSON.stringify([
+      mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
+      activePage,
+      node.params,
+    ]);
+
+    if (entry && (entry.key !== key || entry.kindId !== node.kind)) {
+      entry.host.remove();
+      delete cards[node.id];
+      entry = null;
+    }
+
+    if (entry) {
+      entry.host.style.setProperty(
+        "--k",
+        String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
+      );
+      entry.host.classList.toggle("compact", w < 430);
+      return entry.host;
+    }
+
+    const context = { rate: 48000, scope: { input: null, output: null }, spectra: {} };
+    const card = IAmCard.faceCard({
+      face: kind,
+      values: node.params,
+      context,
+      activePage,
+      onPage: (index) => {
+        pagesOf[node.id] = index;
+        delete cards[node.id];
+        draw();
+      },
+      onEdit: (identifier, value) => {
+        // The card already shows the value; rebuilding the graph here would
+        // take the focus away from the control being dragged.
+        op({ op: "param", id: node.id, key: identifier, value }, false);
+      },
+      wrapControl: (control) => {
+        const range = Math.max(1e-9, control.max - control.min);
+        const assignments = mods
+          .filter((mod) => mod.to[1] === control.id)
+          .map((mod) => ({
+            slot: mod.slot,
+            label: sourceName(mod.from[0]),
+            depth: mod.depth / range,
+            mode: mod.mode === "base" ? "frombase" : "centered",
+          }));
+
+        return IAmCard.modulate(control, {
+          assignments,
+          onDepth: (slot, next) => op({ op: "mod_depth", index: slot, depth: next * range }, false),
+          onMode: (slots, next) => op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false),
+          dropTarget: node.id + ":" + control.id,
+        });
+      },
+    });
+
+    const host = document.createElement("div");
+    host.className = "card-host";
+    const scale = document.createElement("div");
+    scale.className = "card-scale";
+    scale.style.width = `${baseWidth(node)}px`;
+    scale.style.height = `${baseHeight(node)}px`;
+    scale.style.flexBasis = `${baseWidth(node)}px`;
+    scale.appendChild(card);
+    host.appendChild(scale);
+    entry = { host, key, kindId: node.kind, context, card, node, kind, samples: null, phase: null };
+    cards[node.id] = entry;
+    entry.host.style.setProperty(
+      "--k",
+      String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
+    );
+    entry.host.classList.toggle("compact", w < 430);
     return entry.host;
   }
 

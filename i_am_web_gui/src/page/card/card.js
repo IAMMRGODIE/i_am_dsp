@@ -418,8 +418,177 @@
     return card;
   }
 
+
+  // A card built from a product face: the sections, pages and heroes the
+  // product's own page draws, so a card page shows the same layout instead of
+  // reassembling it from the flat control list.
+  function faceCard(options) {
+    var face = options.face || {};
+    var controls = face.controls || [];
+    var values = {};
+    var byId = {};
+
+    controls.forEach(function (spec) {
+      byId[spec.id] = spec;
+      values[spec.id] = valueOf(options.values, spec.id, spec.default);
+    });
+
+    var card = document.createElement("section");
+    card.className = "mcard";
+    card.style.setProperty("--accent", face.accent || "#8a6aff");
+
+    var head = document.createElement("header");
+    head.className = "mcard-head";
+
+    var name = document.createElement("span");
+    name.className = "mcard-name";
+    name.textContent = face.title || face.name || "";
+    head.appendChild(name);
+
+    var modeSpec = face.mode ? byId[face.mode] : null;
+    var currentMode = modeSpec ? Math.round(values[modeSpec.id]) : 0;
+    var modeSelect = null;
+
+    function edited(id, value) {
+      values[id] = value;
+      repaint();
+      applyVisibility();
+
+      if (options.onEdit) options.onEdit(id, value);
+    }
+
+    if (modeSpec) {
+      modeSelect = makeChoice(modeSpec, values[modeSpec.id], function (_, value) {
+        currentMode = Math.round(value);
+        applyVisibility();
+        edited(modeSpec.id, currentMode);
+      }, "mcard-select mcard-mode");
+      head.appendChild(setting("Mode", modeSelect));
+    }
+
+    (face.header || []).forEach(function (id) {
+      var spec = byId[id];
+
+      if (!spec) return;
+
+      var control;
+
+      if (spec.kind === "int" && spec.choices && spec.choices.length) {
+        control = makeChoice(spec, values[id], function (_, value) { edited(id, value); });
+      } else if (spec.kind === "bool") {
+        control = makeHeaderDot(spec, values[id], function (_, value) { edited(id, value); });
+      } else {
+        control = makeToggle(spec, values[id], function (_, value) { edited(id, value); });
+      }
+
+      head.appendChild(control.classList.contains("mcard-dot") ? settingAfter(control, spec.label) : setting(spec.label, control));
+    });
+
+    card.appendChild(head);
+
+    var tabs = null;
+
+    if ((face.pages || []).length > 1) {
+      tabs = document.createElement("div");
+      tabs.className = "mcard-tabs";
+
+      face.pages.forEach(function (page, index) {
+        var tab = document.createElement("button");
+        tab.className = "mcard-tab" + (index === options.activePage ? " active" : "");
+        tab.textContent = page.name;
+        tab.onclick = function () {
+          if (options.onPage) options.onPage(index);
+        };
+        tabs.appendChild(tab);
+      });
+
+      card.appendChild(tabs);
+    }
+
+    var sectionsBox = document.createElement("div");
+    sectionsBox.className = "mcard-sections";
+    var heroes = [];
+    var bodies = [];
+
+    var activePage = (face.pages || [])[options.activePage || 0];
+    var sections = activePage
+      ? (face.sections || []).filter(function (section) {
+          return (activePage.sections || []).indexOf(section.name) >= 0;
+        })
+      : (face.sections && face.sections.length
+          ? face.sections
+          : [{ name: "", hero: face.hero, controls: controls }]);
+
+    sections.forEach(function (section) {
+      var box = document.createElement("div");
+      box.className = "mcard-section";
+
+      if (section.hero) {
+        var heroBox = document.createElement("div");
+        heroBox.className = "mcard-hero";
+        heroBox.innerHTML = hero(section.hero, values, options.context);
+        box.appendChild(heroBox);
+        heroes.push({ el: heroBox, name: section.hero });
+      }
+
+      var body = document.createElement("div");
+      body.className = "mcard-body";
+
+      (section.controls || []).forEach(function (control) {
+        if ((face.header || []).indexOf(control.id) >= 0) return;
+        if (face.mode && control.id === face.mode) return;
+
+        var spec = options.wrapControl ? options.wrapControl(control) : control;
+        var el = makeBodyControl(spec, values[control.id], edited);
+        el.__controlId = control.id;
+        body.appendChild(el);
+        bodies.push({ id: control.id, el: el });
+      });
+
+      box.appendChild(body);
+      sectionsBox.appendChild(box);
+    });
+
+    card.appendChild(sectionsBox);
+
+    function repaint() {
+      heroes.forEach(function (entry) {
+        entry.el.innerHTML = hero(entry.name, values, options.context);
+      });
+    }
+
+    function applyVisibility() {
+      var hidden = Object.create(null);
+
+      (face.switches || []).forEach(function (row) {
+        var on = Number(values[row.control] || 0) !== 0;
+        (on ? row.off : row.on).forEach(function (id) { hidden[id] = true; });
+      });
+
+      var allowed = null;
+
+      if (face.visible) {
+        for (var i = 0; i < face.visible.length; i++) {
+          if (Number(face.visible[i][0]) === currentMode) allowed = face.visible[i][1];
+        }
+      }
+
+      bodies.forEach(function (entry) {
+        var show = (!allowed || allowed.indexOf(entry.id) >= 0) && !hidden[entry.id];
+        entry.el.style.display = show ? "" : "none";
+      });
+    }
+
+    applyVisibility();
+    card.repaintHero = repaint;
+    card.values = values;
+
+    return card;
+  }
+
   window.IAmCard = {
     create: create,
+    faceCard: faceCard,
     control: control,
     controlHandle: controlHandle,
     switchHandle: makeSwitch,
