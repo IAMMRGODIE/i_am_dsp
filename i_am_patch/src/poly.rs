@@ -307,10 +307,11 @@ impl Poly {
 		}
 
 		let mut mix = AudioBlock::silent(frames);
-		let silence = vec![[0.0f32; 2]; BLOCK];
+		// Both are one block on the stack: the audio path must not allocate.
+		let silence = [[0.0f32; 2]; BLOCK];
 
 		for voice in &mut self.voices {
-			let mut buffer = vec![[0.0f32; 2]; BLOCK];
+			let mut buffer = [[0.0f32; 2]; BLOCK];
 
 			voice
 				.engine
