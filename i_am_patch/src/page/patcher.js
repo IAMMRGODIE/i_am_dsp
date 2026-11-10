@@ -63,10 +63,12 @@
     const params = (node && node.params) || {};
 
     if (kind === "lfo") {
-      IAmCard.sources.drawPreview(svg, "lfo", {
-        points: (node && node.points) || [],
-        shape: Math.round(params.shape ?? 0),
-      });
+      const shape = Math.round(params.shape ?? 0);
+      const points = node && node.points && node.points.length >= 2
+        ? node.points
+        : IAmCard.sources.preset(shape);
+
+      IAmCard.sources.drawPreview(svg, "lfo", { points, shape });
     } else if (kind === "table") {
       IAmCard.sources.drawPreview(svg, "table", {
         shape: Math.round(params.shape ?? 0),

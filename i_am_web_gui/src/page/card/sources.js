@@ -34,6 +34,22 @@
     return first + (second - first) * Math.max(0, Math.min(1, morph));
   }
 
+  // The points a shape preset starts from, the same table the rack's page uses.
+  function preset(kind) {
+    var raw;
+
+    switch (((kind % 4) + 4) % 4) {
+      case 1: raw = [[0, 0], [0.5, 1], [1, 0]]; break;
+      case 2: raw = [[0, 0], [1, 1]]; break;
+      case 3: raw = [[0, 1], [0.5, 1], [0.5001, 0], [1, 0]]; break;
+      default: raw = [[0, 0.5], [0.25, 1], [0.5, 0.5], [0.75, 0], [1, 0.5]];
+    }
+
+    return raw.map(function (point) {
+      return { time: point[0], value: point[1], bend: 0 };
+    });
+  }
+
   function baseline(svg, y) {
     svg.appendChild(node("line", {
       x1: 8, y1: y, x2: 292, y2: y,
@@ -205,6 +221,7 @@
   window.IAmCard = window.IAmCard || {};
   window.IAmCard.sources = {
     shape: shape,
+    preset: preset,
     tableValue: tableValue,
     bend: bend,
     drawPreview: drawPreview,

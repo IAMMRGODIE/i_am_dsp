@@ -29,11 +29,6 @@ pub(crate) fn morph(kind: i32, blend: f32, phase: f32) -> f32 {
 	first + (second - first) * blend.clamp(0.0, 1.0)
 }
 
-/// A synced musical period, in hertz.
-pub(crate) fn sync_hz(tempo: f32, beats: f32) -> f32 {
-	tempo / 60.0 / beats.max(0.01)
-}
-
 /// The one-pole coefficient for a time constant in milliseconds.
 pub(crate) fn time_coefficient(milliseconds: f32, sample_rate: f32) -> f32 {
 	if milliseconds <= 0.0 {

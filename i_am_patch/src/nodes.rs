@@ -3,13 +3,12 @@
 use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 
-use i_am_dsp::prelude::{
-	EditableLfo, Effect, Gain, Message, Multimode, NoteEvent, Parameters, PitchTracker, WaveTable,
-};
+use i_am_dsp::prelude::{Effect, Gain, Message, Multimode, NoteEvent, Parameters};
 use i_am_plugin::Plugin;
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
-use crate::source_dsp;
+use crate::modulation::SourceRuntime;
+use crate::sources::{SourceKind, SourceSettings, lfo_preset};
 
 /// One node in the running graph.
 pub trait BlockNode: Send + Sync {
@@ -62,16 +61,12 @@ pub fn make(
 			a: param(params, "a", 1.0),
 			b: param(params, "b", 1.0),
 		}),
-		"lfo" => Box::new(Lfo::new(rate, param(params, "rate", 1.0), points)),
-		"random" => Box::new(RandomNode::new(rate, params)),
-		"table" => Box::new(TableNode::new(rate, params)),
-		"pitch" => Box::new(PitchNode::new(rate, params)),
-		"midi" => Box::new(MidiNode::new(params)),
-		"envelope" => Box::new(Envelope::new(
-			rate,
-			param(params, "attack", 10.0),
-			param(params, "release", 100.0),
-		)),
+		"lfo" => Box::new(SourceNode::new(SourceKind::Lfo, rate, params, points)),
+		"random" => Box::new(SourceNode::new(SourceKind::Random, rate, params, &[])),
+		"table" => Box::new(SourceNode::new(SourceKind::Table, rate, params, &[])),
+		"pitch" => Box::new(SourceNode::new(SourceKind::Pitch, rate, params, &[])),
+		"midi" => Box::new(SourceNode::new(SourceKind::Midi, rate, params, &[])),
+		"envelope" => Box::new(SourceNode::new(SourceKind::Envelope, rate, params, &[])),
 		"delay" => Box::new(Delay::new()),
 		kind if kind.starts_with("synth:") => {
 			use i_am_synths::{
@@ -440,74 +435,244 @@ impl BlockNode for Mixer {
 	}
 }
 
-/// A control-rate sine.
-struct Lfo {
-	phase: f32,
-	rate: f32,
-	frequency: f32,
-	shape: i32,
-	sync: bool,
-	beats: f32,
-	points: Option<EditableLfo>,
+/// A control source played as a graph node.
+///
+/// The graph wants a node with a port; the rack wants a slot. Both run the same
+/// [SourceRuntime] now, so an LFO, envelope, random walk or table set to the
+/// same numbers behaves the same on either page. The node keeps the catalog's
+/// parameter names and maps them onto [SourceSettings]; the runtime does the
+/// rest, including the tempo sync, the random stream and the smoothing.
+struct SourceNode {
+	kind: SourceKind,
+	settings: SourceSettings,
+	runtime: SourceRuntime,
+	dirty: bool,
 }
 
-impl Lfo {
-	fn new(rate: usize, frequency: f32, points: &[crate::graph::Point]) -> Self {
-		let mut lfo = Self {
-			phase: 0.0,
-			rate: rate as f32,
-			frequency,
-			shape: 0,
-			sync: false,
-			beats: 1.0,
-			points: None,
+impl SourceNode {
+	fn new(
+		kind: SourceKind,
+		rate: usize,
+		params: &BTreeMap<&'static str, f32>,
+		points: &[crate::graph::Point],
+	) -> Self {
+		let settings = SourceSettings::default();
+		let mut node = Self {
+			kind,
+			settings: settings.clone(),
+			runtime: SourceRuntime::from_settings(kind, false, settings, rate, 0),
+			dirty: true,
 		};
 
-		if !points.is_empty() {
-			let mut editable = EditableLfo::new();
-
-			for point in points {
-				editable.add_point(point.time, point.value, point.bend);
-			}
-
-			lfo.points = Some(editable);
+		for (name, value) in params {
+			node.set_param(name, *value);
 		}
 
-		lfo
+		// Points pasted on the node override the preset shape, exactly as the
+		// rack's custom LFO does.
+		if kind == SourceKind::Lfo && !points.is_empty() {
+			node.settings.lfo_points = points
+				.iter()
+				.map(|point| (point.time, point.value, point.bend))
+				.collect();
+			node.settings.lfo_shape = 4;
+			node.dirty = true;
+		}
+
+		node
 	}
 }
 
-impl BlockNode for Lfo {
+impl BlockNode for SourceNode {
 	fn set_param(&mut self, name: &str, value: f32) {
-		match name {
-			"rate" => self.frequency = value.clamp(0.01, 200.0),
-			"shape" => self.shape = value as i32,
-			"sync" => self.sync = value != 0.0,
-			"beats" => self.beats = value.clamp(0.03125, 32.0),
-			_ => {}
+		let mut changed = false;
+
+		{
+			let settings = &mut self.settings;
+
+			match (self.kind, name) {
+				(SourceKind::Lfo, "rate") => {
+					let next = value.clamp(0.01, 20.0);
+					if settings.lfo_rate != next {
+						settings.lfo_rate = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Lfo, "shape") => {
+					let next = (value.round() as i32).clamp(0, 4);
+					if settings.lfo_shape != next {
+						settings.lfo_shape = next;
+
+						if next <= 3 {
+							settings.lfo_points = lfo_preset(next);
+						}
+
+						changed = true;
+					}
+				}
+				(SourceKind::Lfo, "sync") => {
+					let next = value != 0.0;
+					if settings.lfo_sync != next {
+						settings.lfo_sync = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Lfo, "beats") => {
+					let next = value.clamp(0.03125, 32.0);
+					if settings.lfo_beats != next {
+						settings.lfo_beats = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Envelope, "attack") => {
+					let next = value.clamp(1.0, 500.0);
+					if settings.env_attack != next {
+						settings.env_attack = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Envelope, "release") => {
+					let next = value.clamp(1.0, 500.0);
+					if settings.env_release != next {
+						settings.env_release = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Random, "rate") => {
+					let next = value.clamp(0.01, 20.0);
+					if settings.random_rate != next {
+						settings.random_rate = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Random, "smooth") => {
+					let next = value.clamp(0.0, 500.0);
+					if settings.random_smooth != next {
+						settings.random_smooth = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Random, "sync") => {
+					let next = value != 0.0;
+					if settings.random_sync != next {
+						settings.random_sync = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Random, "beats") => {
+					let next = value.clamp(0.03125, 32.0);
+					if settings.random_beats != next {
+						settings.random_beats = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Table, "rate") => {
+					let next = value.clamp(0.01, 20.0);
+					if settings.table_rate != next {
+						settings.table_rate = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Table, "shape") => {
+					let next = (value.round() as i32).clamp(0, 3);
+					if settings.table_shape != next {
+						settings.table_shape = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Table, "morph") => {
+					let next = value.clamp(0.0, 1.0);
+					if settings.table_morph != next {
+						settings.table_morph = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Table, "sync") => {
+					let next = value != 0.0;
+					if settings.table_sync != next {
+						settings.table_sync = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Table, "beats") => {
+					let next = value.clamp(0.03125, 32.0);
+					if settings.table_beats != next {
+						settings.table_beats = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Pitch, "clarity") => {
+					let next = value.clamp(0.0, 1.0);
+					if settings.pitch_clarity != next {
+						settings.pitch_clarity = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Pitch, "glide") => {
+					let next = value.clamp(0.0, 1000.0);
+					if settings.pitch_glide != next {
+						settings.pitch_glide = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Midi, "mode") => {
+					let next = (value.round() as i32).clamp(0, 1);
+					if settings.midi_mode != next {
+						settings.midi_mode = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Midi, "transpose") => {
+					let next = (value.round() as i32).clamp(-24, 24);
+					if settings.midi_transpose != next {
+						settings.midi_transpose = next;
+						changed = true;
+					}
+				}
+				(SourceKind::Midi, "fine") => {
+					let next = value.clamp(-100.0, 100.0);
+					if settings.midi_fine != next {
+						settings.midi_fine = next;
+						changed = true;
+					}
+				}
+				_ => {}
+			}
+		}
+
+		if changed {
+			self.dirty = true;
 		}
 	}
 
-	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
-		let tempo = context.context.infos().tempo.unwrap_or(120.0);
-		let frequency = if self.sync {
-			source_dsp::sync_hz(tempo, self.beats)
-		} else {
-			self.frequency
-		};
+	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
+		if self.dirty {
+			self.runtime
+				.update_settings(self.kind, false, self.settings.clone(), context.rate);
+			self.dirty = false;
+		}
 
-		self.phase = (self.phase + frequency / self.rate * context.frames as f32).fract();
+		let frames = context.frames.min(BLOCK);
+		let input = audio(inputs, 0);
+		let infos = context.context.infos();
+
+		for frame in 0..frames {
+			let mono = input.channels[0][frame]
+				.abs()
+				.max(input.channels[1][frame].abs());
+			// The note events belong to the block, not to a sample: hand them to
+			// the runtime once.
+			let events: &[NoteEvent] = if frame == 0 { &context.events } else { &[] };
+			self.runtime.advance(mono, infos, context.rate, events);
+		}
 
 		if let Some(Buffer::Control(value)) = outputs.first_mut() {
-			*value = match &self.points {
-				Some(points) => points.sample(self.phase, 0) * 2.0 - 1.0,
-				None => source_dsp::shape(self.shape, self.phase),
-			};
+			*value = self.runtime.value();
 		}
 	}
 
 	fn phase(&self) -> Option<f32> {
-		Some(self.phase)
+		Some(self.runtime.phase())
 	}
 }
 
@@ -552,313 +717,6 @@ impl<P: Default + Plugin> BlockNode for SynthNode<P> {
 	}
 }
 
-/// A sample-and-hold random source: a new value at its rate, smoothed.
-struct RandomNode {
-	rate: f32,
-	smooth: f32,
-	sync: bool,
-	beats: f32,
-	phase: f32,
-	value: f32,
-	target: f32,
-	seed: u32,
-	sample_rate: f32,
-	coefficient: f32,
-}
-
-impl RandomNode {
-	fn new(sample_rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
-		let mut node = Self {
-			rate: param(params, "rate", 4.0),
-			smooth: param(params, "smooth", 20.0),
-			sync: param(params, "sync", 0.0) != 0.0,
-			beats: param(params, "beats", 1.0),
-			phase: 0.0,
-			value: 0.0,
-			target: 0.0,
-			seed: 0x1234_5678,
-			sample_rate: sample_rate as f32,
-			coefficient: 0.0,
-		};
-		node.update();
-
-		node
-	}
-
-	fn update(&mut self) {
-		let smooth = self.smooth.clamp(0.1, 500.0) * 0.001;
-		self.coefficient = 1.0 - (-1.0 / (smooth * self.sample_rate)).exp();
-	}
-
-	fn next(&mut self) -> f32 {
-		let mut x = self.seed;
-		x ^= x << 13;
-		x ^= x >> 17;
-		x ^= x << 5;
-		self.seed = x;
-
-		(x as f32 / u32::MAX as f32) * 2.0 - 1.0
-	}
-}
-
-impl BlockNode for RandomNode {
-	fn set_param(&mut self, name: &str, value: f32) {
-		match name {
-			"rate" => self.rate = value.clamp(0.01, 200.0),
-			"smooth" => self.smooth = value.clamp(0.1, 500.0),
-			"sync" => self.sync = value != 0.0,
-			"beats" => self.beats = value.clamp(0.03125, 32.0),
-			_ => return,
-		}
-
-		self.update();
-	}
-
-	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
-		let tempo = context.context.infos().tempo.unwrap_or(120.0);
-		let rate = if self.sync {
-			source_dsp::sync_hz(tempo, self.beats)
-		} else {
-			self.rate
-		};
-
-		self.phase += rate * context.frames as f32 / self.sample_rate;
-
-		while self.phase >= 1.0 {
-			self.phase -= 1.0;
-			self.target = self.next();
-		}
-
-		for _ in 0..context.frames {
-			self.value += (self.target - self.value) * self.coefficient;
-		}
-
-		if let Some(Buffer::Control(value)) = outputs.first_mut() {
-			*value = self.value;
-		}
-	}
-}
-
-/// A wavetable oscillator: the shape morphs toward the next one.
-struct TableNode {
-	rate: f32,
-	shape: i32,
-	morph: f32,
-	sync: bool,
-	beats: f32,
-	phase: f32,
-	sample_rate: f32,
-}
-
-impl TableNode {
-	fn new(sample_rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
-		Self {
-			rate: param(params, "rate", 1.0),
-			shape: param(params, "shape", 0.0) as i32,
-			morph: param(params, "morph", 0.0),
-			sync: param(params, "sync", 0.0) != 0.0,
-			beats: param(params, "beats", 1.0),
-			phase: 0.0,
-			sample_rate: sample_rate as f32,
-		}
-	}
-}
-
-impl BlockNode for TableNode {
-	fn set_param(&mut self, name: &str, value: f32) {
-		match name {
-			"rate" => self.rate = value.clamp(0.01, 200.0),
-			"shape" => self.shape = value as i32,
-			"morph" => self.morph = value.clamp(0.0, 1.0),
-			"sync" => self.sync = value != 0.0,
-			"beats" => self.beats = value.clamp(0.03125, 32.0),
-			_ => {}
-		}
-	}
-
-	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
-		let tempo = context.context.infos().tempo.unwrap_or(120.0);
-		let rate = if self.sync {
-			source_dsp::sync_hz(tempo, self.beats)
-		} else {
-			self.rate
-		};
-
-		self.phase = (self.phase + rate * context.frames as f32 / self.sample_rate).fract();
-
-		if let Some(Buffer::Control(value)) = outputs.first_mut() {
-			*value = source_dsp::morph(self.shape, self.morph, self.phase);
-		}
-	}
-
-	fn phase(&self) -> Option<f32> {
-		Some(self.phase)
-	}
-}
-
-/// A mono pitch tracker on the input, reported as a note in 0..1.
-struct PitchNode {
-	tracker: PitchTracker,
-	clarity: f32,
-	glide: f32,
-	value: f32,
-	sample_rate: f32,
-}
-
-impl PitchNode {
-	fn new(sample_rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
-		Self {
-			tracker: PitchTracker::new(sample_rate, 2_048),
-			clarity: param(params, "clarity", 0.5),
-			glide: param(params, "glide", 20.0),
-			value: 0.0,
-			sample_rate: sample_rate as f32,
-		}
-	}
-}
-
-impl BlockNode for PitchNode {
-	fn set_param(&mut self, name: &str, value: f32) {
-		match name {
-			"clarity" => self.clarity = value.clamp(0.0, 1.0),
-			"glide" => self.glide = value.clamp(0.1, 1000.0),
-			_ => {}
-		}
-	}
-
-	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
-		let input = audio(inputs, 0);
-
-		for frame in 0..context.frames {
-			let mono = (input.channels[0][frame] + input.channels[1][frame]) * 0.5;
-			self.tracker.process_sample(mono);
-
-			if let Some(estimate) = self.tracker.last()
-				&& estimate.clarity >= self.clarity
-			{
-				let target = (estimate.midi_note / 127.0).clamp(0.0, 1.0);
-				let coefficient = 1.0 - (-1.0 / (self.glide * 0.001 * self.sample_rate)).exp();
-				self.value += (target - self.value) * coefficient;
-			}
-		}
-
-		if let Some(Buffer::Control(value)) = outputs.first_mut() {
-			*value = self.value;
-		}
-	}
-}
-
-/// The last MIDI note or velocity.
-struct MidiNode {
-	mode: i32,
-	transpose: f32,
-	fine: f32,
-	note: f32,
-	velocity: f32,
-}
-
-impl MidiNode {
-	fn new(params: &BTreeMap<&'static str, f32>) -> Self {
-		Self {
-			mode: param(params, "mode", 0.0) as i32,
-			transpose: param(params, "transpose", 0.0),
-			fine: param(params, "fine", 0.0),
-			note: 60.0,
-			velocity: 0.0,
-		}
-	}
-}
-
-impl BlockNode for MidiNode {
-	fn set_param(&mut self, name: &str, value: f32) {
-		match name {
-			"mode" => self.mode = value as i32,
-			"transpose" => self.transpose = value,
-			"fine" => self.fine = value,
-			_ => {}
-		}
-	}
-
-	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
-		for event in &context.events {
-			match event {
-				NoteEvent::NoteOn { note, velocity, .. } => {
-					self.note = *note as f32;
-					self.velocity = velocity.clamp(0.0, 1.0);
-				}
-				NoteEvent::NoteOff { .. } | NoteEvent::Stop { .. } | NoteEvent::ImmediateStop => {
-					self.velocity = 0.0
-				}
-				_ => {}
-			}
-		}
-
-		if let Some(Buffer::Control(value)) = outputs.first_mut() {
-			*value = if self.mode == 1 {
-				self.velocity
-			} else {
-				((self.note + self.transpose + self.fine / 100.0) / 127.0).clamp(0.0, 1.0)
-			};
-		}
-	}
-}
-
-/// An envelope follower.
-struct Envelope {
-	attack: f32,
-	release: f32,
-	envelope: f32,
-	rate: f32,
-}
-
-impl Envelope {
-	fn new(rate: usize, attack_ms: f32, release_ms: f32) -> Self {
-		Self {
-			attack: source_dsp::time_coefficient(attack_ms.clamp(0.1, 2000.0), rate as f32),
-			release: source_dsp::time_coefficient(release_ms.clamp(0.1, 2000.0), rate as f32),
-			envelope: 0.0,
-			rate: rate as f32,
-		}
-	}
-}
-
-impl BlockNode for Envelope {
-	fn set_param(&mut self, name: &str, value: f32) {
-		match name {
-			"attack" => {
-				self.attack = source_dsp::time_coefficient(value.clamp(0.1, 2000.0), self.rate)
-			}
-			"release" => {
-				self.release = source_dsp::time_coefficient(value.clamp(0.1, 2000.0), self.rate)
-			}
-			_ => {}
-		}
-	}
-
-	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
-		let input = audio(inputs, 0);
-
-		// The follower smooths per sample and reports the block's last value;
-		// one step per block would make a ten millisecond attack take minutes.
-		for frame in 0..context.frames {
-			let peak = input.channels[0][frame]
-				.abs()
-				.max(input.channels[1][frame].abs());
-			let coefficient = if peak > self.envelope {
-				self.attack
-			} else {
-				self.release
-			};
-
-			self.envelope += (peak - self.envelope) * coefficient;
-		}
-
-		if let Some(Buffer::Control(value)) = outputs.first_mut() {
-			*value = self.envelope.clamp(0.0, 1.0);
-		}
-	}
-}
-
 /// A fixed 64-frame delay, so the graph has something with latency.
 struct Delay {
 	buffer: [[f32; 2]; 64],
@@ -893,5 +751,113 @@ impl BlockNode for Delay {
 				self.write = (self.write + 1) % 64;
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod source_tests {
+	use super::*;
+
+	fn infos() -> i_am_dsp::ProcessInfos {
+		i_am_dsp::ProcessInfos::default()
+	}
+
+	fn block(rate: usize) -> BlockContext {
+		BlockContext {
+			frames: BLOCK,
+			rate,
+			block: 0,
+			events: Vec::new(),
+			context: Box::new(()),
+		}
+	}
+
+	fn run(node: &mut SourceNode, context: &mut BlockContext, input: f32) -> f32 {
+		let mut outputs = [Buffer::Control(0.0)];
+		let audio = AudioBlock {
+			frames: BLOCK,
+			channels: [[input; BLOCK]; 2],
+		};
+		let inputs = [Buffer::Audio(audio)];
+		node.process(context, &inputs, &mut outputs);
+
+		match outputs[0] {
+			Buffer::Control(value) => value,
+			_ => panic!("a control source writes a control buffer"),
+		}
+	}
+
+	#[test]
+	fn an_lfo_node_runs_the_same_lfo_as_a_rack_slot() {
+		let rate = 48_000;
+		let mut params = BTreeMap::new();
+		params.insert("rate", 1.0);
+		params.insert("shape", 1.0);
+
+		let mut node = SourceNode::new(SourceKind::Lfo, rate, &params, &[]);
+		let settings = node.settings.clone();
+
+		let mut runtime = SourceRuntime::from_settings(SourceKind::Lfo, false, settings, rate, 0);
+		let from_node = run(&mut node, &mut block(rate), 0.0);
+
+		for _ in 0..BLOCK {
+			runtime.advance(0.0, &infos(), rate, &[]);
+		}
+
+		assert!(
+			(from_node - runtime.value()).abs() < 1e-6,
+			"{from_node} vs {}",
+			runtime.value()
+		);
+	}
+
+	#[test]
+	fn a_random_node_runs_the_same_stream_as_a_rack_slot() {
+		let rate = 48_000;
+		let mut params = BTreeMap::new();
+		params.insert("rate", 4.0);
+		params.insert("smooth", 20.0);
+
+		let mut node = SourceNode::new(SourceKind::Random, rate, &params, &[]);
+		let settings = node.settings.clone();
+
+		let mut runtime =
+			SourceRuntime::from_settings(SourceKind::Random, false, settings, rate, 0);
+		let from_node = run(&mut node, &mut block(rate), 0.0);
+
+		for _ in 0..BLOCK {
+			runtime.advance(0.0, &infos(), rate, &[]);
+		}
+
+		assert!(
+			(from_node - runtime.value()).abs() < 1e-6,
+			"{from_node} vs {}",
+			runtime.value()
+		);
+	}
+
+	#[test]
+	fn an_envelope_node_follows_the_same_follower_as_a_rack_slot() {
+		let rate = 48_000;
+		let mut params = BTreeMap::new();
+		params.insert("attack", 10.0);
+		params.insert("release", 100.0);
+
+		let mut node = SourceNode::new(SourceKind::Envelope, rate, &params, &[]);
+		let settings = node.settings.clone();
+
+		let mut runtime =
+			SourceRuntime::from_settings(SourceKind::Envelope, false, settings, rate, 0);
+		let from_node = run(&mut node, &mut block(rate), 1.0);
+
+		for _ in 0..BLOCK {
+			runtime.advance(1.0, &infos(), rate, &[]);
+		}
+
+		assert!(
+			(from_node - runtime.value()).abs() < 1e-6,
+			"{from_node} vs {}",
+			runtime.value()
+		);
 	}
 }

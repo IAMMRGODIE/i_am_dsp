@@ -96,7 +96,9 @@ fn mid_and_side_can_be_summed_back() {
 #[test]
 fn an_lfo_can_follow_points() {
 	let mut params = BTreeMap::new();
-	params.insert("rate", 375.0);
+	params.insert("rate", 1.0);
+	// The peak sits just past the first block, so the test reads the table
+	// inside one process call instead of racing a 375 Hz LFO past the clamp.
 	let points = [
 		crate::graph::Point {
 			time: 0.0,
@@ -104,7 +106,7 @@ fn an_lfo_can_follow_points() {
 			bend: 0.0,
 		},
 		crate::graph::Point {
-			time: 0.5,
+			time: 0.001,
 			value: 1.0,
 			bend: 0.0,
 		},
@@ -156,7 +158,9 @@ fn the_control_sources_move() {
 
 		let mut moved = false;
 
-		for block in 0..8 {
+		// A random source at the shared 20 Hz ceiling still needs a few hundred
+		// milliseconds to step: give the test a full cycle.
+		for block in 0..64 {
 			context.block = block;
 			context.events.clear();
 			if block == 0 {
@@ -356,7 +360,7 @@ fn a_modulation_mode_moves_where_the_swing_starts() {
 		let mut engine = Engine::new(&graph, 48_000).expect("builds");
 		let mut frames = Vec::new();
 
-		for _ in 0..16 {
+		for _ in 0..64 {
 			let host = vec![[0.5f32; 2]; BLOCK];
 			let mut block = vec![[0.0f32; 2]; BLOCK];
 			engine.process(&host, &[], &mut block);

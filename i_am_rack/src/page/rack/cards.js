@@ -204,18 +204,7 @@
   
 
   function lfoPreset(shape) {
-    var raw;
-
-    switch (((shape % 4) + 4) % 4) {
-      case 1: raw = [[0, 0], [0.5, 1], [1, 0]]; break;
-      case 2: raw = [[0, 0], [1, 1]]; break;
-      case 3: raw = [[0, 1], [0.5, 1], [0.5001, 0], [1, 0]]; break;
-      default: raw = [[0, 0.5], [0.25, 1], [0.5, 0.5], [0.75, 0], [1, 0.5]];
-    }
-
-    return raw.map(function (point) {
-      return { time: point[0], value: point[1], bend: 0 };
-    });
+    return IAmCard.sources.preset(shape);
   }
 
   function lfoPointsFromJson(points, shape) {

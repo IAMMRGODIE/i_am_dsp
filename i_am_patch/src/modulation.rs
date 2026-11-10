@@ -17,7 +17,7 @@ use crate::sources::{SourceKind, SourceSettings, SourceSlot};
 pub const CONTROL_INTERVAL: usize = 64;
 
 /// One running source slot.
-struct SourceRuntime {
+pub(crate) struct SourceRuntime {
 	id: u32,
 	kind: SourceKind,
 	bypass: bool,
@@ -40,12 +40,18 @@ struct SourceRuntime {
 }
 
 impl SourceRuntime {
-	fn new(slot: &SourceSlot, rate: usize) -> Self {
-		let settings = slot.settings.clone();
+	/// A runtime for one source, with no slot around it.
+	pub(crate) fn from_settings(
+		kind: SourceKind,
+		bypass: bool,
+		settings: SourceSettings,
+		rate: usize,
+		id: u32,
+	) -> Self {
 		let mut runtime = Self {
-			id: slot.id,
-			kind: slot.kind,
-			bypass: slot.bypass,
+			id,
+			kind,
+			bypass,
 			settings: settings.clone(),
 			lfo: editable_lfo(&settings.lfo_points),
 			lfo_phase: 0.0,
@@ -54,7 +60,7 @@ impl SourceRuntime {
 			random_phase: 0.0,
 			random_target: 0.0,
 			random_value: 0.0,
-			seed: 0x1234_5678 ^ slot.id.wrapping_mul(2_654_435_761),
+			seed: 0x1234_5678 ^ id.wrapping_mul(2_654_435_761),
 			attack_coeff: 0.0,
 			release_coeff: 0.0,
 			random_coeff: 0.0,
@@ -64,14 +70,28 @@ impl SourceRuntime {
 			midi_velocity: 0.0,
 		};
 
-		runtime.update(slot, rate);
+		runtime.update_settings(kind, bypass, settings, rate);
 		runtime
 	}
 
+	fn new(slot: &SourceSlot, rate: usize) -> Self {
+		Self::from_settings(slot.kind, slot.bypass, slot.settings.clone(), rate, slot.id)
+	}
+
 	fn update(&mut self, slot: &SourceSlot, rate: usize) {
-		self.kind = slot.kind;
-		self.bypass = slot.bypass;
-		self.settings = slot.settings.clone();
+		self.update_settings(slot.kind, slot.bypass, slot.settings.clone(), rate);
+	}
+
+	pub(crate) fn update_settings(
+		&mut self,
+		kind: SourceKind,
+		bypass: bool,
+		settings: SourceSettings,
+		rate: usize,
+	) {
+		self.kind = kind;
+		self.bypass = bypass;
+		self.settings = settings;
 		self.lfo = editable_lfo(&self.settings.lfo_points);
 		self.attack_coeff = source_dsp::time_coefficient(self.settings.env_attack, rate as f32);
 		self.release_coeff = source_dsp::time_coefficient(self.settings.env_release, rate as f32);
@@ -85,7 +105,13 @@ impl SourceRuntime {
 		}
 	}
 
-	fn advance(&mut self, input: f32, infos: &ProcessInfos, rate: usize, events: &[NoteEvent]) {
+	pub(crate) fn advance(
+		&mut self,
+		input: f32,
+		infos: &ProcessInfos,
+		rate: usize,
+		events: &[NoteEvent],
+	) {
 		match self.kind {
 			SourceKind::Lfo => {
 				let frequency = source_rate(
@@ -169,7 +195,7 @@ impl SourceRuntime {
 		}
 	}
 
-	fn value(&self) -> f32 {
+	pub(crate) fn value(&self) -> f32 {
 		if self.bypass {
 			return 0.0;
 		}
@@ -204,7 +230,7 @@ impl SourceRuntime {
 		}
 	}
 
-	fn phase(&self) -> f32 {
+	pub(crate) fn phase(&self) -> f32 {
 		match self.kind {
 			SourceKind::Lfo => self.lfo_phase,
 			SourceKind::Table => self.table_phase,
