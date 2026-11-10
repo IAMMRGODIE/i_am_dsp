@@ -86,18 +86,22 @@
   }
 
   // The live overlay follows the rack's: a playhead for the LFO and the table,
-  // a trace for the others. The history is one value per poll, so the window is
-  // long enough to read a slow envelope instead of one block of it.
-  function drawSourceLive(svg, entry) {
+  // a trace for the others. It sits in its own layer, so a poll repaints only
+  // this and leaves the static drawing and the editor's handlers alone.
+  function drawSourceLive(entry) {
+    const layer = entry.live;
+
+    if (!layer) return;
+
+    layer.textContent = "";
+
     if (!entry.history || !entry.history.length) return;
 
-    const key = "patch";
-
-    IAmCard.sources.drawLive(svg, entry.kind.id, {
-      history: { [key]: entry.history },
-      phases: { [key]: typeof entry.phase === "number" ? entry.phase : 0 },
-      values: { [key]: entry.history[entry.history.length - 1] },
-    }, key, false);
+    IAmCard.sources.drawLive(layer, entry.kind.id, {
+      history: { patch: entry.history },
+      phases: { patch: typeof entry.phase === "number" ? entry.phase : 0 },
+      values: { patch: typeof entry.lastValue === "number" ? entry.lastValue : 0 },
+    }, "patch", false);
   }
 
   // The control sources' pictures, the ones the rack's modulation page draws:
@@ -285,17 +289,6 @@
     svg.textContent = "";
     drawSourceStatic(svg, entry.node, entry.kind.id);
 
-    if (entry.samples !== entry.lastSamples) {
-      entry.lastSamples = entry.samples;
-
-      if (entry.samples && entry.samples.length) {
-        entry.history = entry.history || [];
-        entry.history.push(entry.samples[entry.samples.length - 1][0]);
-
-        if (entry.history.length > 120) entry.history.shift();
-      }
-    }
-
     if (entry.kind.id === "lfo") {
       IAmCard.sources.editLfo(svg, entry.node, {
         shape: params.shape,
@@ -312,7 +305,9 @@
     }
 
     // Last, so the editor's repaint of the points does not erase the playhead.
-    drawSourceLive(svg, entry);
+    entry.live = el("g", { class: "source-live" });
+    svg.appendChild(entry.live);
+    drawSourceLive(entry);
   }
 
   // The rack's source cards put these choices in the header instead of a knob.
@@ -1383,7 +1378,7 @@
   function startScopes() {
     if (scopesTimer !== null) return;
 
-    scopesTimer = setInterval(pollScopes, 160);
+    scopesTimer = setInterval(pollScopes, 20);
     pollScopes();
   }
 
@@ -1402,7 +1397,33 @@
 
         entry.samples = scope.samples || [];
         entry.phase = typeof scope.phase === "number" ? scope.phase : null;
-        drawSourceCard(entry);
+
+        // The LFO editor's repaint clears the hero while dragging, which takes
+        // the live layer with it; put it back before drawing into it again.
+        if (entry.live && !entry.live.isConnected) {
+          const svg = entry.card.querySelector(".mcard-hero svg");
+          if (svg) svg.appendChild(entry.live);
+        }
+
+        if (entry.samples !== entry.lastSamples) {
+          entry.lastSamples = entry.samples;
+
+          if (entry.samples.length) {
+            entry.lastValue = entry.samples[entry.samples.length - 1][0];
+            entry.history = entry.history || [];
+            entry.ticks = (entry.ticks || 0) + 1;
+
+            // One point per four polls: a 20 ms playhead, and a window of about
+            // ten seconds, the way the rack's modulation cards read.
+            if (entry.ticks % 4 === 1) {
+              entry.history.push(entry.lastValue);
+
+              if (entry.history.length > 120) entry.history.shift();
+            }
+          }
+        }
+
+        drawSourceLive(entry);
       }
     } catch {
       // The next tick tries again.
