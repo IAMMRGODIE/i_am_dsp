@@ -143,6 +143,7 @@ impl BlockNode for ProductNode {
 
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
+		let sidechain = inputs.get(1).and_then(Buffer::audio).copied();
 		let Self { effect, ramps } = self;
 
 		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
@@ -158,7 +159,17 @@ impl BlockNode for ProductNode {
 				}
 
 				let mut samples = [input.channels[0][frame], input.channels[1][frame]];
-				effect.process(&mut samples, &[], &mut context.context);
+				// The product's chooser counts the main input as port 0, so the
+				// sidechain frame sits at index 1; index 0 mirrors it.
+				let side =
+					sidechain.map(|block| [block.channels[0][frame], block.channels[1][frame]]);
+				let other = side.map(|frame| [frame, frame]);
+				let other: &[&[f32; 2]] = match &other {
+					Some(frames) => &[&frames[0], &frames[1]],
+					None => &[],
+				};
+
+				effect.process(&mut samples, other, &mut context.context);
 				out.channels[0][frame] = samples[0];
 				out.channels[1][frame] = samples[1];
 			}

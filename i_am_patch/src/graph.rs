@@ -268,8 +268,13 @@ fn module_catalog() -> Vec<NodeDesc> {
 		let id: &'static str = Box::leak(format!("mod:{}", module.id).into_boxed_str());
 		let latency = (module.build)(44_100).delay();
 		let mut params: Vec<(&'static str, f32)> = Vec::new();
+		let mut sidechain = false;
 
 		for parameter in module.parameters() {
+			if parameter.identifier == "sidechain" {
+				sidechain = true;
+			}
+
 			let name: &'static str = Box::leak(parameter.identifier.clone().into_boxed_str());
 			let value = match &parameter.value {
 				Value::Float { value, .. } => *value,
@@ -287,10 +292,18 @@ fn module_catalog() -> Vec<NodeDesc> {
 			params.push((name, value));
 		}
 
+		// The compressor is the one module that can read a second audio input;
+		// it declares the port, the page draws it, and the engine routes it.
+		let inputs: &'static [PortDesc] = if sidechain {
+			Box::leak(vec![port("audio", AUDIO), optional("sidechain", AUDIO)].into_boxed_slice())
+		} else {
+			MODULE_INPUTS
+		};
+
 		kinds.push(NodeDesc {
 			id,
 			name: module.name,
-			inputs: MODULE_INPUTS,
+			inputs,
 			outputs: MODULE_OUTPUTS,
 			latency,
 			params: Box::leak(params.into_boxed_slice()),
@@ -581,11 +594,26 @@ mod tests {
 			!compressor.params.is_empty(),
 			"no parameters from the schema"
 		);
-		assert_eq!(compressor.inputs.len(), 1);
+		assert_eq!(compressor.inputs.len(), 2, "main and sidechain");
 		assert!(node("mod:distortion").is_some());
 		assert!(
 			node("mod:filter").is_some(),
-			"the built-ins are still there"
+			"the effect modules are in the catalog"
+		);
+	}
+
+	#[test]
+	fn a_module_with_a_sidechain_declares_it() {
+		let compressor = node("mod:compressor").expect("compressor");
+		assert_eq!(compressor.inputs.len(), 2);
+		assert_eq!(compressor.inputs[1].name, "sidechain");
+		assert!(compressor.inputs[1].optional);
+
+		let gain = node("mod:gain").expect("gain");
+		assert_eq!(
+			gain.inputs.len(),
+			1,
+			"only the compressor reads a sidechain"
 		);
 	}
 
