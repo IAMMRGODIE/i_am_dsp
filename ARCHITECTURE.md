@@ -390,6 +390,8 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   可读、可被 agent 编辑；JSON 是真相，文本是投影。
 - 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`；页面编辑 bump generation，
   音频线程在块边界重建引擎。
+- 源图形（LFO/包络/随机/表）与 rack 共用 `i_am_web_gui/page/card/sources.js` 一份实现，
+  样式以 Multipass 的调制卡片为准；patch 只负责把节点数据喂进去。
 
 ### 6.4 `i_am_rack`（I Am Multipass）
 
