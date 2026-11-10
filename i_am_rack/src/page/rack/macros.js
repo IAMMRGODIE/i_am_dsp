@@ -256,11 +256,14 @@
     card.appendChild(controls);
 
     if (chrome.sync !== undefined) {
-      var sync = el("button", "mcard-toggle mod-sync", "Sync");
-      sync.type = "button";
+      // The effect faceplate's header dot, with its caption: a boolean that
+      // belongs to the header rather than to the face.
+      var sync = el("span", "mod-sync");
       sync.title = chrome.sync ? "Rate follows the host tempo" : "Rate is in hertz";
-      sync.setAttribute("aria-pressed", chrome.sync ? "true" : "false");
-      sync.addEventListener("click", function () { chrome.onSync(!chrome.sync); });
+      sync.appendChild(IAmCard.dotHandle({ id: "sync", label: "Sync" }, chrome.sync ? 1 : 0, function (_, next) {
+        chrome.onSync(!!next);
+      }));
+      sync.appendChild(el("span", "mcard-setting-label", "SYNC"));
       head.appendChild(sync);
     }
 

@@ -353,7 +353,7 @@ body.panel-collapsed #splitter{opacity:.4}
   background:transparent; border:0; border-radius:4px; cursor:pointer;
 }
 .mod-collapse:hover{background:rgba(255,255,255,.07); color:var(--text1)}
-.mod-sync{height:20px; padding:2px 8px; font-size:9px}
+.mod-sync{display:inline-flex; align-items:center; gap:4px; flex:0 0 auto}
 .mod-remove{
   width:18px; height:18px; padding:0; flex:0 0 18px;
   font:inherit; font-size:14px; line-height:1; color:var(--text3);
@@ -376,11 +376,7 @@ body.panel-collapsed #splitter{opacity:.4}
 .mod-card.collapsed .mod-card-title{
   writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap;
 }
-.mod-card.collapsed .mod-sync{
-  width:18px; height:auto; min-height:30px; padding:3px 1px;
-  writing-mode:vertical-rl; transform:rotate(180deg);
-  font-size:8px; line-height:1; border-radius:9px;
-}
+.mod-card.collapsed .mod-sync{display:none}
 .mod-card.collapsed .mod-remove{position:static; margin-top:auto}
 .mod-card.bypassed .mod-hero,
 .mod-card.bypassed .mod-card-controls{opacity:.45}

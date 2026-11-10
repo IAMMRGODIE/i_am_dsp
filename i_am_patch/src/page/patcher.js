@@ -508,7 +508,6 @@
         log: !!range.log,
         step: choices ? 1 : range.step,
         choices,
-        widget: id === "sync" ? "pill" : undefined,
       };
 
       return { ...control, ...modulationSpec(node, control) };

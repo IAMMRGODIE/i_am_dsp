@@ -423,6 +423,7 @@
     control: control,
     controlHandle: controlHandle,
     switchHandle: makeSwitch,
+    dotHandle: makeHeaderDot,
     notePickerHandle: makeNotePickerHandle,
     choiceHandle: makeChoiceHandle,
     sliderHandle: makeSliderHandle,
