@@ -90,7 +90,11 @@ impl PatcherShared {
 
 	/// Records where a source's cycle is.
 	pub fn set_phase(&self, node: u32, phase: f32) {
-		let mut phases = self.phases.lock().expect("the phase lock");
+		// The audio thread must not wait for the page: a skipped phase only
+		// costs one frame of the playhead.
+		let Ok(mut phases) = self.phases.try_lock() else {
+			return;
+		};
 
 		if let Some(entry) = phases.iter_mut().find(|(id, _)| *id == node) {
 			entry.1 = phase;
@@ -109,14 +113,20 @@ impl PatcherShared {
 			.map(|(_, phase)| *phase)
 	}
 
-	/// The watched nodes, for the audio thread's copy.
+	/// The watched nodes, copied into the output list without waiting.
+	pub fn tap_snapshot_into(&self, out: &mut Vec<(u32, Arc<Scope>)>) {
+		out.clear();
+
+		if let Ok(taps) = self.taps.try_lock() {
+			out.extend(taps.iter().map(|tap| (tap.node, tap.scope.clone())));
+		}
+	}
+
+	/// The watched nodes, for callers outside the audio thread.
 	pub fn tap_snapshot(&self) -> Vec<(u32, Arc<Scope>)> {
-		self.taps
-			.lock()
-			.expect("the tap lock")
-			.iter()
-			.map(|tap| (tap.node, tap.scope.clone()))
-			.collect()
+		let mut out = Vec::new();
+		self.tap_snapshot_into(&mut out);
+		out
 	}
 
 	/// The latency a host should compensate for.
@@ -184,6 +194,8 @@ pub struct Body {
 	events: Vec<NoteEvent>,
 	tempo: Option<f32>,
 	position: Option<f32>,
+	/// The watched nodes, reused each block.
+	taps: Vec<(u32, Arc<Scope>)>,
 }
 
 impl Body {
@@ -201,6 +213,7 @@ impl Body {
 			events: Vec::new(),
 			tempo: None,
 			position: None,
+			taps: Vec::new(),
 		};
 		// The host asks for the latency before the first block.
 		body.rebuild();
@@ -299,8 +312,10 @@ impl Body {
 			self.events.clear();
 
 			// Every watched node's output is copied for the page.
-			for (node, scope) in self.shared.tap_snapshot() {
-				let id = i_am_patch::graph::NodeId(node);
+			self.shared.tap_snapshot_into(&mut self.taps);
+
+			for (node, scope) in &self.taps {
+				let id = i_am_patch::graph::NodeId(*node);
 				let block = self
 					.poly
 					.as_ref()
@@ -332,7 +347,7 @@ impl Body {
 					});
 
 				if let Some(phase) = phase {
-					self.shared.set_phase(node, phase);
+					self.shared.set_phase(*node, phase);
 				}
 			}
 		}

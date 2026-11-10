@@ -44,22 +44,33 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 		("GET", "/scopes") => {
 			use std::sync::atomic::Ordering;
 
-			let graph = shared.graph();
+			// The page only needs the latest value of each source, so the graph is
+			// read for its ids and released; cloning it here ran a graph copy on
+			// every poll.
+			let sources: Vec<u32> = {
+				let graph = shared.graph.lock().expect("the graph lock");
+
+				graph
+					.nodes
+					.iter()
+					.filter(|node| {
+						matches!(
+							node.kind.id,
+							"lfo" | "envelope" | "random" | "table" | "pitch" | "midi"
+						)
+					})
+					.map(|node| node.id.0)
+					.collect()
+			};
+
 			let mut scopes = Vec::new();
 
-			for node in &graph.nodes {
-				if !matches!(
-					node.kind.id,
-					"lfo" | "envelope" | "random" | "table" | "pitch" | "midi"
-				) {
-					continue;
-				}
-
-				let scope = shared.tap_for(node.id.0);
+			for node in sources {
+				let scope = shared.tap_for(node);
 				scopes.push(json!({
-					"node": node.id.0,
-					"samples": scope.read(1024),
-					"phase": shared.phase_for(node.id.0),
+					"node": node,
+					"samples": scope.read(64),
+					"phase": shared.phase_for(node),
 				}));
 			}
 

@@ -286,12 +286,18 @@ impl Shared {
 		scope
 	}
 
-	fn tap_snapshot(&self) -> Vec<(u32, Arc<Scope>)> {
-		self.taps.lock().expect("taps").clone()
+	fn tap_snapshot_into(&self, out: &mut Vec<(u32, Arc<Scope>)>) {
+		out.clear();
+
+		if let Ok(taps) = self.taps.try_lock() {
+			out.extend(taps.iter().cloned());
+		}
 	}
 
 	fn set_phase(&self, node: u32, phase: f32) {
-		let mut phases = self.phases.lock().expect("phases");
+		let Ok(mut phases) = self.phases.try_lock() else {
+			return;
+		};
 
 		if let Some(entry) = phases.iter_mut().find(|(id, _)| *id == node) {
 			entry.1 = phase;
@@ -335,6 +341,7 @@ fn spawn_audio(shared: Shared) {
 		let mut poly: Option<Poly> = None;
 		let mut built = 0u64;
 		let mut blocks = 0u32;
+		let mut taps: Vec<(u32, std::sync::Arc<Scope>)> = Vec::new();
 
 		loop {
 			let generation = shared.generation.load(Ordering::Relaxed);
@@ -388,17 +395,19 @@ fn spawn_audio(shared: Shared) {
 				);
 				poly.process(&input, &events, &mut output);
 
-				for (node, scope) in shared.tap_snapshot() {
+				shared.tap_snapshot_into(&mut taps);
+
+				for (node, scope) in &taps {
 					if let Some(block) = poly
-						.step_of(NodeId(node))
+						.step_of(NodeId(*node))
 						.and_then(|step| poly.tap_block(step))
-						.or_else(|| poly.tap_voice_block(NodeId(node)))
+						.or_else(|| poly.tap_voice_block(NodeId(*node)))
 					{
 						scope.write(&block);
 					}
 
-					if let Some(phase) = poly.control_phase(NodeId(node)) {
-						shared.set_phase(node, phase);
+					if let Some(phase) = poly.control_phase(NodeId(*node)) {
+						shared.set_phase(*node, phase);
 					}
 				}
 			}
@@ -542,7 +551,7 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				let scope = shared.tap_for(node.id.0);
 				scopes.push(json!({
 					"node": node.id.0,
-					"samples": scope.read(1024),
+					"samples": scope.read(64),
 					"phase": shared.phase_for(node.id.0),
 				}));
 			}
