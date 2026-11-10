@@ -13,10 +13,16 @@
 
   let catalog = [];
   let patch = { nodes: [], edges: [], mods: [] };
-  let selected = null;
+  // What is selected: a set, plus the one clicked last. The scope strip and
+  // the scale handle follow the primary; Delete and copy take the set.
+  const selection = new Set();
+  let primary = null;
   let selectedEdge = null;
   let selectedMod = null;
   let view = { x: 30, y: 30, zoom: 1 };
+  let spaceHeld = false;
+  let clipboard = null;
+  let suspendSnapshot = 0;
   let drag = null;
   // Each card scales by itself: x and y are independent, so a wide filter and
   // a narrow one can sit side by side at the sizes they need.
@@ -768,8 +774,123 @@
     await restore(redoStack.pop());
   }
 
+  /// Copies the selected nodes, the edges between them and the modulations
+  /// inside the selection.
+  function copySelection() {
+    if (!selection.size) return;
+
+    const ids = [...selection];
+    const index = new Map(ids.map((id, position) => [id, position]));
+
+    clipboard = {
+      nodes: ids.map((id) => {
+        const node = nodeOf(id);
+
+        return {
+          kind: node.kind,
+          x: node.x,
+          y: node.y,
+          params: Object.entries(node.params || {}),
+          points: (node.points || []).map((point) => [point.time, point.value, point.bend || 0]),
+        };
+      }),
+      edges: patch.edges
+        .filter((edge) => index.has(edge.from[0]) && index.has(edge.to[0]))
+        .map((edge) => ({
+          from: index.get(edge.from[0]),
+          fromPort: edge.from[1],
+          to: index.get(edge.to[0]),
+          toPort: edge.to[1],
+        })),
+      mods: patch.mods
+        .filter((mod) => index.has(mod.from[0]) && index.has(mod.to[0]))
+        .map((mod) => ({
+          from: index.get(mod.from[0]),
+          fromPort: mod.from[1],
+          to: index.get(mod.to[0]),
+          param: mod.to[1],
+          depth: mod.depth,
+          mode: mod.mode,
+        })),
+    };
+  }
+
+  /// Pastes the clipboard a little off the original, as one undo step.
+  async function pasteClipboard() {
+    if (!clipboard || !clipboard.nodes.length) return;
+
+    await snapshot({ op: "paste" });
+    suspendSnapshot += 1;
+
+    const ids = [];
+
+    try {
+      for (const item of clipboard.nodes) {
+        const added = await op(
+          { op: "add", kind: item.kind, x: item.x + 24, y: item.y + 24 },
+          false,
+        );
+        const id = added && added.id;
+
+        ids.push(id);
+
+        if (id === undefined) continue;
+
+        for (const [key, value] of item.params) {
+          await op({ op: "param", id, key, value }, false);
+        }
+
+        if (item.points.length) {
+          await op({ op: "set_points", id, points: item.points }, false);
+        }
+      }
+
+      for (const edge of clipboard.edges) {
+        if (ids[edge.from] === undefined || ids[edge.to] === undefined) continue;
+
+        await op(
+          { op: "connect", from: [ids[edge.from], edge.fromPort], to: [ids[edge.to], edge.toPort] },
+          false,
+        );
+      }
+
+      for (const mod of clipboard.mods) {
+        if (ids[mod.from] === undefined || ids[mod.to] === undefined) continue;
+
+        await op(
+          { op: "modulate", from: [ids[mod.from], mod.fromPort], to: [ids[mod.to], mod.param], depth: mod.depth },
+          false,
+        );
+      }
+    } finally {
+      suspendSnapshot -= 1;
+    }
+
+    patch = readPatch(await (await fetch("/patch")).json());
+
+    // A centered modulation is a mode on the link; the op adds the link first.
+    for (const mod of clipboard.mods) {
+      if (mod.mode !== "center") continue;
+      if (ids[mod.from] === undefined || ids[mod.to] === undefined) continue;
+
+      const index = patch.mods.findIndex((link) =>
+        link.from[0] === ids[mod.from] && link.to[0] === ids[mod.to] && link.to[1] === mod.param);
+
+      if (index >= 0) await op({ op: "mod_mode", index, mode: "center" }, false);
+    }
+
+    selection.clear();
+
+    for (const id of ids) {
+      if (id !== undefined) selection.add(id);
+    }
+
+    primary = selection.size ? [...selection][selection.size - 1] : null;
+    draw();
+  }
+
   async function op(body, redraw = true) {
-    await snapshot(body);
+    if (suspendSnapshot === 0) await snapshot(body);
 
     const response = await fetch("/op", {
       method: "POST",
@@ -780,6 +901,8 @@
     showStatus(result.error ? String(result.error) : "");
     patch = readPatch(await (await fetch("/patch")).json());
     if (redraw) draw();
+
+    return result;
   }
 
   // The port circles sit on the card's edge, in base coordinates; the world
@@ -893,7 +1016,7 @@
       // The box resizes with the handle; the face inside keeps its proportions,
       // so text and knobs are never stretched on one axis only.
       group.appendChild(el("rect", {
-        class: "node" + (selected === node.id ? " selected" : ""),
+        class: "node" + (selection.has(node.id) ? " selected" : ""),
         x: 0, y: 0, width: w, height: h, rx: 6,
       }));
 
@@ -926,13 +1049,23 @@
 
       drawPorts(group, kind, w, sy, u);
 
-      if (selected === node.id) {
+      if (selection.size === 1 && selection.has(node.id)) {
         group.appendChild(el("rect", {
           class: "scale-handle", x: w - 14, y: h - 14, width: 12, height: 12, rx: 2,
         }));
       }
 
       world.appendChild(group);
+    }
+
+    if (drag && drag.kind === "marquee") {
+      const a = drag.from;
+      const b = drag.to;
+      world.appendChild(el("rect", {
+        x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+        width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y),
+        class: "marquee",
+      }));
     }
 
     // A blade of wire follows the pointer while a port is dragged, and the
@@ -1375,7 +1508,8 @@
     }
 
     if (wire) {
-      selected = null;
+      selection.clear();
+      primary = null;
       selectedEdge = Number(wire.getAttribute("data-edge"));
       selectedMod = null;
       draw();
@@ -1383,7 +1517,8 @@
     }
 
     if (mod) {
-      selected = null;
+      selection.clear();
+      primary = null;
       selectedEdge = null;
       selectedMod = Number(mod.getAttribute("data-mod"));
       draw();
@@ -1414,8 +1549,23 @@
       const id = Number(nodeEl.getAttribute("data-node"));
       const point = toWorld(event);
       const node = nodeOf(id);
+      const additive = event.shiftKey || event.metaKey || event.ctrlKey;
 
-      selected = id;
+      if (additive) {
+        if (selection.has(id)) {
+          selection.delete(id);
+          primary = selection.size ? [...selection][selection.size - 1] : null;
+          draw();
+          return;
+        }
+
+        selection.add(id);
+      } else if (!selection.has(id)) {
+        selection.clear();
+        selection.add(id);
+      }
+
+      primary = id;
       draw();
       startScope(id);
 
@@ -1425,13 +1575,30 @@
         return;
       }
 
-      drag = { kind: "node", id, dx: point.x - node.x, dy: point.y - node.y };
+      const start = [...selection].map((nid) => {
+        const item = nodeOf(nid);
+        return { id: nid, x: item.x, y: item.y };
+      });
+
+      drag = {
+        kind: "node", id,
+        dx: point.x - node.x, dy: point.y - node.y,
+        start, origin: point,
+      };
       return;
     }
 
-    selected = null;
+    selection.clear();
+    primary = null;
     stopScope();
-    drag = { kind: "pan", x: event.clientX, y: event.clientY, vx: view.x, vy: view.y };
+
+    if (event.button === 1 || spaceHeld) {
+      drag = { kind: "pan", x: event.clientX, y: event.clientY, vx: view.x, vy: view.y };
+    } else {
+      const point = toWorld(event);
+      drag = { kind: "marquee", from: point, to: point };
+    }
+
     draw();
   });
 
@@ -1440,9 +1607,25 @@
 
     if (drag.kind === "node") {
       const point = toWorld(event);
-      const node = nodeOf(drag.id);
-      node.x = Math.round(point.x - drag.dx);
-      node.y = Math.round(point.y - drag.dy);
+
+      if (drag.start.length > 1) {
+        const dx = point.x - drag.origin.x;
+        const dy = point.y - drag.origin.y;
+
+        for (const item of drag.start) {
+          const node = nodeOf(item.id);
+          node.x = Math.round(item.x + dx);
+          node.y = Math.round(item.y + dy);
+        }
+      } else {
+        const node = nodeOf(drag.id);
+        node.x = Math.round(point.x - drag.dx);
+        node.y = Math.round(point.y - drag.dy);
+      }
+
+      draw();
+    } else if (drag.kind === "marquee") {
+      drag.to = toWorld(event);
       draw();
     } else if (drag.kind === "knob") {
       const node = nodeOf(drag.id);
@@ -1510,9 +1693,40 @@
     if (!drag) return;
 
     if (drag.kind === "node") {
-      const point = toWorld(event);
-      const node = nodeOf(drag.id);
-      op({ op: "move", id: node.id, x: node.x, y: node.y });
+      // The positions are read now: each op replaces the page's patch with the
+      // server's, which would undo the moves that have not been sent yet.
+      const moves = (drag.start.length ? drag.start : [{ id: drag.id }]).map((item) => {
+        const node = nodeOf(item.id);
+        return { id: item.id, x: node.x, y: node.y };
+      });
+
+      (async () => {
+        for (const move of moves) {
+          await op({ op: "move", id: move.id, x: move.x, y: move.y }, false);
+        }
+
+        draw();
+      })();
+    } else if (drag.kind === "marquee") {
+      const a = drag.from;
+      const b = drag.to;
+      const left = Math.min(a.x, b.x);
+      const right = Math.max(a.x, b.x);
+      const top = Math.min(a.y, b.y);
+      const bottom = Math.max(a.y, b.y);
+
+      selection.clear();
+
+      for (const node of patch.nodes) {
+        const { w, h } = size(node);
+        const inside = node.x + w >= left && node.x <= right &&
+          node.y + h >= top && node.y <= bottom;
+
+        if (inside) selection.add(node.id);
+      }
+
+      primary = selection.size ? [...selection][selection.size - 1] : null;
+      draw();
     } else if (drag.kind === "knob") {
       const node = nodeOf(drag.id);
       op({ op: "param", id: node.id, key: drag.key, value: node.params[drag.key] });
@@ -1567,15 +1781,61 @@
     if (wasPort) draw();
   });
 
-  svg.addEventListener("wheel", (event) => {
-    event.preventDefault();
+  function zoomAt(factor, clientX, clientY) {
     const rect = svg.getBoundingClientRect();
-    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const point = { x: clientX - rect.left, y: clientY - rect.top };
     const before = { x: (point.x - view.x) / view.zoom, y: (point.y - view.y) / view.zoom };
-    view.zoom = Math.min(2, Math.max(0.35, view.zoom * (event.deltaY < 0 ? 1.1 : 0.9)));
+    view.zoom = Math.min(2, Math.max(0.35, view.zoom * factor));
     view.x = point.x - before.x * view.zoom;
     view.y = point.y - before.y * view.zoom;
     draw();
+  }
+
+  function zoomBy(factor) {
+    const rect = svg.getBoundingClientRect();
+    zoomAt(factor, rect.left + rect.width / 2, rect.top + rect.height / 2);
+  }
+
+  /// Frames every node in the view.
+  function fitView() {
+    if (!patch.nodes.length) {
+      view = { x: 30, y: 30, zoom: 1 };
+      draw();
+      return;
+    }
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const node of patch.nodes) {
+      const { w, h } = size(node);
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + w);
+      maxY = Math.max(maxY, node.y + h);
+    }
+
+    const rect = svg.getBoundingClientRect();
+    const pad = 60;
+    const zoom = Math.min(
+      2,
+      Math.max(0.35, Math.min(
+        (rect.width - pad * 2) / Math.max(1, maxX - minX),
+        (rect.height - pad * 2) / Math.max(1, maxY - minY),
+      )),
+    );
+
+    view.zoom = zoom;
+    view.x = rect.width / 2 - (minX + maxX) / 2 * zoom;
+    view.y = rect.height / 2 - (minY + maxY) / 2 * zoom;
+    draw();
+  }
+
+  svg.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    zoomAt(event.deltaY < 0 ? 1.1 : 0.9, event.clientX, event.clientY);
   }, { passive: false });
 
   window.addEventListener("pointerup", () => {
@@ -1603,6 +1863,24 @@
         event.preventDefault();
         return;
       }
+
+      if (key === "c") {
+        copySelection();
+        event.preventDefault();
+        return;
+      }
+
+      if (key === "v") {
+        pasteClipboard();
+        event.preventDefault();
+        return;
+      }
+    }
+
+    if (event.key === " " && !event.target.closest("input, textarea, select")) {
+      spaceHeld = true;
+      event.preventDefault();
+      return;
     }
 
     if (event.key !== "Delete" && event.key !== "Backspace") return;
@@ -1613,16 +1891,39 @@
     } else if (selectedMod !== null) {
       op({ op: "unmodulate", index: selectedMod });
       selectedMod = null;
-    } else if (selected !== null) {
-      op({ op: "remove", id: selected });
-      delete cards[selected];
-      selected = null;
+    } else if (selection.size) {
+      const ids = [...selection];
+      selection.clear();
+      primary = null;
+
+      (async () => {
+        await snapshot({ op: "remove" });
+        suspendSnapshot += 1;
+
+        try {
+          for (const id of ids) {
+            delete cards[id];
+            await op({ op: "remove", id }, false);
+          }
+        } finally {
+          suspendSnapshot -= 1;
+        }
+
+        draw();
+      })();
     }
+  });
+
+  window.addEventListener("keyup", (event) => {
+    if (event.key === " ") spaceHeld = false;
   });
 
   // The patch saves as the text the host state stores, and opens from one.
   document.getElementById("undo").onclick = undo;
   document.getElementById("redo").onclick = redo;
+  document.getElementById("zoom-in").onclick = () => zoomBy(1.2);
+  document.getElementById("zoom-out").onclick = () => zoomBy(1 / 1.2);
+  document.getElementById("zoom-fit").onclick = fitView;
   updateHistory();
 
   document.getElementById("save").onclick = async () => {
