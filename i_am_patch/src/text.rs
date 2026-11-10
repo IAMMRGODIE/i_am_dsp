@@ -49,8 +49,8 @@ pub fn to_text(graph: &Graph) -> String {
 				.kind
 				.params
 				.iter()
-				.find(|(name, _)| name == key)
-				.map(|(_, value)| *value);
+				.find(|p| p.name == *key)
+				.map(|p| p.default);
 
 			if default != Some(*value) {
 				let _ = writeln!(out, "set {} {}={}", node.id.0, key, value);
@@ -129,7 +129,8 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 				let desc = node(kind).ok_or_else(|| error(line, format!("unknown kind {kind}")))?;
 				let x = parse_f32(words.next(), line)?;
 				let y = parse_f32(words.next(), line)?;
-				let mut params: BTreeMap<&'static str, f32> = desc.params.iter().copied().collect();
+				let mut params: BTreeMap<&'static str, f32> =
+					desc.params.iter().map(|p| (p.name, p.default)).collect();
 
 				for pair in words {
 					let (key, value) = pair
@@ -138,8 +139,8 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 					let key = desc
 						.params
 						.iter()
-						.find(|(name, _)| *name == key)
-						.map(|(name, _)| *name)
+						.find(|p| p.name == key)
+						.map(|p| p.name)
 						.ok_or_else(|| error(line, format!("{kind} has no parameter {key}")))?;
 					params.insert(key, parse_f32(Some(value), line)?);
 				}
@@ -292,8 +293,8 @@ fn resolve_param(
 		.kind
 		.params
 		.iter()
-		.find(|(name, _)| *name == param)
-		.map(|(name, _)| *name)
+		.find(|p| p.name == param)
+		.map(|p| p.name)
 		.ok_or_else(|| error(line, format!("node {id} has no parameter {param}")))?;
 
 	Ok((NodeId(id), param))

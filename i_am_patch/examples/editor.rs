@@ -204,7 +204,16 @@ fn kind_json(kind: &i_am_patch::graph::NodeDesc) -> Value {
 		"name": kind.name,
 		"inputs": kind.inputs.iter().map(port).collect::<Vec<_>>(),
 		"outputs": kind.outputs.iter().map(port).collect::<Vec<_>>(),
-		"params": kind.params.iter().map(|(key, value)| json!([key, value])).collect::<Vec<_>>(),
+		"params": kind.params.iter().map(|p| json!([p.name, p.default])).collect::<Vec<_>>(),
+		"param_meta": kind.params.iter().map(|p| json!({
+			"name": p.name,
+			"min": p.min,
+			"max": p.max,
+			"log": p.logarithmic,
+			"step": p.step,
+			"choices": p.choices,
+			"boolean": p.boolean,
+		})).collect::<Vec<_>>(),
 		"controls": controls,
 		"hero": hero,
 		"mode": mode,
@@ -700,8 +709,8 @@ fn op_graph(shared: &Shared, value: &Value) -> Value {
 				node.kind
 					.params
 					.iter()
-					.find(|(name, _)| *name == key)
-					.map(|(name, _)| *name)
+					.find(|p| p.name == key)
+					.map(|p| p.name)
 			}) else {
 				return json!({ "error": "unknown parameter" });
 			};

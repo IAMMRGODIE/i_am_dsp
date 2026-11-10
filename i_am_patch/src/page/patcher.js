@@ -290,32 +290,6 @@
     }
   }
 
-  // Ranges for the kinds that are not products: their catalog entry only has a
-  // default, so the page gives the knob a sensible travel.
-  const PARAM_RANGES = {
-    beats: { min: 0.125, max: 8, log: true },
-    sync: { min: 0, max: 1, step: 1 },
-    rate: { min: 0.01, max: 200, log: true },
-    smooth: { min: 0.1, max: 500, log: true },
-    shape: { min: 0, max: 3, step: 1 },
-    morph: { min: 0, max: 1 },
-    partials: { min: 1, max: 64, step: 1 },
-    spread: { min: 0, max: 1 },
-    decay: { min: 0.05, max: 30, log: true },
-    gain: { min: 0, max: 2, log: true },
-    pan: { min: -1, max: 1 },
-    a: { min: 0, max: 2 },
-    b: { min: 0, max: 2 },
-    time: { min: 1, max: 1000 },
-    feedback: { min: 0, max: 0.95 },
-    attack: { min: 0.1, max: 2000, log: true },
-    release: { min: 0.1, max: 2000, log: true },
-    clarity: { min: 0, max: 1 },
-    glide: { min: 0.1, max: 1000, log: true },
-    mode: { min: 0, max: 1, step: 1 },
-    transpose: { min: -24, max: 24, step: 1 },
-  };
-
   // The rack's source cards put these choices in the header instead of a knob.
   const GENERIC_HEADER = {
     lfo: ["shape", "sync"],
@@ -323,11 +297,6 @@
     random: ["sync"],
     midi: ["mode"],
   };
-  const GENERIC_CHOICES = {
-    shape: ["Sine", "Triangle", "Saw", "Square"],
-    mode: ["Note", "Velocity"],
-  };
-
   const NODE_NOTE = {
     "input:midi": "Host MIDI input",
     "input:audio": "Host audio input",
@@ -504,16 +473,19 @@
     }
 
     const context = { rate: 48000 };
+    const meta = Object.fromEntries((kind.param_meta || []).map((item) => [item.name, item]));
     const specs = (kind.params || []).map(([id, fallback]) => {
-      const range = PARAM_RANGES[id] || {};
-      const choices = GENERIC_CHOICES[id] || null;
+      // The catalog carries the range the DSP itself declares; the fallbacks
+      // only matter for a kind whose parameters were written by hand.
+      const range = meta[id] || {};
+      const choices = range.choices || null;
       const span = Math.max(0.001, Math.abs(fallback) || 1);
       const control = {
         id,
         label: labelOf(id),
-        kind: id === "sync" ? "bool" : choices || range.step === 1 ? "int" : "float",
-        min: id === "sync" ? 0 : range.min ?? -span * 2,
-        max: id === "sync" ? 1 : choices ? choices.length - 1 : range.max ?? span * 2,
+        kind: range.boolean ? "bool" : choices || range.step === 1 ? "int" : "float",
+        min: range.min ?? (range.boolean ? 0 : -span * 2),
+        max: range.max ?? (choices ? choices.length - 1 : span * 2),
         default: fallback,
         log: !!range.log,
         step: choices ? 1 : range.step,

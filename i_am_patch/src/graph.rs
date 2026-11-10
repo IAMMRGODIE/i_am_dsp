@@ -49,6 +49,102 @@ pub struct PortDesc {
 	pub optional: bool,
 }
 
+/// One parameter a node exposes: its name, where it starts and how far it goes.
+#[derive(Debug, Clone, Copy)]
+pub struct ParamDesc {
+	/// The stable name a patch stores.
+	pub name: &'static str,
+	/// The value a new node starts with.
+	pub default: f32,
+	/// The bottom of its travel.
+	pub min: f32,
+	/// The top of its travel.
+	pub max: f32,
+	/// Whether the travel is logarithmic.
+	pub logarithmic: bool,
+	/// The smallest step it takes; zero is continuous.
+	pub step: f32,
+	/// Named modes, when the value is a choice.
+	pub choices: Option<&'static [&'static str]>,
+	/// Whether the page draws it as a switch.
+	pub boolean: bool,
+}
+
+const fn param(name: &'static str, default: f32, min: f32, max: f32) -> ParamDesc {
+	ParamDesc {
+		name,
+		default,
+		min,
+		max,
+		logarithmic: false,
+		step: 0.0,
+		choices: None,
+		boolean: false,
+	}
+}
+
+const fn log_param(name: &'static str, default: f32, min: f32, max: f32) -> ParamDesc {
+	ParamDesc {
+		name,
+		default,
+		min,
+		max,
+		logarithmic: true,
+		step: 0.0,
+		choices: None,
+		boolean: false,
+	}
+}
+
+const fn step_param(name: &'static str, default: f32, min: f32, max: f32, step: f32) -> ParamDesc {
+	ParamDesc {
+		name,
+		default,
+		min,
+		max,
+		logarithmic: false,
+		step,
+		choices: None,
+		boolean: false,
+	}
+}
+
+const fn bool_param(name: &'static str, default: f32) -> ParamDesc {
+	ParamDesc {
+		name,
+		default,
+		min: 0.0,
+		max: 1.0,
+		logarithmic: false,
+		step: 1.0,
+		choices: None,
+		boolean: true,
+	}
+}
+
+const fn choice_param(
+	name: &'static str,
+	default: f32,
+	max: f32,
+	choices: &'static [&'static str],
+) -> ParamDesc {
+	ParamDesc {
+		name,
+		default,
+		min: 0.0,
+		max,
+		logarithmic: false,
+		step: 1.0,
+		choices: Some(choices),
+		boolean: false,
+	}
+}
+
+/// The LFO and table shapes, in the order the sources play them.
+const SHAPES: &[&str] = &["Sine", "Triangle", "Saw", "Square"];
+/// What the MIDI source follows.
+const MIDI_MODES: &[&str] = &["Note", "Velocity"];
+
 /// One node kind.
 #[derive(Debug, Clone)]
 pub struct NodeDesc {
@@ -62,8 +158,8 @@ pub struct NodeDesc {
 	pub outputs: &'static [PortDesc],
 	/// The latency the node adds, in frames.
 	pub latency: usize,
-	/// The parameters the node exposes, with their defaults.
-	pub params: &'static [(&'static str, f32)],
+	/// The parameters the node exposes.
+	pub params: &'static [ParamDesc],
 }
 
 impl NodeDesc {
@@ -163,7 +259,7 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[port("a", AUDIO), optional("b", AUDIO)],
 		outputs: &[port("audio", AUDIO)],
 		latency: 0,
-		params: &[("a", 1.0), ("b", 1.0)],
+		params: &[param("a", 1.0, 0.0, 2.0), param("b", 1.0, 0.0, 2.0)],
 	},
 	NodeDesc {
 		id: "lfo",
@@ -171,7 +267,12 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
-		params: &[("rate", 1.0), ("shape", 0.0), ("sync", 0.0), ("beats", 1.0)],
+		params: &[
+			log_param("rate", 1.0, 0.01, 20.0),
+			choice_param("shape", 0.0, 3.0, SHAPES),
+			bool_param("sync", 0.0),
+			log_param("beats", 1.0, 0.03125, 32.0),
+		],
 	},
 	NodeDesc {
 		id: "random",
@@ -180,10 +281,10 @@ const BUILTINS: &[NodeDesc] = &[
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
 		params: &[
-			("rate", 4.0),
-			("smooth", 20.0),
-			("sync", 0.0),
-			("beats", 1.0),
+			log_param("rate", 4.0, 0.01, 20.0),
+			log_param("smooth", 20.0, 0.1, 500.0),
+			bool_param("sync", 0.0),
+			log_param("beats", 1.0, 0.03125, 32.0),
 		],
 	},
 	NodeDesc {
@@ -193,11 +294,11 @@ const BUILTINS: &[NodeDesc] = &[
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
 		params: &[
-			("rate", 1.0),
-			("shape", 0.0),
-			("morph", 0.0),
-			("sync", 0.0),
-			("beats", 1.0),
+			log_param("rate", 1.0, 0.01, 20.0),
+			choice_param("shape", 0.0, 3.0, SHAPES),
+			param("morph", 0.0, 0.0, 1.0),
+			bool_param("sync", 0.0),
+			log_param("beats", 1.0, 0.03125, 32.0),
 		],
 	},
 	NodeDesc {
@@ -206,7 +307,10 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[port("audio", AUDIO)],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
-		params: &[("clarity", 0.5), ("glide", 20.0)],
+		params: &[
+			param("clarity", 0.5, 0.0, 1.0),
+			log_param("glide", 20.0, 0.1, 1000.0),
+		],
 	},
 	NodeDesc {
 		id: "midi",
@@ -216,7 +320,11 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[port("midi", SignalKind::Midi)],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
-		params: &[("mode", 0.0), ("transpose", 0.0), ("fine", 0.0)],
+		params: &[
+			choice_param("mode", 0.0, 1.0, MIDI_MODES),
+			step_param("transpose", 0.0, -24.0, 24.0, 1.0),
+			param("fine", 0.0, -100.0, 100.0),
+		],
 	},
 	NodeDesc {
 		id: "envelope",
@@ -224,7 +332,10 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[port("audio", AUDIO)],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
-		params: &[("attack", 10.0), ("release", 100.0)],
+		params: &[
+			log_param("attack", 10.0, 1.0, 500.0),
+			log_param("release", 100.0, 1.0, 500.0),
+		],
 	},
 	NodeDesc {
 		id: "delay",
@@ -232,7 +343,10 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[port("audio", AUDIO)],
 		outputs: &[port("audio", AUDIO)],
 		latency: 64,
-		params: &[("time", 0.25), ("feedback", 0.3)],
+		params: &[
+			param("time", 0.25, 1.0, 1000.0),
+			param("feedback", 0.3, 0.0, 0.95),
+		],
 	},
 ];
 
@@ -267,7 +381,7 @@ fn module_catalog() -> Vec<NodeDesc> {
 	for module in i_am_effects::catalog::MODULES {
 		let id: &'static str = Box::leak(format!("mod:{}", module.id).into_boxed_str());
 		let latency = (module.build)(44_100).delay();
-		let mut params: Vec<(&'static str, f32)> = Vec::new();
+		let mut params: Vec<ParamDesc> = Vec::new();
 		let mut sidechain = false;
 
 		for parameter in module.parameters() {
@@ -276,20 +390,10 @@ fn module_catalog() -> Vec<NodeDesc> {
 			}
 
 			let name: &'static str = Box::leak(parameter.identifier.clone().into_boxed_str());
-			let value = match &parameter.value {
-				Value::Float { value, .. } => *value,
-				Value::Int { value, .. } => *value as f32,
-				Value::Bool(value) => {
-					if *value {
-						1.0
-					} else {
-						0.0
-					}
-				}
-				_ => continue,
-			};
 
-			params.push((name, value));
+			if let Some(desc) = parameter_desc(name, &parameter) {
+				params.push(desc);
+			}
 		}
 
 		// The compressor is the one module that can read a second audio input;
@@ -319,13 +423,13 @@ fn synth_catalog() -> Vec<NodeDesc> {
 
 	for descriptor in crate::synths::ALL {
 		let id: &'static str = Box::leak(descriptor.kind().into_boxed_str());
-		let mut params: Vec<(&'static str, f32)> = Vec::new();
+		let mut params: Vec<ParamDesc> = Vec::new();
 
 		for parameter in (descriptor.parameters)() {
 			let name: &'static str = Box::leak(parameter.identifier.clone().into_boxed_str());
 
-			if let Some(value) = parameter_number(&parameter) {
-				params.push((name, value));
+			if let Some(desc) = parameter_desc(name, &parameter) {
+				params.push(desc);
 			}
 		}
 
@@ -342,12 +446,47 @@ fn synth_catalog() -> Vec<NodeDesc> {
 	kinds
 }
 
-/// The default a parameter carries, when it is a number.
-fn parameter_number(parameter: &Parameter) -> Option<f32> {
+/// One catalog parameter, built from the product's own declaration.
+fn parameter_desc(name: &'static str, parameter: &Parameter) -> Option<ParamDesc> {
 	match &parameter.value {
-		Value::Float { value, .. } => Some(*value),
-		Value::Int { value, .. } => Some(*value as f32),
-		Value::Bool(value) => Some(if *value { 1.0 } else { 0.0 }),
+		Value::Float {
+			value,
+			range,
+			logarithmic,
+		} => Some(ParamDesc {
+			name,
+			default: *value,
+			min: *range.start(),
+			max: *range.end(),
+			logarithmic: *logarithmic,
+			step: 0.0,
+			choices: parameter.meta.choices,
+			boolean: false,
+		}),
+		Value::Int {
+			value,
+			range,
+			logarithmic,
+		} => Some(ParamDesc {
+			name,
+			default: *value as f32,
+			min: *range.start() as f32,
+			max: *range.end() as f32,
+			logarithmic: *logarithmic,
+			step: 1.0,
+			choices: parameter.meta.choices,
+			boolean: false,
+		}),
+		Value::Bool(value) => Some(ParamDesc {
+			name,
+			default: if *value { 1.0 } else { 0.0 },
+			min: 0.0,
+			max: 1.0,
+			logarithmic: false,
+			step: 1.0,
+			choices: None,
+			boolean: true,
+		}),
 		_ => None,
 	}
 }
@@ -455,7 +594,7 @@ impl Graph {
 				.map_or(0, |id| id + 1),
 		);
 
-		let params = desc.params.iter().copied().collect();
+		let params = desc.params.iter().map(|p| (p.name, p.default)).collect();
 
 		self.nodes.push(NodeInstance {
 			id,
@@ -542,8 +681,8 @@ impl Graph {
 			node.kind
 				.params
 				.iter()
-				.find(|(key, _)| *key == name)
-				.map(|(key, _)| *key)
+				.find(|p| p.name == name)
+				.map(|p| p.name)
 				.expect("the key came from this node's params"),
 			value,
 		);
@@ -586,6 +725,26 @@ impl Graph {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_parameter_carries_the_range_its_dsp_declares() {
+		let gain = node("mod:gain").expect("gain");
+		let gain_param = gain.params.iter().find(|p| p.name == "gain").expect("gain");
+		assert!(
+			gain_param.min <= 0.01 && gain_param.max >= 4.0,
+			"{gain_param:?}"
+		);
+		assert!(gain_param.logarithmic);
+
+		let lfo = node("lfo").expect("lfo");
+		let rate = lfo.params.iter().find(|p| p.name == "rate").expect("rate");
+		assert_eq!((rate.min, rate.max), (0.01, 20.0));
+		assert!(rate.logarithmic);
+
+		let sync = lfo.params.iter().find(|p| p.name == "sync").expect("sync");
+		assert!(sync.boolean);
+		assert_eq!(sync.step, 1.0);
+	}
 
 	#[test]
 	fn the_catalog_includes_the_product_modules() {

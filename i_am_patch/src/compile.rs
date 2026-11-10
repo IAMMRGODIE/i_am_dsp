@@ -203,12 +203,7 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 			.get(&link.target.0)
 			.ok_or(CompileError::UnknownNode(link.target.0))?;
 
-		if !to
-			.kind
-			.params
-			.iter()
-			.any(|(name, _)| *name == link.target.1)
-		{
+		if !to.kind.params.iter().any(|p| p.name == link.target.1) {
 			return Err(CompileError::UnknownParam {
 				node: link.target.0,
 				param: link.target.1,
