@@ -84,6 +84,10 @@ pub struct Engine {
 	latency: usize,
 	tempo: Option<f32>,
 	position: Option<f32>,
+	/// Reused across blocks so the audio path does not allocate.
+	updates: Vec<(&'static str, f32, f32)>,
+	done: Vec<bool>,
+	events: Vec<NoteEvent>,
 }
 
 impl Engine {
@@ -200,6 +204,8 @@ impl Engine {
 			})
 			.collect();
 
+		let order_len = plan.order.len();
+
 		Ok(Self {
 			rate,
 			block: 0,
@@ -223,6 +229,9 @@ impl Engine {
 			latency,
 			tempo: None,
 			position: None,
+			updates: Vec::with_capacity(16),
+			done: vec![false; order_len],
+			events: Vec::with_capacity(16),
 		})
 	}
 
@@ -337,11 +346,13 @@ impl Engine {
 			patch_context.send_event(event.clone());
 		}
 
+		self.events.clear();
+		self.events.extend_from_slice(events);
 		let mut context = BlockContext {
 			frames,
 			rate: self.rate,
 			block: self.block,
-			events: events.to_vec(),
+			events: std::mem::take(&mut self.events),
 			context: Box::new(patch_context),
 		};
 
@@ -354,7 +365,9 @@ impl Engine {
 			.iter()
 			.any(|event| matches!(event, NoteEvent::NoteOn { .. }))
 		{
-			for step in self.retrigger.clone() {
+			let retrigger = std::mem::take(&mut self.retrigger);
+
+			for &step in &retrigger {
 				if let Some(node) = make(
 					self.kinds[step],
 					self.rate,
@@ -366,6 +379,8 @@ impl Engine {
 
 				self.controls[step].fill(0.0);
 			}
+
+			self.retrigger = retrigger;
 		}
 
 		// The audio input node is the host's buffer; the sidechain is silence
@@ -406,7 +421,9 @@ impl Engine {
 		// A control source with no audio input can run before the audio path, so
 		// its value for this block is known while the parameters are set. The
 		// modulation then ramps across the block instead of holding the last one.
-		let mut done = vec![false; self.order.len()];
+		let mut done = std::mem::take(&mut self.done);
+		done.clear();
+		done.resize(self.order.len(), false);
 
 		for (step, pure) in self.pure_control.iter().copied().enumerate() {
 			if !pure {
@@ -428,12 +445,15 @@ impl Engine {
 			done[step] = true;
 		}
 
-		for step in 0..self.order.len() {
-			let mut updates: Vec<(&'static str, f32, f32)> = Vec::new();
+		let mut updates = std::mem::take(&mut self.updates);
 
-			for (name, base) in self.base[step].clone() {
-				let mut start = base;
-				let mut end = base;
+		for step in 0..self.order.len() {
+			updates.clear();
+
+			for (name, base) in &self.base[step] {
+				let name = *name;
+				let mut start = *base;
+				let mut end = *base;
 
 				for link in &self.links {
 					if link.target == step && link.param == name {
@@ -465,10 +485,12 @@ impl Engine {
 				updates.push((name, start, end));
 			}
 
-			for (name, start, end) in updates {
+			for &(name, start, end) in &updates {
 				self.nodes[step].set_param_block(name, start, end, frames);
 			}
 		}
+
+		self.updates = updates;
 
 		for (step, finished) in done.iter().copied().enumerate() {
 			if finished {
@@ -527,6 +549,9 @@ impl Engine {
 				*sample = block.frame(frame);
 			}
 		}
+
+		self.done = done;
+		self.events = std::mem::take(&mut context.events);
 	}
 }
 

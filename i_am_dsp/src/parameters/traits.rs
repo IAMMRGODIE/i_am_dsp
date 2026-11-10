@@ -463,11 +463,22 @@ impl<T: Parameters> Paramed<T> {
 
 	/// Synchronize the parameters with the host.
 	pub fn sync_params(&mut self) {
+		// A host calls this once a block, but an effect that processes sample by
+		// sample calls it every sample: without this check a full parameter walk
+		// would run at the sample rate even when nothing moved.
+		if !self.params.values.iter().any(|value| value.is_chanegd()) {
+			return;
+		}
+
 		for (id, param) in self.params.values.iter().enumerate() {
 			if let Some(identifier) = self.params.query_param_id(id) {
 				self.value
 					.set_parameter(identifier, param.load(Ordering::SeqCst));
 			}
+		}
+
+		for value in self.params.values.iter() {
+			value.set_changed(false, Ordering::SeqCst);
 		}
 	}
 

@@ -541,6 +541,8 @@ struct SynthNode<P: Default + Plugin> {
 	inner: P,
 	/// The value type each parameter declares.
 	kinds: BTreeMap<String, ParamKind>,
+	/// Whether the map moved since the last block.
+	dirty: bool,
 }
 
 impl<P: Default + Plugin> SynthNode<P> {
@@ -549,7 +551,11 @@ impl<P: Default + Plugin> SynthNode<P> {
 		inner.on_activate(rate);
 		let kinds = parameter_kinds(&inner.get_parameters());
 
-		Self { inner, kinds }
+		Self {
+			inner,
+			kinds,
+			dirty: false,
+		}
 	}
 }
 
@@ -561,10 +567,17 @@ impl<P: Default + Plugin> BlockNode for SynthNode<P> {
 		let kind = self.kinds.get(name).copied().unwrap_or(ParamKind::Float);
 		let map = self.inner.param_map();
 		map.set(name, set_value(kind, value), Ordering::Relaxed);
-		self.inner.sync_params();
+		self.dirty = true;
 	}
 
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
+		// Every parameter was written into the map before this block; one sync
+		// carries them all into the DSP.
+		if self.dirty {
+			self.inner.sync_params();
+			self.dirty = false;
+		}
+
 		for event in &context.events {
 			self.inner
 				.on_message(<P::Message as Message>::from_note_event(event.clone()));
