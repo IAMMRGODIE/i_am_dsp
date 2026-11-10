@@ -242,7 +242,9 @@ const BUILTINS: &[NodeDesc] = &[
 	NodeDesc {
 		id: "midi",
 		name: "MIDI",
-		inputs: &[],
+		// The events come from the host through the graph; the port is what the
+		// page draws, and says the node needs a MIDI source.
+		inputs: &[port("midi", SignalKind::Midi)],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
 		params: &[("mode", 0.0), ("transpose", 0.0), ("fine", 0.0)],
@@ -613,6 +615,22 @@ mod tests {
 		assert_eq!(compressor.inputs.len(), 1);
 		assert!(node("mod:distortion").is_some());
 		assert!(node("filter").is_some(), "the built-ins are still there");
+	}
+
+	#[test]
+	fn a_control_source_declares_the_input_it_needs() {
+		let pitch = node("pitch").expect("pitch");
+		assert_eq!(pitch.inputs.len(), 1, "a pitch tracker reads audio");
+		assert_eq!(pitch.inputs[0].name, "audio");
+		assert!(matches!(pitch.inputs[0].kind, SignalKind::Audio(_)));
+
+		let midi = node("midi").expect("midi");
+		assert_eq!(midi.inputs.len(), 1, "the MIDI source needs a MIDI input");
+		assert_eq!(midi.inputs[0].name, "midi");
+		assert!(matches!(midi.inputs[0].kind, SignalKind::Midi));
+
+		let envelope = node("envelope").expect("envelope");
+		assert!(matches!(envelope.inputs[0].kind, SignalKind::Audio(_)));
 	}
 
 	#[test]
