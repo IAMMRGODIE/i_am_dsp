@@ -22,13 +22,13 @@ impl EnvelopeTimes {
 
 	/// How long the note sounds before it is let go.
 	#[cfg(feature = "real_time_demo")]
-	fn held(&self) -> f32 {
+	pub(super) fn held(&self) -> f32 {
 		self.delay + self.attack + self.hold + self.decay
 	}
 
 	/// How long the note sounds in total, release included.
 	#[cfg(feature = "real_time_demo")]
-	fn total(&self) -> f32 {
+	pub(super) fn total(&self) -> f32 {
 		self.held() + self.release
 	}
 }
