@@ -105,7 +105,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(names, sorted, "the add menu is not alphabetical");
 	assert!(kinds.iter().any(|kind| kind["name"] == "Compressor"));
 	assert!(kinds.iter().any(|kind| kind["name"] == "Reverb"));
-	assert!(kinds.iter().any(|kind| kind["name"] == "Pitch"));
+	assert!(kinds.iter().any(|kind| kind["name"] == "Pitch Shifter"));
 	assert!(
 		modules[0]["controls"]
 			.as_array()

@@ -177,7 +177,7 @@ web_plugin!(
 	PitchEffect,
 	PitchEffect::new,
 	"iamdsp.effects.pitch.web",
-	"I Am Pitch",
+	"I Am Pitch Shifter",
 	(360.0, 230.0),
 	"#c8e04a",
 	mode = "algorithm",

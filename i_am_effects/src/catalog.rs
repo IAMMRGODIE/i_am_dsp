@@ -381,7 +381,7 @@ pub const REVERB: ModuleDescriptor = ModuleDescriptor {
 /// The pitch product.
 pub const PITCH: ModuleDescriptor = ModuleDescriptor {
 	id: "pitch",
-	name: "Pitch",
+	name: "Pitch Shifter",
 	accent: "#c8e04a",
 	mode: Some("algorithm"),
 	header: &["window_size"],

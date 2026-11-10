@@ -188,7 +188,7 @@ fn width_and_pitch_have_their_own_pictures() {
 	);
 	let pitch = i_am_web_gui::face_json(
 		&PitchWeb::new(),
-		&Faceplate::new("I Am Pitch", "#c8e04a", (360.0, 230.0)),
+		&Faceplate::new("I Am Pitch Shifter", "#c8e04a", (360.0, 230.0)),
 	);
 
 	assert!(width.contains("\"hero\":\"stereo\""), "{width}");
@@ -347,7 +347,7 @@ fn the_particle_wider_has_a_particle_hero() {
 fn the_pitch_and_shifter_have_algorithm_modes() {
 	let pitch = i_am_web_gui::face_json(
 		&PitchWeb::new(),
-		&Faceplate::new("I Am Pitch", "#c8e04a", (360.0, 230.0))
+		&Faceplate::new("I Am Pitch Shifter", "#c8e04a", (360.0, 230.0))
 			.with_mode("algorithm")
 			.with_visible(PITCH_VISIBLE)
 			.with_header(&["window_size"]),
