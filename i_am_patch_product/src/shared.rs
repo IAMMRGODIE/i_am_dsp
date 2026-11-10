@@ -24,6 +24,8 @@ pub struct PatcherShared {
 	pub taps: Mutex<Vec<Tap>>,
 	/// The phase each watched source is at, for the card's playhead.
 	pub phases: Mutex<Vec<(u32, f32)>>,
+	/// The last compile error, for the page's status bar.
+	pub error: Mutex<Option<String>>,
 }
 
 /// One watched node and the ring its output goes into.
@@ -43,6 +45,7 @@ impl Default for PatcherShared {
 			latency: AtomicUsize::new(0),
 			taps: Mutex::new(Vec::new()),
 			phases: Mutex::new(Vec::new()),
+			error: Mutex::new(None),
 		}
 	}
 }
@@ -121,6 +124,16 @@ impl PatcherShared {
 		self.latency.load(Ordering::Relaxed)
 	}
 
+	/// The last compile error, if the graph does not build.
+	pub fn error(&self) -> Option<String> {
+		self.error.lock().expect("the error lock").clone()
+	}
+
+	/// Records or clears the last compile error.
+	pub fn set_error(&self, error: Option<String>) {
+		*self.error.lock().expect("the error lock") = error;
+	}
+
 	/// Tells the audio thread the graph changed.
 	pub fn bump(&self) {
 		self.generation.fetch_add(1, Ordering::Relaxed);
@@ -193,11 +206,31 @@ impl Body {
 		let rate = self.shared.rate.load(Ordering::Relaxed).max(1);
 
 		if voice_group(&graph).is_empty() {
-			self.engine = Engine::new(&graph, rate).ok();
-			self.poly = None;
+			match Engine::new(&graph, rate) {
+				Ok(engine) => {
+					self.engine = Some(engine);
+					self.poly = None;
+					self.shared.set_error(None);
+				}
+				Err(error) => {
+					self.engine = None;
+					self.poly = None;
+					self.shared.set_error(Some(format!("{error:?}")));
+				}
+			}
 		} else {
-			self.poly = Poly::new(&graph, rate).ok();
-			self.engine = None;
+			match Poly::new(&graph, rate) {
+				Ok(poly) => {
+					self.poly = Some(poly);
+					self.engine = None;
+					self.shared.set_error(None);
+				}
+				Err(error) => {
+					self.poly = None;
+					self.engine = None;
+					self.shared.set_error(Some(format!("{error:?}")));
+				}
+			}
 		}
 
 		let latency = self

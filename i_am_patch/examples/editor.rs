@@ -257,6 +257,7 @@ struct Shared {
 	rate: usize,
 	taps: Taps,
 	phases: Arc<Mutex<Vec<(u32, f32)>>>,
+	error: Arc<Mutex<Option<String>>>,
 }
 
 impl Shared {
@@ -303,6 +304,7 @@ fn main() {
 		rate: 48_000,
 		taps: Arc::new(Mutex::new(Vec::new())),
 		phases: Arc::new(Mutex::new(Vec::new())),
+		error: Arc::new(Mutex::new(None)),
 	};
 	spawn_audio(shared.clone());
 
@@ -328,9 +330,13 @@ fn spawn_audio(shared: Shared) {
 				let graph = shared.graph.lock().expect("graph").clone();
 
 				poly = match Poly::new(&graph, shared.rate) {
-					Ok(poly) => Some(poly),
+					Ok(poly) => {
+						*shared.error.lock().expect("error") = None;
+						Some(poly)
+					}
 					Err(error) => {
 						eprintln!("the demo graph does not play: {error:?}");
+						*shared.error.lock().expect("error") = Some(format!("{error:?}"));
 						None
 					}
 				};
@@ -460,6 +466,11 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			"200 OK",
 			"application/json",
 			patch_json(&shared.graph.lock().expect("graph")).to_string(),
+		),
+		("GET", "/status") => (
+			"200 OK",
+			"application/json",
+			json!({ "error": shared.error.lock().expect("error").clone() }).to_string(),
 		),
 		("GET", "/text") => (
 			"200 OK",

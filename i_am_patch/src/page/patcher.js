@@ -698,14 +698,86 @@
     return !!(active && active.closest && active.closest(".card-host"));
   }
 
+  // Undo keeps the page's text form: the server already round-trips it, and
+  // every op is a graph change. Consecutive moves of one control coalesce, so
+  // one drag is one undo step.
+  const undoStack = [];
+  const redoStack = [];
+  let lastRecord = { key: "", at: 0 };
+  let serverError = "";
+  let opError = "";
+
+  function mutationKey(body) {
+    if (body.op === "param") return "param:" + body.id + ":" + body.key;
+    if (body.op === "mod_depth") return "depth:" + body.index;
+    if (body.op === "mod_mode") return "mode:" + (body.index || []).join(",");
+    if (body.op === "move") return "move:" + body.id;
+    return "";
+  }
+
+  function paintStatus() {
+    const bar = document.getElementById("status");
+    const text = serverError || opError;
+    bar.textContent = text;
+    bar.hidden = !text;
+  }
+
+  function showStatus(text) {
+    opError = text || "";
+    paintStatus();
+  }
+
+  function updateHistory() {
+    document.getElementById("undo").disabled = undoStack.length === 0;
+    document.getElementById("redo").disabled = redoStack.length === 0;
+  }
+
+  async function snapshot(body) {
+    const key = mutationKey(body);
+    const now = Date.now();
+
+    if (key && key === lastRecord.key && now - lastRecord.at < 600) {
+      lastRecord.at = now;
+      return;
+    }
+
+    lastRecord = { key: key, at: now };
+    undoStack.push(await (await fetch("/text")).json());
+
+    if (undoStack.length > 100) undoStack.shift();
+    redoStack.length = 0;
+    updateHistory();
+  }
+
+  async function restore(text) {
+    await fetch("/text", { method: "POST", body: text });
+    patch = readPatch(await (await fetch("/patch")).json());
+    updateHistory();
+    draw();
+  }
+
+  async function undo() {
+    if (!undoStack.length) return;
+    redoStack.push(await (await fetch("/text")).json());
+    await restore(undoStack.pop());
+  }
+
+  async function redo() {
+    if (!redoStack.length) return;
+    undoStack.push(await (await fetch("/text")).json());
+    await restore(redoStack.pop());
+  }
+
   async function op(body, redraw = true) {
+    await snapshot(body);
+
     const response = await fetch("/op", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
     const result = await response.json();
-    if (result.error) console.warn(result.error);
+    showStatus(result.error ? String(result.error) : "");
     patch = readPatch(await (await fetch("/patch")).json());
     if (redraw) draw();
   }
@@ -1575,6 +1647,23 @@
       return;
     }
 
+    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+      const key = event.key.toLowerCase();
+
+      if (key === "z") {
+        if (event.shiftKey) redo();
+        else undo();
+        event.preventDefault();
+        return;
+      }
+
+      if (key === "y") {
+        redo();
+        event.preventDefault();
+        return;
+      }
+    }
+
     if (event.key !== "Delete" && event.key !== "Backspace") return;
 
     if (selectedEdge !== null) {
@@ -1591,6 +1680,10 @@
   });
 
   // The patch saves as the text the host state stores, and opens from one.
+  document.getElementById("undo").onclick = undo;
+  document.getElementById("redo").onclick = redo;
+  updateHistory();
+
   document.getElementById("save").onclick = async () => {
     const text = await (await fetch("/text")).json();
     const link = document.createElement("a");
@@ -1622,6 +1715,15 @@
   load();
   setInterval(async () => {
     if (busy()) return;
+
+    const status = await fetch("/status");
+
+    if (status.ok) {
+      const body = await status.json();
+      serverError = body.error || "";
+      paintStatus();
+    }
+
     const next = readPatch(await (await fetch("/patch")).json());
     if (JSON.stringify(next) === JSON.stringify(patch)) return;
     patch = next;

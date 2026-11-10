@@ -45,6 +45,11 @@ impl Poly {
 			return Err(EngineError::NoVoiceGroup);
 		}
 
+		// Splitting the graph drops the links that cross the boundary, so a
+		// mistake there would otherwise vanish into silence. Compile the whole
+		// graph first: the same checks, and a build error the page can show.
+		crate::compile::compile(graph)?;
+
 		let out = graph
 			.nodes
 			.iter()

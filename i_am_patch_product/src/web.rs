@@ -11,6 +11,9 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 	match (request.method, request.path) {
 		("GET", "/catalog") => Some(ProtocolResponse::json(catalog_json())),
 		("GET", "/patch") => Some(ProtocolResponse::json(patch_json(&shared.graph()))),
+		("GET", "/status") => Some(ProtocolResponse::json(
+			json!({ "error": shared.error() }).to_string(),
+		)),
 		("GET", "/text") => Some(ProtocolResponse::json(json!(shared.text()).to_string())),
 		("POST", "/text") => {
 			let body = std::str::from_utf8(request.body).unwrap_or("");

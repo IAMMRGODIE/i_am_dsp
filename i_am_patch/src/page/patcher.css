@@ -228,3 +228,13 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 .card-host [data-drop-target].mod-hover{
   outline:2px solid var(--accent); outline-offset:2px; border-radius:50%;
 }
+
+/* The graph's last refusal: a compile error or a rejected op. */
+.status{
+  position:absolute; left:12px; right:12px; bottom:10px; z-index:8;
+  padding:6px 10px; border-radius:6px;
+  background:rgba(120,24,24,.92); border:1px solid #a33;
+  color:#ffd9d9; font-size:11px; font-family:var(--mono);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.status[hidden]{display:none}

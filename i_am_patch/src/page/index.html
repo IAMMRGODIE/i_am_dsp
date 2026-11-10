@@ -12,6 +12,8 @@
   <span class="title">I Am Patch</span>
   <span class="hint">drag a card to move, a port to connect, the corner to scale it; right-click to add a node; Delete removes</span>
   <span class="spacer"></span>
+  <button id="undo" class="tb" title="Undo (Ctrl+Z)" disabled>Undo</button>
+  <button id="redo" class="tb" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
   <button id="save" class="tb">Save</button>
   <button id="open" class="tb">Open</button>
   <input id="file" type="file" accept=".txt,.patch" hidden />
@@ -19,6 +21,7 @@
 <div id="stage">
   <svg id="graph"></svg>
   <div id="menu"></div>
+  <div id="status" class="status" hidden></div>
 
 </div>
 <script src="/card.js"></script>
