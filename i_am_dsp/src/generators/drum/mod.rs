@@ -43,6 +43,7 @@ pub const RIDE: u8 = 51;
 /// How many hits may ring at once.
 const MAX_VOICES: usize = 16;
 
+mod recipes;
 mod voice;
 pub use voice::*;
 
