@@ -589,11 +589,13 @@ impl Graph {
 		}
 	}
 
-	/// Removes a node and every edge that touched it.
+	/// Removes a node and every edge and modulation that touched it.
 	pub fn remove_node(&mut self, id: NodeId) {
 		self.nodes.retain(|node| node.id != id);
 		self.edges
 			.retain(|edge| edge.from.0 != id && edge.to.0 != id);
+		self.modulations
+			.retain(|link| link.source.0 != id && link.target.0 != id);
 	}
 }
 
@@ -611,6 +613,22 @@ mod tests {
 		assert_eq!(compressor.inputs.len(), 1);
 		assert!(node("mod:distortion").is_some());
 		assert!(node("filter").is_some(), "the built-ins are still there");
+	}
+
+	#[test]
+	fn removing_a_node_drops_its_modulations() {
+		let mut graph = Graph::new();
+		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+		let gain = graph.add_node("gain", (0.0, 0.0)).expect("gain");
+		graph.modulate((lfo, 0), (gain, "gain"), 0.5);
+		assert_eq!(graph.modulations.len(), 1);
+
+		graph.remove_node(lfo);
+
+		assert!(
+			graph.modulations.is_empty(),
+			"a link from a deleted source would stop the graph compiling"
+		);
 	}
 
 	#[test]

@@ -68,7 +68,11 @@ pub fn to_text(graph: &Graph) -> String {
 	}
 
 	for link in &graph.modulations {
-		let from = graph.get(link.source.0).expect("a link names a node");
+		// A hand-written patch can name a node that is not there; the compiler
+		// rejects it, so the projection drops it instead of panicking.
+		let (Some(from), Some(_)) = (graph.get(link.source.0), graph.get(link.target.0)) else {
+			continue;
+		};
 		let _ = writeln!(
 			out,
 			"mod {}.{} -> {}.{} depth={}{}",
@@ -325,6 +329,8 @@ fn resolve(
 
 #[cfg(test)]
 mod tests {
+	use crate::graph::{ModulationLink, ModulationMode};
+
 	use super::*;
 
 	fn patch() -> Graph {
@@ -408,6 +414,25 @@ mod tests {
 		assert_eq!(node.points.len(), 2);
 		assert!((node.points[1].value - 1.0).abs() < 1e-6);
 		assert!((node.points[1].bend - 0.2).abs() < 1e-6);
+	}
+
+	#[test]
+	fn a_link_to_a_missing_node_is_skipped() {
+		let mut graph = Graph::new();
+		graph.add_node("gain", (0.0, 0.0)).expect("gain");
+		graph.modulations.push(ModulationLink {
+			source: (NodeId(9), 0),
+			target: (NodeId(0), "gain"),
+			depth: 0.5,
+			mode: ModulationMode::FromBase,
+		});
+
+		let text = to_text(&graph);
+
+		assert!(
+			!text.contains("mod "),
+			"the dangling link was written: {text}"
+		);
 	}
 
 	#[test]
