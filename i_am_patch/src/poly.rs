@@ -233,6 +233,17 @@ impl Poly {
 	/// Runs one block: notes start voices, the voices are summed and the outer
 	/// graph processes the rest.
 	pub fn process(&mut self, input: &[[f32; 2]], events: &[NoteEvent], out: &mut [[f32; 2]]) {
+		self.process_with_sidechain(input, &[], events, out);
+	}
+
+	/// Runs one block with the host's sidechain frames.
+	pub fn process_with_sidechain(
+		&mut self,
+		input: &[[f32; 2]],
+		sidechain: &[[f32; 2]],
+		events: &[NoteEvent],
+		out: &mut [[f32; 2]],
+	) {
 		let frames = input.len().min(BLOCK).min(out.len());
 
 		for event in events {
@@ -277,7 +288,9 @@ impl Poly {
 		for voice in &mut self.voices {
 			let mut buffer = vec![[0.0f32; 2]; BLOCK];
 
-			voice.engine.process(&silence, &voice.pending, &mut buffer);
+			voice
+				.engine
+				.process_with_sidechain(&silence, sidechain, &voice.pending, &mut buffer);
 			voice.pending.clear();
 			voice.age += 1;
 
@@ -315,7 +328,8 @@ impl Poly {
 		});
 
 		self.outer.inject(self.out, mix);
-		self.outer.process(input, events, out);
+		self.outer
+			.process_with_sidechain(input, sidechain, events, out);
 	}
 }
 

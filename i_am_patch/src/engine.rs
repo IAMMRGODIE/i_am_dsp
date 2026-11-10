@@ -315,6 +315,18 @@ impl Engine {
 
 	/// Runs one block: the host input goes in, the graph's output comes out.
 	pub fn process(&mut self, input: &[[f32; 2]], events: &[NoteEvent], out: &mut [[f32; 2]]) {
+		self.process_with_sidechain(input, &[], events, out);
+	}
+
+	/// Runs one block with the host's sidechain frames, which the graph reads
+	/// through its `input:sidechain` node.
+	pub fn process_with_sidechain(
+		&mut self,
+		input: &[[f32; 2]],
+		sidechain: &[[f32; 2]],
+		events: &[NoteEvent],
+		out: &mut [[f32; 2]],
+	) {
 		let frames = input.len().min(BLOCK).min(out.len());
 		// A product instrument reads the block's notes from the context, the
 		// same way a host hands them over.
@@ -375,6 +387,11 @@ impl Engine {
 					if let Some(Buffer::Audio(block)) = self.outputs[step].first_mut() {
 						block.clear();
 						block.frames = frames;
+
+						for (frame, sample) in sidechain.iter().take(frames).enumerate() {
+							block.channels[0][frame] = sample[0];
+							block.channels[1][frame] = sample[1];
+						}
 					}
 				}
 				_ => {}

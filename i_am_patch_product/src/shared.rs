@@ -178,6 +178,8 @@ pub struct Body {
 	built: u64,
 	input: Vec<[f32; 2]>,
 	output: Vec<[f32; 2]>,
+	/// The host's sidechain frames for this block.
+	sidechain: Vec<[f32; 2]>,
 	index: usize,
 	events: Vec<NoteEvent>,
 	tempo: Option<f32>,
@@ -194,6 +196,7 @@ impl Body {
 			built: 0,
 			input: vec![[0.0; 2]; BLOCK],
 			output: vec![[0.0; 2]; BLOCK],
+			sidechain: vec![[0.0; 2]; BLOCK],
 			index: 0,
 			events: Vec::new(),
 			tempo: None,
@@ -262,13 +265,14 @@ impl Body {
 	}
 
 	/// One sample: the output belongs to the block that ended one block ago.
-	pub fn process(&mut self, input: [f32; 2]) -> [f32; 2] {
+	pub fn process(&mut self, input: [f32; 2], sidechain: [f32; 2]) -> [f32; 2] {
 		if self.built != self.shared.generation.load(Ordering::Relaxed) {
 			self.rebuild();
 		}
 
 		let out = self.output[self.index];
 		self.input[self.index] = input;
+		self.sidechain[self.index] = sidechain;
 		self.index += 1;
 
 		if self.index >= BLOCK {
@@ -276,10 +280,20 @@ impl Body {
 
 			if let Some(poly) = &mut self.poly {
 				poly.set_transport(self.tempo, self.position);
-				poly.process(&self.input, &self.events, &mut self.output);
+				poly.process_with_sidechain(
+					&self.input,
+					&self.sidechain,
+					&self.events,
+					&mut self.output,
+				);
 			} else if let Some(engine) = &mut self.engine {
 				engine.set_transport(self.tempo, self.position);
-				engine.process(&self.input, &self.events, &mut self.output);
+				engine.process_with_sidechain(
+					&self.input,
+					&self.sidechain,
+					&self.events,
+					&mut self.output,
+				);
 			}
 
 			self.events.clear();

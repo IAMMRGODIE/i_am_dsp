@@ -430,19 +430,44 @@ fn an_lfo_can_move_a_parameter() {
 }
 
 #[test]
+fn the_sidechain_node_carries_the_host_signal() {
+	let mut graph = Graph::new();
+	let sidechain = graph
+		.add_node("input:sidechain", (0.0, 0.0))
+		.expect("sidechain");
+	let out = graph.add_node("out:audio", (100.0, 0.0)).expect("out");
+	graph.connect((sidechain, 0), (out, 0));
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let host = vec![[0.0f32; 2]; BLOCK];
+	let side = vec![[0.5f32, -0.25]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+	engine.process_with_sidechain(&host, &side, &[], &mut block);
+
+	assert!((block[3][0] - 0.5).abs() < 1e-6, "{}", block[3][0]);
+	assert!((block[3][1] + 0.25).abs() < 1e-6, "{}", block[3][1]);
+}
+
+#[test]
 fn the_gain_parameter_is_heard() {
+	// A constant input, so the peak is the gain itself and not a synth's
+	// envelope or phase.
 	let chain = |gain: f32| {
 		let mut graph = Graph::new();
-		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-		let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+		let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
 		let gain_node = graph.add_node("mod:gain", (200.0, 0.0)).expect("gain");
 		let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
-		graph.connect((midi, 0), (generator, 0));
-		graph.connect((generator, 0), (gain_node, 0));
+		graph.connect((input, 0), (gain_node, 0));
 		graph.connect((gain_node, 0), (out, 0));
 		assert!(graph.set_param(gain_node, "gain", gain));
 
-		render(&graph)
+		let mut engine = Engine::new(&graph, 48_000).expect("builds");
+		let host = vec![[0.5f32; 2]; BLOCK];
+		let mut block = vec![[0.0f32; 2]; BLOCK];
+		engine.process(&host, &[], &mut block);
+		block
+			.iter()
+			.fold(0.0f32, |peak, frame| peak.max(frame[0].abs()))
 	};
 
 	assert!(chain(0.0) < 1e-6, "a zero gain still sounded");

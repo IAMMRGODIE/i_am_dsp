@@ -391,6 +391,8 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   可读、可被 agent 编辑；JSON 是真相，文本是投影。
 - 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`；页面编辑 bump generation，
   音频线程在块边界重建引擎。
+- 宿主侧链：CLAP 的第二个输入端口由 `i_am_plugin` 放进 `other`，`Body` 按块交给引擎，
+  图里用 `input:sidechain` 节点取用；VST3 由 clap-wrapper 把非 main 输入映射成 sidechain bus。
 - 源图形（LFO/包络/随机/表）与 rack 共用 `i_am_web_gui/page/card/sources.js` 一份实现，
   样式以 Multipass 的调制卡片为准；patch 只负责把节点数据喂进去。
   LFO 的点编辑也在同一份实现里：patch 直接在卡片 hero 上拖点/双击加点/右键删点，

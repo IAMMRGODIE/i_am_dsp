@@ -88,7 +88,7 @@ macro_rules! product {
 			fn process(
 				&mut self,
 				samples: &mut [f32; 2],
-				_other: &[[f32; 2]],
+				other: &[[f32; 2]],
 				context: &mut Box<dyn ProcessContext>,
 			) {
 				if self.0.ui.bypass.load(Ordering::Relaxed) {
@@ -106,7 +106,8 @@ macro_rules! product {
 					.set_transport(infos.tempo, infos.position_beats.map(|value| value as f32));
 
 				let input = if $generator { [0.0; 2] } else { *samples };
-				*samples = self.0.body.process(input);
+				let sidechain = other.get(1).copied().unwrap_or([0.0; 2]);
+				*samples = self.0.body.process(input, sidechain);
 			}
 
 			fn delay(&self) -> usize {
@@ -180,7 +181,7 @@ product!(
 	"iamdsp.patch.effect",
 	"A patcher: an effect whose graph the page edits.",
 	&[Tag::AudioEffect],
-	&[AudioPort { name: "Input" }],
+	&[AudioPort { name: "Main" }, AudioPort { name: "Sidechain" }],
 	false
 );
 
@@ -195,6 +196,38 @@ product!(
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn the_effect_declares_its_sidechain() {
+		assert_eq!(PatcherEffect::INPUT_PORTS.len(), 2);
+		assert_eq!(PatcherEffect::INPUT_PORTS[0].name, "Main");
+		assert_eq!(PatcherEffect::INPUT_PORTS[1].name, "Sidechain");
+		assert!(PatcherGenerator::INPUT_PORTS.is_empty());
+	}
+
+	#[test]
+	fn the_host_sidechain_reaches_the_graph() {
+		let shared = std::sync::Arc::new(PatcherShared::default());
+		assert!(shared.set_text(
+			"node 0 input:sidechain 0 0\nnode 1 out:audio 100 0\nconnect 0.audio -> 1.audio\n"
+		));
+
+		let mut body = Body::new(shared);
+		let block = i_am_patch::block::BLOCK;
+
+		for _ in 0..block {
+			body.process([0.0; 2], [0.5, -0.25]);
+		}
+
+		let mut out = [0.0f32; 2];
+
+		for _ in 0..block {
+			out = body.process([0.0; 2], [0.5, -0.25]);
+		}
+
+		assert!((out[0] - 0.5).abs() < 1e-6, "{}", out[0]);
+		assert!((out[1] + 0.25).abs() < 1e-6, "{}", out[1]);
+	}
+
 	use super::*;
 
 	fn patch_text(effect: &PatcherEffect) -> String {
