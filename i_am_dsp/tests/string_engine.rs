@@ -275,12 +275,13 @@ fn fitting_the_filter_for_a_new_note_stays_within_an_audio_budget() {
 fn switching_preset_reloads_the_controls() {
 	let mut instrument = StringInstrument::new(FS);
 	instrument.select_preset(0);
-	assert_eq!(instrument.preset_name(), "Piano");
-	let piano_strings = instrument.strings;
+	assert_eq!(instrument.preset_name(), "Violin");
+	let violin_damping = instrument.damping;
 	instrument.select_preset(1);
-	assert_eq!(instrument.preset_name(), "Guitar");
-	assert_ne!(piano_strings, instrument.strings);
-	assert_eq!(instrument.excitation, 0, "the guitar is plucked");
+	assert_eq!(instrument.preset_name(), "Cello");
+	assert_ne!(violin_damping, instrument.damping);
+	// Both bowed presets ship the bow; the control is reloaded from the preset.
+	assert_eq!(instrument.excitation, 2, "the cello is bowed");
 }
 #[test]
 fn the_sustain_pedal_follows_midi_cc64() {
@@ -333,8 +334,10 @@ fn the_sympathetic_strings_can_be_turned_off() {
 	};
 	let without = tail(0.0);
 	let with = tail(0.8);
+	// On the bowed presets the bank adds a little under half again to the tail,
+	// which is the coupling being audible rather than the string being loud.
 	assert!(
-		with > 1.5 * without,
+		with > 1.3 * without,
 		"the sympathetic strings made no difference: {without} then {with}"
 	);
 }

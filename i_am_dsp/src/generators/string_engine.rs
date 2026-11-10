@@ -322,6 +322,11 @@ impl Generator<2> for StringInstrument {
 			self.load_preset(preset);
 		}
 
+		// The controls reach the engine before the note that reads them: a
+		// note-on takes its transpose, excitation and string design from here,
+		// so a sync after the event would start the note a block late.
+		self.sync();
+
 		// The host hands the same event list to every sample of a block, so
 		// the events have to be taken and cleared; processing them in place
 		// would restart the note on every single sample.
@@ -349,7 +354,6 @@ impl Generator<2> for StringInstrument {
 			}
 		}
 
-		self.sync();
 		self.engine.next_frame()
 	}
 
