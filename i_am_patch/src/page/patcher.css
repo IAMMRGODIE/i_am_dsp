@@ -153,10 +153,18 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 }
 .menu-search:focus{border-color:var(--accent)}
 .menu-list.flat{max-height:55vh; overflow:auto}
-.menu-list.flat::-webkit-scrollbar{width:8px}
-.menu-list.flat::-webkit-scrollbar-track{background:transparent}
-.menu-list.flat::-webkit-scrollbar-thumb{background:#3a3a3a; border-radius:4px}
-.menu-list.flat::-webkit-scrollbar-thumb:hover{background:#555}
+#menu::-webkit-scrollbar,
+.menu-list::-webkit-scrollbar,
+.menu-sub::-webkit-scrollbar{width:8px}
+#menu::-webkit-scrollbar-track,
+.menu-list::-webkit-scrollbar-track,
+.menu-sub::-webkit-scrollbar-track{background:transparent}
+#menu::-webkit-scrollbar-thumb,
+.menu-list::-webkit-scrollbar-thumb,
+.menu-sub::-webkit-scrollbar-thumb{background:#3a3a3a; border-radius:4px}
+#menu::-webkit-scrollbar-thumb:hover,
+.menu-list::-webkit-scrollbar-thumb:hover,
+.menu-sub::-webkit-scrollbar-thumb:hover{background:#555}
 
 /* The body takes the card's spare height, so a short card does not leave a
    gap under its knobs. */
