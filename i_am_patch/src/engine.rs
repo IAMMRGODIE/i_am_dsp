@@ -470,11 +470,15 @@ impl Engine {
 
 						// Centered swings both ways around the base; from-base
 						// only rises, so a bipolar source is folded into 0..1.
-						let bipolar = self.kinds[link.source] != "envelope";
+						// The envelope, the pitch tracker and the MIDI source
+						// already sit in 0..1; the LFO, random and table are the
+						// ones that swing around zero.
+						let unipolar =
+							matches!(self.kinds[link.source], "envelope" | "pitch" | "midi");
 						let unit = |value: f32| match link.mode {
 							ModulationMode::Centered => value,
-							ModulationMode::FromBase if bipolar => (value + 1.0) * 0.5,
-							ModulationMode::FromBase => value,
+							ModulationMode::FromBase if unipolar => value,
+							ModulationMode::FromBase => (value + 1.0) * 0.5,
 						};
 
 						start += link.depth * unit(last);

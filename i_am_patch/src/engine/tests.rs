@@ -592,3 +592,41 @@ fn an_lfo_plays_its_points() {
 		block[BLOCK - 1][0]
 	);
 }
+
+#[test]
+fn a_unipolar_source_rises_from_zero() {
+	use crate::graph::ModulationMode;
+
+	// The MIDI source is 0..1: from-base has to add that value, not the
+	// bipolar fold (value + 1) / 2, which would start halfway up.
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let midi_in = graph.add_node("input:midi", (0.0, 100.0)).expect("midi in");
+	let midi = graph.add_node("midi", (100.0, 100.0)).expect("midi");
+	let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+	graph.connect((input, 0), (gain, 0));
+	graph.connect((gain, 0), (out, 0));
+	graph.connect((midi_in, 0), (midi, 0));
+	graph.modulate((midi, 0), (gain, "gain"), 1.0);
+	assert!(graph.set_modulation_mode(0, ModulationMode::FromBase));
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let host = vec![[0.5f32; 2]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+	let note = NoteEvent::NoteOn {
+		channel: 0,
+		note: 60,
+		velocity: 1.0,
+	};
+	engine.process(&host, &[note], &mut block);
+	engine.process(&host, &[], &mut block);
+
+	// 1 + 60 / 127 = 1.472; the bipolar fold would have given 1.736.
+	let expected = 0.5 * (1.0 + 60.0 / 127.0);
+	assert!(
+		(block[BLOCK - 1][0] - expected).abs() < 1e-3,
+		"{} vs {expected}",
+		block[BLOCK - 1][0]
+	);
+}
