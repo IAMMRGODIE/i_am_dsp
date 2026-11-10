@@ -352,6 +352,25 @@ web_plugin!(
 两轴可缩放的宿主窗口（15 个产品共用；rack 和 patcher 版面不同，自己给尺寸）；
 `json_escape` 与 `percent_decode` 是路由拼 JSON、解析 data URL 的唯一实现。
 
+### 5.5 一份描述，两个页面壳
+
+产品页（`page/kit/*`）和卡片页（`page/card/*`）不是两套 UI，它们共享下面三层：
+
+- **描述**：`Faceplate` + 参数 `#[layout]` → `sections()` → `face_json`；patch 的节点目录
+  （`i_am_patch/src/catalog.rs`）读的是同一份 sections/pages/heroes，不再各自拼字段。
+- **控件**：两边都调用 `IAmCard.controlHandle / switchHandle / choiceHandle / sliderHandle`，
+  没有第二套旋钮实现。
+- **hero**：两边都调用 `IAmCard.hero(kind, values, context)`，产品页只负责把 live 数据
+  （scope/spectrum/meter/IR…）放进 context 并轮询。
+
+卡片布局本身也共享：`IAmCard.faceCard({ face, values, context, activePage, onPage, onEdit, wrapControl })`
+把 face 的 sections/pages/heroes/header/visible/switches 画成一张卡（section 标题、分页标签、
+hero 高亮正在编辑的控件）。patch 的产品卡就是它加上节点 chrome（调制环、拖放目标、缩放、端口）。
+
+**边界**：产品页的 `.face` 壳和它的页面级交互（sampler 拖放/切片、IR 淡入淡出、wavetable、
+kick/snare 编辑器、脚本面板）留在 kit 里，不进共享层——它们是产品页专属的编辑器，patch/rack
+没有这些节点。要共享的是「描述 + 控件 + hero + 卡片布局语义」，不是「所有 DOM」。
+
 ## 6. 产品层
 
 ### 6.1 `i_am_effects`（38 个）
@@ -391,6 +410,11 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   可读、可被 agent 编辑；JSON 是真相，文本是投影。
 - 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`；页面编辑 bump generation，
   音频线程在块边界重建引擎。
+- 节点目录只有一份：`i_am_patch/src/catalog.rs` 的 `kinds_json()` 同时喂给编辑器 example 和
+  产品的 `/catalog`；产品节点的 sections/pages/heroes/switches 从产品自己的元数据派生，
+  所以产品页有的字段 patch 一定有。
+- 产品卡由共享的 `IAmCard.faceCard` 画（sections/pages/heroes/header/visible/switches），
+  patch 只负责节点 chrome：调制环、拖放目标、端口、缩放；内置控制源仍走 `genericCard`。
 - 宿主侧链：CLAP 的第二个输入端口由 `i_am_plugin` 放进 `other`，`Body` 按块交给引擎，
   图里用 `input:sidechain` 节点取用；VST3 由 clap-wrapper 把非 main 输入映射成 sidechain bus。
 - 源图形（LFO/包络/随机/表）与 rack 共用 `i_am_web_gui/page/card/sources.js` 一份实现，
@@ -501,6 +525,8 @@ features（`i_am_dsp/Cargo.toml`）：`layout`（布局元数据）、`string`�
 - **standalone 只是 demo**，不是完整应用；两条 standalone 线拿不到宿主 tempo（见 `bpm-sync-research.md`）。
 - **AU 只导出符号**，打包与验证未做。
 - **延迟补偿**只做到「变化时告诉宿主」，依赖宿主实现 PDC。
+- **UI 共享到「卡片布局」为止**：产品页的页面级编辑器（sampler/IR/脚本等）是产品页专属，
+  不抽进共享层；卡片页与产品页共享描述、控件、hero 和 `faceCard` 布局语义（见 5.5）。
 - **无 CI**；测试是本地 `cargo test` + clippy。
 - README 里的 TODO 仍成立：完善 README/example、视觉化、SIMD、物理建模扩展、`i_am_effects` 收尾。
 
