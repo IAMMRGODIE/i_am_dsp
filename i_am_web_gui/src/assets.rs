@@ -35,6 +35,8 @@ pub const CARD_SCRIPT: &str = concat!(
 	include_str!("page/card/registry.js"),
 	include_str!("page/card/controls.js"),
 	include_str!("page/card/card.js"),
+	// The control-source pictures shared by the patch and the rack page.
+	include_str!("page/card/sources.js"),
 );
 
 /// The three assets a page is made of.

@@ -138,10 +138,7 @@
     }).join(";");
   }
 
-  function lfoBend(t, bend) {
-    if (Math.abs(bend) < 0.0001) return t;
-    return (Math.exp(t * bend) - 1) / (Math.exp(bend) - 1);
-  }
+  
 
   function drawLfo(svg, lfo, id) {
     function eventPoint(event) {
@@ -196,7 +193,7 @@
         var point = points[i];
         var next = points[i + 1];
         var time = (point.time + next.time) / 2;
-        var value = point.value + (next.value - point.value) * lfoBend(0.5, point.bend);
+        var value = point.value + (next.value - point.value) * IAmCard.sources.bend(0.5, point.bend);
         var x = 8 + time * 284;
         var y = 60 - value * 52;
 
@@ -209,69 +206,7 @@
     }
 
     function paint() {
-      svg.textContent = "";
-
-      svg.appendChild(svgNode("line", {
-        x1: 8, y1: 60, x2: 292, y2: 60,
-        stroke: "#333", "stroke-width": "1", "stroke-dasharray": "2 4"
-      }));
-
-      var points = lfo.points.slice().sort(function (a, b) {
-        return a.time - b.time;
-      });
-      var path = "";
-
-      for (var i = 0; i < points.length; i++) {
-        if (i === 0) {
-          path = "M " + (8 + points[i].time * 284).toFixed(1) + " " +
-            (60 - points[i].value * 52).toFixed(1);
-          continue;
-        }
-
-        var previous = points[i - 1];
-        var point = points[i];
-
-        for (var step = 1; step <= 14; step++) {
-          var unit = step / 14;
-          var time = previous.time + (point.time - previous.time) * unit;
-          var value = previous.value +
-            (point.value - previous.value) * lfoBend(unit, previous.bend);
-          path += " L " + (8 + time * 284).toFixed(1) + " " +
-            (60 - value * 52).toFixed(1);
-        }
-      }
-
-      if (points.length > 1) {
-        svg.appendChild(svgNode("path", {
-          d: path, fill: "none", stroke: "#4c8dff", "stroke-width": "2",
-          "stroke-linecap": "round", "vector-effect": "non-scaling-stroke"
-        }));
-      }
-
-      points.forEach(function (point) {
-        var circle = svgNode("circle", {
-          cx: (8 + point.time * 284).toFixed(1),
-          cy: (60 - point.value * 52).toFixed(1),
-          r: "3.5", fill: "#4c8dff", stroke: "#1a1a1a", "stroke-width": "1.5"
-        });
-        circle.style.pointerEvents = "none";
-        svg.appendChild(circle);
-      });
-
-      for (var bendIndex = 0; bendIndex < points.length - 1; bendIndex++) {
-        var start = points[bendIndex];
-        var end = points[bendIndex + 1];
-        var bendTime = (start.time + end.time) / 2;
-        var bendValue = start.value +
-          (end.value - start.value) * lfoBend(0.5, start.bend);
-        var handle = svgNode("circle", {
-          cx: (8 + bendTime * 284).toFixed(1),
-          cy: (60 - bendValue * 52).toFixed(1),
-          r: "2.6", fill: "none", stroke: "#8fb8ff", "stroke-width": "1.4"
-        });
-        handle.style.pointerEvents = "none";
-        svg.appendChild(handle);
-      }
+      IAmCard.sources.drawPreview(svg, "lfo", { points: lfo.points });
     }
 
     var drag = null;
@@ -379,97 +314,39 @@
   }
 
   function drawEnvelope(svg) {
-    svg.textContent = "";
-    svg.appendChild(svgNode("line", {
-      x1: 8, y1: 58, x2: 292, y2: 58,
-      stroke: "#333", "stroke-width": "1", "stroke-dasharray": "2 4"
-    }));
+    IAmCard.sources.drawPreview(svg, "envelope", {});
   }
 
   function drawRandom(svg) {
-    svg.textContent = "";
-    svg.appendChild(svgNode("line", {
-      x1: 8, y1: 32, x2: 292, y2: 32,
-      stroke: "#333", "stroke-width": "1", "stroke-dasharray": "2 4"
-    }));
+    IAmCard.sources.drawPreview(svg, "random", {});
   }
 
   function drawTable(svg, table) {
-    var values = [];
-
-    for (var i = 0; i < 120; i++) {
-      values.push(tableValue(table.shape, table.morph, (i / 120 * 2) % 1));
-    }
-
-    paintCurve(svg, values, "#c8e04a");
+    IAmCard.sources.drawPreview(svg, "table", table);
   }
 
-  function liveTrace(svg, values, color, base, height) {
-    svg.textContent = "";
-    if (values.length < 2) return;
-
-    var path = "";
-
-    for (var i = 0; i < values.length; i++) {
-      var x = 8 + i / (values.length - 1) * 284;
-      var y = base - values[i] * height;
-      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
-    }
-
-    svg.appendChild(svgNode("path", {
-      d: path, fill: "none", stroke: color, "stroke-width": "2",
-      "stroke-linecap": "round", "vector-effect": "non-scaling-stroke"
-    }));
-  }
+  
 
   function drawLiveEnvelope(svg, live, id) {
-    liveTrace(svg, (live.history[id] || []).slice(-120), "#35c77a", 58, 48);
+    IAmCard.sources.drawLive(svg, "envelope", live, id);
   }
 
   function drawLiveRandom(svg, live, id) {
-    liveTrace(svg, (live.history[id] || []).slice(-120), "#ff9a3d", 32, 22);
+    IAmCard.sources.drawLive(svg, "random", live, id);
   }
 
   function drawLivePitch(svg, live, id) {
-    liveTrace(svg, (live.history[id] || []).slice(-120), "#b08cff", 58, 48);
+    IAmCard.sources.drawLive(svg, "pitch", live, id);
   }
 
   function drawLiveMidi(svg, live, id) {
-    liveTrace(svg, (live.history[id] || []).slice(-120), "#ff6f91", 58, 48);
+    IAmCard.sources.drawLive(svg, "midi", live, id);
   }
 
   function drawLiveLfo(svg, live, id) {
-    svg.textContent = "";
-
-    var phase = live.phases[id] || 0;
-    var value = live.values[id] || 0;
-    var x = 8 + phase * 284;
-    var y = 60 - ((value + 1) / 2) * 52;
-
-    svg.appendChild(svgNode("line", {
-      x1: x.toFixed(1), y1: 6, x2: x.toFixed(1), y2: 60,
-      stroke: "#4c8dff", "stroke-opacity": ".35", "stroke-width": "1"
-    }));
-    svg.appendChild(svgNode("circle", {
-      cx: x.toFixed(1), cy: y.toFixed(1), r: "3.5",
-      fill: "#dce9ff", stroke: "#4c8dff", "stroke-width": "1.5"
-    }));
+    IAmCard.sources.drawLive(svg, "lfo", live, id);
   }
 
   function drawLiveTable(svg, live, id) {
-    svg.textContent = "";
-
-    var phase = live.phases[id] || 0;
-    var value = live.values[id] || 0;
-    var x = 8 + phase * 284;
-    var y = 32 - value * 22;
-
-    svg.appendChild(svgNode("line", {
-      x1: x.toFixed(1), y1: 6, x2: x.toFixed(1), y2: 60,
-      stroke: "#c8e04a", "stroke-opacity": ".35", "stroke-width": "1"
-    }));
-    svg.appendChild(svgNode("circle", {
-      cx: x.toFixed(1), cy: y.toFixed(1), r: "3.5",
-      fill: "#f4ffd0", stroke: "#c8e04a", "stroke-width": "1.5"
-    }));
+    IAmCard.sources.drawLive(svg, "table", live, id);
   }

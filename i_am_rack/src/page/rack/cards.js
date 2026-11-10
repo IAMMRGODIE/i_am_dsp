@@ -197,42 +197,11 @@
     return node;
   }
 
-  function paintCurve(svg, values, color) {
-    svg.textContent = "";
+  
 
-    svg.appendChild(svgNode("line", {
-      x1: 8, y1: 32, x2: 292, y2: 32,
-      stroke: "#333", "stroke-width": "1", "stroke-dasharray": "2 4"
-    }));
+  
 
-    var path = "";
-
-    for (var i = 0; i < values.length; i++) {
-      var x = 8 + i / (values.length - 1) * 284;
-      var y = 32 - Math.max(-1, Math.min(1, values[i])) * 22;
-      path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
-    }
-
-    svg.appendChild(svgNode("path", {
-      d: path, fill: "none", stroke: color, "stroke-width": "2",
-      "stroke-linecap": "round", "vector-effect": "non-scaling-stroke"
-    }));
-  }
-
-  function lfoValue(shape, phase) {
-    switch (((shape % 4) + 4) % 4) {
-      case 1: return 1 - 4 * Math.abs(phase - 0.5);
-      case 2: return 2 * phase - 1;
-      case 3: return phase < 0.5 ? 1 : -1;
-      default: return Math.sin(phase * Math.PI * 2);
-    }
-  }
-
-  function tableValue(shape, morph, phase) {
-    var first = lfoValue(shape, phase);
-    var second = lfoValue(shape + 1, phase);
-    return first + (second - first) * Math.max(0, Math.min(1, morph));
-  }
+  
 
   function lfoPreset(shape) {
     var raw;

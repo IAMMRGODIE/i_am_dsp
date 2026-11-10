@@ -57,106 +57,37 @@
     return node;
   }
 
-  function rackShape(shape, phase) {
-    switch (shape % 4) {
-      case 1: return 1 - 4 * Math.abs(phase - 0.5);
-      case 2: return phase * 2 - 1;
-      case 3: return phase < 0.5 ? 1 : -1;
-      default: return Math.sin(phase * Math.PI * 2);
-    }
-  }
+  
 
   function drawSourceStatic(svg, node, kind) {
-    const color = "#3a3a3a";
-
-    svg.appendChild(rackNode("line", {
-      x1: 8, y1: 58, x2: 292, y2: 58,
-      stroke: color, "stroke-width": 1, "stroke-dasharray": "2 4",
-    }));
+    const params = (node && node.params) || {};
 
     if (kind === "lfo") {
-      const points = (node.points || []).slice().sort((a, b) => a.time - b.time);
-
-      if (points.length >= 2) {
-        let path = "";
-
-        for (const point of points) {
-          path += (path ? " L " : "M ") + (8 + point.time * 284).toFixed(1) + " " +
-            (58 - point.value * 48).toFixed(1);
-        }
-
-        svg.appendChild(rackNode("path", {
-          d: path, fill: "none", stroke: "#2f4a6a", "stroke-width": 1.5,
-        }));
-
-        for (const point of points) {
-          svg.appendChild(rackNode("circle", {
-            cx: (8 + point.time * 284).toFixed(1), cy: (58 - point.value * 48).toFixed(1),
-            r: 2.5, fill: "#2f4a6a",
-          }));
-        }
-      } else {
-        const shape = Math.round(node.params.shape ?? 0);
-        let path = "";
-
-        for (let index = 0; index <= 120; index++) {
-          const t = index / 120;
-          const value = rackShape(shape, (t * 2) % 1);
-          path += (index ? " L " : "M ") + (8 + t * 284).toFixed(1) + " " +
-            (58 - (value * 0.5 + 0.5) * 48).toFixed(1);
-        }
-
-        svg.appendChild(rackNode("path", {
-          d: path, fill: "none", stroke: "#2f4a6a", "stroke-width": 1.5,
-        }));
-      }
-    }
-
-    if (kind === "table") {
-      const shape = Math.round(node.params.shape ?? 0);
-      const morph = Math.min(Math.max(node.params.morph ?? 0, 0), 1);
-      let path = "";
-
-      for (let index = 0; index <= 120; index++) {
-        const t = index / 120;
-        const phase = (t * 2) % 1;
-        const value = rackShape(shape, phase) * (1 - morph) + rackShape(shape + 1, phase) * morph;
-        path += (index ? " L " : "M ") + (8 + t * 284).toFixed(1) + " " +
-          (58 - (value * 0.5 + 0.5) * 48).toFixed(1);
-      }
-
-      svg.appendChild(rackNode("path", {
-        d: path, fill: "none", stroke: "#4a4a2a", "stroke-width": 1.5,
-      }));
+      IAmCard.sources.drawPreview(svg, "lfo", {
+        points: (node && node.points) || [],
+        shape: Math.round(params.shape ?? 0),
+      });
+    } else if (kind === "table") {
+      IAmCard.sources.drawPreview(svg, "table", {
+        shape: Math.round(params.shape ?? 0),
+        morph: params.morph ?? 0,
+      });
+    } else {
+      IAmCard.sources.drawPreview(svg, kind, {});
     }
   }
 
-  function drawSourceLive(svg, node, kind, samples, phase, accent) {
+  function drawSourceLive(svg, node, kind, samples, phase, _accent) {
     if (!samples || samples.length < 2) return;
 
-    const bipolar = kind === "lfo" || kind === "random" || kind === "table";
-    let path = "";
+    const values = samples.map((frame) => frame[0]);
+    const key = "patch";
 
-    for (let index = 0; index < samples.length; index++) {
-      const raw = samples[index][0];
-      const value = bipolar ? (raw * 0.5 + 0.5) : raw;
-      const x = 8 + index / (samples.length - 1) * 284;
-      const y = 58 - Math.min(Math.max(value, 0), 1) * 48;
-      path += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
-    }
-
-    svg.appendChild(rackNode("path", {
-      d: path, fill: "none", stroke: accent, "stroke-width": 1.5,
-      "stroke-linecap": "round", "vector-effect": "non-scaling-stroke",
-    }));
-
-    if ((kind === "lfo" || kind === "table") && typeof phase === "number") {
-      const x = (8 + phase * 284).toFixed(1);
-      svg.appendChild(rackNode("line", {
-        x1: x, y1: 10, x2: x, y2: 58, stroke: accent, "stroke-width": 1, opacity: 0.6,
-      }));
-      svg.appendChild(rackNode("circle", { cx: x, cy: 34, r: 3, fill: accent }));
-    }
+    IAmCard.sources.drawLive(svg, kind, {
+      history: { [key]: values },
+      phases: { [key]: typeof phase === "number" ? phase : 0 },
+      values: { [key]: values[values.length - 1] },
+    }, key, false);
   }
 
   // The control sources' pictures, the ones the rack's modulation page draws:
@@ -166,14 +97,7 @@
     const heroSvg = (inner) =>
       `<svg viewBox="0 0 520 160" preserveAspectRatio="none">${inner}</svg>`;
 
-    const shapeAt = (shape, phase) => {
-      switch (shape % 4) {
-        case 1: return 1 - 4 * Math.abs(phase - 0.5);
-        case 2: return phase * 2 - 1;
-        case 3: return phase < 0.5 ? 1 : -1;
-        default: return Math.sin(phase * Math.PI * 2);
-      }
-    };
+    const shapeAt = (shape, phase) => IAmCard.sources.shape(shape, phase);
 
     window.IAmCard.registerHero("patch-lfo", (values, context) => {
       const table = values.points ? JSON.parse(values.points) : [];
