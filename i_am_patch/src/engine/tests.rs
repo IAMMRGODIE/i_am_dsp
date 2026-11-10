@@ -547,3 +547,48 @@ fn a_filtered_chain_still_sounds() {
 
 	assert!(render(&graph) > 1e-3);
 }
+
+#[test]
+fn an_lfo_plays_its_points() {
+	use crate::graph::Point;
+
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
+	let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+	graph.connect((input, 0), (gain, 0));
+	graph.connect((gain, 0), (out, 0));
+	// A flat curve at the top: the gain doubles across the whole block.
+	graph.set_points(
+		lfo,
+		vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: 1.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+		],
+	);
+	graph.modulate((lfo, 0), (gain, "gain"), 1.0);
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let host = vec![[0.5f32; 2]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+
+	// The first block ramps from the source's previous value; the second one
+	// already knows the curve sits at the top.
+	engine.process(&host, &[], &mut block);
+	engine.process(&host, &[], &mut block);
+
+	assert!(
+		(block[BLOCK - 1][0] - 1.0).abs() < 1e-3,
+		"{}",
+		block[BLOCK - 1][0]
+	);
+}

@@ -306,6 +306,10 @@ struct SourceNode {
 	settings: SourceSettings,
 	runtime: SourceRuntime,
 	dirty: bool,
+	/// Whether the LFO plays pasted points instead of its preset shape.
+	custom: bool,
+	/// The base shape parameter, which the engine re-applies every block.
+	base_shape: i32,
 }
 
 impl SourceNode {
@@ -321,6 +325,8 @@ impl SourceNode {
 			settings: settings.clone(),
 			runtime: SourceRuntime::from_settings(kind, false, settings, rate, 0),
 			dirty: true,
+			custom: false,
+			base_shape: 0,
 		};
 
 		for (name, value) in params {
@@ -334,7 +340,9 @@ impl SourceNode {
 				.iter()
 				.map(|point| (point.time, point.value, point.bend))
 				.collect();
+			node.base_shape = node.settings.lfo_shape;
 			node.settings.lfo_shape = 4;
+			node.custom = true;
 			node.dirty = true;
 		}
 
@@ -345,6 +353,19 @@ impl SourceNode {
 impl BlockNode for SourceNode {
 	fn set_param(&mut self, name: &str, value: f32) {
 		let mut changed = false;
+
+		// The engine re-applies the base parameters every block. A pasted curve
+		// outranks the base shape until the shape control is actually moved,
+		// otherwise the preset would overwrite the points on the next block.
+		if self.kind == SourceKind::Lfo && name == "shape" && self.custom {
+			let next = (value.round() as i32).clamp(0, 4);
+
+			if next == self.base_shape {
+				return;
+			}
+
+			self.custom = false;
+		}
 
 		{
 			let settings = &mut self.settings;
