@@ -384,6 +384,8 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 - 节点目录（`nodes.rs`）：`gain`、`filter`、`mixer`、`delay`、`lfo`、`random`、`table`、`pitch`、
   `midi`、`envelope`，以及 9 个音源节点（`additive`…`strings`，直接包装 `i_am_synths` 的产品）。
 - 调制是控制率的：引擎每 64 样本取一次值；每个源槽各有自己的相位/包络/随机状态。
+- 源的形状/同步频率/一阶系数与 rack 的 slot 运行时共用 `i_am_patch/src/source_dsp.rs`；
+  图节点（`nodes.rs`）和 slot 运行时（`modulation.rs`）只是两套驱动方式。
 - 宿主存档 = 一个 `Serialized` 参数 `"patch"`，内容是**行文本格式**（`node 1 gen:additive 100 0 decay=1.5`），
   可读、可被 agent 编辑；JSON 是真相，文本是投影。
 - 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`；页面编辑 bump generation，

@@ -5,12 +5,12 @@
 //! envelopes without one slot stepping on another.
 
 use std::collections::BTreeMap;
-use std::f32::consts::TAU;
 
 use i_am_dsp::prelude::{
 	EditableLfo, NoteEvent, PitchTracker, ProcessInfos, SyncedTime, WaveTable,
 };
 
+use crate::source_dsp;
 use crate::sources::{SourceKind, SourceSettings, SourceSlot};
 
 /// How many samples one modulation update covers.
@@ -73,9 +73,9 @@ impl SourceRuntime {
 		self.bypass = slot.bypass;
 		self.settings = slot.settings.clone();
 		self.lfo = editable_lfo(&self.settings.lfo_points);
-		self.attack_coeff = time_coefficient(self.settings.env_attack, rate);
-		self.release_coeff = time_coefficient(self.settings.env_release, rate);
-		self.random_coeff = time_coefficient(self.settings.random_smooth, rate);
+		self.attack_coeff = source_dsp::time_coefficient(self.settings.env_attack, rate as f32);
+		self.release_coeff = source_dsp::time_coefficient(self.settings.env_release, rate as f32);
+		self.random_coeff = source_dsp::time_coefficient(self.settings.random_smooth, rate as f32);
 
 		if self.kind == SourceKind::Pitch {
 			self.pitch_tracker
@@ -136,7 +136,8 @@ impl SourceRuntime {
 			}
 			SourceKind::Pitch => {
 				let clarity = self.settings.pitch_clarity.clamp(0.0, 1.0);
-				let coefficient = time_coefficient(self.settings.pitch_glide, rate);
+				let coefficient =
+					source_dsp::time_coefficient(self.settings.pitch_glide, rate as f32);
 
 				if let Some(tracker) = &mut self.pitch_tracker {
 					tracker.process_sample(input);
@@ -177,7 +178,7 @@ impl SourceRuntime {
 			SourceKind::Lfo => self.lfo.sample(self.lfo_phase, 0) * 2.0 - 1.0,
 			SourceKind::Envelope => self.envelope.clamp(0.0, 1.0),
 			SourceKind::Random => self.random_value.clamp(-1.0, 1.0),
-			SourceKind::Table => table(
+			SourceKind::Table => source_dsp::morph(
 				self.settings.table_shape,
 				self.settings.table_morph,
 				self.table_phase,
@@ -332,12 +333,6 @@ fn source_rate(rate: f32, sync: bool, beats: f32, infos: &ProcessInfos) -> f32 {
 }
 
 /// One table sample, morphing from the selected shape to the next one.
-fn table(shape: i32, morph: f32, phase: f32) -> f32 {
-	let first = lfo(shape, phase);
-	let second = lfo(shape + 1, phase);
-	first + (second - first) * morph.clamp(0.0, 1.0)
-}
-
 /// Builds an EditableLfo from the points the page last sent.
 fn editable_lfo(points: &[(f32, f32, f32)]) -> EditableLfo {
 	let mut lfo = EditableLfo::new();
@@ -349,29 +344,4 @@ fn editable_lfo(points: &[(f32, f32, f32)]) -> EditableLfo {
 	}
 
 	lfo
-}
-
-/// One LFO sample, in -1..1.
-fn lfo(shape: i32, phase: f32) -> f32 {
-	match shape.rem_euclid(4) {
-		1 => 1.0 - 4.0 * (phase - 0.5).abs(),
-		2 => 2.0 * phase - 1.0,
-		3 => {
-			if phase < 0.5 {
-				1.0
-			} else {
-				-1.0
-			}
-		}
-		_ => (phase * TAU).sin(),
-	}
-}
-
-/// The one-pole coefficient for a time constant in milliseconds.
-fn time_coefficient(milliseconds: f32, sample_rate: usize) -> f32 {
-	if milliseconds <= 0.0 {
-		1.0
-	} else {
-		1.0 - (-1.0 / (milliseconds * sample_rate as f32 / 1000.0)).exp()
-	}
 }

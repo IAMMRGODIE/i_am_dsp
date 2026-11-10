@@ -13,6 +13,7 @@ pub mod modulation;
 pub mod nodes;
 pub mod poly;
 pub mod scope;
+mod source_dsp;
 pub mod sources;
 pub mod synths;
 pub mod text;

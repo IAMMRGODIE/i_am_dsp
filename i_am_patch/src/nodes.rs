@@ -9,6 +9,7 @@ use i_am_dsp::prelude::{
 use i_am_plugin::Plugin;
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
+use crate::source_dsp;
 
 /// One node in the running graph.
 pub trait BlockNode: Send + Sync {
@@ -490,7 +491,7 @@ impl BlockNode for Lfo {
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
 		let tempo = context.context.infos().tempo.unwrap_or(120.0);
 		let frequency = if self.sync {
-			tempo / 60.0 / self.beats.max(0.01)
+			source_dsp::sync_hz(tempo, self.beats)
 		} else {
 			self.frequency
 		};
@@ -500,7 +501,7 @@ impl BlockNode for Lfo {
 		if let Some(Buffer::Control(value)) = outputs.first_mut() {
 			*value = match &self.points {
 				Some(points) => points.sample(self.phase, 0) * 2.0 - 1.0,
-				None => lfo_shape(self.shape, self.phase),
+				None => source_dsp::shape(self.shape, self.phase),
 			};
 		}
 	}
@@ -616,7 +617,7 @@ impl BlockNode for RandomNode {
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
 		let tempo = context.context.infos().tempo.unwrap_or(120.0);
 		let rate = if self.sync {
-			tempo / 60.0 / self.beats.max(0.01)
+			source_dsp::sync_hz(tempo, self.beats)
 		} else {
 			self.rate
 		};
@@ -649,36 +650,6 @@ struct TableNode {
 	sample_rate: f32,
 }
 
-fn lfo_shape(shape: i32, phase: f32) -> f32 {
-	match shape.rem_euclid(4) {
-		1 => 1.0 - 4.0 * (phase - 0.5).abs(),
-		2 => phase * 2.0 - 1.0,
-		3 => {
-			if phase < 0.5 {
-				1.0
-			} else {
-				-1.0
-			}
-		}
-		_ => (phase * TAU).sin(),
-	}
-}
-
-fn table_shape(shape: i32, phase: f32) -> f32 {
-	match shape.rem_euclid(4) {
-		1 => 1.0 - 4.0 * (phase - 0.5).abs(),
-		2 => phase * 2.0 - 1.0,
-		3 => {
-			if phase < 0.5 {
-				1.0
-			} else {
-				-1.0
-			}
-		}
-		_ => (phase * TAU).sin(),
-	}
-}
-
 impl TableNode {
 	fn new(sample_rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
 		Self {
@@ -708,7 +679,7 @@ impl BlockNode for TableNode {
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
 		let tempo = context.context.infos().tempo.unwrap_or(120.0);
 		let rate = if self.sync {
-			tempo / 60.0 / self.beats.max(0.01)
+			source_dsp::sync_hz(tempo, self.beats)
 		} else {
 			self.rate
 		};
@@ -716,9 +687,7 @@ impl BlockNode for TableNode {
 		self.phase = (self.phase + rate * context.frames as f32 / self.sample_rate).fract();
 
 		if let Some(Buffer::Control(value)) = outputs.first_mut() {
-			let first = table_shape(self.shape, self.phase);
-			let second = table_shape(self.shape + 1, self.phase);
-			*value = first + (second - first) * self.morph;
+			*value = source_dsp::morph(self.shape, self.morph, self.phase);
 		}
 	}
 
@@ -844,13 +813,9 @@ struct Envelope {
 
 impl Envelope {
 	fn new(rate: usize, attack_ms: f32, release_ms: f32) -> Self {
-		let coefficient = |milliseconds: f32| {
-			1.0 - (-1000.0 / (milliseconds.clamp(0.1, 2000.0) * rate as f32)).exp()
-		};
-
 		Self {
-			attack: coefficient(attack_ms),
-			release: coefficient(release_ms),
+			attack: source_dsp::time_coefficient(attack_ms.clamp(0.1, 2000.0), rate as f32),
+			release: source_dsp::time_coefficient(release_ms.clamp(0.1, 2000.0), rate as f32),
 			envelope: 0.0,
 			rate: rate as f32,
 		}
@@ -859,13 +824,13 @@ impl Envelope {
 
 impl BlockNode for Envelope {
 	fn set_param(&mut self, name: &str, value: f32) {
-		let coefficient = |milliseconds: f32| {
-			1.0 - (-1000.0 / (milliseconds.clamp(0.1, 2000.0) * self.rate)).exp()
-		};
-
 		match name {
-			"attack" => self.attack = coefficient(value),
-			"release" => self.release = coefficient(value),
+			"attack" => {
+				self.attack = source_dsp::time_coefficient(value.clamp(0.1, 2000.0), self.rate)
+			}
+			"release" => {
+				self.release = source_dsp::time_coefficient(value.clamp(0.1, 2000.0), self.rate)
+			}
 			_ => {}
 		}
 	}
