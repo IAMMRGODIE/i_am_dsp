@@ -370,7 +370,7 @@
       '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
         'vector-effect="non-scaling-stroke"/>' +
       markers
-    ) + labelsHtml +
+    ) +
       '<div class="hero-label" style="left:2%;top:2%">' + vowels[vowel] + '</div>' +
       '<div class="hero-badge">' + (shift > 0 ? "+" : "") + shift.toFixed(0) + ' st</div>';
   }
