@@ -393,6 +393,8 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   音频线程在块边界重建引擎。
 - 源图形（LFO/包络/随机/表）与 rack 共用 `i_am_web_gui/page/card/sources.js` 一份实现，
   样式以 Multipass 的调制卡片为准；patch 只负责把节点数据喂进去。
+  LFO 的点编辑也在同一份实现里：patch 直接在卡片 hero 上拖点/双击加点/右键删点，
+  与 rack 的调制卡片是同一个编辑器。
 
 ### 6.4 `i_am_rack`（I Am Multipass）
 

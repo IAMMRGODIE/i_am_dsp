@@ -256,11 +256,32 @@
     const svg = entry.card.querySelector(".mcard-hero svg");
     if (!svg) return;
 
+    const params = (entry.node && entry.node.params) || {};
+
+    if (entry.kind.id === "lfo" && (!entry.node.points || entry.node.points.length < 2)) {
+      entry.node.points = IAmCard.sources.preset(Math.round(params.shape ?? 0));
+    }
+
     svg.textContent = "";
     drawSourceStatic(svg, entry.node, entry.kind.id);
 
     const accent = getComputedStyle(entry.card).getPropertyValue("--accent").trim() || "#e07a2f";
     drawSourceLive(svg, entry.node, entry.kind.id, entry.samples, entry.phase, accent);
+
+    if (entry.kind.id === "lfo") {
+      IAmCard.sources.editLfo(svg, entry.node, {
+        shape: params.shape,
+        commit: (points) => {
+          op({
+            op: "set_points",
+            id: entry.node.id,
+            points: points.map((point) => [point.time, point.value, point.bend || 0]),
+          }, false);
+        },
+        onStart: () => { editingPoints = true; },
+        onEnd: () => { editingPoints = false; },
+      });
+    }
   }
 
   // Ranges for the kinds that are not products: their catalog entry only has a
@@ -528,7 +549,7 @@
       header: GENERIC_HEADER[kind.id] || [],
       switches: kind.switches || [],
       controls: specs,
-      values: { ...node.params, points: JSON.stringify(node.points || []) },
+      values: { ...node.params, points: JSON.stringify((node.points || []).map((point) => (Array.isArray(point) ? point : [point.time, point.value, point.bend || 0]))) },
       context,
       onEdit: (identifier, value) => {
         op({ op: "param", id: node.id, key: identifier, value }, false);
@@ -644,9 +665,22 @@
     };
   }
 
+  // The server stores a point as \`[time, value, bend]\`; the page edits objects.
+  function readPatch(patch) {
+    for (const node of patch.nodes) {
+      node.points = (node.points || []).map((point) => (
+        Array.isArray(point)
+          ? { time: point[0], value: point[1], bend: point[2] || 0 }
+          : point
+      ));
+    }
+
+    return patch;
+  }
+
   async function load() {
     catalog = await (await fetch("/catalog")).json();
-    patch = await (await fetch("/patch")).json();
+    patch = readPatch(await (await fetch("/patch")).json());
     draw();
   }
 
@@ -654,9 +688,10 @@
   // must not rebuild the page under it, or the select closes and the knob
   // stops mid-drag.
   let interacting = false;
+  let editingPoints = false;
 
   function busy() {
-    if (drag || interacting) return true;
+    if (drag || interacting || editingPoints) return true;
     const active = document.activeElement;
     return !!(active && active.closest && active.closest(".card-host"));
   }
@@ -669,7 +704,7 @@
     });
     const result = await response.json();
     if (result.error) console.warn(result.error);
-    patch = await (await fetch("/patch")).json();
+    patch = readPatch(await (await fetch("/patch")).json());
     if (redraw) draw();
   }
 
@@ -1023,6 +1058,11 @@
     // patches and the tests; the menu offers the modules themselves.
     if (["filter", "gain", "delay"].includes(id)) return null;
 
+    // The bare additive generator is the small version of the Additive product,
+    // which can do everything it can; old patches keep parsing, the menu offers
+    // one Additive.
+    if (id === "gen:additive") return null;
+
     if (["mixer", "split:ms"].includes(id)) return "Effect";
     if (id.startsWith("gen:") || id.startsWith("synth:")) return "Generator";
     if (["lfo", "envelope", "random", "table", "pitch", "midi"].includes(id)) return "Control";
@@ -1291,146 +1331,6 @@
     context.stroke();
   }
 
-  const lfoEditor = document.getElementById("lfo-editor");
-  let lfoNode = null;
-
-  function closeLfoEditor() {
-    lfoNode = null;
-    lfoEditor.style.display = "none";
-  }
-
-  function postLfoPoints(node) {
-    const points = (node.points || [])
-      .slice()
-      .sort((a, b) => a.time - b.time)
-      .map((point) => [point.time, point.value, point.bend || 0]);
-
-    op({ op: "set_points", id: node.id, points }, false);
-  }
-
-  function openLfoEditor(id) {
-    const node = nodeOf(id);
-
-    if (!node) return;
-
-    lfoNode = id;
-
-    // A fresh LFO starts from the sine the rack's presets start from.
-    if (!node.points || node.points.length < 2) {
-      node.points = [
-        { time: 0, value: 0.5, bend: 0 },
-        { time: 0.25, value: 1, bend: 0 },
-        { time: 0.5, value: 0.5, bend: 0 },
-        { time: 0.75, value: 0, bend: 0 },
-        { time: 1, value: 0.5, bend: 0 },
-      ];
-      postLfoPoints(node);
-    }
-
-    lfoEditor.style.display = "block";
-    lfoEditor.innerHTML = "";
-
-    const head = document.createElement("header");
-    const title = document.createElement("span");
-    title.className = "lfo-title";
-    title.textContent = "LFO points";
-    const close = document.createElement("button");
-    close.textContent = "\u00D7";
-    close.onclick = closeLfoEditor;
-    head.appendChild(title);
-    head.appendChild(close);
-    lfoEditor.appendChild(head);
-
-    const svg = document.createElementNS(NS, "svg");
-    svg.setAttribute("viewBox", "0 0 420 200");
-    svg.setAttribute("class", "lfo-points");
-    lfoEditor.appendChild(svg);
-
-    const toPoint = (event) => {
-      const rect = svg.getBoundingClientRect();
-      return {
-        time: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
-        value: Math.min(1, Math.max(0, 1 - (event.clientY - rect.top) / rect.height)),
-      };
-    };
-
-    const paint = () => {
-      svg.textContent = "";
-      const points = node.points || [];
-      const sorted = points.slice().sort((a, b) => a.time - b.time);
-
-      svg.appendChild(el("line", { x1: 10, y1: 190, x2: 410, y2: 190, stroke: "#2a2a2a" }));
-      svg.appendChild(el("line", { x1: 10, y1: 100, x2: 410, y2: 100, stroke: "#222" }));
-
-      let line = "";
-
-      for (const point of sorted) {
-        line += (line ? " L " : "M ") + (10 + point.time * 400).toFixed(1) + " " +
-          (190 - point.value * 180).toFixed(1);
-      }
-
-      svg.appendChild(el("path", { d: line, fill: "none", stroke: "var(--accent)", "stroke-width": 2 }));
-
-      for (const point of points) {
-        svg.appendChild(el("circle", {
-          cx: (10 + point.time * 400).toFixed(1),
-          cy: (190 - point.value * 180).toFixed(1),
-          r: 5, fill: "var(--accent)", "data-point": points.indexOf(point),
-        }));
-      }
-    };
-
-    paint();
-
-    svg.addEventListener("pointerdown", (event) => {
-      const circle = event.target.closest("[data-point]");
-
-      if (!circle) return;
-
-      const index = Number(circle.getAttribute("data-point"));
-
-      const move = (moveEvent) => {
-        const point = toPoint(moveEvent);
-        node.points[index].time = point.time;
-        node.points[index].value = point.value;
-        paint();
-      };
-
-      const up = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-        postLfoPoints(node);
-      };
-
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
-      event.preventDefault();
-    });
-
-    svg.addEventListener("dblclick", (event) => {
-      const point = toPoint(event);
-      node.points = node.points || [];
-      node.points.push({ time: point.time, value: point.value, bend: 0 });
-      node.points.sort((a, b) => a.time - b.time);
-      paint();
-      postLfoPoints(node);
-    });
-
-    svg.addEventListener("contextmenu", (event) => {
-      const circle = event.target.closest("[data-point]");
-
-      if (!circle) return;
-
-      event.preventDefault();
-
-      if (node.points.length <= 2) return;
-
-      node.points.splice(Number(circle.getAttribute("data-point")), 1);
-      paint();
-      postLfoPoints(node);
-    });
-  }
-
   svg.addEventListener("pointerdown", (event) => {
     if (event.target.closest(".card-host")) {
       interacting = true;
@@ -1440,7 +1340,7 @@
     const wire = event.target.closest("[data-edge]");
     const mod = event.target.closest("[data-mod]");
 
-    if (event.target.closest(".mcard .knob, .mcard button, .mcard select, .mcard input, .mcard .mcard-select")) {
+    if (event.target.closest(".mcard .knob, .mcard button, .mcard select, .mcard input, .mcard .mcard-select, .mcard-hero")) {
       return;
     }
 
@@ -1657,20 +1557,9 @@
     interacting = false;
   });
 
-  svg.addEventListener("dblclick", (event) => {
-    const nodeEl = event.target.closest("[data-node]");
-
-    if (!nodeEl) return;
-
-    const node = nodeOf(Number(nodeEl.getAttribute("data-node")));
-
-    if (node && node.kind === "lfo") openLfoEditor(node.id);
-  });
-
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeMenu();
-      closeLfoEditor();
       return;
     }
 
@@ -1711,7 +1600,7 @@
 
     if (result.error) console.warn(result.error);
 
-    patch = await (await fetch("/patch")).json();
+    patch = readPatch(await (await fetch("/patch")).json());
     draw();
     event.target.value = "";
   };
@@ -1721,7 +1610,7 @@
   load();
   setInterval(async () => {
     if (busy()) return;
-    const next = await (await fetch("/patch")).json();
+    const next = readPatch(await (await fetch("/patch")).json());
     if (JSON.stringify(next) === JSON.stringify(patch)) return;
     patch = next;
     draw();

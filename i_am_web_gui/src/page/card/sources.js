@@ -218,6 +218,193 @@
     }
   }
 
+  // Editing the LFO on the card itself: drag a point or its bend ring,
+  // double-click to add one, right-click to remove one. The rack's modulation
+  // card and the patch page's LFO card share this editor.
+  function editLfo(svg, holder, options) {
+    options = options || {};
+
+    if (!holder.points || holder.points.length < 2) {
+      holder.points = preset(typeof options.shape === "number" ? Math.round(options.shape) : 0);
+    }
+
+    function eventPoint(event) {
+      var x;
+      var y;
+      var matrix = svg.getScreenCTM();
+
+      if (matrix) {
+        var pointer = svg.createSVGPoint();
+        pointer.x = event.clientX;
+        pointer.y = event.clientY;
+        var local = pointer.matrixTransform(matrix.inverse());
+        x = local.x;
+        y = local.y;
+      } else {
+        var rect = svg.getBoundingClientRect();
+        x = (event.clientX - rect.left) / rect.width * 300;
+        y = (event.clientY - rect.top) / rect.height * 64;
+      }
+
+      return {
+        x: x,
+        y: y,
+        time: Math.max(0, Math.min(1, (x - 8) / 284)),
+        value: Math.max(0, Math.min(1, (60 - y) / 52))
+      };
+    }
+
+    function pointAt(event) {
+      var position = eventPoint(event);
+
+      for (var i = 0; i < holder.points.length; i++) {
+        var point = holder.points[i];
+        var x = 8 + point.time * 284;
+        var y = 60 - point.value * 52;
+
+        if (Math.abs(x - position.x) < 9 && Math.abs(y - position.y) < 9) {
+          return point;
+        }
+      }
+
+      return null;
+    }
+
+    function bendAt(event) {
+      var position = eventPoint(event);
+      var points = holder.points.slice().sort(function (a, b) {
+        return a.time - b.time;
+      });
+
+      for (var i = 0; i < points.length - 1; i++) {
+        var point = points[i];
+        var next = points[i + 1];
+        var time = (point.time + next.time) / 2;
+        var value = point.value + (next.value - point.value) * bend(0.5, point.bend);
+        var x = 8 + time * 284;
+        var y = 60 - value * 52;
+
+        if (Math.abs(x - position.x) < 8 && Math.abs(y - position.y) < 8) {
+          return point;
+        }
+      }
+
+      return null;
+    }
+
+    function paint() {
+      drawPreview(svg, "lfo", { points: holder.points });
+    }
+
+    var drag = null;
+
+    function commit() {
+      if (options.commit) options.commit(holder.points);
+    }
+
+    function removePoint(point) {
+      if (holder.points.length <= 2) return;
+
+      var index = holder.points.indexOf(point);
+      if (index >= 0) holder.points.splice(index, 1);
+      paint();
+      commit();
+    }
+
+    svg.onpointerdown = function (event) {
+      if (event.button !== 0) return;
+
+      var point = pointAt(event);
+
+      if (point) {
+        drag = { kind: "point", point: point };
+      } else {
+        var bendPoint = bendAt(event);
+
+        if (bendPoint) {
+          var sorted = holder.points.slice().sort(function (a, b) {
+            return a.time - b.time;
+          });
+          var index = sorted.indexOf(bendPoint);
+          var next = sorted[index + 1];
+          var position = eventPoint(event);
+
+          drag = {
+            kind: "bend",
+            point: bendPoint,
+            startValue: position.value,
+            startBend: bendPoint.bend,
+            direction: next && next.value > bendPoint.value ? -1 : 1
+          };
+        }
+      }
+
+      if (!drag) return;
+
+      try {
+        svg.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // A synthetic or already-lost pointer has nothing to capture.
+      }
+
+      if (options.onStart) options.onStart();
+      paint();
+      event.preventDefault();
+    };
+
+    svg.onpointermove = function (event) {
+      if (!drag) return;
+
+      var position = eventPoint(event);
+
+      if (drag.kind === "point") {
+        drag.point.time = position.time;
+        drag.point.value = position.value;
+        holder.points.sort(function (a, b) { return a.time - b.time; });
+      } else {
+        var delta = position.value - drag.startValue;
+        drag.point.bend = Math.max(-10, Math.min(10,
+          drag.startBend + delta * 20 * drag.direction));
+      }
+
+      paint();
+      event.preventDefault();
+    };
+
+    function finish(event) {
+      if (!drag) return;
+      drag = null;
+      commit();
+      if (options.onEnd) options.onEnd();
+      event.preventDefault();
+    }
+
+    svg.onpointerup = finish;
+    svg.onpointercancel = finish;
+    svg.ondblclick = function (event) {
+      // Adding is deliberate: a single click starts a drag on a point or a
+      // bend ring, while an empty double-click appends a new point.
+      if (pointAt(event)) return;
+
+      var position = eventPoint(event);
+      if (position.x < 8 || position.x > 292 || position.y < 8 || position.y > 60) return;
+      holder.points.push({ time: position.time, value: position.value, bend: 0 });
+      holder.points.sort(function (a, b) { return a.time - b.time; });
+      paint();
+      commit();
+      event.preventDefault();
+    };
+    svg.oncontextmenu = function (event) {
+      var point = pointAt(event);
+
+      if (point) {
+        removePoint(point);
+        event.preventDefault();
+      }
+    };
+
+    paint();
+  }
   window.IAmCard = window.IAmCard || {};
   window.IAmCard.sources = {
     shape: shape,
@@ -225,6 +412,7 @@
     tableValue: tableValue,
     bend: bend,
     drawPreview: drawPreview,
+    editLfo: editLfo,
     drawLive: drawLive
   };
 })();
