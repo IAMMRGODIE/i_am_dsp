@@ -67,6 +67,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		.position(|argument| argument == "--process")
 		.and_then(|position| rest.get(position + 1))
 		.map(|index| index.parse::<u32>().unwrap_or(0));
+	// --note asks for a single note to be played through a generator.
+	let note_index = rest
+		.iter()
+		.position(|argument| argument == "--note")
+		.and_then(|position| rest.get(position + 1))
+		.map(|index| index.parse::<u32>().unwrap_or(0));
 
 	// SAFETY: loading a library runs its code. That is what a host does when it
 	// scans a plug-in folder, and it is why a plug-in is trusted software.
@@ -91,6 +97,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	if let Some(index) = process_index {
 		measure(&entry, index)?;
+	}
+
+	if let Some(index) = note_index {
+		measure_note(&entry, index)?;
 	}
 
 	Ok(())
@@ -195,6 +205,103 @@ fn measure(entry: &PluginEntry, index: u32) -> Result<(), Box<dyn std::error::Er
 	Ok(())
 }
 
+/// Plays one note through a generator and measures what comes out.
+///
+/// The default patcher graph is a voice group with an additive synth, so this is
+/// the host path the FL report is about: activation, the note event, the block
+/// loop, and the level of the result.
+fn measure_note(entry: &PluginEntry, index: u32) -> Result<(), Box<dyn std::error::Error>> {
+	use clack_plugin::events::Pckn;
+	use clack_plugin::events::event_types::NoteOnEvent;
+
+	const FRAMES: usize = 512;
+	const BLOCKS: usize = 16;
+	const RATE: f64 = 48_000.0;
+
+	let factory = entry.get_plugin_factory().expect("a CLAP factory");
+	let descriptor = factory.plugin_descriptor(index).expect("a descriptor");
+	let id = descriptor.id().expect("an id");
+	let name = descriptor
+		.name()
+		.unwrap_or_default()
+		.to_string_lossy()
+		.into_owned();
+
+	let host_info = HostInfo::new(
+		"i_am_dsp probe",
+		"i_am_dsp",
+		"https://example.com/i-am-dsp",
+		env!("CARGO_PKG_VERSION"),
+	)?;
+	let mut instance = PluginInstance::<ProbeHost>::new(|_| (), |_| (), entry, id, &host_info)?;
+
+	let configuration = PluginAudioConfiguration {
+		sample_rate: RATE,
+		min_frames_count: 32,
+		max_frames_count: FRAMES as u32,
+	};
+	let mut started = instance
+		.activate(|_, _| (), configuration)?
+		.start_processing()?;
+
+	let note = NoteOnEvent::new(0, Pckn::new(0u16, 0u16, 60u16, 0u32), 0.8);
+	let note_buffer = [note];
+	let empty_buffer: [NoteOnEvent; 0] = [];
+	let mut input_ports = AudioPorts::with_capacity(2, 1);
+	let mut output_ports = AudioPorts::with_capacity(2, 1);
+	let mut input = [[0.0f32; FRAMES]; 2];
+	let mut output = [[0.0f32; FRAMES]; 2];
+	let mut output_events_buffer = EventBuffer::new();
+	let mut peak = 0.0f32;
+	let mut square = 0.0f64;
+	let mut count = 0usize;
+
+	for block in 0..BLOCKS {
+		let input_events = if block == 0 {
+			InputEvents::from_buffer(&note_buffer)
+		} else {
+			InputEvents::from_buffer(&empty_buffer)
+		};
+		let mut output_events = OutputEvents::from_buffer(&mut output_events_buffer);
+
+		let input_audio = input_ports.with_input_buffers([AudioPortBuffer {
+			latency: 0,
+			channels: AudioPortBufferType::f32_input_only(
+				input.iter_mut().map(InputChannel::constant),
+			),
+		}]);
+		let mut output_audio = output_ports.with_output_buffers([AudioPortBuffer {
+			latency: 0,
+			channels: AudioPortBufferType::f32_output_only(
+				output.iter_mut().map(|channel| channel.as_mut_slice()),
+			),
+		}]);
+
+		started.process(
+			&input_audio,
+			&mut output_audio,
+			&input_events,
+			&mut output_events,
+			None,
+			None,
+		)?;
+
+		for sample in output[0].iter() {
+			peak = peak.max(sample.abs());
+			square += (*sample as f64) * (*sample as f64);
+			count += 1;
+		}
+	}
+
+	instance.deactivate(started.stop_processing());
+
+	println!(
+		"{name}: note 60 through the host path, peak {peak:.4}, rms {:.4}",
+		(square / count as f64).sqrt()
+	);
+
+	Ok(())
+}
 /// Instantiates the first plug-in and takes it through activation.
 fn run_one(entry: &PluginEntry) -> Result<(), Box<dyn std::error::Error>> {
 	let factory = entry.get_plugin_factory().expect("a CLAP factory");
