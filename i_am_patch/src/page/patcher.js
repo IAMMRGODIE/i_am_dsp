@@ -85,16 +85,18 @@
     }
   }
 
-  function drawSourceLive(svg, node, kind, samples, phase, _accent) {
-    if (!samples || samples.length < 2) return;
+  // The live overlay follows the rack's: a playhead for the LFO and the table,
+  // a trace for the others. The history is one value per poll, so the window is
+  // long enough to read a slow envelope instead of one block of it.
+  function drawSourceLive(svg, entry) {
+    if (!entry.history || !entry.history.length) return;
 
-    const values = samples.map((frame) => frame[0]);
     const key = "patch";
 
-    IAmCard.sources.drawLive(svg, kind, {
-      history: { [key]: values },
-      phases: { [key]: typeof phase === "number" ? phase : 0 },
-      values: { [key]: values[values.length - 1] },
+    IAmCard.sources.drawLive(svg, entry.kind.id, {
+      history: { [key]: entry.history },
+      phases: { [key]: typeof entry.phase === "number" ? entry.phase : 0 },
+      values: { [key]: entry.history[entry.history.length - 1] },
     }, key, false);
   }
 
@@ -256,8 +258,20 @@
     );
   }
 
+  // A source card's history comes from the engine's tap for that node, and a
+  // tap exists only after it is asked for once.
+  const tapped = new Set();
+
+  function tapSource(id) {
+    if (tapped.has(id)) return;
+    tapped.add(id);
+    fetch(`/scope?node=${id}`, { cache: "no-store" }).catch(() => {});
+  }
+
   function drawSourceCard(entry) {
     if (!entry || !entry.card || !entry.kind) return;
+
+    tapSource(entry.node.id);
 
     const svg = entry.card.querySelector(".mcard-hero svg");
     if (!svg) return;
@@ -271,8 +285,16 @@
     svg.textContent = "";
     drawSourceStatic(svg, entry.node, entry.kind.id);
 
-    const accent = getComputedStyle(entry.card).getPropertyValue("--accent").trim() || "#e07a2f";
-    drawSourceLive(svg, entry.node, entry.kind.id, entry.samples, entry.phase, accent);
+    if (entry.samples !== entry.lastSamples) {
+      entry.lastSamples = entry.samples;
+
+      if (entry.samples && entry.samples.length) {
+        entry.history = entry.history || [];
+        entry.history.push(entry.samples[entry.samples.length - 1][0]);
+
+        if (entry.history.length > 120) entry.history.shift();
+      }
+    }
 
     if (entry.kind.id === "lfo") {
       IAmCard.sources.editLfo(svg, entry.node, {
@@ -288,6 +310,9 @@
         onEnd: () => { editingPoints = false; },
       });
     }
+
+    // Last, so the editor's repaint of the points does not erase the playhead.
+    drawSourceLive(svg, entry);
   }
 
   // The rack's source cards put these choices in the header instead of a knob.

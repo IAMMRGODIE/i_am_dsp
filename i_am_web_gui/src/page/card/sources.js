@@ -347,12 +347,18 @@
         // A synthetic or already-lost pointer has nothing to capture.
       }
 
+      // The window owns the gesture: a capture can be refused inside a
+      // foreignObject, and a lost pointerup would leave the points uncommitted.
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", finish);
+      window.addEventListener("pointercancel", finish);
+
       if (options.onStart) options.onStart();
       paint();
       event.preventDefault();
     };
 
-    svg.onpointermove = function (event) {
+    function onMove(event) {
       if (!drag) return;
 
       var position = eventPoint(event);
@@ -369,18 +375,19 @@
 
       paint();
       event.preventDefault();
-    };
+    }
 
     function finish(event) {
       if (!drag) return;
       drag = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
       commit();
       if (options.onEnd) options.onEnd();
       event.preventDefault();
     }
 
-    svg.onpointerup = finish;
-    svg.onpointercancel = finish;
     svg.ondblclick = function (event) {
       // Adding is deliberate: a single click starts a drag on a point or a
       // bend ring, while an empty double-click appends a new point.
