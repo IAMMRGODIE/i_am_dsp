@@ -184,6 +184,21 @@ function liveRoute(url, response) {
 		return true;
 	}
 
+	if (url === "/spectrum") {
+		// A drawn spectrum page is a set of partial levels and start phases, not
+		// a plain array: the hero sums the levels into the wave.
+		const pages = [1, 2, 3].map((page) => ({
+			levels: Array.from({ length: 512 }, (_, index) => {
+				const n = index + 1;
+				return Math.max(0, Math.sin(n * page * 0.7) * 0.5 + 0.5) / Math.sqrt(n);
+			}),
+			phases: Array.from({ length: 512 }, (_, index) => (index * page) % 512 / 512),
+		}));
+		response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+		response.end(JSON.stringify({ generation: Math.floor(Date.now() / 1000), frames: pages }));
+		return true;
+	}
+
 	if (url === "/note") {
 		response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
 		response.end(JSON.stringify({ note: -1 }));

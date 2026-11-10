@@ -375,7 +375,7 @@ fn morph_parameter(value: f32) -> Parameter {
 			.group("Shape")
 			.order(0)
 			.widget(crate::prelude::ParamWidget::Knob)
-			.hero("spectrum"),
+			.hero("morph-spectrum"),
 	};
 
 	Parameter::new(

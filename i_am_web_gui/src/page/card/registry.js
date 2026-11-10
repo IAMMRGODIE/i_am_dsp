@@ -9,6 +9,7 @@
   }
 
   registerHero("spectrum", spectrumHero);
+  registerHero("morph-spectrum", morphSpectrumHero);
   registerHero("canvas", canvasHero);
   registerHero("spectra", spectraHero);
   registerHero("transfer", transferHero);

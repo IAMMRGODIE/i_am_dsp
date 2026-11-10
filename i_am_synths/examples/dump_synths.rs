@@ -14,8 +14,7 @@ use i_am_plugin::Plugin;
 use i_am_synths::{
 	AdditiveWeb, CanvasWeb, DrummerWeb, FittedWeb, SamplerWeb, ScriptWeb, ShapesWeb, SpectrumWeb,
 	StringWeb, additive_faceplate, canvas_faceplate, canvas_shape, drummer_faceplate, faceplate,
-	fitted_faceplate,
-	sampler_faceplate, script_faceplate, shapes_faceplate, spectrum_faceplate,
+	fitted_faceplate, sampler_faceplate, script_faceplate, shapes_faceplate, spectrum_faceplate,
 };
 
 fn main() {
