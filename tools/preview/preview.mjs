@@ -21,7 +21,7 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdirSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,23 +30,44 @@ const REPO = path.resolve(HERE, "..", "..");
 const GALLERY = path.resolve(REPO, "..", ".ui-preview");
 const BUILD = path.join(REPO, "target", "preview");
 
-// Reads a "pub const NAME: &str = include_str!(...);" asset.
-function includeAsset(library, name) {
-	const file = path.join(REPO, library);
-	const text = readFileSync(file, "utf8");
-	const pattern = "(?:pub )?const " + name + "[^=]*=\\s*include_str!\\(\"([^\"]+)\"\\);";
-	const match = text.match(new RegExp(pattern));
-	if (!match) throw new Error(name + " is not an include_str! in " + library);
+// Walks the Rust files of one crate, so a constant can move between modules
+// without breaking the preview build.
+function* rustFiles(directory) {
+	for (const entry of readdirSync(directory, { withFileTypes: true })) {
+		const file = path.join(directory, entry.name);
+		if (entry.isDirectory()) yield* rustFiles(file);
+		else if (entry.name.endsWith(".rs")) yield file;
+	}
+}
+
+// Finds the module that declares "const NAME".
+function declaration(crateDirectory, name) {
+	const pattern = new RegExp("(?:pub )?const " + name + "\\b");
+
+	for (const file of rustFiles(path.join(REPO, crateDirectory))) {
+		const text = readFileSync(file, "utf8");
+		if (pattern.test(text)) return { file, text };
+	}
+
+	throw new Error(name + " is not declared under " + crateDirectory);
+}
+
+// Reads a "const NAME: &str = include_str!(...);" asset.
+function includeAsset(crateDirectory, name) {
+	const { file, text } = declaration(crateDirectory, name);
+	const match = text.match(
+		new RegExp("(?:pub )?const " + name + "[^=]*=\\s*include_str!\\(\"([^\"]+)\"\\);"),
+	);
+	if (!match) throw new Error(name + " is not an include_str! in " + file);
 	return readFileSync(path.join(path.dirname(file), match[1]), "utf8");
 }
 
-// Concatenates the include_str! list of a "pub const NAME: &str = concat!(...);".
-function concatAsset(library, name) {
-	const file = path.join(REPO, library);
-	const text = readFileSync(file, "utf8");
-	const declaration = text.match(new RegExp("(?:pub )?const " + name + "[^=]*=\\s*concat!\\("));
-	if (!declaration) throw new Error(name + " is not a concat! in " + library);
-	const open = text.indexOf("concat!(", declaration.index);
+// Concatenates the include_str! list of a "const NAME: &str = concat!(...);".
+function concatAsset(crateDirectory, name) {
+	const { file, text } = declaration(crateDirectory, name);
+	const declarationAt = text.match(new RegExp("(?:pub )?const " + name + "[^=]*=\\s*concat!\\("));
+	if (!declarationAt) throw new Error(name + " is not a concat! in " + file);
+	const open = text.indexOf("concat!(", declarationAt.index);
 	const close = text.indexOf("\n);", open);
 	const chunk = text.slice(open, close);
 	const parts = [...chunk.matchAll(/include_str!\("([^"]+)"\)/g)];
@@ -62,16 +83,16 @@ function concatAsset(library, name) {
 function refreshAssets(dir, kind) {
 	mkdirSync(dir, { recursive: true });
 	const files = {
-		"card.css": includeAsset("i_am_web_gui/src/lib.rs", "CARD_STYLE"),
-		"card.js": concatAsset("i_am_web_gui/src/lib.rs", "CARD_SCRIPT"),
+		"card.css": includeAsset("i_am_web_gui/src", "CARD_STYLE"),
+		"card.js": concatAsset("i_am_web_gui/src", "CARD_SCRIPT"),
 	};
 
 	if (kind === "rack") {
 		files["kit.css"] = readFileSync(path.join(REPO, "i_am_rack/src/page/rack.css"), "utf8");
-		files["kit.js"] = concatAsset("i_am_rack/src/lib.rs", "PAGE_JS");
+		files["kit.js"] = concatAsset("i_am_rack/src", "PAGE_JS");
 	} else {
-		files["kit.css"] = includeAsset("i_am_web_gui/src/lib.rs", "STYLE");
-		files["kit.js"] = concatAsset("i_am_web_gui/src/lib.rs", "SCRIPT");
+		files["kit.css"] = includeAsset("i_am_web_gui/src", "STYLE");
+		files["kit.js"] = concatAsset("i_am_web_gui/src", "SCRIPT");
 		// The card gallery also lays out a rack card, and that sheet is shared.
 		if (kind === "gallery") {
 			files["rack.css"] = readFileSync(path.join(REPO, "i_am_rack/src/page/rack.css"), "utf8");
