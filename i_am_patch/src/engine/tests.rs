@@ -696,3 +696,85 @@ fn the_output_gain_scales_the_mix() {
 	assert!((render(0.5) - 0.25).abs() < 1e-6, "{}", render(0.5));
 	assert!(render(0.0).abs() < 1e-6, "{}", render(0.0));
 }
+
+#[test]
+fn the_voice_group_does_not_double_the_level() {
+	let peak = |frames: &[[f32; 2]]| {
+		frames
+			.iter()
+			.fold(0.0f32, |peak, frame| peak.max(frame[0].abs()))
+	};
+
+	let note = NoteEvent::NoteOn {
+		channel: 0,
+		note: 60,
+		velocity: 0.8,
+	};
+
+	// The default graph, through Poly (the product's path).
+	let mut graph = Graph::new();
+	let midi = graph.add_node("input:midi", (0.0, 120.0)).expect("midi");
+	let voice_in = graph
+		.add_node("voice:in", (340.0, 120.0))
+		.expect("voice in");
+	let generator = graph
+		.add_node("synth:additive", (680.0, 120.0))
+		.expect("gen");
+	let filter = graph
+		.add_node("mod:filter", (1020.0, 120.0))
+		.expect("filter");
+	let lfo = graph.add_node("lfo", (1020.0, 580.0)).expect("lfo");
+	let voice_out = graph
+		.add_node("voice:out", (1620.0, 120.0))
+		.expect("voice out");
+	let out = graph.add_node("out:audio", (1960.0, 120.0)).expect("out");
+	graph.connect((midi, 0), (voice_in, 0));
+	graph.connect((voice_in, 0), (generator, 0));
+	graph.connect((generator, 0), (filter, 0));
+	graph.connect((filter, 0), (voice_out, 0));
+	graph.connect((voice_out, 0), (out, 0));
+	graph.modulate((lfo, 0), (filter, "cutoff"), 800.0);
+	graph.set_param(filter, "cutoff", 1_200.0);
+	graph.set_param(generator, "random_phase", 0.0);
+	graph.set_param(generator, "random_pan", 0.0);
+	let mut poly = crate::poly::Poly::new(&graph, 48_000).expect("poly builds");
+	let mut frames = Vec::new();
+	let events = [(0u64, note.clone())];
+	for block in 0..128u64 {
+		let due: Vec<NoteEvent> = events
+			.iter()
+			.filter(|(at, _)| *at == block)
+			.map(|(_, event)| event.clone())
+			.collect();
+		let input = vec![[0.0f32; 2]; BLOCK];
+		let mut out = vec![[0.0f32; 2]; BLOCK];
+		poly.process(&input, &due, &mut out);
+		frames.extend(out);
+	}
+	let poly_peak = peak(&frames);
+
+	// The same chain without the voice boundary.
+	let mut plain = Graph::new();
+	let midi = plain.add_node("input:midi", (0.0, 0.0)).expect("midi");
+	let synth = plain
+		.add_node("synth:additive", (100.0, 0.0))
+		.expect("synth");
+	let filter = plain.add_node("mod:filter", (200.0, 0.0)).expect("filter");
+	let out = plain.add_node("out:audio", (300.0, 0.0)).expect("out");
+	let lfo = plain.add_node("lfo", (100.0, 200.0)).expect("lfo");
+	plain.connect((midi, 0), (synth, 0));
+	plain.connect((synth, 0), (filter, 0));
+	plain.connect((filter, 0), (out, 0));
+	plain.modulate((lfo, 0), (filter, "cutoff"), 800.0);
+	plain.set_param(filter, "cutoff", 1_200.0);
+	plain.set_param(synth, "random_phase", 0.0);
+	plain.set_param(synth, "random_pan", 0.0);
+	let frames =
+		Engine::render_graph(&plain, 48_000, 8192.0 / 48_000.0, &[(0, note)]).expect("renders");
+	let plain_peak = peak(&frames);
+
+	assert!(
+		(poly_peak - plain_peak).abs() < 0.01 * plain_peak,
+		"the voice group doubled the level: {poly_peak} vs {plain_peak}"
+	);
+}
