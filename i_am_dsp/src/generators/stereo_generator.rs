@@ -468,6 +468,12 @@ impl Oscillator<2> for MultiStereoGenerators {
 		]
 	}
 
+	fn absolute_time(&self) -> bool {
+		self.generators
+			.iter()
+			.any(|generator| generator.absolute_time())
+	}
+
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
 		use egui::*;

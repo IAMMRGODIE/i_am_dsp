@@ -577,7 +577,15 @@ impl<
 				for i in 0..unisons {
 					let voice = playing_note.unison_voices[i];
 					let frequency = voice.frequency * pitch;
-					let t = frequency * elapsed + playing_note.last_phase[i];
+					let mut t = frequency * elapsed + playing_note.last_phase[i];
+
+					// A table oscillator only reads the fraction of the phase, so
+					// wrapping it keeps f32 resolution on a note held for minutes;
+					// a sampler reads its position from the time and stays absolute.
+					if !self.oscillator.absolute_time() {
+						t = t.rem_euclid(1.0);
+					}
+
 					playing_note.last_phase[i] = t;
 
 					self.oscillator.set_pitch(frequency, self.sample_rate);

@@ -825,6 +825,10 @@ impl<const CHANNELS: usize> Oscillator<CHANNELS> for Sampler<CHANNELS> {
 		self.sample_at(position, factor, phase)
 	}
 
+	fn absolute_time(&self) -> bool {
+		true
+	}
+
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
 		self.generate_ui(ui, id_prefix, true);

@@ -40,6 +40,15 @@ pub trait Oscillator<const CHANNELS: usize>: Parameters {
 		let _ = (frequency, sample_rate);
 	}
 
+	/// Whether `play_at` reads absolute time instead of a wrapped phase.
+	///
+	/// A table oscillator only needs the fractional part, so the driver can wrap
+	/// the phase every sample and keep f32 resolution on a long note; a sampler
+	/// reads its playback position from the time, so it must stay absolute.
+	fn absolute_time(&self) -> bool {
+		false
+	}
+
 	/// Called once per sample by a driver, before any [`play_at`](Self::play_at).
 	///
 	/// An oscillator that derives something from its parameters (an additive

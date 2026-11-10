@@ -730,6 +730,10 @@ impl Oscillator<2> for SamplerVoice {
 		self.sample_rate = sample_rate as f32;
 	}
 
+	fn absolute_time(&self) -> bool {
+		true
+	}
+
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, _: &mut egui::Ui, _: String) {}
 }
