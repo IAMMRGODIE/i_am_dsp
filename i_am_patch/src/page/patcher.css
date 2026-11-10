@@ -222,3 +222,9 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 
 /* The source hero is a drawing surface the page fills (the rack's shapes). */
 .card-host .rack-hero{display:block; width:100%; height:100%}
+
+/* The knob under a control wire while it is being dragged: drop here to
+   modulate that parameter rather than the card's first one. */
+.card-host [data-drop-target].mod-hover{
+  outline:2px solid var(--accent); outline-offset:2px; border-radius:50%;
+}

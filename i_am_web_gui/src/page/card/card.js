@@ -432,6 +432,7 @@
       if (kind === "canvas") wireCanvas(el, kind, values, state);
       else if (kind === "spectrum") wireSpectrum(el, kind, values, state);
     },
+    modulate: modulate,
     registerHero: registerHero,
     bandsOf: bandsOf,
     smoothBands: smoothBands,

@@ -503,30 +503,30 @@
 
     var kinds = data.kinds || [];
 
-    (module.controls || []).forEach(function (control) {
+    module.controls = (module.controls || []).map(function (control) {
       // The server annotates every control with the assignments that drive it;
-      // the page narrows that to the selected source here, and gives each one
-      // the label and colour its arc is drawn in.
-      if (control.modulations && control.modulations.length) {
-        control.modulations = control.modulations
-          .filter(function (assignment) {
-            return selectedSource === null || assignment.source === selectedSource;
-          })
-          .map(function (assignment) {
-            assignment.label = sourceLabel(assignment.source);
-            assignment.color = sourceColor(assignment.source);
-            assignment.selected = selectedSource !== null;
-            return assignment;
-          });
-      }
+      // the page narrows that to the selected source, and gives each one the
+      // label and colour its arc is drawn in.
+      var assignments = (control.modulations || [])
+        .filter(function (assignment) {
+          return selectedSource === null || assignment.source === selectedSource;
+        })
+        .map(function (assignment) {
+          assignment.label = sourceLabel(assignment.source);
+          assignment.color = sourceColor(assignment.source);
+          assignment.selected = selectedSource !== null;
+          return assignment;
+        });
 
-      control.onModulation = setModulationDepth;
+      var floating = control.kind === "float";
 
-      if (control.kind === "float") {
-        control.dropTarget = "m" + module.id + "." + control.id;
-        control.onModulationDrop = linkModulation;
-        control.onModeToggle = toggleModulationMode;
-      }
+      return window.IAmCard.modulate(control, {
+        assignments: assignments,
+        onDepth: setModulationDepth,
+        onMode: floating ? toggleModulationMode : null,
+        dropTarget: floating ? "m" + module.id + "." + control.id : null,
+        onDrop: floating ? linkModulation : null
+      });
     });
 
     var cardAudio = cardContext();

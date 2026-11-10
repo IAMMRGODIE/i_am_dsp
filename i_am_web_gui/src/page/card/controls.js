@@ -8,6 +8,9 @@
     dial.tabIndex = 0;
     dial.setAttribute("role", "slider");
     dial.setAttribute("aria-label", spec.label);
+
+    if (spec.dropTarget) dial.setAttribute("data-drop-target", spec.dropTarget);
+
     dial.setAttribute("aria-valuemin", String(spec.min));
     dial.setAttribute("aria-valuemax", String(spec.max));
 
@@ -661,6 +664,25 @@
     }
 
     return makeKnob(spec, value, onEdit).el;
+  }
+
+  /// One control with its modulation ring: the assignments it shows and the
+  /// gestures that change them. Both pages build their cards from this.
+  function modulate(control, options) {
+    options = options || {};
+
+    var spec = Object.assign({}, control);
+    spec.modulations = options.assignments || [];
+
+    if (options.onDepth) spec.onModulation = options.onDepth;
+    if (options.onMode) spec.onModeToggle = options.onMode;
+
+    if (options.dropTarget) {
+      spec.dropTarget = options.dropTarget;
+      spec.onModulationDrop = options.onDrop;
+    }
+
+    return spec;
   }
 
   function control(spec, value, onEdit) {

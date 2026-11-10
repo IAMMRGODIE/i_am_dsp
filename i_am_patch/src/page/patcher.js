@@ -335,29 +335,6 @@
     return key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
 
-  /// The modulation ring and the two gestures a knob takes, for one parameter.
-  function modulationSpec(node, control) {
-    const range = Math.max(1e-9, control.max - control.min);
-    const modulations = modsOf(node.id)
-      .filter((mod) => mod.to[1] === control.id)
-      .map((mod) => ({
-        slot: mod.slot,
-        label: sourceName(mod.from[0]),
-        depth: mod.depth / range,
-        mode: mod.mode === "base" ? "frombase" : "centered",
-      }));
-
-    return {
-      modulations,
-      onModulation: (slot, next) => {
-        op({ op: "mod_depth", index: slot, depth: next * range }, false);
-      },
-      onModeToggle: (slots, next) => {
-        op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
-      },
-    };
-  }
-
   function productCard(node, kind, w, h) {
     let entry = cards[node.id];
     const mods = modsOf(node.id);
@@ -405,22 +382,28 @@
             })))
         : (kind.controls || []);
 
-      const specs = shown.map((control) => ({
-        id: control.id,
-        label: control.label,
-        kind: control.kind,
-        unit: control.unit,
-        min: control.min,
-        max: control.max,
-        default: control.default,
-        log: control.log,
-        bipolar: control.bipolar,
-        step: control.step,
-        widget: control.widget,
-        size: control.size,
-        choices: control.choices,
-        ...modulationSpec(node, control),
-      }));
+      const specs = shown.map((control) => {
+        const range = Math.max(1e-9, control.max - control.min);
+        const assignments = modsOf(node.id)
+          .filter((mod) => mod.to[1] === control.id)
+          .map((mod) => ({
+            slot: mod.slot,
+            label: sourceName(mod.from[0]),
+            depth: mod.depth / range,
+            mode: mod.mode === "base" ? "frombase" : "centered",
+          }));
+
+        return IAmCard.modulate(control, {
+          assignments,
+          onDepth: (slot, next) => {
+            op({ op: "mod_depth", index: slot, depth: next * range }, false);
+          },
+          onMode: (slots, next) => {
+            op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
+          },
+          dropTarget: node.id + ":" + control.id,
+        });
+      });
 
       const host = document.createElement("div");
       host.className = "card-host";
@@ -531,7 +514,26 @@
         choices,
       };
 
-      return { ...control, ...modulationSpec(node, control) };
+      const rangeSpan = Math.max(1e-9, control.max - control.min);
+      const assignments = modsOf(node.id)
+        .filter((mod) => mod.to[1] === control.id)
+        .map((mod) => ({
+          slot: mod.slot,
+          label: sourceName(mod.from[0]),
+          depth: mod.depth / rangeSpan,
+          mode: mod.mode === "base" ? "frombase" : "centered",
+        }));
+
+      return IAmCard.modulate(control, {
+        assignments,
+        onDepth: (slot, next) => {
+          op({ op: "mod_depth", index: slot, depth: next * rangeSpan }, false);
+        },
+        onMode: (slots, next) => {
+          op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
+        },
+        dropTarget: node.id + ":" + id,
+      });
     });
 
     const host = document.createElement("div");
@@ -1476,7 +1478,9 @@
       drag.hoverPort = best;
 
       if (drag.control && drag.output) {
-        const knobRow = event.target.closest("[data-mod-target]");
+        const under = document.elementFromPoint(event.clientX, event.clientY);
+        const knobRow = (under && under.closest("[data-drop-target]")) ||
+          event.target.closest("[data-mod-target]");
 
         if (drag.hoverKnob !== knobRow) {
           if (drag.hoverKnob) drag.hoverKnob.classList.remove("mod-hover");
@@ -1504,6 +1508,8 @@
     } else if (drag.kind === "port" && drag.control && drag.output) {
       const row = event.target.closest("[data-mod-target]");
       const target = event.target.closest("[data-node]");
+      const under = document.elementFromPoint(event.clientX, event.clientY);
+      const knob = under ? under.closest("[data-drop-target]") : null;
 
       let id = null;
       let key = null;
@@ -1511,6 +1517,12 @@
       if (row) {
         [id, key] = row.getAttribute("data-mod-target").split(":");
         id = Number(id);
+      } else if (knob) {
+        const [owner, param] = knob.getAttribute("data-drop-target").split(":");
+        if (Number(owner) !== drag.id) {
+          id = Number(owner);
+          key = param;
+        }
       } else if (target && Number(target.getAttribute("data-node")) !== drag.id) {
         id = Number(target.getAttribute("data-node"));
         key = kindOf(nodeOf(id).kind).params[0]?.[0] ?? null;
