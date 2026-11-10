@@ -381,13 +381,13 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
    Poly: 把 voice group 切成每个音符一份图，voice:out 汇总
 ```
 
-- 节点目录（`nodes.rs`）：`gain`、`filter`、`mixer`、`delay`、`lfo`、`random`、`table`、`pitch`、
+- 节点目录（`nodes.rs`）：`mixer`、`split:ms`、`delay`（Lookahead，对齐用）、`lfo`、`random`、`table`、`pitch`、
   `midi`、`envelope`，以及 9 个音源节点（`additive`…`strings`，直接包装 `i_am_synths` 的产品）。
 - 调制是控制率的：引擎每 64 样本取一次值；每个源槽各有自己的相位/包络/随机状态。
 - 控制源只有一份实现：图节点（`nodes.rs` 的 `SourceNode`）是 `SourceRuntime` 的适配器，
   参数映射到 `SourceSettings`，值、相位、同步频率、随机流和平滑都与 rack 的 slot 一致；
   `source_dsp.rs` 放两者共用的底层形状与系数。
-- 宿主存档 = 一个 `Serialized` 参数 `"patch"`，内容是**行文本格式**（`node 1 gen:additive 100 0 decay=1.5`），
+- 宿主存档 = 一个 `Serialized` 参数 `"patch"`，内容是**行文本格式**（`node 1 synth:additive 100 0 decay_time=0.5`），
   可读、可被 agent 编辑；JSON 是真相，文本是投影。
 - 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`；页面编辑 bump generation，
   音频线程在块边界重建引擎。

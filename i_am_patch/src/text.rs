@@ -336,8 +336,8 @@ mod tests {
 	fn patch() -> Graph {
 		let mut graph = Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
-		let gain = graph.add_node("gain", (200.0, 0.0)).expect("gain");
+		let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+		let gain = graph.add_node("mod:gain", (200.0, 0.0)).expect("gain");
 		let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
 		graph.connect((midi, 0), (generator, 0));
 		graph.connect((generator, 0), (gain, 0));
@@ -419,7 +419,7 @@ mod tests {
 	#[test]
 	fn a_link_to_a_missing_node_is_skipped() {
 		let mut graph = Graph::new();
-		graph.add_node("gain", (0.0, 0.0)).expect("gain");
+		graph.add_node("mod:gain", (0.0, 0.0)).expect("gain");
 		graph.modulations.push(ModulationLink {
 			source: (NodeId(9), 0),
 			target: (NodeId(0), "gain"),
@@ -442,13 +442,13 @@ mod tests {
 		assert!(error.message.contains("unknown kind"));
 
 		let error =
-			from_text("node 0 gain 0 0\nconnect 0.audio -> 1.audio").expect_err("no node 1");
+			from_text("node 0 mod:gain 0 0\nconnect 0.audio -> 1.audio").expect_err("no node 1");
 		assert_eq!(error.line, 2);
 	}
 
 	#[test]
 	fn a_comment_and_a_blank_line_are_ignored() {
-		let graph = from_text("# a patch\n\nnode 0 gain 0 0\n").expect("parses");
+		let graph = from_text("# a patch\n\nnode 0 mod:gain 0 0\n").expect("parses");
 		assert_eq!(graph.nodes.len(), 1);
 	}
 }

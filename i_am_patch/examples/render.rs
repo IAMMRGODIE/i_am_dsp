@@ -18,9 +18,9 @@ fn main() {
 
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
-	let filter = graph.add_node("filter", (200.0, 0.0)).expect("filter");
-	let gain = graph.add_node("gain", (300.0, 0.0)).expect("gain");
+	let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+	let filter = graph.add_node("mod:filter", (200.0, 0.0)).expect("filter");
+	let gain = graph.add_node("mod:gain", (300.0, 0.0)).expect("gain");
 	let out = graph.add_node("out:audio", (400.0, 0.0)).expect("out");
 
 	graph.connect((midi, 0), (generator, 0));

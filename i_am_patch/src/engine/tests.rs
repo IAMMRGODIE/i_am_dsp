@@ -62,8 +62,8 @@ fn render(graph: &Graph) -> f32 {
 fn a_chain_renders_a_note() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
-	let gain = graph.add_node("gain", (200.0, 0.0)).expect("gain");
+	let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+	let gain = graph.add_node("mod:gain", (200.0, 0.0)).expect("gain");
 	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
 	graph.connect((midi, 0), (generator, 0));
 	graph.connect((generator, 0), (gain, 0));
@@ -78,7 +78,7 @@ fn a_chain_renders_a_note() {
 fn mid_and_side_can_be_summed_back() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+	let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
 	let split = graph.add_node("split:ms", (200.0, 0.0)).expect("split");
 	let mixer = graph.add_node("mixer", (300.0, 0.0)).expect("mixer");
 	let out = graph.add_node("out:audio", (400.0, 0.0)).expect("out");
@@ -185,7 +185,7 @@ fn the_control_sources_move() {
 fn a_negative_modulation_does_not_blow_up() {
 	let mut graph = Graph::new();
 	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
-	let filter = graph.add_node("filter", (100.0, 0.0)).expect("filter");
+	let filter = graph.add_node("mod:filter", (100.0, 0.0)).expect("filter");
 	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
 	graph.connect((input, 0), (filter, 0));
 	graph.connect((filter, 0), (out, 0));
@@ -347,7 +347,7 @@ fn a_modulation_mode_moves_where_the_swing_starts() {
 	fn render(mode: ModulationMode) -> (f32, f32) {
 		let mut graph = Graph::new();
 		let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
-		let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
 		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
 		graph.connect((input, 0), (gain, 0));
 		graph.connect((gain, 0), (out, 0));
@@ -404,8 +404,11 @@ fn an_lfo_can_move_a_parameter() {
 	let build = |modulated: bool| {
 		let mut graph = Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
-		let gain_node = graph.add_node("gain", (200.0, 0.0)).expect("gain");
+		let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+		for key in ["random_phase", "random_phase_by_channel", "random_pan"] {
+			assert!(graph.set_param(generator, key, 0.0), "{key}");
+		}
+		let gain_node = graph.add_node("mod:gain", (200.0, 0.0)).expect("gain");
 		let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
 		graph.connect((midi, 0), (generator, 0));
 		graph.connect((generator, 0), (gain_node, 0));
@@ -431,8 +434,8 @@ fn the_gain_parameter_is_heard() {
 	let chain = |gain: f32| {
 		let mut graph = Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
-		let gain_node = graph.add_node("gain", (200.0, 0.0)).expect("gain");
+		let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+		let gain_node = graph.add_node("mod:gain", (200.0, 0.0)).expect("gain");
 		let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
 		graph.connect((midi, 0), (generator, 0));
 		graph.connect((generator, 0), (gain_node, 0));
@@ -450,7 +453,7 @@ fn the_gain_parameter_is_heard() {
 fn the_voice_has_no_dc() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+	let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
 	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
 	graph.connect((midi, 0), (generator, 0));
 	graph.connect((generator, 0), (out, 0));
@@ -478,7 +481,7 @@ fn the_voice_has_no_dc() {
 fn the_offline_render_produces_a_note() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+	let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
 	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
 	graph.connect((midi, 0), (generator, 0));
 	graph.connect((generator, 0), (out, 0));
@@ -510,8 +513,8 @@ fn the_offline_render_produces_a_note() {
 fn a_filtered_chain_still_sounds() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
-	let filter = graph.add_node("filter", (200.0, 0.0)).expect("filter");
+	let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+	let filter = graph.add_node("mod:filter", (200.0, 0.0)).expect("filter");
 	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
 	graph.connect((midi, 0), (generator, 0));
 	graph.connect((generator, 0), (filter, 0));

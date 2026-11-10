@@ -1,9 +1,8 @@
 //! The node implementations the catalog names.
 
 use std::collections::BTreeMap;
-use std::f32::consts::TAU;
 
-use i_am_dsp::prelude::{Effect, Gain, Message, Multimode, NoteEvent, Parameters};
+use i_am_dsp::prelude::{Effect, Message, NoteEvent};
 use i_am_plugin::Plugin;
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
@@ -25,7 +24,7 @@ pub trait BlockNode: Send + Sync {
 	///
 	/// A node that can ramp does so per sample or per sub-block; the default
 	/// takes the end value and leaves the parameter where it was for the block.
-	fn set_param_block(&mut self, name: &str, _start: f32, end: f32, _frames: usize) {
+	fn set_param_block(&mut self, name: &'static str, _start: f32, end: f32, _frames: usize) {
 		self.set_param(name, end);
 	}
 
@@ -53,9 +52,6 @@ pub fn make(
 		"out:audio" => Box::new(Quiet),
 		"voice:in" => Box::new(Quiet),
 		"voice:out" => Box::new(Quiet),
-		"gen:additive" => Box::new(Additive::new(rate, param(params, "decay", 1.0))),
-		"gain" => Box::new(GainNode::new(params)),
-		"filter" => Box::new(Filter::new(rate, params)),
 		"split:ms" => Box::new(SplitMs),
 		"mixer" => Box::new(Mixer {
 			a: param(params, "a", 1.0),
@@ -119,104 +115,19 @@ impl BlockNode for Source {
 	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], _: &mut [Buffer]) {}
 }
 
-/// A small additive voice, enough to make a note for the M1 tests.
-struct Additive {
-	rate: f32,
-	frequency: f32,
-	phases: [f32; 16],
-	gains: [f32; 16],
-	envelope: f32,
-	decay: f32,
-	release: f32,
-	releasing: bool,
-	note: usize,
-}
-
-impl Additive {
-	fn new(rate: usize, t60: f32) -> Self {
-		let decay = 10f32.powf(-3.0 / (t60.clamp(0.05, 30.0) * rate as f32));
-		let mut gains = [0.0; 16];
-
-		for (index, gain) in gains.iter_mut().enumerate() {
-			*gain = 1.0 / (index as f32 + 1.0);
-		}
-
-		Self {
-			rate: rate as f32,
-			frequency: 440.0,
-			phases: [0.0; 16],
-			gains,
-			envelope: 0.0,
-			decay,
-			// A release of 150 ms to -60 dB.
-			release: 10f32.powf(-3.0 / (0.15 * rate as f32)),
-			releasing: false,
-			note: 0,
-		}
-	}
-}
-
-impl BlockNode for Additive {
-	fn set_param(&mut self, name: &str, value: f32) {
-		if name == "decay" {
-			self.decay = 10f32.powf(-3.0 / (value.clamp(0.05, 30.0) * self.rate));
-		}
-	}
-
-	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
-		for event in &context.events {
-			match event {
-				NoteEvent::NoteOn { note, velocity, .. } => {
-					self.frequency = 440.0 * 2f32.powf((*note as f32 - 69.0) / 12.0);
-					self.envelope = velocity.clamp(0.0, 1.0);
-					self.phases.fill(0.0);
-					self.note = *note;
-					self.releasing = false;
-				}
-				NoteEvent::NoteOff { note, .. } if *note == self.note => {
-					self.releasing = true;
-				}
-				_ => {}
-			}
-		}
-
-		let Some(Buffer::Audio(out)) = outputs.first_mut() else {
-			return;
-		};
-		out.clear();
-		out.frames = context.frames;
-
-		for frame in 0..context.frames {
-			let mut sample = 0.0;
-
-			for partial in 0..16 {
-				let ratio = partial as f32 + 1.0;
-				let phase = (self.phases[partial] + self.frequency * ratio / self.rate).fract();
-				self.phases[partial] = phase;
-				sample += (phase * TAU).sin() * self.gains[partial];
-			}
-
-			sample *= self.envelope * 0.1;
-			out.channels[0][frame] = sample;
-			out.channels[1][frame] = sample;
-
-			if self.releasing {
-				self.envelope *= self.release;
-			} else {
-				self.envelope *= self.decay;
-			}
-		}
-	}
-}
-
 /// A rack module, driven by its own product schema.
 struct ProductNode {
 	effect: Box<dyn Effect<2>>,
+	/// Parameters that move across the current block: name, start, end.
+	ramps: Vec<(&'static str, f32, f32)>,
 }
 
 impl ProductNode {
 	fn new(effect: Box<dyn Effect<2>>) -> Self {
-		Self { effect }
+		Self {
+			effect,
+			ramps: Vec::with_capacity(8),
+		}
 	}
 }
 
@@ -225,147 +136,34 @@ impl BlockNode for ProductNode {
 		self.effect.set_parameter(name, value.into());
 	}
 
+	fn set_param_block(&mut self, name: &'static str, start: f32, end: f32, _frames: usize) {
+		// The buffer is allocated once, so a modulated block does not allocate.
+		self.ramps.push((name, start, end));
+	}
+
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
+		let Self { effect, ramps } = self;
 
 		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
 			out.clear();
 			out.frames = context.frames;
+			let frames = context.frames.max(1) as f32;
 
 			for frame in 0..context.frames {
-				let mut samples = [input.channels[0][frame], input.channels[1][frame]];
-				self.effect.process(&mut samples, &[], &mut context.context);
-				out.channels[0][frame] = samples[0];
-				out.channels[1][frame] = samples[1];
-			}
-		}
-	}
-}
+				let unit = frame as f32 / frames;
 
-/// The product's gain: one knob, and the DSP the product ships.
-struct GainNode {
-	effect: Gain,
-	ramp: Option<(f32, f32)>,
-}
-
-impl GainNode {
-	fn new(params: &BTreeMap<&'static str, f32>) -> Self {
-		let mut node = Self {
-			effect: Gain::new(1.0),
-			ramp: None,
-		};
-
-		for (name, value) in params {
-			node.effect.set_parameter(name, (*value).into());
-		}
-
-		node
-	}
-}
-
-impl BlockNode for GainNode {
-	fn set_param(&mut self, name: &str, value: f32) {
-		self.effect.set_parameter(name, value.into());
-	}
-
-	fn set_param_block(&mut self, name: &str, start: f32, end: f32, _frames: usize) {
-		if name == "gain" {
-			self.ramp = Some((start, end));
-		} else {
-			self.set_param(name, end);
-		}
-	}
-
-	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
-		let input = audio(inputs, 0);
-
-		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
-			out.clear();
-			out.frames = context.frames;
-			let frames = context.frames.max(1);
-
-			for frame in 0..context.frames {
-				if let Some((from, to)) = self.ramp {
-					let t = (frame + 1) as f32 / frames as f32;
-					self.effect.gain = from + (to - from) * t;
+				for &(name, start, end) in ramps.iter() {
+					effect.set_parameter(name, (start + (end - start) * unit).into());
 				}
 
 				let mut samples = [input.channels[0][frame], input.channels[1][frame]];
-				self.effect.process(&mut samples, &[], &mut context.context);
+				effect.process(&mut samples, &[], &mut context.context);
 				out.channels[0][frame] = samples[0];
 				out.channels[1][frame] = samples[1];
 			}
-		}
-	}
-}
 
-/// The product's filter: the card's controls and the DSP are the same schema.
-struct Filter {
-	effect: Multimode,
-	cutoff: Option<(f32, f32)>,
-	q: Option<(f32, f32)>,
-}
-
-impl Filter {
-	fn new(rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
-		let mut filter = Self {
-			effect: Multimode::new(rate, 1000.0, 0.707),
-			cutoff: None,
-			q: None,
-		};
-
-		for (name, value) in params {
-			filter.effect.set_parameter(name, (*value).into());
-		}
-
-		filter
-	}
-}
-
-impl BlockNode for Filter {
-	fn set_param(&mut self, name: &str, value: f32) {
-		self.effect.set_parameter(name, value.into());
-	}
-
-	fn set_param_block(&mut self, name: &str, start: f32, end: f32, _frames: usize) {
-		match name {
-			"cutoff" => self.cutoff = Some((start, end)),
-			"q" => self.q = Some((start, end)),
-			_ => self.set_param(name, end),
-		}
-	}
-
-	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
-		const STEPS: usize = 8;
-		let input = audio(inputs, 0);
-		let frames = context.frames;
-
-		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
-			out.clear();
-			out.frames = frames;
-
-			let step = frames.div_ceil(STEPS).max(1);
-
-			for start in (0..frames).step_by(step) {
-				let t = start as f32 / frames.max(1) as f32;
-
-				if let Some((from, to)) = self.cutoff {
-					self.effect
-						.set_parameter("cutoff", (from + (to - from) * t).into());
-				}
-
-				if let Some((from, to)) = self.q {
-					self.effect
-						.set_parameter("q", (from + (to - from) * t).into());
-				}
-
-				for frame in start..(start + step).min(frames) {
-					let mut samples = [input.channels[0][frame], input.channels[1][frame]];
-					self.effect.process(&mut samples, &[], &mut context.context);
-					out.channels[0][frame] = samples[0];
-					out.channels[1][frame] = samples[1];
-				}
-			}
+			ramps.clear();
 		}
 	}
 }

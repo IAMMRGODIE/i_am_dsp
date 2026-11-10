@@ -218,7 +218,7 @@ mod tests {
 		let mut effect = PatcherEffect::default();
 		let text = patch_text(&effect);
 
-		assert!(text.contains("gen:additive"), "{text}");
+		assert!(text.contains("synth:additive"), "{text}");
 		assert!(text.contains("voice:out"), "{text}");
 
 		let changed = text.replace("set 3 cutoff=1200", "set 3 cutoff=500");
@@ -231,6 +231,6 @@ mod tests {
 		let mut effect = PatcherEffect::default();
 
 		assert!(!effect.set_parameter("patch", SetValue::Serialized(b"node nope".to_vec())));
-		assert!(patch_text(&effect).contains("gen:additive"));
+		assert!(patch_text(&effect).contains("synth:additive"));
 	}
 }

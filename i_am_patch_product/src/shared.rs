@@ -147,8 +147,12 @@ pub fn demo() -> Graph {
 	let voice_in = graph
 		.add_node("voice:in", (340.0, 120.0))
 		.expect("voice in");
-	let generator = graph.add_node("gen:additive", (680.0, 120.0)).expect("gen");
-	let filter = graph.add_node("filter", (1020.0, 120.0)).expect("filter");
+	let generator = graph
+		.add_node("synth:additive", (680.0, 120.0))
+		.expect("gen");
+	let filter = graph
+		.add_node("mod:filter", (1020.0, 120.0))
+		.expect("filter");
 	let lfo = graph.add_node("lfo", (1020.0, 580.0)).expect("lfo");
 	let voice_out = graph
 		.add_node("voice:out", (1620.0, 120.0))

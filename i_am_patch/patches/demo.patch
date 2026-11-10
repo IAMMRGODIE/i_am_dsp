@@ -1,10 +1,10 @@
 # demo: one additive voice through a filter and a gain
 node 0 input:midi 0 0
-node 1 gen:additive 100 0 decay=1.5
-node 2 filter 200 0 cutoff=1200
-node 3 gain 300 0 gain=0.8
+node 1 synth:additive 100 0 decay_time=0.5
+node 2 mod:filter 200 0 cutoff=1200
+node 3 mod:gain 300 0 gain=0.8
 node 4 out:audio 400 0
-connect 0.midi -> 1.midi
+connect 0.midi -> 1.notes
 connect 1.audio -> 2.audio
 connect 2.audio -> 3.audio
 connect 3.audio -> 4.audio

@@ -147,37 +147,6 @@ const BUILTINS: &[NodeDesc] = &[
 		params: &[],
 	},
 	NodeDesc {
-		id: "gen:additive",
-		name: "Additive",
-		inputs: &[port("midi", SignalKind::Midi)],
-		outputs: &[port("audio", AUDIO)],
-		latency: 0,
-		params: &[("partials", 16.0), ("spread", 0.3), ("decay", 1.0)],
-	},
-	NodeDesc {
-		id: "gain",
-		name: "Gain",
-		inputs: &[port("audio", AUDIO)],
-		outputs: &[port("audio", AUDIO)],
-		latency: 0,
-		params: &[("gain", 1.0)],
-	},
-	NodeDesc {
-		id: "filter",
-		name: "Filter",
-		inputs: &[port("audio", AUDIO)],
-		outputs: &[port("audio", AUDIO)],
-		latency: 0,
-		params: &[
-			("mode", 0.0),
-			("cutoff", 1_000.0),
-			("q", 0.707),
-			("stages", 0.0),
-			("gain_db", 0.0),
-			("slope", 1.0),
-		],
-	},
-	NodeDesc {
 		id: "split:ms",
 		name: "M/S Split",
 		inputs: &[port("audio", AUDIO)],
@@ -259,7 +228,7 @@ const BUILTINS: &[NodeDesc] = &[
 	},
 	NodeDesc {
 		id: "delay",
-		name: "Delay",
+		name: "Lookahead",
 		inputs: &[port("audio", AUDIO)],
 		outputs: &[port("audio", AUDIO)],
 		latency: 64,
@@ -614,7 +583,10 @@ mod tests {
 		);
 		assert_eq!(compressor.inputs.len(), 1);
 		assert!(node("mod:distortion").is_some());
-		assert!(node("filter").is_some(), "the built-ins are still there");
+		assert!(
+			node("mod:filter").is_some(),
+			"the built-ins are still there"
+		);
 	}
 
 	#[test]
@@ -637,7 +609,7 @@ mod tests {
 	fn removing_a_node_drops_its_modulations() {
 		let mut graph = Graph::new();
 		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
-		let gain = graph.add_node("gain", (0.0, 0.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (0.0, 0.0)).expect("gain");
 		graph.modulate((lfo, 0), (gain, "gain"), 0.5);
 		assert_eq!(graph.modulations.len(), 1);
 
@@ -653,7 +625,7 @@ mod tests {
 	fn a_second_link_to_the_same_parameter_moves_the_depth() {
 		let mut graph = Graph::new();
 		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
-		let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
 		graph.modulate((lfo, 0), (gain, "gain"), 0.5);
 		graph.modulate((lfo, 0), (gain, "gain"), 0.9);
 
@@ -665,7 +637,7 @@ mod tests {
 	fn a_depth_can_be_set_by_index() {
 		let mut graph = Graph::new();
 		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
-		let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
 		graph.modulate((lfo, 0), (gain, "gain"), 0.5);
 
 		assert!(graph.set_modulation_depth(0, 0.25));

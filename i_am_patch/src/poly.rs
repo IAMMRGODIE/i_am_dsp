@@ -360,7 +360,7 @@ mod tests {
 	fn a_graph_without_a_voice_group_is_refused() {
 		let mut graph = Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+		let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
 		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
 		graph.connect((midi, 0), (generator, 0));
 		graph.connect((generator, 0), (out, 0));
@@ -376,9 +376,9 @@ mod tests {
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
 		let voice_in = graph.add_node("voice:in", (100.0, 0.0)).expect("voice in");
 		let generator = graph
-			.add_node("gen:additive", (200.0, 0.0))
+			.add_node("synth:additive", (200.0, 0.0))
 			.expect("generator");
-		let gain = graph.add_node("gain", (300.0, 0.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (300.0, 0.0)).expect("gain");
 		let voice_out = graph
 			.add_node("voice:out", (400.0, 0.0))
 			.expect("voice out");

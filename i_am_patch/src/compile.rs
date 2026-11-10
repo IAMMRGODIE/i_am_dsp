@@ -375,8 +375,8 @@ mod tests {
 	fn chain() -> (Graph, NodeId, NodeId, NodeId, NodeId) {
 		let mut graph = Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
-		let gain = graph.add_node("gain", (200.0, 0.0)).expect("gain");
+		let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+		let gain = graph.add_node("mod:gain", (200.0, 0.0)).expect("gain");
 		let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
 
 		graph.connect((midi, 0), (generator, 0));
@@ -399,7 +399,7 @@ mod tests {
 	fn a_wire_between_kinds_is_refused() {
 		let mut graph = Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-		let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
 		graph.connect((midi, 0), (gain, 0));
 
 		assert!(matches!(
@@ -411,7 +411,7 @@ mod tests {
 	#[test]
 	fn a_missing_node_is_refused() {
 		let mut graph = Graph::new();
-		let gain = graph.add_node("gain", (0.0, 0.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (0.0, 0.0)).expect("gain");
 		graph.connect((NodeId(99), 0), (gain, 0));
 
 		assert_eq!(compile(&graph), Err(CompileError::UnknownNode(NodeId(99))));
@@ -420,7 +420,7 @@ mod tests {
 	#[test]
 	fn a_missing_port_is_refused() {
 		let mut graph = Graph::new();
-		let gain = graph.add_node("gain", (0.0, 0.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (0.0, 0.0)).expect("gain");
 		graph.connect((gain, 4), (gain, 0));
 
 		assert!(matches!(
@@ -432,8 +432,8 @@ mod tests {
 	#[test]
 	fn a_cycle_is_refused() {
 		let mut graph = Graph::new();
-		let a = graph.add_node("gain", (0.0, 0.0)).expect("a");
-		let b = graph.add_node("gain", (100.0, 0.0)).expect("b");
+		let a = graph.add_node("mod:gain", (0.0, 0.0)).expect("a");
+		let b = graph.add_node("mod:gain", (100.0, 0.0)).expect("b");
 		graph.connect((a, 0), (b, 0));
 		graph.connect((b, 0), (a, 0));
 
@@ -443,7 +443,7 @@ mod tests {
 	#[test]
 	fn an_output_can_feed_two_inputs() {
 		let mut graph = Graph::new();
-		let generator = graph.add_node("gen:additive", (0.0, 0.0)).expect("gen");
+		let generator = graph.add_node("synth:additive", (0.0, 0.0)).expect("gen");
 		let out = graph.add_node("out:audio", (100.0, 0.0)).expect("out");
 		let mixer = graph.add_node("mixer", (100.0, 100.0)).expect("mixer");
 		graph.connect((generator, 0), (out, 0));
@@ -455,7 +455,7 @@ mod tests {
 	#[test]
 	fn a_mono_signal_may_feed_a_stereo_input() {
 		let mut graph = Graph::new();
-		let generator = graph.add_node("gen:additive", (0.0, 0.0)).expect("gen");
+		let generator = graph.add_node("synth:additive", (0.0, 0.0)).expect("gen");
 		let split = graph.add_node("split:ms", (100.0, 0.0)).expect("split");
 		let mixer = graph.add_node("mixer", (200.0, 0.0)).expect("mixer");
 		graph.connect((generator, 0), (split, 0));
@@ -467,7 +467,7 @@ mod tests {
 	#[test]
 	fn a_short_path_is_delayed_to_meet_the_long_one() {
 		let mut graph = Graph::new();
-		let generator = graph.add_node("gen:additive", (0.0, 0.0)).expect("gen");
+		let generator = graph.add_node("synth:additive", (0.0, 0.0)).expect("gen");
 		let delay = graph.add_node("delay", (100.0, 0.0)).expect("delay");
 		let mixer = graph.add_node("mixer", (200.0, 0.0)).expect("mixer");
 		graph.connect((generator, 0), (mixer, 0));
@@ -483,7 +483,7 @@ mod tests {
 	#[test]
 	fn equal_latencies_compile() {
 		let mut graph = Graph::new();
-		let generator = graph.add_node("gen:additive", (0.0, 0.0)).expect("gen");
+		let generator = graph.add_node("synth:additive", (0.0, 0.0)).expect("gen");
 		let a = graph.add_node("delay", (100.0, 0.0)).expect("a");
 		let b = graph.add_node("delay", (100.0, 100.0)).expect("b");
 		let mixer = graph.add_node("mixer", (200.0, 0.0)).expect("mixer");
@@ -501,13 +501,13 @@ mod tests {
 		let mut graph = Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
 		let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
-		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
-		let filter = graph.add_node("filter", (200.0, 0.0)).expect("filter");
+		let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+		let filter = graph.add_node("mod:filter", (200.0, 0.0)).expect("filter");
 		let voice_out = graph
 			.add_node("voice:out", (300.0, 0.0))
 			.expect("voice out");
 		let out = graph.add_node("out:audio", (400.0, 0.0)).expect("out");
-		let gain = graph.add_node("gain", (400.0, 100.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (400.0, 100.0)).expect("gain");
 		let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
 		graph.connect((midi, 0), (voice_in, 0));
 		graph.connect((voice_in, 0), (generator, 0));
@@ -529,8 +529,8 @@ mod tests {
 	#[test]
 	fn a_modulation_must_come_from_a_control_port() {
 		let mut graph = Graph::new();
-		let generator = graph.add_node("gen:additive", (0.0, 0.0)).expect("gen");
-		let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+		let generator = graph.add_node("synth:additive", (0.0, 0.0)).expect("gen");
+		let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
 		graph.modulate((generator, 0), (gain, "gain"), 0.5);
 
 		assert!(matches!(
@@ -543,7 +543,7 @@ mod tests {
 	fn a_modulation_must_target_a_parameter() {
 		let mut graph = Graph::new();
 		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
-		let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
 		graph.modulate((lfo, 0), (gain, "nope"), 0.5);
 
 		assert_eq!(
@@ -558,10 +558,10 @@ mod tests {
 	#[test]
 	fn a_duplicate_id_is_refused() {
 		let mut graph = Graph::new();
-		let gain = graph.add_node("gain", (0.0, 0.0)).expect("gain");
+		let gain = graph.add_node("mod:gain", (0.0, 0.0)).expect("gain");
 		graph.nodes.push(crate::graph::NodeInstance {
 			id: gain,
-			kind: crate::graph::node("filter").expect("filter"),
+			kind: crate::graph::node("mod:filter").expect("filter"),
 			position: (0.0, 0.0),
 			params: std::collections::BTreeMap::new(),
 			points: Vec::new(),

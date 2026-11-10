@@ -27,11 +27,15 @@ fn demo() -> Graph {
 	let voice_in = graph
 		.add_node("voice:in", (300.0, 120.0))
 		.expect("voice in");
-	let generator = graph.add_node("gen:additive", (560.0, 120.0)).expect("gen");
+	let generator = graph
+		.add_node("synth:additive", (560.0, 120.0))
+		.expect("gen");
 	let voice_out = graph
 		.add_node("voice:out", (860.0, 120.0))
 		.expect("voice out");
-	let filter = graph.add_node("filter", (880.0, 120.0)).expect("filter");
+	let filter = graph
+		.add_node("mod:filter", (880.0, 120.0))
+		.expect("filter");
 	let lfo = graph.add_node("lfo", (880.0, 580.0)).expect("lfo");
 	let out = graph.add_node("out:audio", (1500.0, 120.0)).expect("out");
 	graph.connect((midi, 0), (voice_in, 0));

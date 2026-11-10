@@ -635,7 +635,7 @@
     table: [640, 340],
     pitch: [600, 320],
     midi: [600, 320],
-    "gen:additive": [300, 210],
+    "synth:additive": [300, 210],
     mixer: [280, 190],
     "split:ms": [280, 160],
     delay: [280, 210],
@@ -800,26 +800,6 @@
   }
 
   // The biquad lowpass response, in dB, at a frequency.
-  function filterMagnitude(state, frequency, rate) {
-    const cutoff = Math.min(Math.max(state.cutoff ?? 2000, 20), rate * 0.45);
-    const q = Math.min(Math.max(state.q ?? 0.707, 0.3), 10);
-    const w0 = 2 * Math.PI * cutoff / rate;
-    const alpha = Math.sin(w0) / (2 * q);
-    const cos = Math.cos(w0);
-    const a0 = 1 + alpha;
-    const b0 = (1 - cos) / 2 / a0;
-    const b1 = (1 - cos) / a0;
-    const b2 = b0;
-    const a1 = -2 * cos / a0;
-    const a2 = (1 - alpha) / a0;
-    const w = 2 * Math.PI * frequency / rate;
-    const c1 = Math.cos(w), s1 = Math.sin(w);
-    const c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
-    const num = Math.hypot(b0 + b1 * c1 + b2 * c2, -(b1 * s1 + b2 * s2));
-    const den = Math.hypot(1 + a1 * c1 + a2 * c2, -(a1 * s1 + a2 * s2));
-    return 20 * Math.log10(num / Math.max(den, 1e-9));
-  }
-
   // The voice group is one underlined stretch of the graph: a card inside it
   // plays once per note.
   function drawVoiceBox(world) {
@@ -1010,27 +990,7 @@
   }
 
   function drawBody(group, node, kind) {
-    if (node.kind === "filter") {
-      const width = 216, height = 76;
-      const path = el("path", {
-        fill: "none",
-        stroke: "#4d9dff",
-        "stroke-width": "1.8",
-      });
-      const points = [];
-
-      for (let x = 0; x <= width; x += 2) {
-        const frequency = 20 * Math.pow(1000, x / width);
-        const db = filterMagnitude(node.params, frequency, 48000);
-        const y = height * (1 - (Math.max(-48, Math.min(6, db)) + 48) / 54);
-        points.push(`${12 + x},${30 + y}`);
-      }
-
-      path.setAttribute("d", "M " + points.join(" L "));
-      group.appendChild(path);
-      group.appendChild(knob(node, 70, 132, 20, "cutoff", node.params.cutoff ?? 2000, 20, 20000));
-      group.appendChild(knob(node, 170, 132, 20, "resonance", node.params.resonance ?? 0.707, 0.3, 10));
-    } else {
+    {
       const rows = kind.params.slice(0, 6);
 
       rows.forEach(([key, fallback], index) => {
@@ -1046,29 +1006,6 @@
         group.appendChild(row);
       });
     }
-  }
-
-  function knob(node, cx, cy, r, key, value, min, max) {
-    const group = el("g", { "data-knob": key, "data-node": node.id, "data-mod-target": `${node.id}:${key}` });
-    group.appendChild(el("circle", { cx, cy, r: r + 3, fill: "transparent" }));
-    group.appendChild(el("circle", { cx, cy, r, fill: "#1a1a1a", stroke: "#333", "stroke-width": 2 }));
-
-    const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
-    const angle = -135 + 270 * t;
-    const arc = el("path", {
-      d: describeArc(cx, cy, r, -135, angle),
-      fill: "none",
-      stroke: "#e07a2f",
-      "stroke-width": 3,
-      "stroke-linecap": "round",
-    });
-    group.appendChild(arc);
-
-    const text = el("text", { class: "card-value", x: cx, y: cy + 34, "text-anchor": "middle" });
-    text.textContent = formatKnob(key, value);
-    group.appendChild(text);
-
-    return group;
   }
 
   function describeArc(cx, cy, r, from, to) {
@@ -1118,6 +1055,10 @@
     });
   }
 
+  // The sources whose card already draws their live picture: the scope strip
+  // would be the same picture twice.
+  const CONTROL_KINDS = ["lfo", "envelope", "random", "table", "pitch", "midi"];
+
   // A right-click opens the node library: categories, then the nodes inside
   // them, alphabetically. No list takes space from the graph until it is asked.
   // Four groups: an effect processes audio, a generator makes it, a control
@@ -1128,18 +1069,13 @@
 
     if (id.startsWith("mod:")) return "Effect";
 
-    // The bare filter, gain and delay are aliases of the modules, kept for old
-    // patches and the tests; the menu offers the modules themselves.
-    if (["filter", "gain", "delay"].includes(id)) return null;
-
-    // The bare additive generator is the small version of the Additive product,
-    // which can do everything it can; old patches keep parsing, the menu offers
-    // one Additive.
-    if (id === "gen:additive") return null;
+    // The block-alignment node delays by one block and reports that as latency;
+    // it is not the echo product, so it has its own entry.
+    if (id === "delay") return "Effect";
 
     if (["mixer", "split:ms"].includes(id)) return "Effect";
     if (id.startsWith("gen:") || id.startsWith("synth:")) return "Generator";
-    if (["lfo", "envelope", "random", "table", "pitch", "midi"].includes(id)) return "Control";
+    if (CONTROL_KINDS.includes(id)) return "Control";
 
     return "I/O";
   }
@@ -1298,6 +1234,11 @@
     if (scopeNode === id) return;
 
     stopScope();
+
+    const node = nodeOf(id);
+
+    if (node && CONTROL_KINDS.includes(node.kind)) return;
+
     scopeNode = id;
     scopeTimer = setInterval(() => pollScope(id), 120);
     pollScope(id);

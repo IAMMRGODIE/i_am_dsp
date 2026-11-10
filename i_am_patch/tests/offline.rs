@@ -37,6 +37,22 @@ fn render(graph: &Graph, blocks: usize, notes: &[(u64, NoteEvent)]) -> Vec<[f32;
 	out
 }
 
+/// A few blocks of a constant input through the graph, for the mechanics
+/// tests: no synth, so the result is the graph's own arithmetic.
+fn constant(graph: &Graph, blocks: usize) -> Vec<[f32; 2]> {
+	let mut engine = Engine::new(graph, 48_000).expect("builds");
+	let mut frames = Vec::new();
+
+	for _ in 0..blocks {
+		let host = vec![[0.5f32; 2]; BLOCK];
+		let mut block = vec![[0.0f32; 2]; BLOCK];
+		engine.process(&host, &[], &mut block);
+		frames.extend(block);
+	}
+
+	frames
+}
+
 fn peak(frames: &[[f32; 2]]) -> f32 {
 	frames
 		.iter()
@@ -47,7 +63,20 @@ fn peak(frames: &[[f32; 2]]) -> f32 {
 fn chain(kind: &str, params: &[(&str, f32)]) -> Graph {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+	let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+	// The product starts with a random phase; the tests compare renders.
+	for key in [
+		"random_phase",
+		"random_phase_by_channel",
+		"random_pan",
+		"phase_start",
+		"unisons",
+	] {
+		assert!(
+			graph.set_param(generator, key, if key == "unisons" { 1.0 } else { 0.0 }),
+			"{key}"
+		);
+	}
 	let node = graph.add_node(kind, (200.0, 0.0)).expect("node");
 	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
 	graph.connect((midi, 0), (generator, 0));
@@ -94,30 +123,31 @@ fn the_input_passes_through_untouched() {
 #[test]
 fn two_edges_into_one_input_sum() {
 	let mut graph = Graph::new();
-	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
 	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
-	graph.connect((midi, 0), (generator, 0));
-	graph.connect((generator, 0), (out, 0));
+	graph.connect((input, 0), (out, 0));
 
-	let single = peak(&render(&graph, 8, &[(0, note(60))]));
+	let single = peak(&constant(&graph, 1));
 
-	graph.connect((generator, 0), (out, 0));
+	graph.connect((input, 0), (out, 0));
 
-	let doubled = peak(&render(&graph, 8, &[(0, note(60))]));
+	let doubled = peak(&constant(&graph, 1));
 
-	assert!(doubled > single * 1.8, "{single} then {doubled}");
+	assert!(
+		(doubled - single * 2.0).abs() < 1e-6,
+		"{single} then {doubled}"
+	);
 }
 
 #[test]
 fn a_lower_gain_is_quieter() {
 	let loud = peak(&render(
-		&chain("gain", &[("gain", 1.0)]),
+		&chain("mod:gain", &[("gain", 1.0)]),
 		8,
 		&[(0, note(60))],
 	));
 	let quiet = peak(&render(
-		&chain("gain", &[("gain", 0.25)]),
+		&chain("mod:gain", &[("gain", 0.25)]),
 		8,
 		&[(0, note(60))],
 	));
@@ -128,7 +158,7 @@ fn a_lower_gain_is_quieter() {
 #[test]
 fn a_low_cutoff_darkens_the_voice() {
 	let brightness = |cutoff: f32| {
-		let graph = chain("filter", &[("cutoff", cutoff)]);
+		let graph = chain("mod:filter", &[("cutoff", cutoff)]);
 		let frames = render(&graph, 8, &[(0, note(60))]);
 		let high: f32 = frames
 			.windows(2)
@@ -170,7 +200,7 @@ fn the_delay_lands_one_block_late() {
 fn a_modulation_ramps_across_the_block() {
 	let mut graph = Graph::new();
 	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
-	let gain = graph.add_node("gain", (100.0, 0.0)).expect("gain");
+	let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
 	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
 	graph.connect((input, 0), (gain, 0));
 	graph.connect((gain, 0), (out, 0));
@@ -204,7 +234,7 @@ fn a_modulation_ramps_across_the_block() {
 fn the_render_length_follows_the_seconds() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
+	let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
 	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
 	graph.connect((midi, 0), (generator, 0));
 	graph.connect((generator, 0), (out, 0));
@@ -217,16 +247,20 @@ fn the_render_length_follows_the_seconds() {
 
 #[test]
 fn the_same_graph_renders_the_same_frames() {
-	let graph = chain("gain", &[("gain", 0.7)]);
-	let first = render(&graph, 8, &[(0, note(60))]);
-	let second = render(&graph, 8, &[(0, note(60))]);
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+	graph.connect((input, 0), (gain, 0));
+	graph.connect((gain, 0), (out, 0));
+	assert!(graph.set_param(gain, "gain", 0.7));
 
-	assert_eq!(first, second);
+	assert_eq!(constant(&graph, 2), constant(&graph, 2));
 }
 
 #[test]
 fn the_text_round_trip_keeps_the_params() {
-	let graph = chain("filter", &[("cutoff", 500.0)]);
+	let graph = chain("mod:filter", &[("cutoff", 500.0)]);
 	let text = to_text(&graph);
 	let back = from_text(&text).expect("parses");
 

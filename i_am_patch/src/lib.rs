@@ -26,8 +26,8 @@ pub(crate) fn voice_patch() -> crate::graph::Graph {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
 	let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
-	let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
-	let filter = graph.add_node("filter", (200.0, 0.0)).expect("filter");
+	let generator = graph.add_node("synth:additive", (100.0, 0.0)).expect("gen");
+	let filter = graph.add_node("mod:filter", (200.0, 0.0)).expect("filter");
 	let lfo = graph.add_node("lfo", (200.0, 100.0)).expect("lfo");
 	let voice_out = graph
 		.add_node("voice:out", (300.0, 0.0))
