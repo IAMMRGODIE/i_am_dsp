@@ -313,7 +313,7 @@ fn the_spectrum_face_draws_the_drawn_pages() {
 	let face = i_am_web_gui::face_json(&SpectrumWeb::new(), &spectrum_faceplate());
 
 	// The page is the picture, and Morph is the one control the drawing adds.
-	assert!(face.contains("\"hero\":\"spectrum\""), "{face}");
+	assert!(face.contains("\"hero\":\"morph-spectrum\""), "{face}");
 	assert!(face.contains("\"id\":\"oscillator.morph\""), "{face}");
 	assert!(face.contains("\"label\":\"Morph\""), "{face}");
 
