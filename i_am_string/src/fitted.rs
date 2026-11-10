@@ -267,7 +267,9 @@ pub fn install_from_config() -> bool {
 		return true;
 	}
 	for path in config_paths() {
-		if let Ok(bytes) = std::fs::read(&path) && install(&bytes) {
+		if let Ok(bytes) = std::fs::read(&path)
+			&& install(&bytes)
+		{
 			return true;
 		}
 	}
@@ -280,10 +282,19 @@ fn config_paths() -> Vec<std::path::PathBuf> {
 		out.push(std::path::PathBuf::from(path));
 	}
 	if let Ok(appdata) = std::env::var("APPDATA") {
-		out.push(std::path::PathBuf::from(appdata).join("i_am_dsp").join("modal.bin"));
+		out.push(
+			std::path::PathBuf::from(appdata)
+				.join("i_am_dsp")
+				.join("modal.bin"),
+		);
 	}
 	if let Ok(home) = std::env::var("HOME") {
-		out.push(std::path::PathBuf::from(home).join(".config").join("i_am_dsp").join("modal.bin"));
+		out.push(
+			std::path::PathBuf::from(home)
+				.join(".config")
+				.join("i_am_dsp")
+				.join("modal.bin"),
+		);
 	}
 	out
 }
@@ -312,17 +323,17 @@ fn parse(data: &'static [u8]) -> Instrument {
 			let mut modes = Vec::with_capacity(count);
 			for _ in 0..count {
 				let raw = take(30);
-			let order = u16::from_le_bytes([raw[0], raw[1]]) as f32;
-			let mut values = [0.0f32; 7];
-			for (index, value) in values.iter_mut().enumerate() {
-				let start = 2 + index * 4;
-				*value = f32::from_le_bytes([
-					raw[start],
-					raw[start + 1],
-					raw[start + 2],
-					raw[start + 3],
-				]);
-			}
+				let order = u16::from_le_bytes([raw[0], raw[1]]) as f32;
+				let mut values = [0.0f32; 7];
+				for (index, value) in values.iter_mut().enumerate() {
+					let start = 2 + index * 4;
+					*value = f32::from_le_bytes([
+						raw[start],
+						raw[start + 1],
+						raw[start + 2],
+						raw[start + 3],
+					]);
+				}
 				modes.push(Mode {
 					order,
 					frequency: values[0],
@@ -349,7 +360,12 @@ fn parse(data: &'static [u8]) -> Instrument {
 		let raw = take(4);
 		gain.push(f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]));
 	}
-	Instrument { notes, gain, rows, cols }
+	Instrument {
+		notes,
+		gain,
+		rows,
+		cols,
+	}
 }
 /// One decaying sinusoid.
 struct Oscillator {
@@ -380,7 +396,6 @@ impl Oscillator {
 		q
 	}
 }
-
 
 fn note_frequency(note: u8) -> f32 {
 	440.0 * 2f32.powf((note as f32 - 69.0) / 12.0)
@@ -496,7 +511,6 @@ impl Voice {
 	}
 }
 
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -527,13 +541,7 @@ mod tests {
 
 	#[test]
 	fn every_table_plays() {
-		for table in [
-			instrument(),
-			peel(),
-			bass(),
-			celeste(),
-			harp(),
-		] {
+		for table in [instrument(), peel(), bass(), celeste(), harp()] {
 			let note = table.notes()[0].note;
 			let mut voice = Voice::start_from(table, note, 1.0, 0.8, 48_000.0, false);
 			let mut peak = 0.0f32;

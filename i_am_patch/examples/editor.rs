@@ -24,9 +24,13 @@ const PAGE_CSS: &str = concat!(
 fn demo() -> Graph {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 120.0)).expect("midi");
-	let voice_in = graph.add_node("voice:in", (300.0, 120.0)).expect("voice in");
+	let voice_in = graph
+		.add_node("voice:in", (300.0, 120.0))
+		.expect("voice in");
 	let generator = graph.add_node("gen:additive", (560.0, 120.0)).expect("gen");
-	let voice_out = graph.add_node("voice:out", (860.0, 120.0)).expect("voice out");
+	let voice_out = graph
+		.add_node("voice:out", (860.0, 120.0))
+		.expect("voice out");
 	let filter = graph.add_node("filter", (880.0, 120.0)).expect("filter");
 	let lfo = graph.add_node("lfo", (880.0, 580.0)).expect("lfo");
 	let out = graph.add_node("out:audio", (1500.0, 120.0)).expect("out");
@@ -359,7 +363,9 @@ fn spawn_audio(shared: Shared) {
 			if let Some(poly) = &mut poly {
 				poly.set_transport(
 					Some(120.0),
-					Some(blocks as f32 * i_am_patch::block::BLOCK as f32 / shared.rate as f32 * 2.0),
+					Some(
+						blocks as f32 * i_am_patch::block::BLOCK as f32 / shared.rate as f32 * 2.0,
+					),
 				);
 				poly.process(&input, &events, &mut output);
 
@@ -401,7 +407,11 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			let head = &text[..head_end];
 			let length = head
 				.lines()
-				.find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length: ").map(|value| value.trim().parse::<usize>().ok()))
+				.find_map(|line| {
+					line.to_ascii_lowercase()
+						.strip_prefix("content-length: ")
+						.map(|value| value.trim().parse::<usize>().ok())
+				})
 				.flatten()
 				.unwrap_or(0);
 
@@ -422,11 +432,25 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 	let path = parts.next().unwrap_or("/");
 
 	let (status, content_type, payload) = match (method, path) {
-		("GET", "/") => ("200 OK", "text/html; charset=utf-8", include_str!("../src/page/index.html").to_string()),
-		("GET", "/patcher.css") | ("GET", "/kit.css") => ("200 OK", "text/css", PAGE_CSS.to_string()),
+		("GET", "/") => (
+			"200 OK",
+			"text/html; charset=utf-8",
+			include_str!("../src/page/index.html").to_string(),
+		),
+		("GET", "/patcher.css") | ("GET", "/kit.css") => {
+			("200 OK", "text/css", PAGE_CSS.to_string())
+		}
 		("GET", "/card.css") => ("200 OK", "text/css", i_am_web_gui::CARD_STYLE.to_string()),
-		("GET", "/card.js") => ("200 OK", "text/javascript", i_am_web_gui::CARD_SCRIPT.to_string()),
-		("GET", "/patcher.js") | ("GET", "/kit.js") => ("200 OK", "text/javascript", include_str!("../src/page/patcher.js").to_string()),
+		("GET", "/card.js") => (
+			"200 OK",
+			"text/javascript",
+			i_am_web_gui::CARD_SCRIPT.to_string(),
+		),
+		("GET", "/patcher.js") | ("GET", "/kit.js") => (
+			"200 OK",
+			"text/javascript",
+			include_str!("../src/page/patcher.js").to_string(),
+		),
 		("GET", "/catalog") => (
 			"200 OK",
 			"application/json",
@@ -440,13 +464,20 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 		("GET", "/text") => (
 			"200 OK",
 			"application/json",
-			json!(i_am_patch::text::to_text(&shared.graph.lock().expect("graph"))).to_string(),
+			json!(i_am_patch::text::to_text(
+				&shared.graph.lock().expect("graph")
+			))
+			.to_string(),
 		),
 		("POST", "/text") => match i_am_patch::text::from_text(body) {
 			Ok(graph) => {
 				*shared.graph.lock().expect("graph") = graph;
 				shared.generation.fetch_add(1, Ordering::Relaxed);
-				("200 OK", "application/json", json!({ "ok": true }).to_string())
+				(
+					"200 OK",
+					"application/json",
+					json!({ "ok": true }).to_string(),
+				)
 			}
 			Err(error) => (
 				"200 OK",
@@ -477,7 +508,10 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			let mut scopes = Vec::new();
 
 			for node in &graph.nodes {
-				if !matches!(node.kind.id, "lfo" | "envelope" | "random" | "table" | "pitch" | "midi") {
+				if !matches!(
+					node.kind.id,
+					"lfo" | "envelope" | "random" | "table" | "pitch" | "midi"
+				) {
 					continue;
 				}
 
@@ -543,8 +577,14 @@ fn op_graph(shared: &Shared, value: &Value) -> Value {
 			json!({ "ok": true })
 		}
 		"connect" => {
-			let from = (id(&value["from"][0]), value["from"][1].as_u64().unwrap_or(0) as usize);
-			let to = (id(&value["to"][0]), value["to"][1].as_u64().unwrap_or(0) as usize);
+			let from = (
+				id(&value["from"][0]),
+				value["from"][1].as_u64().unwrap_or(0) as usize,
+			);
+			let to = (
+				id(&value["to"][0]),
+				value["to"][1].as_u64().unwrap_or(0) as usize,
+			);
 			let mut replaced = 0;
 
 			// A port takes one wire from the page: an older one into the same
@@ -634,14 +674,20 @@ fn op_graph(shared: &Shared, value: &Value) -> Value {
 			json!({ "ok": done })
 		}
 		"modulate" => {
-			let from = (id(&value["from"][0]), value["from"][1].as_u64().unwrap_or(0) as usize);
+			let from = (
+				id(&value["from"][0]),
+				value["from"][1].as_u64().unwrap_or(0) as usize,
+			);
 			let target = id(&value["to"][0]);
 			let key = value["to"][1].as_str().unwrap_or("");
 			let depth = value["depth"].as_f64().unwrap_or(0.0) as f32;
-			let Some(param) = graph
-				.get(target)
-				.and_then(|node| node.kind.params.iter().find(|(name, _)| *name == key).map(|(name, _)| *name))
-			else {
+			let Some(param) = graph.get(target).and_then(|node| {
+				node.kind
+					.params
+					.iter()
+					.find(|(name, _)| *name == key)
+					.map(|(name, _)| *name)
+			}) else {
 				return json!({ "error": "unknown parameter" });
 			};
 

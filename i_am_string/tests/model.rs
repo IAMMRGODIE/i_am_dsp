@@ -511,7 +511,6 @@ fn every_preset_makes_a_sound_at_a_sane_level() {
 	}
 }
 
-
 /// A contact that simply pushes with a constant force.
 ///
 /// Used to check the direct current behaviour of the waveguide, which is where

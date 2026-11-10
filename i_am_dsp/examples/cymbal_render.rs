@@ -13,7 +13,10 @@ fn main() {
 	let output = arguments
 		.next()
 		.unwrap_or_else(|| "target/wav/cymbal.wav".to_string());
-	let fm: f32 = arguments.next().and_then(|value| value.parse().ok()).unwrap_or(0.8);
+	let fm: f32 = arguments
+		.next()
+		.and_then(|value| value.parse().ok())
+		.unwrap_or(0.8);
 	let ride = arguments.next().is_some();
 
 	let mut kit = DrumInstrument::new(48_000);
@@ -21,7 +24,9 @@ fn main() {
 	let note = if ride { 51 } else { 49 };
 	let samples = kit.render(note, 1.0, 4.0);
 
-	let peak = samples.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+	let peak = samples
+		.iter()
+		.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
 	let scale = if peak > 0.0 { 0.7 / peak } else { 1.0 };
 
 	if let Some(parent) = Path::new(&output).parent() {

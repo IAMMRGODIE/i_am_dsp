@@ -252,12 +252,9 @@ impl Poly {
 			}
 
 			// A released voice is retired once it has been quiet for a while.
-			let peak = buffer
-				.iter()
-				.take(frames)
-				.fold(0.0f32, |peak, frame| {
-					peak.max(frame[0].abs()).max(frame[1].abs())
-				});
+			let peak = buffer.iter().take(frames).fold(0.0f32, |peak, frame| {
+				peak.max(frame[0].abs()).max(frame[1].abs())
+			});
 
 			if peak < 1e-4 {
 				voice.silent += 1;
@@ -275,7 +272,6 @@ impl Poly {
 		self.outer.process(input, events, out);
 	}
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -374,9 +370,13 @@ mod tests {
 		let mut graph = crate::graph::Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
 		let voice_in = graph.add_node("voice:in", (100.0, 0.0)).expect("voice in");
-		let generator = graph.add_node("gen:additive", (200.0, 0.0)).expect("generator");
+		let generator = graph
+			.add_node("gen:additive", (200.0, 0.0))
+			.expect("generator");
 		let gain = graph.add_node("gain", (300.0, 0.0)).expect("gain");
-		let voice_out = graph.add_node("voice:out", (400.0, 0.0)).expect("voice out");
+		let voice_out = graph
+			.add_node("voice:out", (400.0, 0.0))
+			.expect("voice out");
 		let out = graph.add_node("out:audio", (500.0, 0.0)).expect("out");
 		graph.connect((midi, 0), (voice_in, 0));
 		graph.connect((voice_in, 0), (generator, 0));
@@ -395,12 +395,13 @@ mod tests {
 
 		poly.process(&input, &[event], &mut output);
 
-		let block = poly.tap_voice_block(gain).expect("the gain inside the voice");
+		let block = poly
+			.tap_voice_block(gain)
+			.expect("the gain inside the voice");
 		let peak = block.channels[0]
 			.iter()
 			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
 
 		assert!(peak > 1e-4, "the voice node was silent: {peak}");
 	}
-
 }

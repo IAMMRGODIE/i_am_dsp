@@ -151,7 +151,6 @@ fn a_bend_moves_the_pitch() {
 	}
 }
 
-
 /// A note that starts in silence must not hand the DC blocker a step. The
 /// string's static force used to be heard as a thump at the start of the note,
 /// and the blocker's own step response made it longer than the note's attack.

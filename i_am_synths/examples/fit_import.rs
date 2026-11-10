@@ -11,7 +11,9 @@ use i_am_dsp::prelude::DrumPreset;
 
 fn main() {
 	let mut arguments = std::env::args().skip(1);
-	let input = arguments.next().unwrap_or_else(|| "preset.json".to_string());
+	let input = arguments
+		.next()
+		.unwrap_or_else(|| "preset.json".to_string());
 	let output = arguments
 		.next()
 		.unwrap_or_else(|| "target/wav/fitted.wav".to_string());
@@ -21,7 +23,11 @@ fn main() {
 
 	println!(
 		"{}: {} partials, {} noise bands, {} s",
-		if preset.name.is_empty() { "preset" } else { &preset.name },
+		if preset.name.is_empty() {
+			"preset"
+		} else {
+			&preset.name
+		},
 		preset.partials.len(),
 		preset.noise.len(),
 		preset.decay
@@ -32,7 +38,9 @@ fn main() {
 	// The crash is the drum the fitted bank replaces.
 	let samples = kit.render(49, 1.0, 3.0);
 
-	let peak = samples.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+	let peak = samples
+		.iter()
+		.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
 	let scale = if peak > 0.0 { 0.7 / peak } else { 1.0 };
 
 	if let Some(parent) = Path::new(&output).parent() {

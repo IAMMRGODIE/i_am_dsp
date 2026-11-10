@@ -47,8 +47,7 @@ impl AudioBlock {
 		self.frames = frames;
 
 		for channel in 0..2 {
-			self.channels[channel][..frames]
-				.copy_from_slice(&other.channels[channel][..frames]);
+			self.channels[channel][..frames].copy_from_slice(&other.channels[channel][..frames]);
 		}
 	}
 

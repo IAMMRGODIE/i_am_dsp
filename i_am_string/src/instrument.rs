@@ -445,7 +445,6 @@ fn geom(a: f32, b: f32, t: f32) -> f32 {
 	a * (b / a).powf(t.clamp(0.0, 1.0))
 }
 
-
 /// Turn two decay time anchors - the fundamental and its tenth partial - into
 /// the `sigma0 + sigma1 f^2` law that the string loss expects.
 /// How much normal force a string of this impedance takes before the rosin

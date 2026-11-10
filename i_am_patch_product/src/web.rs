@@ -45,7 +45,10 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 			let mut scopes = Vec::new();
 
 			for node in &graph.nodes {
-				if !matches!(node.kind.id, "lfo" | "envelope" | "random" | "table" | "pitch" | "midi") {
+				if !matches!(
+					node.kind.id,
+					"lfo" | "envelope" | "random" | "table" | "pitch" | "midi"
+				) {
 					continue;
 				}
 
@@ -218,16 +221,16 @@ pub fn catalog_json() -> String {
 			};
 
 			// A source with a Sync switch trades its free rate for beats.
-	switches = match kind.id {
-		"lfo" | "random" | "table" => vec![json!({
-			"control": "sync",
-			"on": ["beats"],
-			"off": ["rate"],
-		})],
-		_ => switches,
-	};
+			switches = match kind.id {
+				"lfo" | "random" | "table" => vec![json!({
+					"control": "sync",
+					"on": ["beats"],
+					"off": ["rate"],
+				})],
+				_ => switches,
+			};
 
-	// The control sources keep the rack's colours.
+			// The control sources keep the rack's colours.
 			accent = match kind.id {
 				"lfo" => "#4c8dff",
 				"envelope" => "#35c77a",
@@ -333,8 +336,14 @@ fn op(shared: &PatcherShared, body: &str) -> Value {
 			json!({ "ok": true })
 		}
 		"connect" => {
-			let from = (id(&value["from"][0]), value["from"][1].as_u64().unwrap_or(0) as usize);
-			let to = (id(&value["to"][0]), value["to"][1].as_u64().unwrap_or(0) as usize);
+			let from = (
+				id(&value["from"][0]),
+				value["from"][1].as_u64().unwrap_or(0) as usize,
+			);
+			let to = (
+				id(&value["to"][0]),
+				value["to"][1].as_u64().unwrap_or(0) as usize,
+			);
 			let mut replaced = 0;
 
 			// A port takes one wire from the page: an older one into the same
@@ -424,7 +433,10 @@ fn op(shared: &PatcherShared, body: &str) -> Value {
 			json!({ "ok": done })
 		}
 		"modulate" => {
-			let from = (id(&value["from"][0]), value["from"][1].as_u64().unwrap_or(0) as usize);
+			let from = (
+				id(&value["from"][0]),
+				value["from"][1].as_u64().unwrap_or(0) as usize,
+			);
 			let target = id(&value["to"][0]);
 			let key = value["to"][1].as_str().unwrap_or("");
 			let depth = value["depth"].as_f64().unwrap_or(0.0) as f32;

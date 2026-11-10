@@ -18,7 +18,10 @@ fn main() {
 	let output = arguments
 		.next()
 		.unwrap_or_else(|| "target/wav/patch.wav".to_string());
-	let seconds: f32 = arguments.next().and_then(|value| value.parse().ok()).unwrap_or(1.2);
+	let seconds: f32 = arguments
+		.next()
+		.and_then(|value| value.parse().ok())
+		.unwrap_or(1.2);
 	const RATE: usize = 48_000;
 
 	let text = std::fs::read_to_string(&input).expect("read the patch");

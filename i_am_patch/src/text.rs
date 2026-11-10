@@ -72,9 +72,9 @@ pub fn to_text(graph: &Graph) -> String {
 		let _ = writeln!(
 			out,
 			"mod {}.{} -> {}.{} depth={}{}",
-			link.source.0 .0,
+			link.source.0.0,
 			from.kind.outputs[link.source.1].name,
-			link.target.0 .0,
+			link.target.0.0,
 			link.target.1,
 			link.depth,
 			if link.mode == crate::graph::ModulationMode::Centered {
@@ -91,9 +91,9 @@ pub fn to_text(graph: &Graph) -> String {
 		let _ = writeln!(
 			out,
 			"connect {}.{} -> {}.{}",
-			edge.from.0 .0,
+			edge.from.0.0,
 			from.kind.outputs[edge.from.1].name,
-			edge.to.0 .0,
+			edge.to.0.0,
 			to.kind.inputs[edge.to.1].name
 		);
 	}
@@ -119,7 +119,9 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 		match statement {
 			"node" => {
 				let id = parse_id(words.next(), line)?;
-				let kind = words.next().ok_or_else(|| error(line, "node needs a kind"))?;
+				let kind = words
+					.next()
+					.ok_or_else(|| error(line, "node needs a kind"))?;
 				let desc = node(kind).ok_or_else(|| error(line, format!("unknown kind {kind}")))?;
 				let x = parse_f32(words.next(), line)?;
 				let y = parse_f32(words.next(), line)?;
@@ -151,14 +153,20 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 				});
 			}
 			"connect" => {
-				let from = words.next().ok_or_else(|| error(line, "connect needs a source"))?;
-				let arrow = words.next().ok_or_else(|| error(line, "connect needs ->"))?;
+				let from = words
+					.next()
+					.ok_or_else(|| error(line, "connect needs a source"))?;
+				let arrow = words
+					.next()
+					.ok_or_else(|| error(line, "connect needs ->"))?;
 
 				if arrow != "->" {
 					return Err(error(line, "connect needs -> between the ports"));
 				}
 
-				let to = words.next().ok_or_else(|| error(line, "connect needs a target"))?;
+				let to = words
+					.next()
+					.ok_or_else(|| error(line, "connect needs a target"))?;
 				let (from_node, from_port) = resolve(&graph, from, line, true)?;
 				let (to_node, to_port) = resolve(&graph, to, line, false)?;
 
@@ -168,15 +176,21 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 				});
 			}
 			"mod" => {
-				let from = words.next().ok_or_else(|| error(line, "mod needs a source"))?;
+				let from = words
+					.next()
+					.ok_or_else(|| error(line, "mod needs a source"))?;
 				let arrow = words.next().ok_or_else(|| error(line, "mod needs ->"))?;
 
 				if arrow != "->" {
 					return Err(error(line, "mod needs -> between the ports"));
 				}
 
-				let to = words.next().ok_or_else(|| error(line, "mod needs a target"))?;
-				let depth = words.next().ok_or_else(|| error(line, "mod needs depth="))?;
+				let to = words
+					.next()
+					.ok_or_else(|| error(line, "mod needs a target"))?;
+				let depth = words
+					.next()
+					.ok_or_else(|| error(line, "mod needs depth="))?;
 				let depth = depth
 					.strip_prefix("depth=")
 					.ok_or_else(|| error(line, "mod needs depth="))?;
@@ -219,7 +233,9 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 			}
 			"set" => {
 				let id = parse_id(words.next(), line)?;
-				let pair = words.next().ok_or_else(|| error(line, "set needs key=value"))?;
+				let pair = words
+					.next()
+					.ok_or_else(|| error(line, "set needs key=value"))?;
 				let (key, value) = pair
 					.split_once('=')
 					.ok_or_else(|| error(line, format!("expected key=value, found {pair}")))?;
@@ -360,7 +376,10 @@ mod tests {
 		assert_eq!(back.modulations.len(), 1);
 		assert_eq!(back.modulations[0].target.1, "gain");
 		assert!((back.modulations[0].depth - 0.4).abs() < 1e-6);
-		assert_eq!(back.modulations[0].mode, crate::graph::ModulationMode::Centered);
+		assert_eq!(
+			back.modulations[0].mode,
+			crate::graph::ModulationMode::Centered
+		);
 	}
 
 	#[test]
@@ -370,8 +389,16 @@ mod tests {
 		graph.set_points(
 			lfo,
 			vec![
-				crate::graph::Point { time: 0.0, value: 0.5, bend: 0.0 },
-				crate::graph::Point { time: 1.0, value: 1.0, bend: 0.2 },
+				crate::graph::Point {
+					time: 0.0,
+					value: 0.5,
+					bend: 0.0,
+				},
+				crate::graph::Point {
+					time: 1.0,
+					value: 1.0,
+					bend: 0.2,
+				},
 			],
 		);
 
@@ -389,7 +416,8 @@ mod tests {
 		assert_eq!(error.line, 1);
 		assert!(error.message.contains("unknown kind"));
 
-		let error = from_text("node 0 gain 0 0\nconnect 0.audio -> 1.audio").expect_err("no node 1");
+		let error =
+			from_text("node 0 gain 0 0\nconnect 0.audio -> 1.audio").expect_err("no node 1");
 		assert_eq!(error.line, 2);
 	}
 

@@ -210,7 +210,12 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
-		params: &[("rate", 4.0), ("smooth", 20.0), ("sync", 0.0), ("beats", 1.0)],
+		params: &[
+			("rate", 4.0),
+			("smooth", 20.0),
+			("sync", 0.0),
+			("beats", 1.0),
+		],
 	},
 	NodeDesc {
 		id: "table",
@@ -218,7 +223,13 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[],
 		outputs: &[port("control", SignalKind::Control)],
 		latency: 0,
-		params: &[("rate", 1.0), ("shape", 0.0), ("morph", 0.0), ("sync", 0.0), ("beats", 1.0)],
+		params: &[
+			("rate", 1.0),
+			("shape", 0.0),
+			("morph", 0.0),
+			("sync", 0.0),
+			("beats", 1.0),
+		],
 	},
 	NodeDesc {
 		id: "pitch",
@@ -581,10 +592,10 @@ impl Graph {
 	/// Removes a node and every edge that touched it.
 	pub fn remove_node(&mut self, id: NodeId) {
 		self.nodes.retain(|node| node.id != id);
-		self.edges.retain(|edge| edge.from.0 != id && edge.to.0 != id);
+		self.edges
+			.retain(|edge| edge.from.0 != id && edge.to.0 != id);
 	}
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -593,7 +604,10 @@ mod tests {
 	#[test]
 	fn the_catalog_includes_the_product_modules() {
 		let compressor = node("mod:compressor").expect("the compressor is a kind");
-		assert!(!compressor.params.is_empty(), "no parameters from the schema");
+		assert!(
+			!compressor.params.is_empty(),
+			"no parameters from the schema"
+		);
 		assert_eq!(compressor.inputs.len(), 1);
 		assert!(node("mod:distortion").is_some());
 		assert!(node("filter").is_some(), "the built-ins are still there");

@@ -104,7 +104,6 @@ impl Default for SourceSettings {
 	}
 }
 
-
 /// What a modulation source does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -138,7 +137,6 @@ impl SourceKind {
 	}
 }
 
-
 /// One modulation-source slot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceSlot {
@@ -164,7 +162,6 @@ impl SourceSlot {
 	}
 }
 
-
 /// The four sources a fresh rack starts with.
 pub fn default_source_slots() -> Vec<SourceSlot> {
 	vec![
@@ -174,7 +171,6 @@ pub fn default_source_slots() -> Vec<SourceSlot> {
 		SourceSlot::new(3, SourceKind::Table),
 	]
 }
-
 
 fn default_midi_curve() -> Vec<(f32, f32)> {
 	vec![(0.0, 0.0), (1.0, 1.0)]
@@ -198,4 +194,3 @@ pub fn lfo_preset(shape: i32) -> Vec<(f32, f32, f32)> {
 		.map(|(time, value)| (*time, *value, 0.0))
 		.collect()
 }
-

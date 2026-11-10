@@ -78,7 +78,10 @@ impl PatcherShared {
 		}
 
 		let scope = Arc::new(Scope::new());
-		taps.push(Tap { node, scope: scope.clone() });
+		taps.push(Tap {
+			node,
+			scope: scope.clone(),
+		});
 		scope
 	}
 
@@ -128,11 +131,15 @@ impl PatcherShared {
 pub fn demo() -> Graph {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 120.0)).expect("midi");
-	let voice_in = graph.add_node("voice:in", (340.0, 120.0)).expect("voice in");
+	let voice_in = graph
+		.add_node("voice:in", (340.0, 120.0))
+		.expect("voice in");
 	let generator = graph.add_node("gen:additive", (680.0, 120.0)).expect("gen");
 	let filter = graph.add_node("filter", (1020.0, 120.0)).expect("filter");
 	let lfo = graph.add_node("lfo", (1020.0, 580.0)).expect("lfo");
-	let voice_out = graph.add_node("voice:out", (1620.0, 120.0)).expect("voice out");
+	let voice_out = graph
+		.add_node("voice:out", (1620.0, 120.0))
+		.expect("voice out");
 	let out = graph.add_node("out:audio", (1960.0, 120.0)).expect("out");
 	graph.connect((midi, 0), (voice_in, 0));
 	graph.connect((voice_in, 0), (generator, 0));
@@ -252,9 +259,9 @@ impl Body {
 							.or_else(|| poly.tap_voice_block(id))
 					})
 					.or_else(|| {
-						self.engine
-							.as_ref()
-							.and_then(|engine| engine.step_of(id).and_then(|step| engine.tap_block(step)))
+						self.engine.as_ref().and_then(|engine| {
+							engine.step_of(id).and_then(|step| engine.tap_block(step))
+						})
 					});
 
 				if let Some(block) = block {
@@ -266,9 +273,11 @@ impl Body {
 					.as_ref()
 					.and_then(|poly| poly.control_phase(id))
 					.or_else(|| {
-						self.engine
-							.as_ref()
-							.and_then(|engine| engine.step_of(id).and_then(|step| engine.control_phase(step)))
+						self.engine.as_ref().and_then(|engine| {
+							engine
+								.step_of(id)
+								.and_then(|step| engine.control_phase(step))
+						})
 					});
 
 				if let Some(phase) = phase {

@@ -94,7 +94,6 @@ impl Biquad {
 /// One measured-ish resonance: frequency, sharpness, and how strongly it radiates.
 type Mode = (f32, f32, f32);
 
-
 /// A violin belly: the air mode, the two main wood resonances, the wood forest
 /// and the bridge hill.
 const VIOLIN: &[Mode] = &[

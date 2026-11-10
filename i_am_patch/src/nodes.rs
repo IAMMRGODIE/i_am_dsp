@@ -359,7 +359,8 @@ impl BlockNode for Filter {
 				}
 
 				if let Some((from, to)) = self.q {
-					self.effect.set_parameter("q", (from + (to - from) * t).into());
+					self.effect
+						.set_parameter("q", (from + (to - from) * t).into());
 				}
 
 				for frame in start..(start + step).min(frames) {
@@ -430,8 +431,8 @@ impl BlockNode for Mixer {
 
 			for channel in 0..2 {
 				for frame in 0..context.frames {
-					out.channels[channel][frame] = a.channels[channel][frame] * self.a
-						+ b.channels[channel][frame] * self.b;
+					out.channels[channel][frame] =
+						a.channels[channel][frame] * self.a + b.channels[channel][frame] * self.b;
 				}
 			}
 		}
@@ -816,9 +817,9 @@ impl BlockNode for MidiNode {
 					self.note = *note as f32;
 					self.velocity = velocity.clamp(0.0, 1.0);
 				}
-				NoteEvent::NoteOff { .. }
-				| NoteEvent::Stop { .. }
-				| NoteEvent::ImmediateStop => self.velocity = 0.0,
+				NoteEvent::NoteOff { .. } | NoteEvent::Stop { .. } | NoteEvent::ImmediateStop => {
+					self.velocity = 0.0
+				}
 				_ => {}
 			}
 		}

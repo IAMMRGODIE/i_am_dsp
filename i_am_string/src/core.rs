@@ -78,21 +78,21 @@ impl StringCore {
 			}
 			Core::Modal => {
 				let string = ModalString::new(
-				sample_rate,
-				ModalConfig {
-					frequency: config.frequency,
-					inharmonicity: config.inharmonicity,
-					sigma0: config.sigma0,
-					sigma1: config.sigma1,
-					// The tension and the impedance are what turn the abstract
-					// string into one with a length and a mass, which is what the
-					// modal model needs and the waveguide does not: a waveguide
-					// only ever sees the round trip time.
-					tension: config.tension,
-					impedance: config.impedance,
-					bridge: config.bridge,
-					voicing: config.voicing,
-				},
+					sample_rate,
+					ModalConfig {
+						frequency: config.frequency,
+						inharmonicity: config.inharmonicity,
+						sigma0: config.sigma0,
+						sigma1: config.sigma1,
+						// The tension and the impedance are what turn the abstract
+						// string into one with a length and a mass, which is what the
+						// modal model needs and the waveguide does not: a waveguide
+						// only ever sees the round trip time.
+						tension: config.tension,
+						impedance: config.impedance,
+						bridge: config.bridge,
+						voicing: config.voicing,
+					},
 				);
 				StringCore::Modal(Box::new(string))
 			}
@@ -178,7 +178,6 @@ impl StringCore {
 			StringCore::Modal(string) => string.pluck_with_release(position, amplitude, seconds),
 		}
 	}
-
 
 	/// Start a calibrated bank from its own levels, skipping the contact.
 	pub fn launch(&mut self, amplitude: f32) {

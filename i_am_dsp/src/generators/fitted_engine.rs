@@ -239,7 +239,8 @@ impl Generator<2> for FittedInstrument {
 			left += (mono + (ear_left - mono) * width) * level;
 			right += (mono + (ear_right - mono) * width) * level;
 		}
-		self.playing.retain(|voice| !voice.releasing || voice.fade > 0.0);
+		self.playing
+			.retain(|voice| !voice.releasing || voice.fade > 0.0);
 		[left, right]
 	}
 }

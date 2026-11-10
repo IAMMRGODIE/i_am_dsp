@@ -90,12 +90,12 @@ impl std::fmt::Display for CompileError {
 			Self::CrossScope { from, to } => write!(
 				formatter,
 				"the control from {}.{} crosses a voice boundary to node {}",
-				from.0 .0, from.1, to.0
+				from.0.0, from.1, to.0
 			),
 			Self::NotControl { from } => write!(
 				formatter,
 				"port {}.{} is not a control output",
-				from.0 .0, from.1
+				from.0.0, from.1
 			),
 			Self::UnknownParam { node, param } => {
 				write!(formatter, "node {} has no parameter {param}", node.0)
@@ -203,7 +203,12 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 			.get(&link.target.0)
 			.ok_or(CompileError::UnknownNode(link.target.0))?;
 
-		if !to.kind.params.iter().any(|(name, _)| *name == link.target.1) {
+		if !to
+			.kind
+			.params
+			.iter()
+			.any(|(name, _)| *name == link.target.1)
+		{
 			return Err(CompileError::UnknownParam {
 				node: link.target.0,
 				param: link.target.1,
@@ -283,10 +288,7 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 
 		for (index, edge) in graph.edges.iter().enumerate() {
 			if edge.to.0 == *id {
-				let source = latency
-					.get(&edge.from.0)
-					.copied()
-					.expect("an earlier node");
+				let source = latency.get(&edge.from.0).copied().expect("an earlier node");
 				delays[index] = target - source;
 			}
 		}
@@ -309,18 +311,10 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 /// input and reaching the voice output belong to it; the boundaries themselves
 /// do not.
 pub fn voice_group(graph: &Graph) -> BTreeSet<NodeId> {
-	let Some(input) = graph
-		.nodes
-		.iter()
-		.find(|node| node.kind.id == "voice:in")
-	else {
+	let Some(input) = graph.nodes.iter().find(|node| node.kind.id == "voice:in") else {
 		return BTreeSet::new();
 	};
-	let Some(output) = graph
-		.nodes
-		.iter()
-		.find(|node| node.kind.id == "voice:out")
-	else {
+	let Some(output) = graph.nodes.iter().find(|node| node.kind.id == "voice:out") else {
 		return BTreeSet::new();
 	};
 
@@ -509,7 +503,9 @@ mod tests {
 		let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
 		let generator = graph.add_node("gen:additive", (100.0, 0.0)).expect("gen");
 		let filter = graph.add_node("filter", (200.0, 0.0)).expect("filter");
-		let voice_out = graph.add_node("voice:out", (300.0, 0.0)).expect("voice out");
+		let voice_out = graph
+			.add_node("voice:out", (300.0, 0.0))
+			.expect("voice out");
 		let out = graph.add_node("out:audio", (400.0, 0.0)).expect("out");
 		let gain = graph.add_node("gain", (400.0, 100.0)).expect("gain");
 		let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
@@ -574,5 +570,3 @@ mod tests {
 		assert_eq!(compile(&graph), Err(CompileError::DuplicateId(gain)));
 	}
 }
-
-

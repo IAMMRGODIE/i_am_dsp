@@ -6,15 +6,15 @@
 
 pub mod block;
 pub mod compile;
+pub mod crossover;
 pub mod engine;
+pub mod graph;
+pub mod modulation;
 pub mod nodes;
 pub mod poly;
 pub mod scope;
-pub mod synths;
-pub mod crossover;
-pub mod graph;
-pub mod modulation;
 pub mod sources;
+pub mod synths;
 pub mod text;
 
 #[cfg(test)]

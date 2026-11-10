@@ -7,7 +7,9 @@ use std::path::Path;
 use i_am_string::fitted;
 
 fn main() {
-	let directory = std::env::args().nth(1).unwrap_or_else(|| "target/wav/fitted".to_string());
+	let directory = std::env::args()
+		.nth(1)
+		.unwrap_or_else(|| "target/wav/fitted".to_string());
 	std::fs::create_dir_all(&directory).expect("create the output directory");
 	let rate = 48_000.0;
 	for note in [38u8, 50, 62, 74, 86] {

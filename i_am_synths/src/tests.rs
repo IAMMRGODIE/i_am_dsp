@@ -839,7 +839,6 @@ fn the_pitch_curve_survives_the_state() {
 	}
 }
 
-
 #[test]
 fn the_drummer_kit_choice_writes_the_knobs() {
 	let mut plugin = DrummerWeb::new();
@@ -861,7 +860,6 @@ fn the_drummer_kit_choice_writes_the_knobs() {
 		"the 808 kit did not write the tune: {applied:?}"
 	);
 }
-
 
 #[test]
 fn the_drummer_plays_in_stereo() {
@@ -887,8 +885,5 @@ fn the_drummer_plays_in_stereo() {
 		spread += (frame[0] - frame[1]).abs();
 	}
 
-	assert!(
-		spread > 0.01,
-		"the host only saw the mono sum: {spread}"
-	);
+	assert!(spread > 0.01, "the host only saw the mono sum: {spread}");
 }

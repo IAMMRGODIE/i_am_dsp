@@ -30,7 +30,8 @@ fn main() {
 		for velocity in [0.5f32, 1.0] {
 			let mut kit = DrumInstrument::new(48_000);
 			let samples = kit.render(note, velocity, seconds);
-			let path = Path::new(&directory).join(format!("{name}-{}0.wav", (velocity * 10.0) as u8));
+			let path =
+				Path::new(&directory).join(format!("{name}-{}0.wav", (velocity * 10.0) as u8));
 			write_wav(&path, &samples, 48_000).expect("write the wav");
 			println!("{}", path.display());
 		}
@@ -38,7 +39,9 @@ fn main() {
 }
 
 fn write_wav(path: &Path, samples: &[f32], rate: u32) -> std::io::Result<()> {
-	let peak = samples.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+	let peak = samples
+		.iter()
+		.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
 	let scale = if peak > 0.0 { 0.7 / peak } else { 1.0 };
 	let mut writer = BufWriter::new(File::create(path)?);
 	let data_len = (samples.len() * 4) as u32;

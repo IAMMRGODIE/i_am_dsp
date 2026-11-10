@@ -1,10 +1,10 @@
 //! The two products: one effect, one generator, the same graph engine.
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
-use i_am_dsp::prelude::{Parameter, ParamMap, Processor, SetValue};
 use i_am_dsp::ProcessContext;
+use i_am_dsp::prelude::{ParamMap, Parameter, Processor, SetValue};
 use i_am_plugin::processor::EffectMessage;
 use i_am_plugin::{
 	AspectRatioStrategy, AudioPort, Descriptor, Editor, GuiResizeHints, MidiPort, Plugin, Tag,
@@ -192,7 +192,6 @@ product!(
 	&[],
 	true
 );
-
 
 #[cfg(test)]
 mod tests {

@@ -764,7 +764,8 @@ impl StringEngine {
 		// coupling is one way on purpose: nothing is fed back into the voices,
 		// so this can only add a tail, never instability.
 		let sympathetic_amount = self.params.sympathetic;
-		let sympathetic = self.sympathetic.process((raw_left + raw_right) * 0.5) * sympathetic_amount;
+		let sympathetic =
+			self.sympathetic.process((raw_left + raw_right) * 0.5) * sympathetic_amount;
 
 		// The undamped strings are all over the instrument, so they are given
 		// width rather than a position.
@@ -788,8 +789,7 @@ impl StringEngine {
 				self.dc[channel] = [source, 0.0];
 			}
 
-			let blocked =
-				source - self.dc[channel][0] + self.dc_coefficient * self.dc[channel][1];
+			let blocked = source - self.dc[channel][0] + self.dc_coefficient * self.dc[channel][1];
 			self.dc[channel][0] = source;
 			self.dc[channel][1] = blocked;
 

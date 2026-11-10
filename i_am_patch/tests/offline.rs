@@ -111,8 +111,16 @@ fn two_edges_into_one_input_sum() {
 
 #[test]
 fn a_lower_gain_is_quieter() {
-	let loud = peak(&render(&chain("gain", &[("gain", 1.0)]), 8, &[(0, note(60))]));
-	let quiet = peak(&render(&chain("gain", &[("gain", 0.25)]), 8, &[(0, note(60))]));
+	let loud = peak(&render(
+		&chain("gain", &[("gain", 1.0)]),
+		8,
+		&[(0, note(60))],
+	));
+	let quiet = peak(&render(
+		&chain("gain", &[("gain", 0.25)]),
+		8,
+		&[(0, note(60))],
+	));
 
 	assert!(quiet < loud * 0.6, "{quiet} vs {loud}");
 }

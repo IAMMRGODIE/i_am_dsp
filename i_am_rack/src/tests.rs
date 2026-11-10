@@ -95,7 +95,6 @@ fn process_with(rack: &mut Rack, frame: [f32; 2], events: Vec<NoteEvent>) -> [f3
 	frame
 }
 
-
 fn process_engine(engine: &mut crate::engine::Engine, frame: [f32; 2]) -> [f32; 2] {
 	let mut frame = frame;
 	let mut context: Box<dyn ProcessContext> = Box::new(());
