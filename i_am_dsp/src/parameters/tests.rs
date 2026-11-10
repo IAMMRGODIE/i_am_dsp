@@ -2,6 +2,7 @@ use super::*;
 use crate::parameters::traits::hash_identifier;
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use i_am_dsp_derive::Parameters;
 
@@ -379,4 +380,19 @@ fn a_pin_that_lands_on_a_position_moves_that_position() {
 		"the position has to move, not alias"
 	);
 	assert_eq!(param_map.query_param_index_by_stable_id(0), Some(1));
+}
+
+/// A host writes the map and clears the changed flag: the flag reports the
+/// interface to the host, so it must not be what tells the effect to read.
+#[test]
+fn a_value_the_host_wrote_reaches_the_effect() {
+	let mut paramed = Paramed::new(MyParameters::default());
+	let map = paramed.param_map();
+
+	map["a"].store(0.75_f32, Ordering::SeqCst);
+	map["a"].set_changed(false, Ordering::SeqCst);
+
+	paramed.sync_params();
+
+	assert_eq!(paramed.value.a, 0.75);
 }

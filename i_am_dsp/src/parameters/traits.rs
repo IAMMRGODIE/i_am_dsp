@@ -355,7 +355,9 @@ pub struct Paramed<T: Parameters> {
 	params: ParamMap,
 	/// How the host-facing ids of the parameters are assigned.
 	scheme: StableIdScheme,
-	// sync_set_cached: HashSet<usize>,
+	/// The value last handed to the effect, so a host write is noticed even
+	/// when it does not raise the changed flag.
+	applied: Vec<Option<SetValue>>,
 }
 
 impl<T: Parameters> Parameters for Paramed<T> {
@@ -437,6 +439,7 @@ impl<T: Parameters> Paramed<T> {
 			value: to_parameterize,
 			params: ParamMap::new(),
 			scheme,
+			applied: Vec::new(),
 		};
 		empty_self.update_map();
 		empty_self
@@ -456,6 +459,7 @@ impl<T: Parameters> Paramed<T> {
 			value: to_parameterize,
 			params: ParamMap::new(),
 			scheme: StableIdScheme::default(),
+			applied: Vec::new(),
 		};
 		empty_self.update_map_with_additional(additional_params);
 		empty_self
@@ -464,17 +468,26 @@ impl<T: Parameters> Paramed<T> {
 	/// Synchronize the parameters with the host.
 	pub fn sync_params(&mut self) {
 		// A host calls this once a block, but an effect that processes sample by
-		// sample calls it every sample: without this check a full parameter walk
-		// would run at the sample rate even when nothing moved.
-		if !self.params.values.iter().any(|value| value.is_chanegd()) {
-			return;
+		// sample calls it every sample: only the values that moved may run through
+		// `set_parameter`. The changed flag cannot be the test: it reports the
+		// interface to the host, and a value the host itself wrote leaves it clear,
+		// so the effect remembers what it applied last instead.
+		if self.applied.len() != self.params.values.len() {
+			self.applied = vec![None; self.params.values.len()];
 		}
 
 		for (id, param) in self.params.values.iter().enumerate() {
-			if let Some(identifier) = self.params.query_param_id(id) {
-				self.value
-					.set_parameter(identifier, param.load(Ordering::SeqCst));
+			let value = param.load(Ordering::SeqCst);
+
+			if self.applied[id].as_ref() == Some(&value) {
+				continue;
 			}
+
+			if let Some(identifier) = self.params.query_param_id(id) {
+				self.value.set_parameter(identifier, value.clone());
+			}
+
+			self.applied[id] = Some(value);
 		}
 
 		for value in self.params.values.iter() {
@@ -505,6 +518,7 @@ impl<T: Parameters> Paramed<T> {
 
 		let overrides = self.value.stable_id_overrides();
 		self.params = ParamMap::build(entries, self.scheme, &overrides);
+		self.applied.clear();
 	}
 
 	/// Update the parameter map and add additional parameters.
@@ -539,6 +553,7 @@ impl<T: Parameters> Paramed<T> {
 
 		let overrides = self.value.stable_id_overrides();
 		self.params = ParamMap::build(entries, self.scheme, &overrides);
+		self.applied.clear();
 	}
 }
 

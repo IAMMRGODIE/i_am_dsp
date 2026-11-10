@@ -148,8 +148,10 @@ Paramed { value: T, params: ParamMap }            ← 「DSP 对象 + 它的参�
 ```
 
 - `Paramed<T>` 实现 `Effect`/`Generator`/`Processor`，在每次 `process`/`generate` 开头调用
-  `sync_params()`：把表里每个原子值 `SeqCst` 读出来，写回 T。**没有**变化队列、没有脏标记传播——
-  O(参数数) 每块，换来的是实现简单和永远一致。
+  `sync_params()`：把表里每个原子值 `SeqCst` 读出来，和上次写回 T 的值比较，变了才调
+  `set_parameter`。**不能**用 `changed` 标志当判据：它是「界面向宿主上报」的标志，宿主写进来的值
+  会把它清掉（`handle_param_value_event`），拿它做门就会断掉宿主→插件的同步。O(参数数) 每块，
+  换来的是实现简单和永远一致。
 - 标识符是唯一真相：字段名（或元组位置）→ 可选 `#[id(prefix/name)]` → 嵌套用点号
   （`sub.a`）。`set_parameter_by_index` 只是按表位置转发，宏内部从不依赖位置。
 - `Value` 有五种：`Float` / `Int` / `Bool` / `Serialized(Vec<u8>)` / `Nothing`。
