@@ -5,6 +5,7 @@
 //! page or a host yet; those live in the products.
 
 pub mod block;
+pub mod catalog;
 pub mod compile;
 pub mod crossover;
 pub mod engine;
