@@ -18,7 +18,7 @@ cargo test                     # 全 workspace，约 700 个测试
 cargo test -p i_am_dsp parameters_derive          # 单 crate / 单个测试
 cargo clippy --all-targets     # 仓库要求零警告，交付前必须清
 cargo fmt                      # rustfmt.toml 配置了 hard_tabs
-cargo bundle -p i_am_effects_bundle --features vst3   # i_am_bundler 的别名
+cargo bundle -p i_am_effects_bundle --features vst3   # 打包，见「打包」一节
 cargo run -p i_am_effects --example dump_face -- target/web-preview gain
 cargo run -p i_am_dsp --features standalone           # egui + cpal 实时 demo
 ```
@@ -26,6 +26,30 @@ cargo run -p i_am_dsp --features standalone           # egui + cpal 实时 demo
 - `Cargo.lock` 被 gitignore（唯一例外是 `i_am_plugin/tests/set_library/Cargo.lock`）。
 - `tools/` 下的 Python 脚本是校准/分析工具，不参与构建。
 - 没有 CI；「跑过测试 + clippy 干净」就是本仓库的验证标准。
+
+## 打包
+
+产品最终由 `i_am_bundler` 打包，`cargo bundle` 是它的别名（`.cargo/config.toml`）：
+
+```bash
+cargo bundle -p i_am_effects_bundle --features vst3   # .clap + .vst3
+cargo bundle -p i_am_synths_bundle  --features vst3
+cargo bundle -p i_am_patch_bundle   --features vst3
+cargo bundle -p i_am_rack           --features vst3   # I Am Multipass
+cargo bundle -p i_am_effects_bundle --no-vst3         # 只要 .clap
+```
+
+- 名字 / 厂商 / id 来自插件 crate 的 `[package.metadata.i_am_dsp]`（`name`、`vendor`、`id`），
+  命令行 `--name` / `--vendor` / `--version` / `--id` 可覆盖。
+- 默认先 `cargo build --release` 再打包；`--no-build` 用已有产物，`--debug` 换 debug profile。
+- 产物默认写在库旁边（`target/release/`）：`<name>.clap`（Windows/Linux 单文件，macOS 是 bundle）
+  与 `<name>.vst3`（目录；Windows 上 `--single-file` 写单文件）。`--out-dir` 可改位置。
+- VST3 需要 `vst3` feature（会传给 `cargo build`，链接 `clap-wrapper`）。库没有导出
+  `GetPluginFactory` 时 bundler 拒绝写 `.vst3`（`--force` 可跳过）；`--no-vst3` 只出 CLAP。
+- `--install` / `--install-system` 打包后复制到用户 / 系统插件目录。
+- 打包的 crate 必须 `crate-type = ["cdylib"]` 且只有一个 `clap_entry`：产品实现放普通 crate，
+  入口放 `*_bundle`（`i_am_rack` 是例外，它自己就是产品并自带 `export_plugin!(Rack)`）。
+- 参数不确定时看 `cargo bundle --help`。
 
 ## 代码地图
 
