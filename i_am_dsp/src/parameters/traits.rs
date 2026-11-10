@@ -489,10 +489,6 @@ impl<T: Parameters> Paramed<T> {
 
 			self.applied[id] = Some(value);
 		}
-
-		for value in self.params.values.iter() {
-			value.set_changed(false, Ordering::SeqCst);
-		}
 	}
 
 	/// Get the parameter map.

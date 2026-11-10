@@ -396,3 +396,17 @@ fn a_value_the_host_wrote_reaches_the_effect() {
 
 	assert_eq!(paramed.value.a, 0.75);
 }
+
+/// The interface moves a value, the effect reads it, and the flag stays up for
+/// the block's report to the host: the effect's sync must not eat it.
+#[test]
+fn a_value_the_interface_moved_stays_changed_for_the_host() {
+	let mut paramed = Paramed::new(MyParameters::default());
+	let map = paramed.param_map();
+
+	map["a"].store(0.5_f32, Ordering::SeqCst);
+	paramed.sync_params();
+
+	assert_eq!(paramed.value.a, 0.5);
+	assert!(map["a"].is_chanegd(), "the host report still has to see it");
+}
