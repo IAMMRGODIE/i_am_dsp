@@ -250,7 +250,28 @@ impl Poly {
 
 		for event in events {
 			match event {
+				// A note-on with no velocity is the MIDI convention for a
+				// note-off; treating it as a new note would hold a voice forever.
+				NoteEvent::NoteOn { note, velocity, .. } if *velocity <= 0.0 => {
+					if let Some(voice) = self
+						.voices
+						.iter_mut()
+						.rev()
+						.find(|voice| voice.note == *note)
+					{
+						voice.pending.push(event.clone());
+						voice.released = true;
+						voice.release_age = 0;
+					}
+				}
 				NoteEvent::NoteOn { note, .. } => {
+					// A repeated note-on retriggers its own voice: some hosts send
+					// duplicates, and every extra voice runs the whole group.
+					if let Some(position) = self.voices.iter().position(|voice| voice.note == *note)
+					{
+						self.voices.remove(position);
+					}
+
 					if self.voices.len() >= POLYPHONY {
 						// A released voice is the one to lose; otherwise the oldest.
 						let position = self
@@ -419,6 +440,44 @@ mod tests {
 		assert!(
 			poly.voices.iter().all(|voice| voice.released),
 			"a voice kept sounding after the stop"
+		);
+	}
+
+	#[test]
+	fn a_repeated_note_on_reuses_its_voice() {
+		let graph = voice_patch();
+		let mut poly = Poly::new(&graph, 48_000).expect("poly builds");
+
+		let _ = render(
+			&mut poly,
+			8,
+			&[(0, note(60)), (1, note(60)), (2, note(60)), (3, note(60))],
+		);
+
+		assert_eq!(
+			poly.voices.len(),
+			1,
+			"a repeated note-on stacked {} voices",
+			poly.voices.len()
+		);
+	}
+
+	#[test]
+	fn a_note_on_with_no_velocity_is_a_note_off() {
+		let graph = voice_patch();
+		let mut poly = Poly::new(&graph, 48_000).expect("poly builds");
+		let silent_off = |note: usize| NoteEvent::NoteOn {
+			channel: 0,
+			note,
+			velocity: 0.0,
+		};
+
+		let _ = render(&mut poly, 8, &[(0, note(60)), (2, silent_off(60))]);
+
+		assert_eq!(poly.voices.len(), 1, "the silent note-on stacked a voice");
+		assert!(
+			poly.voices.iter().all(|voice| voice.released),
+			"the silent note-on did not release the voice"
 		);
 	}
 
