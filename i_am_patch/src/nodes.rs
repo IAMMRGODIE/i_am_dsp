@@ -2,8 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use i_am_dsp::prelude::{Effect, Message, NoteEvent};
+use i_am_dsp::prelude::{Effect, Message, NoteEvent, Parameter, SetValue, Value};
 use i_am_plugin::Plugin;
+use std::sync::atomic::Ordering;
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
 use crate::modulation::SourceRuntime;
@@ -32,6 +33,39 @@ pub trait BlockNode: Send + Sync {
 	fn phase(&self) -> Option<f32> {
 		None
 	}
+}
+
+/// What kind of value a parameter takes, from its declared value.
+#[derive(Clone, Copy, PartialEq)]
+enum ParamKind {
+	Float,
+	Int,
+	Bool,
+}
+
+fn kind_of(value: &Value) -> ParamKind {
+	match value {
+		Value::Int { .. } => ParamKind::Int,
+		Value::Bool(_) => ParamKind::Bool,
+		_ => ParamKind::Float,
+	}
+}
+
+/// The value a graph stores is always a number; the DSP may want an int or a
+/// bool, and a map write of the wrong type is refused.
+fn set_value(kind: ParamKind, value: f32) -> SetValue {
+	match kind {
+		ParamKind::Int => SetValue::Int(value.round() as i32),
+		ParamKind::Bool => SetValue::Bool(value != 0.0),
+		ParamKind::Float => SetValue::Float(value),
+	}
+}
+
+fn parameter_kinds(parameters: &[Parameter]) -> BTreeMap<String, ParamKind> {
+	parameters
+		.iter()
+		.map(|parameter| (parameter.identifier.clone(), kind_of(&parameter.value)))
+		.collect()
 }
 
 /// One parameter, or the fallback when the node does not have it.
@@ -120,20 +154,26 @@ struct ProductNode {
 	effect: Box<dyn Effect<2>>,
 	/// Parameters that move across the current block: name, start, end.
 	ramps: Vec<(&'static str, f32, f32)>,
+	/// The value type each parameter declares.
+	kinds: BTreeMap<String, ParamKind>,
 }
 
 impl ProductNode {
 	fn new(effect: Box<dyn Effect<2>>) -> Self {
+		let kinds = parameter_kinds(&effect.get_parameters());
+
 		Self {
 			effect,
 			ramps: Vec::with_capacity(8),
+			kinds,
 		}
 	}
 }
 
 impl BlockNode for ProductNode {
 	fn set_param(&mut self, name: &str, value: f32) {
-		self.effect.set_parameter(name, value.into());
+		let kind = self.kinds.get(name).copied().unwrap_or(ParamKind::Float);
+		self.effect.set_parameter(name, set_value(kind, value));
 	}
 
 	fn set_param_block(&mut self, name: &'static str, start: f32, end: f32, _frames: usize) {
@@ -144,7 +184,11 @@ impl BlockNode for ProductNode {
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let input = audio(inputs, 0);
 		let sidechain = inputs.get(1).and_then(Buffer::audio).copied();
-		let Self { effect, ramps } = self;
+		let Self {
+			effect,
+			ramps,
+			kinds,
+		} = self;
 
 		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
 			out.clear();
@@ -155,7 +199,13 @@ impl BlockNode for ProductNode {
 				let unit = frame as f32 / frames;
 
 				for &(name, start, end) in ramps.iter() {
-					effect.set_parameter(name, (start + (end - start) * unit).into());
+					let kind = kinds.get(name).copied().unwrap_or(ParamKind::Float);
+					let value = match kind {
+						ParamKind::Float => start + (end - start) * unit,
+						_ => end,
+					};
+
+					effect.set_parameter(name, set_value(kind, value));
 				}
 
 				let mut samples = [input.channels[0][frame], input.channels[1][frame]];
@@ -489,23 +539,28 @@ impl BlockNode for SourceNode {
 /// node's first port.
 struct SynthNode<P: Default + Plugin> {
 	inner: P,
+	/// The value type each parameter declares.
+	kinds: BTreeMap<String, ParamKind>,
 }
 
 impl<P: Default + Plugin> SynthNode<P> {
 	fn new(rate: usize) -> Self {
 		let mut inner = P::default();
 		inner.on_activate(rate);
+		let kinds = parameter_kinds(&inner.get_parameters());
 
-		Self { inner }
+		Self { inner, kinds }
 	}
 }
 
 impl<P: Default + Plugin> BlockNode for SynthNode<P> {
 	fn set_param(&mut self, name: &str, value: f32) {
 		// A synth keeps its parameters in a shared map and reads them back on the
-		// next block: write the map, then push it into the effect.
+		// next block: write the map, then push it into the effect. The map refuses
+		// a value of the wrong type, so the parameter's declared type decides it.
+		let kind = self.kinds.get(name).copied().unwrap_or(ParamKind::Float);
 		let map = self.inner.param_map();
-		map.set(name, value, std::sync::atomic::Ordering::Relaxed);
+		map.set(name, set_value(kind, value), Ordering::Relaxed);
 		self.inner.sync_params();
 	}
 
@@ -598,6 +653,22 @@ mod source_tests {
 			Buffer::Control(value) => value,
 			_ => panic!("a control source writes a control buffer"),
 		}
+	}
+
+	#[test]
+	fn a_parameter_takes_the_value_type_its_dsp_declares() {
+		assert_eq!(
+			super::set_value(super::ParamKind::Int, 2.6),
+			SetValue::Int(3)
+		);
+		assert_eq!(
+			super::set_value(super::ParamKind::Bool, 0.0),
+			SetValue::Bool(false)
+		);
+		assert_eq!(
+			super::set_value(super::ParamKind::Float, 0.5),
+			SetValue::Float(0.5)
+		);
 	}
 
 	#[test]

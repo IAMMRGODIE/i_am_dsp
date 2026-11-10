@@ -1363,6 +1363,10 @@
   }
 
   async function pollScopes() {
+    // A point drag owns the card until it ends: redrawing the hero here would
+    // replace the handlers the drag is using.
+    if (editingPoints) return;
+
     try {
       const data = await (await fetch("/scopes", { cache: "no-store" })).json();
 

@@ -121,6 +121,62 @@ fn the_input_passes_through_untouched() {
 }
 
 #[test]
+fn an_integer_parameter_reaches_the_synth() {
+	// The graph stores every value as a number; an int parameter only takes an
+	// int write, so a Float one would leave both renders identical.
+	let render = |sines: f32| {
+		let mut graph = Graph::new();
+		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+		let synth = graph
+			.add_node("synth:additive", (100.0, 0.0))
+			.expect("synth");
+		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+		graph.connect((midi, 0), (synth, 0));
+		graph.connect((synth, 0), (out, 0));
+		assert!(graph.set_param(synth, "oscillator.num_sines", sines));
+
+		Engine::render_graph(&graph, 48_000, 0.2, &[(0, note(60))]).expect("renders")
+	};
+
+	let two = render(2.0);
+	let many = render(32.0);
+	let differs = two
+		.iter()
+		.zip(&many)
+		.any(|(a, b)| (a[0] - b[0]).abs() > 1e-4);
+
+	assert!(differs, "the integer parameter did nothing");
+}
+
+#[test]
+fn an_integer_parameter_reaches_a_product_node() {
+	let render = |mode: f32| {
+		let mut graph = Graph::new();
+		let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+		let filter = graph.add_node("mod:filter", (100.0, 0.0)).expect("filter");
+		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+		graph.connect((input, 0), (filter, 0));
+		graph.connect((filter, 0), (out, 0));
+		assert!(graph.set_param(filter, "mode", mode));
+
+		let mut engine = Engine::new(&graph, 48_000).expect("builds");
+		let host = vec![[0.5f32; 2]; BLOCK];
+		let mut block = vec![[0.0f32; 2]; BLOCK];
+		engine.process(&host, &[], &mut block);
+		block
+	};
+
+	let low = render(0.0);
+	let high = render(1.0);
+	let differs = low
+		.iter()
+		.zip(&high)
+		.any(|(a, b)| (a[0] - b[0]).abs() > 1e-4);
+
+	assert!(differs, "the mode choice did nothing");
+}
+
+#[test]
 fn a_synth_parameter_reaches_the_dsp() {
 	// The tail, because the product smooths a gain change over its first blocks.
 	let tail = |gain: f32| {
