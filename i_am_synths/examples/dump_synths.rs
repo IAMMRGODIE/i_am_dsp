@@ -12,8 +12,9 @@ use std::path::Path;
 
 use i_am_plugin::Plugin;
 use i_am_synths::{
-	AdditiveWeb, CanvasWeb, DrummerWeb, SamplerWeb, ScriptWeb, ShapesWeb, SpectrumWeb, StringWeb,
-	additive_faceplate, canvas_faceplate, canvas_shape, drummer_faceplate, faceplate,
+	AdditiveWeb, CanvasWeb, DrummerWeb, FittedWeb, SamplerWeb, ScriptWeb, ShapesWeb, SpectrumWeb,
+	StringWeb, additive_faceplate, canvas_faceplate, canvas_shape, drummer_faceplate, faceplate,
+	fitted_faceplate,
 	sampler_faceplate, script_faceplate, shapes_faceplate, spectrum_faceplate,
 };
 
@@ -64,6 +65,13 @@ fn main() {
 			let plugin = DrummerWeb::new();
 			(
 				i_am_web_gui::face_json(&plugin, &drummer_faceplate()),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
+		"fitted" => {
+			let plugin = FittedWeb::new();
+			(
+				i_am_web_gui::face_json(&plugin, &fitted_faceplate()),
 				i_am_web_gui::state_json(&plugin),
 			)
 		}
