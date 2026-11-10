@@ -1,5 +1,7 @@
 //! Build-in effects library for DSP
 
+mod biquad_design;
+
 pub mod autotune;
 pub mod compressor;
 pub mod convolver;

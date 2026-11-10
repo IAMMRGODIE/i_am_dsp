@@ -6,6 +6,8 @@
 
 use std::sync::atomic::{AtomicI32, Ordering};
 
+use super::biquad_design as design;
+
 /// The low/mid crossover.
 const XO_LOW: f32 = 88.3;
 /// The mid/high crossover.
@@ -102,33 +104,19 @@ struct Biquad {
 
 impl Biquad {
 	fn lowpass(frequency: f32, sample_rate: f32) -> Self {
-		let omega = 2.0 * std::f32::consts::PI * frequency / sample_rate;
-		let cos = omega.cos();
-		let alpha = omega.sin() * std::f32::consts::FRAC_1_SQRT_2;
-		let a0 = 1.0 + alpha;
+		let w0 = design::w0(sample_rate, frequency);
+		let alpha = w0.sin() * std::f32::consts::FRAC_1_SQRT_2;
+		let ([b0, b1, b2], [a1, a2]) = design::low_pass(w0, alpha);
 
-		Self {
-			b0: (1.0 - cos) * 0.5 / a0,
-			b1: (1.0 - cos) / a0,
-			b2: (1.0 - cos) * 0.5 / a0,
-			a1: -2.0 * cos / a0,
-			a2: (1.0 - alpha) / a0,
-		}
+		Self { b0, b1, b2, a1, a2 }
 	}
 
 	fn highpass(frequency: f32, sample_rate: f32) -> Self {
-		let omega = 2.0 * std::f32::consts::PI * frequency / sample_rate;
-		let cos = omega.cos();
-		let alpha = omega.sin() * std::f32::consts::FRAC_1_SQRT_2;
-		let a0 = 1.0 + alpha;
+		let w0 = design::w0(sample_rate, frequency);
+		let alpha = w0.sin() * std::f32::consts::FRAC_1_SQRT_2;
+		let ([b0, b1, b2], [a1, a2]) = design::high_pass(w0, alpha);
 
-		Self {
-			b0: (1.0 + cos) * 0.5 / a0,
-			b1: -(1.0 + cos) / a0,
-			b2: (1.0 + cos) * 0.5 / a0,
-			a1: -2.0 * cos / a0,
-			a2: (1.0 - alpha) / a0,
-		}
+		Self { b0, b1, b2, a1, a2 }
 	}
 }
 

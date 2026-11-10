@@ -21,6 +21,7 @@ const DENORMAL_THRESHOLD: f32 = 1e-25;
 use i_am_dsp_derive::Parameters;
 use wide::f32x4;
 
+use super::biquad_design as design;
 use crate::{
 	Effect, ProcessContext,
 	prelude::{Parameter, Parameters, Value, from_binary, to_binary},
@@ -334,23 +335,10 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 	pub fn set_to_peak(&mut self, cutoff: f32, gain_db: f32, bandwidth: f32) {
 		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 / 2.0);
 		let sample_rate = self.sample_rate as f32;
-		let w0 = 2.0 * PI * cutoff / sample_rate;
+		let w0 = design::w0(sample_rate, cutoff);
 		let alpha = w0.sin() * (PI * bandwidth / sample_rate).sinh();
-		// RBJ uses A = 10^(dB/40); using 20 here doubled the shelf/peak gain.
-		let a = 10.0_f32.powf(gain_db / 40.0);
 
-		let b0 = 1.0 + alpha * a;
-		let b1 = -2.0 * w0.cos();
-		let b2 = 1.0 - alpha * a;
-		let a0 = 1.0 + alpha / a;
-		let a1 = -2.0 * w0.cos();
-		let a2 = 1.0 - alpha / a;
-
-		let b = [b0 / a0, b1 / a0, b2 / a0];
-		let a = [a1 / a0, a2 / a0];
-
-		self.b = b;
-		self.a = a;
+		(self.b, self.a) = design::bell(w0, alpha, gain_db);
 	}
 
 	/// Set the filter to a RBJ low shelf filter.
@@ -362,21 +350,10 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		// become NaN.
 		let a = 10.0_f32.powf(gain_db / 40.0);
 		let slope_param = slope_param.clamp(0.1, 1.0);
-		let w0 = 2.0 * PI * cutoff / sample_rate;
+		let w0 = design::w0(sample_rate, cutoff);
 		let alpha = w0.sin() / 2.0 * ((a + 1.0 / a) * (1.0 / slope_param - 1.0) + 2.0).sqrt();
 
-		let b0 = a * ((a + 1.0) - (a - 1.0) * w0.cos() + 2.0 * a.sqrt() * alpha);
-		let b1 = 2.0 * a * ((a - 1.0) - (a + 1.0) * w0.cos());
-		let b2 = a * ((a + 1.0) - (a - 1.0) * w0.cos() - 2.0 * a.sqrt() * alpha);
-		let a0 = (a + 1.0) + (a - 1.0) * w0.cos() + 2.0 * a.sqrt() * alpha;
-		let a1 = -2.0 * ((a - 1.0) + (a + 1.0) * w0.cos());
-		let a2 = (a + 1.0) + (a - 1.0) * w0.cos() - 2.0 * a.sqrt() * alpha;
-
-		let b = [b0 / a0, b1 / a0, b2 / a0];
-		let a = [a1 / a0, a2 / a0];
-
-		self.b = b;
-		self.a = a;
+		(self.b, self.a) = design::low_shelf(w0, alpha, gain_db);
 	}
 
 	/// Set the filter to a RBJ high shelf filter.
@@ -386,93 +363,50 @@ impl<const CHANNELS: usize> Biquad<CHANNELS> {
 		// Same RBJ scaling and slope limit as the low shelf.
 		let a = 10.0_f32.powf(gain_db / 40.0);
 		let slope_param = slope_param.clamp(0.1, 1.0);
-		let w0 = 2.0 * PI * cutoff / sample_rate;
+		let w0 = design::w0(sample_rate, cutoff);
 		let alpha = w0.sin() / 2.0 * ((a + 1.0 / a) * (1.0 / slope_param - 1.0) + 2.0).sqrt();
 
-		let b0 = a * ((a + 1.0) + (a - 1.0) * w0.cos() + 2.0 * a.sqrt() * alpha);
-		let b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * w0.cos());
-		let b2 = a * ((a + 1.0) + (a - 1.0) * w0.cos() - 2.0 * a.sqrt() * alpha);
-		let a0 = (a + 1.0) - (a - 1.0) * w0.cos() + 2.0 * a.sqrt() * alpha;
-		let a1 = 2.0 * ((a - 1.0) - (a + 1.0) * w0.cos());
-		let a2 = (a + 1.0) - (a - 1.0) * w0.cos() - 2.0 * a.sqrt() * alpha;
-
-		let b = [b0 / a0, b1 / a0, b2 / a0];
-		let a = [a1 / a0, a2 / a0];
-
-		self.b = b;
-		self.a = a;
+		(self.b, self.a) = design::high_shelf(w0, alpha, gain_db);
 	}
 
 	/// Set the filter to a RBJ bandpass filter.
 	pub fn set_to_bandpass(&mut self, cutoff: f32, bandwidth: f32) {
 		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 * MAX_FREQUENCY_RATIO);
-		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
+		let w0 = design::w0(self.sample_rate as f32, cutoff);
 		let q = cutoff / bandwidth;
-		let alpha = omega_0.sin() / (2.0 * q);
+		let alpha = design::alpha_for_q(w0, q);
 
-		let b0 = alpha;
-		let b1 = 0.0;
-		let b2 = -alpha;
-		let a0 = 1.0 + alpha;
-		let a1 = -2.0 * omega_0.cos();
-		let a2 = 1.0 - alpha;
-
-		self.b = [b0 / a0, b1 / a0, b2 / a0];
-		self.a = [a1 / a0, a2 / a0];
+		(self.b, self.a) = design::band_pass(w0, alpha);
 	}
 
 	/// Set the filter to a RBJ bandstop filter.
 	pub fn set_to_bandstop(&mut self, cutoff: f32, bandwidth: f32) {
 		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 * MAX_FREQUENCY_RATIO);
-		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
+		let w0 = design::w0(self.sample_rate as f32, cutoff);
 		let q = cutoff / bandwidth;
-		let alpha = omega_0.sin() / (2.0 * q);
+		let alpha = design::alpha_for_q(w0, q);
 
-		let b0 = 1.0;
-		let b1 = -2.0 * omega_0.cos();
-		let b2 = 1.0;
-		let a0 = 1.0 + alpha;
-		let a1 = -2.0 * omega_0.cos();
-		let a2 = 1.0 - alpha;
-
-		self.b = [b0 / a0, b1 / a0, b2 / a0];
-		self.a = [a1 / a0, a2 / a0];
+		(self.b, self.a) = design::band_stop(w0, alpha);
 	}
 
 	/// Set the filter to a RBJ lowpass filter. You can use [`Self::Q1`] as a starting point for the Q value.
 	pub fn set_to_lowpass(&mut self, cutoff: f32, q: f32) {
 		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 / 2.0);
 		let q = q.max(0.01);
-		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
-		let alpha = omega_0.sin() / (2.0 * q);
+		let w0 = design::w0(self.sample_rate as f32, cutoff);
+		let alpha = design::alpha_for_q(w0, q);
 
-		let b0 = (1.0 - omega_0.cos()) / 2.0;
-		let b1 = b0 * 2.0;
-		let b2 = b0;
-		let a0 = 1.0 + alpha;
-		let a1 = -2.0 * omega_0.cos();
-		let a2 = 1.0 - alpha;
-
-		self.b = [b0 / a0, b1 / a0, b2 / a0];
-		self.a = [a1 / a0, a2 / a0];
+		(self.b, self.a) = design::low_pass(w0, alpha);
 	}
 
 	/// Set the filter to a RBJ highpass filter. You can use [`Self::Q1`] as a starting point for the Q value.
 	pub fn set_to_highpass(&mut self, cutoff: f32, q: f32) {
 		let cutoff = cutoff.clamp(MIN_FREQUENCY, self.sample_rate as f32 / 2.0);
 		let q = q.max(0.01);
-		let omega_0 = 2.0 * PI * cutoff / self.sample_rate as f32;
-		let alpha = omega_0.sin() / (2.0 * q);
+		let w0 = design::w0(self.sample_rate as f32, cutoff);
+		let alpha = design::alpha_for_q(w0, q);
 
-		let b0 = (1.0 + omega_0.cos()) / 2.0;
-		let b1 = -b0 * 2.0;
-		let b2 = b0;
-		let a0 = 1.0 + alpha;
-		let a1 = -2.0 * omega_0.cos();
-		let a2 = 1.0 - alpha;
-
-		self.b = [b0 / a0, b1 / a0, b2 / a0];
-		self.a = [a1 / a0, a2 / a0];
+		(self.b, self.a) = design::high_pass(w0, alpha);
 	}
 
 	/// Create a RBJ peak filter with given parameters.

@@ -438,6 +438,8 @@ input ─► LR4 分频 ─┬─ Low  ─► [串行模块…] ─► gain/pan/
   ott、particle_wider、stereo_control、router、unstablizer、visual。
 - **generators**：wavetable（分帧/振荡器/表/平滑）、additive（含 bended/drawn/spectral）、
   drum（曲线/音频源）、sampler、adsr、stereo_generator、string_generator、string_engine、fitted_engine。
+- **滤波器设计**：所有二阶滤波器的 RBJ 设计集中在 `i_am_dsp/src/effects/biquad_design.rs`；
+  `filter`、`eq`、`ott` 共用同一组公式，只有 α 的参数化（Q/带宽/斜率）与钳制各自不同。
 - **tools**：`ring_buffer`（含 WaveTable 插值）、`wsola`、`pitch`、`beat_clock`、`bpm_syncer`（deprecated）、
   `synced_time`、`smoother`、`matrix`、`interpolate`、`pcm_data`（WAV 编解码）、`audio_io_chooser`、
   `rhat_related`（Rhai 脚本产品用）。

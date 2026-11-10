@@ -6,6 +6,7 @@
 
 use i_am_dsp_derive::Parameters;
 
+use super::biquad_design as design;
 use crate::effects::filter::Biquad;
 use crate::{Effect, ProcessContext};
 
@@ -53,69 +54,23 @@ fn coefficients(
 	sample_rate: f32,
 ) -> ([f32; 3], [f32; 2]) {
 	let cutoff = frequency.clamp(10.0, sample_rate * 0.49);
-	let omega = 2.0 * std::f32::consts::PI * cutoff / sample_rate;
-	let cos = omega.cos();
-	let sin = omega.sin();
-	let alpha = sin / (2.0 * q.clamp(0.05, 20.0));
-	let a = 10.0_f32.powf(gain_db / 40.0);
+	let w0 = design::w0(sample_rate, cutoff);
+	let alpha = design::alpha_for_q(w0, q.clamp(0.05, 20.0));
 
-	let (b0, b1, b2, a0, a1, a2) = match kind {
+	match kind {
 		// Bell.
-		0 => (
-			1.0 + alpha * a,
-			-2.0 * cos,
-			1.0 - alpha * a,
-			1.0 + alpha / a,
-			-2.0 * cos,
-			1.0 - alpha / a,
-		),
+		0 => design::bell(w0, alpha, gain_db),
 		// Low shelf.
-		1 => {
-			let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
-			(
-				a * ((a + 1.0) - (a - 1.0) * cos + two_sqrt_a_alpha),
-				2.0 * a * ((a - 1.0) - (a + 1.0) * cos),
-				a * ((a + 1.0) - (a - 1.0) * cos - two_sqrt_a_alpha),
-				(a + 1.0) + (a - 1.0) * cos + two_sqrt_a_alpha,
-				-2.0 * ((a - 1.0) + (a + 1.0) * cos),
-				(a + 1.0) + (a - 1.0) * cos - two_sqrt_a_alpha,
-			)
-		}
+		1 => design::low_shelf(w0, alpha, gain_db),
 		// High shelf.
-		2 => {
-			let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
-			(
-				a * ((a + 1.0) + (a - 1.0) * cos + two_sqrt_a_alpha),
-				-2.0 * a * ((a - 1.0) + (a + 1.0) * cos),
-				a * ((a + 1.0) + (a - 1.0) * cos - two_sqrt_a_alpha),
-				(a + 1.0) - (a - 1.0) * cos + two_sqrt_a_alpha,
-				2.0 * ((a - 1.0) - (a + 1.0) * cos),
-				(a + 1.0) - (a - 1.0) * cos - two_sqrt_a_alpha,
-			)
-		}
+		2 => design::high_shelf(w0, alpha, gain_db),
 		// Low cut (highpass).
-		3 => (
-			(1.0 + cos) * 0.5,
-			-(1.0 + cos),
-			(1.0 + cos) * 0.5,
-			1.0 + alpha,
-			-2.0 * cos,
-			1.0 - alpha,
-		),
+		3 => design::high_pass(w0, alpha),
 		// High cut (lowpass).
-		4 => (
-			(1.0 - cos) * 0.5,
-			1.0 - cos,
-			(1.0 - cos) * 0.5,
-			1.0 + alpha,
-			-2.0 * cos,
-			1.0 - alpha,
-		),
+		4 => design::low_pass(w0, alpha),
 		// Notch.
-		_ => (1.0, -2.0 * cos, 1.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha),
-	};
-
-	([b0 / a0, b1 / a0, b2 / a0], [a1 / a0, a2 / a0])
+		_ => design::band_stop(w0, alpha),
+	}
 }
 
 /// The number of 12 dB/oct sections a band uses. Only the cut types read the

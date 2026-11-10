@@ -33,8 +33,6 @@ impl DrumInstrument {
 		self
 	}
 
-	/// The shell's envelope.
-
 	/// Start one hit, if the note is the kick's.
 	pub fn start(&mut self, note: u8, velocity: f32) -> bool {
 		self.adopt_samples();
