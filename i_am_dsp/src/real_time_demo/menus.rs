@@ -1,5 +1,7 @@
 //! The add menus: the generators and the effects grouped by what they are.
 
+use super::data::*;
+
 use super::*;
 
 pub(super) fn generator_add_menu(
