@@ -519,9 +519,25 @@
           ? face.sections
           : [{ name: "", hero: face.hero, controls: controls }]);
 
+    var manySections = sections.length > 1;
+    var oneSectionPerPage =
+      activePage && (activePage.sections || []).length === 1;
+
+    function setActive(id) {
+      options.context.active = id;
+      repaint();
+    }
+
     sections.forEach(function (section) {
       var box = document.createElement("div");
       box.className = "mcard-section";
+
+      if (manySections && section.name && !oneSectionPerPage) {
+        var caption = document.createElement("div");
+        caption.className = "mcard-section-caption";
+        caption.textContent = section.name;
+        box.appendChild(caption);
+      }
 
       if (section.hero) {
         var heroBox = document.createElement("div");
@@ -541,6 +557,12 @@
         var spec = options.wrapControl ? options.wrapControl(control) : control;
         var el = makeBodyControl(spec, values[control.id], edited);
         el.__controlId = control.id;
+        // The hero highlights the part the held control edits, as it does on the
+        // product page.
+        el.addEventListener("pointerdown", function () { setActive(control.id); });
+        el.addEventListener("focusin", function () { setActive(control.id); });
+        el.addEventListener("pointerup", function () { setActive(""); });
+        el.addEventListener("focusout", function () { setActive(""); });
         body.appendChild(el);
         bodies.push({ id: control.id, el: el });
       });

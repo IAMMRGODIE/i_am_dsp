@@ -418,3 +418,4 @@
 .mcard-sections{display:flex; gap:8px; min-height:0}
 .mcard-section{flex:1; min-width:0; display:flex; flex-direction:column; gap:4px}
 .mcard-section .mcard-hero{min-height:0}
+.mcard-section-caption{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--text3); padding:0 2px}
