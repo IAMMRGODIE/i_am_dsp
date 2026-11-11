@@ -522,6 +522,14 @@
     var manySections = sections.length > 1;
     var oneSectionPerPage =
       activePage && (activePage.sections || []).length === 1;
+    var heroPageOf = {};
+    var usedHeroes = {};
+
+    (face.pages || []).forEach(function (page, index) {
+      (page.sections || []).forEach(function (name) {
+        heroPageOf[name] = index;
+      });
+    });
 
     function setActive(id) {
       options.context.active = id;
@@ -539,7 +547,18 @@
         box.appendChild(caption);
       }
 
-      if (section.hero) {
+      // One hero per page is enough: a nested effect can ask for the same
+      // picture in a second section on the same page, and drawing the same live
+      // trace twice only costs space.
+      var heroPage = Object.prototype.hasOwnProperty.call(heroPageOf, section.name)
+        ? heroPageOf[section.name]
+        : -1;
+      var heroUsed = usedHeroes[section.hero];
+      var heroAllowed = section.hero && (heroUsed === undefined ||
+        (heroPage >= 0 && heroUsed >= 0 && heroPage !== heroUsed));
+
+      if (heroAllowed) {
+        usedHeroes[section.hero] = heroPage;
         var heroBox = document.createElement("div");
         heroBox.className = "mcard-hero";
         heroBox.innerHTML = hero(section.hero, values, options.context);
