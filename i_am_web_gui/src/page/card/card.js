@@ -1,4 +1,51 @@
 // Part ten: the card, and the exports the page and the rack share.
+
+  /// The script panel a scripted product carries under its head: a toggle in
+  /// the header, a text area and Apply. The caller owns loading and applying.
+  function buildScriptPanel(options) {
+    var toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "mcard-script-toggle";
+    toggle.textContent = "{ }";
+    toggle.title = "Edit the script";
+    toggle.setAttribute("aria-label", "Edit the script");
+
+    var panel = document.createElement("div");
+    panel.className = "mcard-script";
+    panel.style.display = "none";
+
+    var area = document.createElement("textarea");
+    area.className = "mcard-script-text";
+    area.spellcheck = false;
+    panel.appendChild(area);
+
+    var error = document.createElement("div");
+    error.className = "mcard-script-error";
+    error.style.display = "none";
+    panel.appendChild(error);
+
+    var actions = document.createElement("div");
+    actions.className = "mcard-script-actions";
+
+    var apply = document.createElement("button");
+    apply.type = "button";
+    apply.className = "mcard-script-apply";
+    apply.textContent = "Apply";
+    apply.addEventListener("click", function () {
+      if (options.applyScript) options.applyScript(area.value);
+    });
+    actions.appendChild(apply);
+    panel.appendChild(actions);
+
+    toggle.addEventListener("click", function () {
+      var open = panel.style.display === "none";
+      panel.style.display = open ? "" : "none";
+      if (open && options.loadScript) options.loadScript();
+    });
+
+    return { toggle: toggle, panel: panel, area: area, error: error };
+  }
+
   function create(options) {
     var card = document.createElement("section");
     card.className = "mcard";
@@ -68,47 +115,11 @@
     var scriptError = null;
 
     if (options.script) {
-      var scriptToggle = document.createElement("button");
-      scriptToggle.type = "button";
-      scriptToggle.className = "mcard-script-toggle";
-      scriptToggle.textContent = "{ }";
-      scriptToggle.title = "Edit the script";
-      scriptToggle.setAttribute("aria-label", "Edit the script");
-      head.appendChild(scriptToggle);
-
-      var panel = document.createElement("div");
-      panel.className = "mcard-script";
-      panel.style.display = "none";
-
-      scriptArea = document.createElement("textarea");
-      scriptArea.className = "mcard-script-text";
-      scriptArea.spellcheck = false;
-      panel.appendChild(scriptArea);
-
-      scriptError = document.createElement("div");
-      scriptError.className = "mcard-script-error";
-      scriptError.style.display = "none";
-      panel.appendChild(scriptError);
-
-      var actions = document.createElement("div");
-      actions.className = "mcard-script-actions";
-
-      var apply = document.createElement("button");
-      apply.type = "button";
-      apply.className = "mcard-script-apply";
-      apply.textContent = "Apply";
-      apply.addEventListener("click", function () {
-        if (options.applyScript) options.applyScript(scriptArea.value);
-      });
-      actions.appendChild(apply);
-      panel.appendChild(actions);
-      card.appendChild(panel);
-
-      scriptToggle.addEventListener("click", function () {
-        var open = panel.style.display === "none";
-        panel.style.display = open ? "" : "none";
-        if (open && options.loadScript) options.loadScript();
-      });
+      var script = buildScriptPanel(options);
+      scriptArea = script.area;
+      scriptError = script.error;
+      head.appendChild(script.toggle);
+      card.appendChild(script.panel);
     }
 
     // A card for a module that follows the host's notes shows the note it is
@@ -591,6 +602,19 @@
     });
 
     card.appendChild(sectionsBox);
+
+    if (options.script || face.script) {
+      var script = buildScriptPanel(options);
+      head.appendChild(script.toggle);
+      card.appendChild(script.panel);
+      card.setScript = function (source) {
+        if (document.activeElement !== script.area) script.area.value = source || "";
+      };
+      card.setScriptError = function (message) {
+        script.error.textContent = message || "";
+        script.error.style.display = message ? "" : "none";
+      };
+    }
 
     function repaint() {
       heroes.forEach(function (entry) {

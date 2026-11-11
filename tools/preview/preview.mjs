@@ -156,7 +156,7 @@ function dbOf(level) {
 }
 
 // The live routes a faceplate polls; each answers with synthetic input.
-function liveRoute(url, response) {
+function liveRoute(url, response, request) {
 	const level = noiseLevel();
 
 	if (url === "/scope") {
@@ -199,6 +199,17 @@ function liveRoute(url, response) {
 		}));
 		response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
 		response.end(JSON.stringify({ generation: Math.floor(Date.now() / 1000), frames: pages }));
+		return true;
+	}
+
+	if (url === "/script") {
+		if (request.method === "POST") {
+			response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+			response.end(JSON.stringify({ ok: true }));
+		} else {
+			response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+			response.end(JSON.stringify({ source: "// the preview has no worker: this is the script text area\nfn process(x) { x }\n" }));
+		}
 		return true;
 	}
 
@@ -274,6 +285,22 @@ const CARD_PAGE = `<!doctype html>
       face: asCard(face),
       values: state,
       context: context,
+      script: !!face.script,
+      loadScript: function () {
+        fetch("/script", { cache: "no-store" })
+          .then(function (response) { return response.ok ? response.json() : null; })
+          .then(function (state) { if (state) card.setScript(state.source || ""); })
+          .catch(function () {});
+      },
+      applyScript: function (source) {
+        fetch("/script", { method: "POST", body: source })
+          .then(function (response) { return response.ok ? response.json() : null; })
+          .then(function (state) {
+            if (state && state.error) card.setScriptError(state.error);
+            else card.setScriptError("");
+          })
+          .catch(function () {});
+      },
       activePage: 0,
       onPage: function () {},
       onEdit: function () {}
@@ -393,6 +420,22 @@ const COMPARE_PAGE = `<!doctype html>
       face: asCard(face),
       values: state,
       context: context,
+      script: !!face.script,
+      loadScript: function () {
+        fetch("/script", { cache: "no-store" })
+          .then(function (response) { return response.ok ? response.json() : null; })
+          .then(function (state) { if (state) card.setScript(state.source || ""); })
+          .catch(function () {});
+      },
+      applyScript: function (source) {
+        fetch("/script", { method: "POST", body: source })
+          .then(function (response) { return response.ok ? response.json() : null; })
+          .then(function (state) {
+            if (state && state.error) card.setScriptError(state.error);
+            else card.setScriptError("");
+          })
+          .catch(function () {});
+      },
       activePage: 0,
       onPage: function () {},
       onEdit: function () {}
@@ -454,7 +497,7 @@ function serve(dir, port, index = "index.html") {
 	const server = createServer((request, response) => {
 		const url = decodeURIComponent((request.url || "/").split("?")[0]);
 
-		if (liveRoute(url, response)) return;
+		if (liveRoute(url, response, request)) return;
 
 		const relative = url === "/" ? "/" + index : url;
 		const file = path.join(root, relative);
