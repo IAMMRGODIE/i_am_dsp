@@ -224,7 +224,8 @@ body.preview #app{
 /* An editor hero is a canvas for the pointer, not a decorative picture. */
 .hero[data-hero="eq"] svg,
 .hero[data-hero="canvas"] svg,
-.hero[data-hero="spectrum"] svg{pointer-events:auto}
+.hero[data-hero="spectrum"] svg,
+.hero[data-hero="morph-spectrum"] svg{pointer-events:auto}
 /* The curve editor drags its points and rings, so it needs the pointer too. */
 .hero[data-hero="fall"] svg,
 .hero[data-hero="kick"] svg,
