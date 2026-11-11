@@ -165,6 +165,10 @@ node tools/preview/preview.mjs patch          # patcher 的实时编辑器
 - **`#[non_exhaustive]`**：`ProcessInfos`、`Unit`、`ParamWidget` 等对外枚举，加字段/变体时
   要检查所有 match 与页面 JSON 消费方。
 - **对照 `vendor/wry`**：那是为了绕过窗口类全局注册的 vendored 补丁，不要同步上游覆盖它。
+- **hero 里的文字不要画进被拉伸的 SVG**：`heroSvg` 用 `preserveAspectRatio="none"` 把图铺满卡片，
+  SVG 里的 `<text>` 会跟着非等比拉伸，字号/间距都会变形。带文字的图用 `heroSvgMeet` / `heroSvgMeter`
+  （等比缩放），单个标签用 `heroLabel(x, y, text, style)` 放到 HTML 层，空状态用 `.hero-empty`。
+  改 hero 时在 `tools/preview` 的 `compare` 里对一下，卡片和产品页的标签形状要一致。
 - **`I Am Multipass`** 直接 `export_plugin!(Rack)` 且 `crate-type = ["cdylib"]`；
   改动 `i_am_effects` 时它会一起链接，注意别把 `clap_entry` 带进来。
 
