@@ -404,6 +404,14 @@
   pointer-events:auto; z-index:1;
 }
 
+/* A dot a stretched picture would have drawn as an ellipse: HTML, because a
+   circle in a viewBox with preserveAspectRatio="none" follows the card's
+   aspect, and a card is never 520x160. */
+.hero-pip{
+  position:absolute; transform:translate(-50%,-50%); border-radius:50%;
+  box-sizing:border-box; pointer-events:none;
+}
+
 /* A narrow header belongs to the module type and the two buttons; the mode
    setting steps aside first, then its label. */
 @container (max-width: 420px) {

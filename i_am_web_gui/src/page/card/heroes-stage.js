@@ -161,6 +161,7 @@
     var mix = clamp(valueOf(values, "wet_gain", 1), 0, 2);
     var base = 140;
     var taps = "";
+    var dots = "";
 
     for (var tap = 0; tap < 8; tap++) {
       var at = time * (tap + 1);
@@ -172,15 +173,17 @@
 
       taps += '<line x1="' + x.toFixed(1) + '" y1="' + base + '" x2="' + x.toFixed(1) +
         '" y2="' + (base - height).toFixed(1) + '" stroke="var(--accent)" stroke-width="2" ' +
-        'opacity="' + (0.3 + 0.7 * level).toFixed(2) + '"/>' +
-        '<circle cx="' + x.toFixed(1) + '" cy="' + (base - height).toFixed(1) +
-        '" r="2" fill="var(--accent)"/>';
+        'opacity="' + (0.3 + 0.7 * level).toFixed(2) + '"/>';
+
+      dots += '<div class="hero-pip" style="left:' + (x / 5.2).toFixed(2) + '%;top:' +
+        ((base - height) / 1.6).toFixed(2) + '%;width:4px;height:4px;background:var(--accent);' +
+        'opacity:' + (0.3 + 0.7 * level).toFixed(2) + '"></div>';
     }
 
     return heroSvg(
       '<line x1="20" y1="' + base + '" x2="500" y2="' + base + '" stroke="#3a3a3a"/>' +
       taps
-    ) + (sync ? '<div class="hero-badge">SYNC</div>' : "");
+    ) + dots + (sync ? '<div class="hero-badge">SYNC</div>' : "");
   }
 
   /// The LFO as it is set now: the free rate in hertz, or the beat period converted

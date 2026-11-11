@@ -114,10 +114,11 @@
       '<path d="' + pluck + '" fill="none" stroke="var(--accent)" stroke-width="1.9" ' +
         'vector-effect="non-scaling-stroke"/>' +
       '<line x1="' + x.toFixed(1) + '" y1="14" x2="' + x.toFixed(1) + '" y2="118" ' +
-        'stroke="var(--accent)" stroke-opacity=".22" stroke-dasharray="2 4"/>' +
-      '<circle cx="' + x.toFixed(1) + '" cy="' + (middle - peak) + '" r="3" ' +
-        'fill="var(--accent)"/>'
+        'stroke="var(--accent)" stroke-opacity=".22" stroke-dasharray="2 4"/>'
     ) +
+      '<div class="hero-pip" style="left:' + (x / 5.2).toFixed(2) + '%;top:' +
+        ((middle - peak) / 1.6).toFixed(2) +
+        '%;width:6px;height:6px;background:var(--accent)"></div>' +
       '<div class="hero-label" style="top:4%">STRING</div>' +
       '<div class="hero-label" style="top:4%; left:auto; right:14px">' +
         (names[excitation] || names[0]) + ' AT ' + Math.round(position * 100) + '%</div>';

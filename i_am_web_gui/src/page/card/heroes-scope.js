@@ -328,11 +328,15 @@
     var fades =
       '<path d="' + curve + ' L 500 ' + floor + ' L 20 ' + floor + ' Z" fill="var(--accent)" fill-opacity="0.10"/>' +
       '<path d="' + curve + '" fill="none" stroke="var(--accent)" stroke-width="1.25" ' +
-        'vector-effect="non-scaling-stroke"/>' +
-      '<circle cx="' + inX.toFixed(1) + '" cy="' + inY.toFixed(1) +
-        '" r="4" fill="var(--accent)" stroke="#0e0e0e" stroke-width="1"/>' +
-      '<circle cx="' + outX.toFixed(1) + '" cy="' + outY.toFixed(1) +
-        '" r="4" fill="var(--accent)" stroke="#0e0e0e" stroke-width="1"/>';
+        'vector-effect="non-scaling-stroke"/>';
+
+    var handles =
+      '<div class="hero-pip" style="left:' + (inX / 5.2).toFixed(2) + '%;top:' +
+        (inY / 1.6).toFixed(2) + '%;width:8px;height:8px;background:var(--accent);' +
+        'border:1px solid #0e0e0e"></div>' +
+      '<div class="hero-pip" style="left:' + (outX / 5.2).toFixed(2) + '%;top:' +
+        (outY / 1.6).toFixed(2) + '%;width:8px;height:8px;background:var(--accent);' +
+        'border:1px solid #0e0e0e"></div>';
 
     if (fadeIn > 0.001 || fadeOut > 0.001) {
       label += "  -  fade " + Math.round(fadeIn * 100) + "% / " + Math.round(fadeOut * 100) + "%";
@@ -343,7 +347,7 @@
       '<path d="' + top + bottom + ' Z" fill="var(--accent)" fill-opacity=".14" stroke="' +
         'var(--accent)" stroke-width="1" vector-effect="non-scaling-stroke"/>' +
       fades
-    ) + '<div class="hero-label" style="top:2%">' + escapeXml(label) + '</div>';
+    ) + handles + '<div class="hero-label" style="top:2%">' + escapeXml(label) + '</div>';
   }
 
   function pitchHero(values) {
@@ -366,9 +370,11 @@
       '<line x1="40" y1="80" x2="480" y2="80" stroke="#3a3a3a" stroke-width="1"/>' +
       ticks +
       '<line x1="' + marker.toFixed(1) + '" y1="30" x2="' + marker.toFixed(1) +
-        '" y2="130" stroke="var(--accent)" stroke-width="2"/>' +
-      '<circle cx="' + marker.toFixed(1) + '" cy="80" r="4" fill="var(--accent)"/>'
-    ) + '<div class="hero-badge">' + sign + semitones.toFixed(1) + ' st</div>';
+        '" y2="130" stroke="var(--accent)" stroke-width="2"/>'
+    ) +
+      '<div class="hero-pip" style="left:' + (marker / 5.2).toFixed(2) +
+        '%;top:50%;width:8px;height:8px;background:var(--accent)"></div>' +
+      '<div class="hero-badge">' + sign + semitones.toFixed(1) + ' st</div>';
   }
 
   function particlesHero(values) {
