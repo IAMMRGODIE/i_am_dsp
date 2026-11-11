@@ -227,10 +227,10 @@ const CARD_PAGE = `<!doctype html>
 <link rel="stylesheet" href="/patcher.css">
 <style>
   body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#141414}
-  #stage{padding:28px;max-width:980px;width:100%;display:flex;justify-content:center}
-  #stage .mcard{height:auto;width:100%}
+  #card-stage{padding:28px;max-width:980px;width:100%;display:flex;justify-content:center}
+  #card-stage .mcard{height:auto;width:100%}
 </style>
-<div id="stage" class="card-host"></div>
+<div id="card-stage" class="card-host"></div>
 <script src="/card.js"></script>
 <script>
   // /face describes a product page; a card takes the flat controls list.
@@ -259,7 +259,7 @@ const CARD_PAGE = `<!doctype html>
       onPage: function () {},
       onEdit: function () {}
     });
-    document.getElementById("stage").appendChild(card);
+    document.getElementById("card-stage").appendChild(card);
   });
 </script>
 </html>
@@ -280,12 +280,12 @@ const COMPARE_PAGE = `<!doctype html>
   .label{padding:6px 10px;color:#777;border-bottom:1px solid #222}
   .body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:18px}
   iframe{width:100%;height:100%;border:0;background:transparent}
-  #stage{width:100%;max-width:980px}
-  #stage .mcard{height:auto;width:100%}
+  #card-stage{width:100%;max-width:980px}
+  #card-stage .mcard{height:auto;width:100%}
 </style>
 <div id="panes">
   <div class="pane"><div class="label">product page</div><div class="body"><iframe src="/product/index.html"></iframe></div></div>
-  <div class="pane"><div class="label">patch card</div><div class="body"><div id="stage" class="card-host"></div></div></div>
+  <div class="pane"><div class="label">patch card</div><div class="body"><div id="card-stage" class="card-host"></div></div></div>
 </div>
 <script src="/card.js"></script>
 <script>
@@ -314,7 +314,7 @@ const COMPARE_PAGE = `<!doctype html>
       onPage: function () {},
       onEdit: function () {}
     });
-    document.getElementById("stage").appendChild(card);
+    document.getElementById("card-stage").appendChild(card);
   });
 </script>
 </html>
