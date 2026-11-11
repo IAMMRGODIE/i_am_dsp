@@ -6,7 +6,7 @@
 use i_am_dsp_derive::Parameters;
 
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use i_am_string::fitted;
 
@@ -18,6 +18,15 @@ const MAX_VOICES: usize = 32;
 /// The table is numbered the way the library numbers notes: A4 is 57.
 fn to_table(note: usize) -> u8 {
 	note.clamp(0, 127) as u8
+}
+
+/// A cheap identity for a table's bytes, so a note does not parse it twice.
+fn hash_of(bytes: &[u8]) -> u64 {
+	let mut hash = 1469598103934665603u64;
+	for byte in bytes {
+		hash = (hash ^ *byte as u64).wrapping_mul(1099511628211);
+	}
+	hash
 }
 
 struct Playing {
@@ -38,6 +47,56 @@ pub struct ImportedTable {
 	pub bytes: Vec<u8>,
 }
 
+/// What the page and the audio thread share: the table the page fitted.
+///
+/// A serialized parameter cannot travel through the parameter map, and the fit
+/// runs on the page's thread, so the table goes into a slot the instrument
+/// reads. A save copies it into the `imported` parameter, which is the copy the
+/// host stores.
+#[derive(Clone, Default)]
+pub struct TableSlot(Arc<Mutex<SlotInner>>);
+
+/// The slot's contents, with a number that changes on every write.
+#[derive(Default)]
+struct SlotInner {
+	table: Option<Arc<ImportedTable>>,
+	version: u64,
+}
+
+impl TableSlot {
+	/// Stores a table; the next note picks it up.
+	pub fn set(&self, table: ImportedTable) {
+		let mut inner = self.0.lock().unwrap_or_else(|error| error.into_inner());
+		inner.table = Some(Arc::new(table));
+		inner.version = inner.version.wrapping_add(1);
+	}
+
+	/// The table the page last fitted, if any.
+	pub fn current(&self) -> Option<Arc<ImportedTable>> {
+		self.0
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.table
+			.clone()
+	}
+
+	/// A number that changes whenever the table does, so the plug-in knows when
+	/// the parameter it saves is out of date.
+	pub fn version(&self) -> u64 {
+		self.0
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.version
+	}
+
+	/// Forgets the table, so the imported parameter is what plays again.
+	pub fn clear(&self) {
+		let mut inner = self.0.lock().unwrap_or_else(|error| error.into_inner());
+		inner.table = None;
+		inner.version = inner.version.wrapping_add(1);
+	}
+}
+
 /// A polyphonic instrument played from a fitted mode table.
 #[derive(Parameters)]
 pub struct FittedInstrument {
@@ -47,6 +106,8 @@ pub struct FittedInstrument {
 	sample_rate: f32,
 	#[skip]
 	cached: Option<(u64, Arc<fitted::Instrument>)>,
+	#[skip]
+	slot: TableSlot,
 	/// A table the user imported. Saved with the plug-in state.
 	#[serde]
 	#[id(display = "Imported Table")]
@@ -89,6 +150,13 @@ pub struct FittedInstrument {
 	#[id(display = "Derive Notes")]
 	#[layout(group = "Voice", order = 6, widget = toggle)]
 	pub derive: bool,
+	/// How far the whole instrument is shifted, in semitones. A sample fitted
+	/// an octave off is fixed here instead of being fitted again.
+	#[range(min = -24, max = 24)]
+	#[default(0)]
+	#[id(display = "Transpose")]
+	#[layout(group = "Voice", order = 7, widget = knob, bipolar, step = 1.0)]
+	pub transpose: i32,
 	/// How long a released note takes to fade, in seconds.
 	#[range(min = 0.02, max = 2.0)]
 	#[default(0.15)]
@@ -112,6 +180,8 @@ impl Default for FittedInstrument {
 			attack: 0.004,
 			width: 0.4,
 			derive: false,
+			transpose: 0,
+			slot: TableSlot::default(),
 		}
 	}
 }
@@ -119,9 +189,15 @@ impl Default for FittedInstrument {
 impl FittedInstrument {
 	/// A silent instrument, built for one sample rate.
 	pub fn new(rate: usize) -> Self {
+		Self::with_slot(rate, TableSlot::default())
+	}
+
+	/// A silent instrument over a slot the page can write.
+	pub fn with_slot(rate: usize, slot: TableSlot) -> Self {
 		fitted::install_from_config();
 		Self {
 			sample_rate: if rate > 0 { rate as f32 } else { 48_000.0 },
+			slot,
 			..Self::default()
 		}
 	}
@@ -150,7 +226,7 @@ impl FittedInstrument {
 		self.playing.push(Playing {
 			voice: fitted::Voice::start_from(
 				table,
-				note,
+				self.played(note),
 				velocity.clamp(0.0, 1.0),
 				shaped,
 				self.sample_rate,
@@ -163,19 +239,31 @@ impl FittedInstrument {
 		});
 	}
 
+	/// The note the table is asked for: the key the player pressed, shifted by
+	/// the transpose.
+	fn played(&self, note: u8) -> u8 {
+		(note as i32 + self.transpose).clamp(0, 127) as u8
+	}
+
 	/// The user's table, parsed once per change of bytes.
+	///
+	/// The slot wins over the parameter: a table the page just fitted is in the
+	/// slot, and the parameter only carries the one the host saved.
 	fn custom(&mut self) -> Option<Arc<fitted::Instrument>> {
-		let imported = self.imported.as_ref()?;
-		let mut hash = 1469598103934665603u64;
-		for byte in imported.bytes.iter() {
-			hash = (hash ^ *byte as u64).wrapping_mul(1099511628211);
-		}
+		let hash = match self.slot.current() {
+			Some(table) => hash_of(&table.bytes),
+			None => hash_of(&self.imported.as_ref()?.bytes),
+		};
 		if let Some((cached, table)) = &self.cached
 			&& *cached == hash
 		{
 			return Some(table.clone());
 		}
-		let table = Arc::new(fitted::parse_table(&imported.bytes)?);
+		let bytes = match self.slot.current() {
+			Some(table) => table.bytes.clone(),
+			None => self.imported.as_ref()?.bytes.clone(),
+		};
+		let table = Arc::new(fitted::parse_table(&bytes)?);
 		self.cached = Some((hash, table.clone()));
 		Some(table)
 	}
@@ -380,6 +468,20 @@ mod tests {
 		let error = fit_sample(&wav(&vec![0.0; rate as usize], rate), None)
 			.expect_err("a silent file has no table");
 		assert!(error.contains("no note"), "{error}");
+	}
+
+	#[test]
+	fn the_transpose_shifts_which_note_is_played() {
+		let mut instrument = FittedInstrument::new(48_000);
+		assert_eq!(instrument.played(60), 60);
+
+		instrument.transpose = 12;
+		assert_eq!(instrument.played(60), 72);
+
+		instrument.transpose = -24;
+		assert_eq!(instrument.played(10), 0, "a transposed key is clamped");
+		instrument.transpose = 24;
+		assert_eq!(instrument.played(120), 127);
 	}
 
 	#[test]

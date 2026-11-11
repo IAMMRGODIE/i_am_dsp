@@ -458,8 +458,9 @@
         }
 
         if (section.hero === "modal") {
-          hero.title = "Load a fitted table (.bin), or a recorded note (.wav) to fit";
+          hero.title = "Load a fitted table (.bin), or a recorded note (.wav) to fit: click or drop a file";
           hero.style.cursor = "pointer";
+          acceptDrop(hero, postTableFile);
           hero.addEventListener("click", function () {
             if (tableInput) tableInput.click();
           });

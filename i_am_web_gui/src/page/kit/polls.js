@@ -457,8 +457,7 @@
   /// Hands a picked table or sample to the product's route. A `.bin` is a
   /// table the fitter already wrote; a `.wav` is one recorded note, which the
   /// product fits itself before it stores it.
-  function uploadTable() {
-    var file = tableInput && tableInput.files && tableInput.files[0];
+  function postTableFile(file) {
     if (!file) return;
 
     var sample = /\.wav$/i.test(file.name);
@@ -477,7 +476,14 @@
         .catch(function () {});
     };
     reader.readAsArrayBuffer(file);
-    tableInput.value = "";
+  }
+
+  /// The picker's change handler: the same upload, and a cleared input so the
+  /// same file can be chosen twice.
+  function uploadTable() {
+    postTableFile(tableInput && tableInput.files && tableInput.files[0]);
+
+    if (tableInput) tableInput.value = "";
   }
 
   /// The vocoder bank: the modulator bands above the centre line and the output

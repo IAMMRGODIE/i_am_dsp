@@ -3,7 +3,9 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use i_am_dsp::prelude::{FittedInstrument, GeneratorEffect, ImportedTable, ParamMap, SetValue};
+use i_am_dsp::prelude::{
+	FittedInstrument, GeneratorEffect, ImportedTable, ParamMap, SetValue, TableSlot,
+};
 use i_am_plugin::processor::EffectProcessor;
 use i_am_plugin::{Descriptor, MidiPort, Plugin, Tag, WindowOptions};
 use i_am_web_gui::{
@@ -24,17 +26,19 @@ const HEADER: &[&str] = &["instrument"];
 pub(crate) fn table_route(
 	request: &ProtocolRequest<'_>,
 	route_map: &ParamMap,
+	slot: &TableSlot,
 ) -> Option<ProtocolResponse> {
 	if request.method != "POST" {
 		return Some(ProtocolResponse::json("{\"ok\":false}"));
 	}
-	let table = ImportedTable {
-		name: "imported".to_string(),
-		bytes: request.body.to_vec(),
-	};
-	if !import(route_map, table) {
-		return Some(ProtocolResponse::json("{\"error\":\"serialize\"}"));
-	}
+	import(
+		route_map,
+		slot,
+		ImportedTable {
+			name: "imported".to_string(),
+			bytes: request.body.to_vec(),
+		},
+	);
 	Some(ProtocolResponse::json("{\"ok\":true}"))
 }
 
@@ -47,6 +51,7 @@ pub(crate) fn table_route(
 pub(crate) fn sample_route(
 	request: &ProtocolRequest<'_>,
 	route_map: &ParamMap,
+	slot: &TableSlot,
 ) -> Option<ProtocolResponse> {
 	if request.method != "POST" {
 		return Some(ProtocolResponse::json("{\"ok\":false}"));
@@ -70,33 +75,34 @@ pub(crate) fn sample_route(
 			)));
 		}
 	};
-	if !import(
+	import(
 		route_map,
+		slot,
 		ImportedTable {
 			name,
 			bytes: fitted.bytes,
 		},
-	) {
-		return Some(ProtocolResponse::json("{\"error\":\"serialize\"}"));
-	}
+	);
 	Some(ProtocolResponse::json(format!(
 		"{{\"ok\":true,\"note\":{},\"frequency\":{:.2},\"modes\":{}}}",
 		fitted.note, fitted.frequency, fitted.modes
 	)))
 }
 
-/// Stores a table as the instrument's imported table and selects it.
-fn import(route_map: &ParamMap, table: ImportedTable) -> bool {
-	let Ok(binary) = i_am_dsp::prelude::to_binary(&Some(table)) else {
-		return false;
-	};
-	route_map.set(
-		"imported",
-		SetValue::Serialized(binary),
-		std::sync::atomic::Ordering::Relaxed,
-	);
+/// Stores a table where the instrument plays from, and selects it.
+///
+/// The table goes into the slot rather than the `imported` parameter: a
+/// serialized value cannot travel through the parameter map, which is the
+/// reason a fitted sample used to arrive silent. The plug-in copies the slot
+/// into the parameter before a save, so the host still stores it.
+///
+/// `derive` is turned on because a table fitted from one sample holds one
+/// note; without it every other key would be silent.
+fn import(route_map: &ParamMap, slot: &TableSlot, table: ImportedTable) {
+	slot.set(table);
 	route_map.set("instrument", 5i32, std::sync::atomic::Ordering::Relaxed);
-	true
+	route_map.set("derive", true, std::sync::atomic::Ordering::Relaxed);
+	route_map.set("transpose", 0i32, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// The note a file name carries, in the `Name_A4_127.wav` convention the
@@ -148,21 +154,37 @@ pub struct FittedWeb {
 	processor: EffectProcessor<GeneratorEffect<FittedInstrument>>,
 	bypass: Arc<AtomicBool>,
 	scope: Arc<Scope>,
+	/// The table the page fitted, shared with the instrument.
+	slot: TableSlot,
+	/// The slot version last copied into the `imported` parameter.
+	imported_version: u64,
 }
 
 impl Default for FittedWeb {
 	fn default() -> Self {
+		let slot = TableSlot::default();
+		let build_slot = slot.clone();
+
 		Self {
-			processor: EffectProcessor::new(|rate: usize| {
-				GeneratorEffect::new(FittedInstrument::new(rate))
+			processor: EffectProcessor::with_build(move |rate: usize| {
+				GeneratorEffect::new(FittedInstrument::with_slot(rate, build_slot.clone()))
 			}),
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(Scope::new()),
+			slot,
+			imported_version: 0,
 		}
 	}
 }
 
 synth_product!(FittedWeb);
+
+impl FittedWeb {
+	/// The slot the page's fitted table lives in.
+	pub fn slot(&self) -> TableSlot {
+		self.slot.clone()
+	}
+}
 
 impl Plugin for FittedWeb {
 	const DESCRIPTOR: Descriptor = Descriptor::new("iamdsp.synths.modal.web", TITLE)
@@ -190,6 +212,23 @@ impl Plugin for FittedWeb {
 	}
 
 	fn sync_params(&mut self) {
+		// A table the page fitted lives in the slot, because a serialized
+		// parameter cannot travel through the parameter map. The host saves the
+		// parameter, so it is copied in before the values are pushed.
+		if self.slot.version() != self.imported_version
+			&& let Some(table) = self.slot.current()
+		{
+			let Ok(binary) = i_am_dsp::prelude::to_binary(&Some((*table).clone())) else {
+				return;
+			};
+			if self
+				.processor
+				.set_parameter("imported", SetValue::Serialized(binary))
+			{
+				self.imported_version = self.slot.version();
+			}
+		}
+
 		self.processor.sync_params();
 	}
 
@@ -201,6 +240,7 @@ impl Plugin for FittedWeb {
 		let rate = self.processor.sample_rate();
 		let map = self.processor.param_map();
 		let route_map = map.clone();
+		let slot = self.slot.clone();
 		editor_with(
 			self,
 			faceplate(),
@@ -208,8 +248,8 @@ impl Plugin for FittedWeb {
 			self.scope.clone(),
 			rate,
 			move |request: &ProtocolRequest<'_>| match request.path {
-				"/table" => table_route(request, &route_map),
-				"/sample" => sample_route(request, &route_map),
+				"/table" => table_route(request, &route_map, &slot),
+				"/sample" => sample_route(request, &route_map, &slot),
 				_ => None,
 			},
 			move |_: &str| false,

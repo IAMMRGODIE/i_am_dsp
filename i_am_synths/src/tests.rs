@@ -2,7 +2,7 @@ use super::*;
 use crate::canvas::{CanvasFeed, canvas_route, default_canvas_text, parse_canvas};
 use crate::script::{ScriptFeed, script_route};
 use crate::spectrum::spectrum_route;
-use i_am_dsp::prelude::{SetValue, SpectralFeed, SpectralFrame};
+use i_am_dsp::prelude::{ImportedTable, SetValue, SpectralFeed, SpectralFrame, TableSlot};
 use i_am_plugin::{Plugin, Tag};
 use i_am_web_gui::ProtocolRequest;
 use std::sync::Arc;
@@ -912,11 +912,35 @@ fn wav_of(samples: &[f32], rate: u32) -> Vec<u8> {
 	out
 }
 
-/// The page posts one recorded note; the product fits it, stores it as the
-/// imported table and selects it.
-#[test]
-fn a_sample_is_fitted_into_the_instrument() {
-	let rate = 44_100u32;
+/// A parameter map with the four values the sample route writes.
+fn modal_map() -> ParamMap {
+	let int = |value: i32, range: std::ops::RangeInclusive<i32>| {
+		Arc::new(
+			i_am_dsp::prelude::Value::Int {
+				value,
+				range,
+				logarithmic: false,
+			}
+			.to_atomic_value(),
+		)
+	};
+
+	ParamMap::new_with([
+		("instrument".to_string(), int(0, 0..=5)),
+		("transpose".to_string(), int(0, -24..=24)),
+		(
+			"derive".to_string(),
+			Arc::new(i_am_dsp::prelude::Value::Bool(false).to_atomic_value()),
+		),
+		(
+			"imported".to_string(),
+			Arc::new(i_am_dsp::prelude::Value::Nothing.to_atomic_value()),
+		),
+	])
+}
+
+/// One recorded note at 220 Hz, as a page would post it.
+fn recorded_note(rate: u32) -> Vec<u8> {
 	let samples: Vec<f32> = (0..rate)
 		.map(|index| {
 			let time = index as f32 / rate as f32;
@@ -926,25 +950,17 @@ fn a_sample_is_fitted_into_the_instrument() {
 					+ 0.25 * (std::f32::consts::TAU * 330.0 * time).sin())
 		})
 		.collect();
-	let wav = wav_of(&samples, rate);
-	let map = ParamMap::new_with([
-		(
-			"instrument".to_string(),
-			Arc::new(
-				i_am_dsp::prelude::Value::Int {
-					value: 0,
-					range: 0..=5,
-					logarithmic: false,
-				}
-				.to_atomic_value(),
-			),
-		),
-		(
-			"imported".to_string(),
-			Arc::new(i_am_dsp::prelude::Value::Nothing.to_atomic_value()),
-		),
-	]);
 
+	wav_of(&samples, rate)
+}
+
+/// The page posts one recorded note; the product fits it, puts it where the
+/// instrument plays from and selects it.
+#[test]
+fn a_sample_is_fitted_into_the_instrument() {
+	let wav = recorded_note(44_100);
+	let map = modal_map();
+	let slot = TableSlot::default();
 	let request = ProtocolRequest {
 		method: "POST",
 		path: "/sample",
@@ -952,7 +968,7 @@ fn a_sample_is_fitted_into_the_instrument() {
 		body: &wav,
 	};
 	let body = String::from_utf8(
-		crate::fitted::sample_route(&request, &map)
+		crate::fitted::sample_route(&request, &map, &slot)
 			.expect("the sample route")
 			.body,
 	)
@@ -962,12 +978,88 @@ fn a_sample_is_fitted_into_the_instrument() {
 	assert!(body.contains("\"note\":57"), "{body}");
 	assert!(body.contains("\"modes\":"), "{body}");
 	assert_eq!(
-		map.get("instrument")
-			.expect("the instrument parameter")
-			.load(std::sync::atomic::Ordering::Relaxed),
+		value(&map, "instrument"),
 		SetValue::Int(5),
 		"the fitted table was not selected"
 	);
+	assert_eq!(value(&map, "derive"), SetValue::Bool(true));
+	assert_eq!(value(&map, "transpose"), SetValue::Int(0));
+	assert!(
+		slot.current().is_some(),
+		"the table never reached the instrument"
+	);
+}
+
+/// A sample posted to the running plug-in is what the instrument plays, which
+/// is the path a page takes: the route, the slot, the parameter map, the
+/// processor, the note.
+#[test]
+fn a_posted_sample_plays_through_the_plugin() {
+	let mut plugin = FittedWeb::new();
+	Plugin::on_activate(&mut plugin, 48_000);
+
+	let wav = recorded_note(44_100);
+	let map = plugin.param_map();
+
+	crate::fitted::sample_route(
+		&ProtocolRequest {
+			method: "POST",
+			path: "/sample",
+			query: Some("name=note_A4_127.wav"),
+			body: &wav,
+		},
+		&map,
+		&plugin.slot(),
+	);
+
+	// The fitted table holds one note; the other key is derived from it, which
+	// is what a single-sample instrument has to do to play a scale.
+	for note in [57, 69] {
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+			events: vec![NoteEvent::NoteOn {
+				channel: 0,
+				note,
+				velocity: 1.0,
+			}],
+			infos: TestContext::new().infos,
+		});
+		let mut peak = 0.0f32;
+
+		for _ in 0..24_000 {
+			let mut frame = [0.0f32; 2];
+			Processor::process(&mut plugin, &mut frame, &[], &mut context);
+			peak = peak.max(frame[0].abs());
+		}
+
+		assert!(peak > 1e-4, "note {note} was silent: {peak}");
+	}
+}
+
+/// A save carries the fitted table, which the parameter map itself cannot hold.
+#[test]
+fn a_fitted_table_is_saved_with_the_parameters() {
+	let mut plugin = FittedWeb::new();
+	let slot = plugin.slot();
+	let table = ImportedTable {
+		name: "note.wav".to_string(),
+		bytes: vec![1, 2, 3],
+	};
+
+	slot.set(table.clone());
+	Plugin::sync_params(&mut plugin);
+
+	let parameters = <FittedWeb as i_am_dsp::prelude::Parameters>::get_parameters(&plugin);
+	let imported = parameters
+		.into_iter()
+		.find(|parameter| parameter.identifier == "imported")
+		.expect("the imported parameter");
+	let SetValue::Serialized(bytes) = imported.value.to_set_value() else {
+		panic!("the table was not serialized");
+	};
+	let saved: Option<ImportedTable> =
+		i_am_dsp::prelude::from_binary(bytes).expect("the table decodes");
+
+	assert_eq!(saved, Some(table));
 }
 
 /// A library file name says which note it holds, in the octave a DAW writes.
