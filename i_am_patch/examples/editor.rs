@@ -276,7 +276,11 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 	let text = String::from_utf8_lossy(&request).to_string();
 	let head_end = text.find("\r\n\r\n").unwrap_or(text.len());
 	let head = &text[..head_end];
-	let body = &text[(head_end + 4).min(text.len())..];
+	// The header is ASCII, so its length is the same in bytes; the body is not
+	// text at all when it is a WAV, so it is sliced from the raw request.
+	let body_start = (head_end + 4).min(request.len());
+	let body_bytes: &[u8] = &request[body_start..];
+	let body = &text[body_start.min(text.len())..];
 	let mut lines = head.lines();
 	let request_line = lines.next().unwrap_or("");
 	let mut parts = request_line.split_whitespace();
@@ -387,6 +391,11 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			)
 		}
 		("POST", "/op") => ("200 OK", "application/json", op(shared, body).to_string()),
+		("POST", path) if path == "/sample" || path.starts_with("/sample?") => (
+			"200 OK",
+			"application/json",
+			sample_route(shared, path, body_bytes).to_string(),
+		),
 		_ => ("404 Not Found", "text/plain", "not found".to_string()),
 	};
 
@@ -552,5 +561,48 @@ fn op_graph(shared: &Shared, value: &Value) -> Value {
 			json!({ "ok": true })
 		}
 		other => json!({ "error": format!("unknown op {other}") }),
+	}
+}
+
+/// Fits one recorded note into a Modal node, the way the product's route does.
+fn sample_route(shared: &Shared, path: &str, body: &[u8]) -> Value {
+	let query = path.split_once('?').map(|(_, query)| query).unwrap_or("");
+	let node = query
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("node="))
+		.and_then(|value| value.parse::<u32>().ok())
+		.unwrap_or(0);
+	let name = query
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("name="))
+		.unwrap_or("sample");
+
+	match i_am_dsp::prelude::fit_sample(body, i_am_dsp::prelude::note_of_name(name)) {
+		Ok(fitted) => {
+			i_am_patch::nodes::table_for(&shared.tables, node).set(
+				i_am_dsp::prelude::ImportedTable {
+					name: name.to_string(),
+					bytes: fitted.bytes,
+				},
+			);
+
+			if let Ok(mut graph) = shared.graph.lock() {
+				let id = i_am_patch::graph::NodeId(node);
+
+				graph.set_param(id, "instrument", 5.0);
+				graph.set_param(id, "derive", 1.0);
+				graph.set_param(id, "transpose", 0.0);
+			}
+
+			shared.generation.fetch_add(1, Ordering::Relaxed);
+
+			json!({
+				"ok": true,
+				"note": fitted.note,
+				"frequency": fitted.frequency,
+				"modes": fitted.modes,
+			})
+		}
+		Err(error) => json!({ "ok": false, "error": error }),
 	}
 }
