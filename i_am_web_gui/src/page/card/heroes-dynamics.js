@@ -375,12 +375,11 @@
       '<line x1="' + lawX.toFixed(1) + '" y1="12" x2="' + lawX.toFixed(1) +
       '" y2="148" stroke="#3a2a2a"/>' +
       '<path d="' + points.join(" ") + '" fill="none" stroke="var(--accent)" ' +
-      'stroke-width="2.2" vector-effect="non-scaling-stroke"/>' +
-      '<text x="' + (lawX + 4).toFixed(1) + '" y="22" fill="#777" font-size="9">' +
-      law.toFixed(0) + ' dB</text>' +
-      '<text x="462" y="140" fill="#777" font-size="9">' +
-      (mode === "limiter" ? "0 dBFS" : ratio.toFixed(1) + ":1") + '</text>'
-    );
+      'stroke-width="2.2" vector-effect="non-scaling-stroke"/>'
+    ) +
+      heroLabel(lawX + 4, 22, law.toFixed(0) + " dB", "color:#777;font-size:9px") +
+      heroLabel(462, 140, mode === "limiter" ? "0 dBFS" : ratio.toFixed(1) + ":1",
+        "color:#777;font-size:9px");
   }
 
   function dynamicsHero(values, mode, context) {

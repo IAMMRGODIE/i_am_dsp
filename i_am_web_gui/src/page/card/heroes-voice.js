@@ -835,7 +835,7 @@
     var model = parseCanvas(state && state.shape);
 
     if (!model) {
-      return heroSvg('<text x="260" y="84" fill="#6a6a6a" font-size="12" text-anchor="middle">no canvas</text>');
+      return heroSvg("") + '<div class="hero-empty">no canvas</div>';
     }
 
     // The page being drawn is the one the morph sits on, the same way the
@@ -1318,8 +1318,7 @@
     var frames = state && state.frames;
 
     if (!frames || !frames.length) {
-      return heroSvg('<text x="260" y="80" fill="#6a6a6a" font-size="12" ' +
-        'text-anchor="middle">no spectrum</text>');
+      return heroSvg("") + '<div class="hero-empty">no spectrum</div>';
     }
 
     var morph = clamp(valueOf(values, "oscillator.morph", 0), 0, 1);

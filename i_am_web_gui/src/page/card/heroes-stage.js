@@ -357,12 +357,14 @@
       path += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
     }
 
+    var labelsHtml = "";
+
     centers.forEach(function (center, band) {
       var x = 20 + Math.log(clamp(center, 20, 20000) / 20) / Math.log(1000) * 480;
       markers += '<line x1="' + x.toFixed(1) + '" y1="12" x2="' + x.toFixed(1) +
-        '" y2="146" stroke="var(--accent)" stroke-opacity=".25" stroke-dasharray="2 4"/>' +
-        '<text x="' + x.toFixed(1) + '" y="' + (14 + band * 12) +
-        '" fill="var(--accent)" font-size="10" text-anchor="middle">F' + (band + 1) + '</text>';
+        '" y2="146" stroke="var(--accent)" stroke-opacity=".25" stroke-dasharray="2 4"/>';
+      labelsHtml += heroLabel(x, 14 + band * 12, "F" + (band + 1),
+        "color:var(--accent);font-size:10px;transform:translateX(-50%)");
     });
 
     return heroSvg(
@@ -370,7 +372,7 @@
       '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
         'vector-effect="non-scaling-stroke"/>' +
       markers
-    ) +
+    ) + labelsHtml +
       '<div class="hero-label" style="left:2%;top:2%">' + vowels[vowel] + '</div>' +
       '<div class="hero-badge">' + (shift > 0 ? "+" : "") + shift.toFixed(0) + ' st</div>';
   }
