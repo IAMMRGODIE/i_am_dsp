@@ -18,6 +18,7 @@
 //   --no-build   serve what is already on disk instead of rebuilding
 //   --synth      the name is an instrument, not an effect (card/compare)
 //   --limit N    build only the first N products (compare-all)
+//   --shot DIR   also screenshot each compare page with headless Chrome (compare-all)
 //
 // The product and rack pages are static: the page fetches the same JSON the
 // plug-in serves over its custom protocol, and this server hands it the files
@@ -26,7 +27,7 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -595,6 +596,42 @@ const COMPARE_PAGE = `<!doctype html>
 </html>
 `;
 
+
+// The browsers a machine may have. Headless Chrome writes the page as it
+// renders it, including the iframes, which is what a compare shot needs.
+const CHROME_CANDIDATES = [
+	process.env.CHROME_PATH,
+	"C:/Program Files/Google/Chrome/Application/chrome.exe",
+	"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+].filter(Boolean);
+
+function chromePath() {
+	return CHROME_CANDIDATES.find((file) => existsSync(file));
+}
+
+function shoot(url, file) {
+	const chrome = chromePath();
+	if (!chrome) throw new Error("no Chrome or Edge found; set CHROME_PATH");
+
+	const profile = path.join(BUILD, "chrome-shot-" + Date.now());
+	execFileSync(
+		chrome,
+		[
+			"--headless=new",
+			"--no-sandbox",
+			"--disable-gpu",
+			"--disable-crashpad",
+			"--no-first-run",
+			"--user-data-dir=" + profile,
+			"--window-size=1600,832",
+			"--virtual-time-budget=5000",
+			"--screenshot=" + file,
+			url,
+		],
+		{ stdio: "ignore" },
+	);
+}
+
 // Serves dir until the process is killed.
 function serve(dir, port, index = "index.html") {
 	const root = path.resolve(dir);
@@ -703,6 +740,8 @@ function serveGallery(dir, port) {
 	server.listen(port, "127.0.0.1", () => {
 		console.log("compare gallery on http://127.0.0.1:" + port + "/  (serving " + root + ")");
 	});
+
+	return server;
 }
 
 function main() {
@@ -762,7 +801,34 @@ function main() {
 			writeFileSync(path.join(dir, "index.html"), galleryPage(chosen));
 		}
 
-		serveGallery(dir, port);
+		const shotDir = flagValue("--shot");
+		const server = serveGallery(dir, port);
+
+		if (shotDir) {
+			const run = () => {
+				mkdirSync(shotDir, { recursive: true });
+
+				for (const { name } of chosen) {
+					const file = path.join(shotDir, name + ".png");
+
+					try {
+						shoot("http://127.0.0.1:" + port + "/p/" + name + "/", file);
+						console.log("shot " + file);
+					} catch (error) {
+						console.error("shot " + name + " failed: " + error.message);
+					}
+				}
+
+				// The shots are the point of this run; the server was only here
+				// to give the browser a page.
+				server.close();
+				process.exit(0);
+			};
+
+			if (server.listening) run();
+			else server.once("listening", run);
+		}
+
 		return;
 	}
 
