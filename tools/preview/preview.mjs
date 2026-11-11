@@ -251,15 +251,70 @@ const CARD_PAGE = `<!doctype html>
     return face;
   }
   Promise.all([fetch("/face").then(r => r.json()), fetch("/state").then(r => r.json())]).then(([face, state]) => {
+    const stage = document.getElementById("card-stage");
+    stage.style.width = Math.min(face.size ? face.size[0] : 620, stage.clientWidth || 620) + "px";
+    const context = {
+      rate: face.rate || 48000,
+      scope: { input: null, output: null, sidechain: null },
+      spectra: {},
+      meter: {},
+      envHistory: { input: [], output: [] },
+      envWindow: 128
+    };
     const card = IAmCard.faceCard({
       face: asCard(face),
       values: state,
-      context: { rate: face.rate || 48000, scope: { input: null, output: null }, spectra: {} },
+      context: context,
       activePage: 0,
       onPage: function () {},
       onEdit: function () {}
     });
-    document.getElementById("card-stage").appendChild(card);
+    stage.appendChild(card);
+
+    // The live routes answer with noise here, so the card's heroes move the
+    // same way the product page's do.
+    function levelOf(samples) {
+      var energy = 0;
+      for (var i = 0; i < samples.length; i++) energy += samples[i] * samples[i];
+      return Math.sqrt(energy / Math.max(samples.length, 1));
+    }
+    function pollLive() {
+      fetch("/scope", { cache: "no-store" })
+        .then(function (response) { return response.arrayBuffer(); })
+        .then(function (buffer) {
+          var data = new Float32Array(buffer);
+          var third = data.length / 3;
+          if (third <= 64) return;
+          context.scope.input = data.subarray(0, third);
+          context.scope.output = data.subarray(third, third * 2);
+          context.scope.sidechain = data.subarray(third * 2);
+          context.envHistory.input.push(levelOf(context.scope.input));
+          context.envHistory.output.push(levelOf(context.scope.output));
+          if (context.envHistory.input.length > context.envWindow) {
+            context.envHistory.input.shift();
+            context.envHistory.output.shift();
+          }
+          card.repaintHero();
+        })
+        .catch(function () {})
+        .then(function () { setTimeout(pollLive, 60); });
+    }
+    pollLive();
+
+    // A drawn spectrum lives outside the parameter map, so the page asks for
+    // it the way the product page does.
+    function pollSpectrum() {
+      fetch("/spectrum", { cache: "no-store" })
+        .then(function (response) { return response.ok ? response.json() : null; })
+        .then(function (state) {
+          if (!state || !state.frames) return;
+          context.spectrum = { generation: state.generation, frames: state.frames, page: 0 };
+          card.repaintHero();
+        })
+        .catch(function () {})
+        .then(function () { setTimeout(pollSpectrum, 1500); });
+    }
+    pollSpectrum();
   });
 </script>
 </html>
@@ -306,15 +361,70 @@ const COMPARE_PAGE = `<!doctype html>
     return face;
   }
   Promise.all([fetch("/face").then(r => r.json()), fetch("/state").then(r => r.json())]).then(([face, state]) => {
+    const stage = document.getElementById("card-stage");
+    stage.style.width = Math.min(face.size ? face.size[0] : 620, stage.clientWidth || 620) + "px";
+    const context = {
+      rate: face.rate || 48000,
+      scope: { input: null, output: null, sidechain: null },
+      spectra: {},
+      meter: {},
+      envHistory: { input: [], output: [] },
+      envWindow: 128
+    };
     const card = IAmCard.faceCard({
       face: asCard(face),
       values: state,
-      context: { rate: face.rate || 48000, scope: { input: null, output: null }, spectra: {} },
+      context: context,
       activePage: 0,
       onPage: function () {},
       onEdit: function () {}
     });
-    document.getElementById("card-stage").appendChild(card);
+    stage.appendChild(card);
+
+    // The live routes answer with noise here, so the card's heroes move the
+    // same way the product page's do.
+    function levelOf(samples) {
+      var energy = 0;
+      for (var i = 0; i < samples.length; i++) energy += samples[i] * samples[i];
+      return Math.sqrt(energy / Math.max(samples.length, 1));
+    }
+    function pollLive() {
+      fetch("/scope", { cache: "no-store" })
+        .then(function (response) { return response.arrayBuffer(); })
+        .then(function (buffer) {
+          var data = new Float32Array(buffer);
+          var third = data.length / 3;
+          if (third <= 64) return;
+          context.scope.input = data.subarray(0, third);
+          context.scope.output = data.subarray(third, third * 2);
+          context.scope.sidechain = data.subarray(third * 2);
+          context.envHistory.input.push(levelOf(context.scope.input));
+          context.envHistory.output.push(levelOf(context.scope.output));
+          if (context.envHistory.input.length > context.envWindow) {
+            context.envHistory.input.shift();
+            context.envHistory.output.shift();
+          }
+          card.repaintHero();
+        })
+        .catch(function () {})
+        .then(function () { setTimeout(pollLive, 60); });
+    }
+    pollLive();
+
+    // A drawn spectrum lives outside the parameter map, so the page asks for
+    // it the way the product page does.
+    function pollSpectrum() {
+      fetch("/spectrum", { cache: "no-store" })
+        .then(function (response) { return response.ok ? response.json() : null; })
+        .then(function (state) {
+          if (!state || !state.frames) return;
+          context.spectrum = { generation: state.generation, frames: state.frames, page: 0 };
+          card.repaintHero();
+        })
+        .catch(function () {})
+        .then(function () { setTimeout(pollSpectrum, 1500); });
+    }
+    pollSpectrum();
   });
 </script>
 </html>

@@ -240,7 +240,7 @@
         applyVisibility();
         edited(modeSpec.id, currentMode);
       }, "mcard-select mcard-mode");
-      head.appendChild(setting("Mode", modeSelect));
+      head.appendChild(setting(modeSpec.label || "Mode", modeSelect));
     }
 
     (options.header || []).forEach(function (id) {
@@ -463,7 +463,7 @@
         applyVisibility();
         edited(modeSpec.id, currentMode);
       }, "mcard-select mcard-mode");
-      head.appendChild(setting("Mode", modeSelect));
+      head.appendChild(setting(modeSpec.label || "Mode", modeSelect));
     }
 
     (face.header || []).forEach(function (id) {
