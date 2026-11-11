@@ -13,6 +13,7 @@ crate-type = ["rlib"]
 # The scripted additive voice needs the Rhai generator.
 i_am_dsp = { workspace = true, features = ["rhai"] }
 i_am_plugin = { workspace = true }
+i_am_effects = { path = "../i_am_effects" }
 i_am_web_gui = { workspace = true }
 # The drawn spectrum pages cross the editor route as JSON.
 serde_json = "1"

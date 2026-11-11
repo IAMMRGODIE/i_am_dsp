@@ -43,3 +43,10 @@ pub(crate) fn voice_patch() -> crate::graph::Graph {
 
 	graph
 }
+
+/// Where a page reads the scripts the running nodes own, by node id.
+pub type Scripts = std::sync::Arc<
+	std::sync::Mutex<
+		std::collections::HashMap<u32, std::sync::Arc<dyn i_am_effects::ScriptSource>>,
+	>,
+>;

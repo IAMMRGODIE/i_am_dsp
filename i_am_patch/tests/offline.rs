@@ -408,7 +408,9 @@ fn a_control_node_moves_and_an_envelope_follows() {
 fn a_scripted_node_hands_out_its_worker() {
 	let mut graph = Graph::new();
 	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
-	let mapper = graph.add_node("mod:script_mapper", (100.0, 0.0)).expect("mapper");
+	let mapper = graph
+		.add_node("mod:script_mapper", (100.0, 0.0))
+		.expect("mapper");
 	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
 	graph.connect((input, 0), (mapper, 0));
 	graph.connect((mapper, 0), (out, 0));
@@ -416,7 +418,10 @@ fn a_scripted_node_hands_out_its_worker() {
 	let engine = Engine::new(&graph, 48_000).expect("engine builds");
 
 	assert!(
-		engine.script_sources().iter().any(|(id, _)| *id == mapper.0),
+		engine
+			.script_sources()
+			.iter()
+			.any(|(id, _)| *id == mapper.0),
 		"the mapper's worker is not reachable from the engine"
 	);
 }

@@ -116,7 +116,12 @@ pub fn make(
 				"drummer" => Box::new(SynthNode::<DrummerWeb>::new(rate)),
 				"fitted" => Box::new(SynthNode::<FittedWeb>::new(rate)),
 				"sampler" => Box::new(SynthNode::<SamplerWeb>::new(rate)),
-				"script" => Box::new(SynthNode::<ScriptWeb>::new(rate)),
+				"script" => {
+					let inner = ScriptWeb::default();
+					let feed = inner.feed();
+
+					Box::new(SynthNode::with_script(inner, feed, rate))
+				}
 				"shapes" => Box::new(SynthNode::<ShapesWeb>::new(rate)),
 				"spectrum" => Box::new(SynthNode::<SpectrumWeb>::new(rate)),
 				"strings" => Box::new(SynthNode::<StringWeb>::new(rate)),
@@ -605,6 +610,8 @@ struct SynthNode<P: Default + Plugin> {
 	kinds: BTreeMap<String, ParamKind>,
 	/// Whether the map moved since the last block.
 	dirty: bool,
+	/// The script the product runs, when it is a scripted one.
+	script: Option<std::sync::Arc<dyn i_am_effects::ScriptSource>>,
 }
 
 impl<P: Default + Plugin> SynthNode<P> {
@@ -617,11 +624,33 @@ impl<P: Default + Plugin> SynthNode<P> {
 			inner,
 			kinds,
 			dirty: false,
+			script: None,
+		}
+	}
+
+	/// A synth whose page edits the script it runs.
+	fn with_script(
+		mut inner: P,
+		script: std::sync::Arc<dyn i_am_effects::ScriptSource>,
+		rate: usize,
+	) -> Self {
+		inner.on_activate(rate);
+		let kinds = parameter_kinds(&inner.get_parameters());
+
+		Self {
+			inner,
+			kinds,
+			dirty: false,
+			script: Some(script),
 		}
 	}
 }
 
 impl<P: Default + Plugin> BlockNode for SynthNode<P> {
+	fn script_source(&self) -> Option<std::sync::Arc<dyn i_am_effects::ScriptSource>> {
+		self.script.clone()
+	}
+
 	fn set_param(&mut self, name: &str, value: f32) {
 		// A synth keeps its parameters in a shared map and reads them back on the
 		// next block: write the map, then push it into the effect. The map refuses

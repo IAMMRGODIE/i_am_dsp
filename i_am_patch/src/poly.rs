@@ -50,6 +50,8 @@ struct Voice {
 pub struct Poly {
 	outer: Engine,
 	voice_graph: Graph,
+	/// Where a page reads the scripts the voices own, by node id.
+	scripts: Option<crate::Scripts>,
 	rate: usize,
 	out: NodeId,
 	voice_latency: usize,
@@ -59,6 +61,19 @@ pub struct Poly {
 }
 
 impl Poly {
+	/// Where a page reads the scripts the voices own. The outer engine's own
+	/// scripts are registered here; a voice adds its own as it is built.
+	pub fn set_scripts(&mut self, scripts: crate::Scripts) {
+		{
+			let mut map = scripts.lock().expect("the script lock");
+			for (node, script) in self.outer.script_sources() {
+				map.insert(node, script);
+			}
+		}
+
+		self.scripts = Some(scripts);
+	}
+
 	/// Splits the graph and builds the outer engine.
 	pub fn new(graph: &Graph, rate: usize) -> Result<Self, EngineError> {
 		let group = voice_group(graph);
@@ -156,6 +171,7 @@ impl Poly {
 			.unwrap_or(0);
 
 		Ok(Self {
+			scripts: None,
 			outer: Engine::new(&outer, rate)?,
 			voice_graph,
 			rate,
@@ -283,6 +299,13 @@ impl Poly {
 					}
 
 					if let Ok(engine) = Engine::new(&self.voice_graph, self.rate) {
+						if let Some(scripts) = &self.scripts {
+							let mut scripts = scripts.lock().expect("the script lock");
+							for (node, script) in engine.script_sources() {
+								scripts.insert(node, script);
+							}
+						}
+
 						self.voices.push(Voice {
 							engine,
 							pending: vec![event.clone()],

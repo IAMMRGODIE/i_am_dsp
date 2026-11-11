@@ -115,7 +115,7 @@ pub(crate) struct ScriptState {
 }
 
 /// The page's script and the audio thread's copy of it.
-pub(crate) struct ScriptFeed {
+pub struct ScriptFeed {
 	generation: AtomicU64,
 	state: Mutex<ScriptState>,
 	preview: Mutex<ScriptPreview>,
@@ -249,6 +249,15 @@ impl ScriptFeed {
 			applied,
 			spectrum
 		)
+	}
+
+	/// The source the feed is running.
+	pub fn source(&self) -> String {
+		self.state
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.source
+			.clone()
 	}
 
 	/// Compiles a posted body and queues it for the audio thread.
@@ -409,6 +418,13 @@ pub struct ScriptWeb {
 	feed: Arc<ScriptFeed>,
 }
 
+impl ScriptWeb {
+	/// The feed the page edits.
+	pub fn feed(&self) -> Arc<dyn i_am_effects::ScriptSource> {
+		self.feed.clone()
+	}
+}
+
 impl Default for ScriptWeb {
 	fn default() -> Self {
 		let feed = ScriptFeed::new();
@@ -523,5 +539,15 @@ impl Plugin for ScriptWeb {
 			move |request: &ProtocolRequest<'_>| script_route(request, &feed),
 			|_: &str| false,
 		)
+	}
+}
+
+impl i_am_effects::ScriptSource for ScriptFeed {
+	fn script_source(&self) -> String {
+		self.source()
+	}
+
+	fn set_script_source(&self, source: String) {
+		let _ = self.apply(source);
 	}
 }
