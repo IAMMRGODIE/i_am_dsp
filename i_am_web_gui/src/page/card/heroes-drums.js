@@ -37,7 +37,7 @@
       '<text x="462" y="148" fill="#5f5f5f" font-size="8">250 ms</text>';
 
     if (!points || points.length < 2) {
-      return heroSvg(grid) + '<div class="hero-empty">Waiting for the curve...</div>';
+      return heroSvgMeet(grid) + '<div class="hero-empty">Waiting for the curve...</div>';
     }
 
     var sorted = points.slice().sort(function (a, b) { return a[0] - b[0]; });
