@@ -8,6 +8,7 @@
 //   node tools/preview/preview.mjs product gain     one product's real faceplate
 //   node tools/preview/preview.mjs card gain        the same face as a patch card
 //   node tools/preview/preview.mjs compare gain     product page and card side by side
+//   node tools/preview/preview.mjs compare-all      every product, one picker page
 //   node tools/preview/preview.mjs rack             the Multipass page
 //   node tools/preview/preview.mjs patch            the patcher's live editor
 //
@@ -16,6 +17,7 @@
 //   --dir DIR    where to build the static preview (default target/preview/<mode>)
 //   --no-build   serve what is already on disk instead of rebuilding
 //   --synth      the name is an instrument, not an effect (card/compare)
+//   --limit N    build only the first N products (compare-all)
 //
 // The product and rack pages are static: the page fetches the same JSON the
 // plug-in serves over its custom protocol, and this server hands it the files
@@ -235,6 +237,63 @@ function liveRoute(url, response, request) {
 }
 
 
+
+// The product names the dump examples know: the effects' match arms and the
+// instruments (strings is the synth dump's fallback, so it is listed by hand).
+function productNames() {
+	const effects = [...readFileSync(path.join(REPO, "i_am_effects/examples/dump_face.rs"), "utf8")
+		.matchAll(/"([a-z0-9_]+)" =>/g)].map((match) => match[1]);
+	const synths = [...readFileSync(path.join(REPO, "i_am_synths/examples/dump_synths.rs"), "utf8")
+		.matchAll(/"([a-z0-9_]+)" =>/g)].map((match) => match[1]);
+
+	return {
+		effects,
+		synths: [...new Set(["strings", ...synths])],
+	};
+}
+
+// Builds one product's compare page into dir.
+function buildCompare(name, synth, dir) {
+	mkdirSync(dir, { recursive: true });
+	cargo([
+		"run", "-q", "-p", synth ? "i_am_synths" : "i_am_effects",
+		"--example", synth ? "dump_synths" : "dump_face", "--", dir, name,
+	]);
+	refreshAssets(dir, "faceplate");
+	copyFileSync(path.join(REPO, "i_am_patch/src/page/patcher.css"), path.join(dir, "patcher.css"));
+	const product = path.join(dir, "product");
+	mkdirSync(product, { recursive: true });
+	copyFileSync(path.join(REPO, "i_am_web_gui/src/page/index.html"), path.join(product, "index.html"));
+	writeFileSync(path.join(dir, "index.html"), COMPARE_PAGE);
+}
+
+// A page that opens one product's compare view at a time. Every product lives
+// under /p/<name>/, and the server routes /face and /state by the referrer.
+function galleryPage(products) {
+	const rows = products
+		.map(({ name, synth }) => `    <li><a href="/p/${name}/">${name}<small>${synth ? "instrument" : "effect"}</small></a></li>`)
+		.join("\n");
+
+	return `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Compare</title>
+<style>
+  body{margin:0;padding:24px;background:#141414;color:#ddd;font:13px system-ui,sans-serif}
+  h1{font-size:16px;font-weight:600;margin:0 0 16px}
+  ul{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;list-style:none;margin:0;padding:0}
+  a{display:flex;justify-content:space-between;padding:8px 10px;border:1px solid #2a2a2a;border-radius:6px;color:#ddd;text-decoration:none}
+  a:hover{border-color:#444;background:#1c1c1c}
+  small{color:#777}
+</style>
+<h1>Compare: product page and patch card</h1>
+<ul>
+${rows}
+</ul>
+</html>
+`;
+}
+
 // The same face, drawn the way a patcher node or a rack module draws it.
 const CARD_PAGE = `<!doctype html>
 <html lang="en">
@@ -400,7 +459,7 @@ const COMPARE_PAGE = `<!doctype html>
   #card-stage .mcard{width:100%;height:100%}
 </style>
 <div id="panes">
-  <div class="pane"><div class="label">product page</div><div class="body"><iframe src="/product/index.html"></iframe></div></div>
+  <div class="pane"><div class="label">product page</div><div class="body"><iframe src="product/index.html"></iframe></div></div>
   <div class="pane"><div class="label">patch card</div><div class="body"><div id="card-stage" class="card-host"></div></div></div>
 </div>
 <script src="/card.js"></script>
@@ -582,6 +641,70 @@ function serve(dir, port, index = "index.html") {
 	});
 }
 
+
+// Serves the compare gallery: every product under /p/<name>/, and the /face
+// and /state a page fetches absolutely resolved by the referrer.
+function serveGallery(dir, port) {
+	const root = path.resolve(dir);
+	const server = createServer((request, response) => {
+		const url = decodeURIComponent((request.url || "/").split("?")[0]);
+
+		if (liveRoute(url, response, request)) return;
+
+		const referer = request.headers.referer || "";
+		const match = referer.match(/\/p\/([^/]+)\//);
+		const productRoot = match ? path.join(root, "p", match[1]) : null;
+		const wanted = url === "/" ? "/index.html" : url.endsWith("/") ? url + "index.html" : url;
+		let file = path.join(root, wanted);
+		let body;
+
+		try {
+			body = readFileSync(file);
+		} catch {
+			body = null;
+		}
+
+		// The page's own routes are absolute; the referrer says which product.
+		if (!body && productRoot) {
+			try {
+				file = path.join(productRoot, wanted);
+				body = readFileSync(file);
+			} catch {
+				body = null;
+			}
+		}
+
+		if (!body) {
+			response.writeHead(404, { "content-type": "text/plain" });
+			response.end("not in the gallery: " + wanted + "\n");
+			return;
+		}
+
+		if (!path.resolve(file).startsWith(root)) {
+			response.writeHead(403).end();
+			return;
+		}
+
+		response.writeHead(200, {
+			"content-type": MIME[path.extname(file)] || "application/octet-stream",
+			"cache-control": "no-store",
+		});
+		response.end(body);
+	});
+
+	server.on("error", (error) => {
+		if (error.code === "EADDRINUSE") {
+			console.error("port " + port + " is busy; pass --port to pick another");
+			process.exit(1);
+		}
+		throw error;
+	});
+
+	server.listen(port, "127.0.0.1", () => {
+		console.log("compare gallery on http://127.0.0.1:" + port + "/  (serving " + root + ")");
+	});
+}
+
 function main() {
 	const args = process.argv.slice(2);
 	const flagValue = (flag) => {
@@ -595,6 +718,7 @@ function main() {
 		const before = args[at - 1];
 		return before !== "--port" && before !== "--dir";
 	}) || "cards";
+
 
 	if (mode === "patch") {
 		// The patcher edits a live graph, so it runs its own server. This mode is a
@@ -612,6 +736,36 @@ function main() {
 		: mode === "cards"
 			? GALLERY
 			: path.join(BUILD, mode);
+
+	if (mode === "compare-all") {
+		const names = productNames();
+		const list = [
+			...names.effects.map((name) => ({ name, synth: false })),
+			...names.synths.map((name) => ({ name, synth: true })),
+		];
+		const limit = Number(flagValue("--limit") || 0);
+		const chosen = limit > 0 ? list.slice(0, limit) : list;
+
+		if (!noBuild) {
+			mkdirSync(dir, { recursive: true });
+
+			for (const { name, synth } of chosen) {
+				buildCompare(name, synth, path.join(dir, "p", name));
+				console.log("built " + name);
+			}
+
+			const first = path.join(dir, "p", chosen[0].name);
+			for (const asset of ["card.css", "card.js", "kit.css", "kit.js", "patcher.css"]) {
+				copyFileSync(path.join(first, asset), path.join(dir, asset));
+			}
+
+			writeFileSync(path.join(dir, "index.html"), galleryPage(chosen));
+		}
+
+		serveGallery(dir, port);
+		return;
+	}
+
 
 	if (mode === "cards") {
 		const written = noBuild ? [] : refreshAssets(dir, "gallery");
@@ -690,7 +844,7 @@ function main() {
 	}
 
 	console.error("unknown mode: " + mode);
-	console.error("usage: preview.mjs [cards|product <name>|card <name>|compare <name>|rack|patch] [--port N] [--dir DIR] [--no-build] [--synth]");
+	console.error("usage: preview.mjs [cards|product <name>|card <name>|compare <name>|compare-all|rack|patch] [--port N] [--dir DIR] [--no-build] [--synth] [--limit N]");
 	process.exit(2);
 }
 
