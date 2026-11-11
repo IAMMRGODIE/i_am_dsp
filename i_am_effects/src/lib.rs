@@ -31,6 +31,8 @@ pub mod pitch;
 pub mod reverb;
 mod schroeder;
 mod script;
+
+pub use script::ScriptSource;
 mod script_distortion;
 mod script_mapper;
 mod shifter;

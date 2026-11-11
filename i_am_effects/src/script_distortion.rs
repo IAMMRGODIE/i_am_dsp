@@ -378,6 +378,11 @@ pub struct ScriptDistortionWeb {
 }
 
 impl ScriptDistortionWeb {
+	/// The worker the page edits.
+	pub fn worker(&self) -> Arc<dyn crate::ScriptSource> {
+		self.worker.clone()
+	}
+
 	/// The faceplate size this product declares to a host.
 	pub const fn size() -> (f32, f32) {
 		(700.0, 560.0)

@@ -105,6 +105,15 @@ struct ScriptRequest {
 	shutdown: bool,
 }
 
+/// The source of a script a page edits from outside the product's own editor:
+/// the patcher's node cards reach a scripted node through this.
+pub trait ScriptSource: Send + Sync {
+	/// The source the worker is running.
+	fn script_source(&self) -> String;
+	/// Replaces the source; the worker recompiles it.
+	fn set_script_source(&self, source: String);
+}
+
 /// The script, its status, and the table the audio thread reads.
 ///
 /// The worker thread owns the Rhai engine; this struct only shares the values the
@@ -120,6 +129,16 @@ pub struct ScriptWorker<T: Send + Sync + 'static> {
 	compiled_generation: Arc<AtomicU64>,
 	requests: Sender<ScriptRequest>,
 	handle: Mutex<Option<std::thread::JoinHandle<()>>>,
+}
+
+impl<T: Send + Sync + 'static> ScriptSource for ScriptWorker<T> {
+	fn script_source(&self) -> String {
+		self.source()
+	}
+
+	fn set_script_source(&self, source: String) {
+		self.set_source(source);
+	}
 }
 
 impl<T: Send + Sync + 'static> ScriptWorker<T> {
