@@ -61,6 +61,16 @@ pub struct Poly {
 }
 
 impl Poly {
+	/// Drops the tail the node with this id is holding, in the outer graph and
+	/// in every voice.
+	pub fn clear_tail(&mut self, node: u32) {
+		self.outer.clear_tail(node);
+
+		for voice in &mut self.voices {
+			voice.engine.clear_tail(node);
+		}
+	}
+
 	/// Where a page reads the scripts the voices own. The outer engine's own
 	/// scripts are registered here; a voice adds its own as it is built.
 	pub fn set_scripts(&mut self, scripts: crate::Scripts) {

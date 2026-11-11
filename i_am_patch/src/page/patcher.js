@@ -517,6 +517,10 @@
       face: kind,
       values: node.params,
       context,
+      clear: !!kind.clear,
+      onClear: () => {
+        fetch("/clear?node=" + node.id, { method: "POST" }).catch(() => {});
+      },
       script: !!kind.script,
       loadScript: () => {
         fetch("/script?node=" + node.id)

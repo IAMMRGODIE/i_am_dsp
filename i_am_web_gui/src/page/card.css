@@ -425,3 +425,12 @@
 .mcard-section{flex:0 0 auto; min-width:0; display:flex; flex-direction:column; gap:4px}
 .mcard-section .mcard-hero{min-height:0}
 .mcard-section-caption{font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--text3); padding:0 2px}
+
+.mcard-clear{
+  height:22px; padding:0 8px; font:inherit; font-size:9px; letter-spacing:.1em;
+  color:var(--text3); background:transparent; border:1px solid #3a3a3a;
+  border-radius:5px; cursor:pointer;
+  transition:color .12s, border-color .12s, background-color .12s;
+}
+.mcard-clear:hover{color:var(--text1); border-color:#4a4a4a}
+.mcard-clear.cleared{color:#111; background:var(--accent); border-color:var(--accent)}

@@ -106,6 +106,13 @@ macro_rules! product {
 				} else {
 					*samples
 				};
+				// A clear request from the page runs before the block it belongs to.
+				if let Ok(mut clears) = self.0.shared.clear_requests.try_lock() {
+					for node in clears.drain(..) {
+						self.0.body.clear_tail(node);
+					}
+				}
+
 				let sidechain = other.get(1).copied().unwrap_or([0.0; 2]);
 				let out = self.0.body.process(input, sidechain);
 

@@ -92,6 +92,13 @@ pub struct Engine {
 
 impl Engine {
 	/// Compiles a graph and builds its nodes.
+	/// Drops the tail the node with this id is holding.
+	pub fn clear_tail(&mut self, node: u32) {
+		if let Some(step) = self.steps.get(&NodeId(node)) {
+			self.nodes[*step].clear_tail();
+		}
+	}
+
 	/// The scripts the running nodes own, by node id, for the page's editor.
 	pub fn script_sources(&self) -> Vec<(u32, std::sync::Arc<dyn i_am_effects::ScriptSource>)> {
 		self.steps

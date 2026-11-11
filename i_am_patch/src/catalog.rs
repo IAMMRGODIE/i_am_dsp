@@ -52,6 +52,7 @@ fn kind_json(kind: &NodeDesc) -> Value {
 	let mut grouped: Vec<Value> = Vec::new();
 	let mut title: Option<String> = None;
 	let mut script = false;
+	let mut clear = false;
 
 	if let Some(module) = product_module(kind.id)
 		&& let Some(descriptor) = i_am_effects::catalog::get(module)
@@ -82,6 +83,10 @@ fn kind_json(kind: &NodeDesc) -> Value {
 		grouped = sections_json(&sections, &[]);
 		pages = pages_json(descriptor_pages(module), &sections);
 		script = matches!(module, "script_mapper" | "script_distortion");
+		clear = matches!(
+			module,
+			"convolver" | "delay" | "reverb" | "schroeder" | "ir_reverb"
+		);
 	}
 
 	// A synth product takes its card from its own faceplate and schema.
@@ -110,6 +115,7 @@ fn kind_json(kind: &NodeDesc) -> Value {
 		pages = pages_json(faceplate.pages.unwrap_or(&[]), &sections);
 		let hidden = faceplate.hidden.unwrap_or(&[]);
 		script = faceplate.script;
+		clear = faceplate.clear;
 		grouped = sections_json(&sections, hidden);
 
 		for section in &sections {
@@ -171,6 +177,7 @@ fn kind_json(kind: &NodeDesc) -> Value {
 		"pages": pages,
 		"sections": grouped,
 		"script": script,
+		"clear": clear,
 	})
 }
 

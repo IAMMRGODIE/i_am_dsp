@@ -213,6 +213,12 @@ function liveRoute(url, response, request) {
 		return true;
 	}
 
+	if (url === "/clear") {
+		response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+		response.end(JSON.stringify({ ok: true }));
+		return true;
+	}
+
 	if (url === "/note") {
 		response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
 		response.end(JSON.stringify({ note: -1 }));
@@ -285,6 +291,10 @@ const CARD_PAGE = `<!doctype html>
       face: asCard(face),
       values: state,
       context: context,
+      clear: !!face.clear,
+      onClear: function () {
+        fetch("/clear", { method: "POST" }).catch(function () {});
+      },
       script: !!face.script,
       loadScript: function () {
         fetch("/script", { cache: "no-store" })
@@ -420,6 +430,10 @@ const COMPARE_PAGE = `<!doctype html>
       face: asCard(face),
       values: state,
       context: context,
+      clear: !!face.clear,
+      onClear: function () {
+        fetch("/clear", { method: "POST" }).catch(function () {});
+      },
       script: !!face.script,
       loadScript: function () {
         fetch("/script", { cache: "no-store" })

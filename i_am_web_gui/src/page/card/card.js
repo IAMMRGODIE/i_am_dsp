@@ -495,6 +495,22 @@
       head.appendChild(control.classList.contains("mcard-dot") ? settingAfter(control, spec.label) : setting(spec.label, control));
     });
 
+    if (options.clear || face.clear) {
+      var clear = document.createElement("button");
+      clear.type = "button";
+      clear.className = "mcard-clear";
+      clear.textContent = "CLEAR";
+      clear.title = "Stop the tail immediately";
+      clear.addEventListener("click", function () {
+        if (options.onClear) options.onClear();
+        else fetch("/clear", { method: "POST" }).catch(function () {});
+
+        clear.classList.add("cleared");
+        setTimeout(function () { clear.classList.remove("cleared"); }, 600);
+      });
+      head.appendChild(clear);
+    }
+
     card.appendChild(head);
 
     var tabs = null;

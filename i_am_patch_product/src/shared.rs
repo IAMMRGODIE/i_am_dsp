@@ -28,6 +28,8 @@ pub struct PatcherShared {
 	pub error: Mutex<Option<String>>,
 	/// The scripts the running nodes own, by node id, for the page's editor.
 	pub scripts: i_am_patch::Scripts,
+	/// The nodes the page asked to clear their tail, drained by the audio thread.
+	pub clear_requests: Mutex<Vec<u32>>,
 }
 
 /// One watched node and the ring its output goes into.
@@ -49,6 +51,7 @@ impl Default for PatcherShared {
 			phases: Mutex::new(Vec::new()),
 			error: Mutex::new(None),
 			scripts: Default::default(),
+			clear_requests: Mutex::new(Vec::new()),
 		}
 	}
 }
@@ -222,6 +225,17 @@ impl Body {
 		body.rebuild();
 
 		body
+	}
+
+	/// Drops the tail the node with this id is holding.
+	pub fn clear_tail(&mut self, node: u32) {
+		if let Some(engine) = &mut self.engine {
+			engine.clear_tail(node);
+		}
+
+		if let Some(poly) = &mut self.poly {
+			poly.clear_tail(node);
+		}
 	}
 
 	fn rebuild(&mut self) {

@@ -14,6 +14,21 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 		("GET", "/status") => Some(ProtocolResponse::json(
 			json!({ "error": shared.error() }).to_string(),
 		)),
+		("POST", "/clear") => {
+			let node = request
+				.query
+				.unwrap_or("")
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("node="))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			if let Ok(mut clears) = shared.clear_requests.lock() {
+				clears.push(node);
+			}
+
+			Some(ProtocolResponse::json(json!({ "ok": true }).to_string()))
+		}
 		("GET", "/script") | ("POST", "/script") => {
 			let node = request
 				.query

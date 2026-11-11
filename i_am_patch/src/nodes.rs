@@ -39,6 +39,9 @@ pub trait BlockNode: Send + Sync {
 	fn script_source(&self) -> Option<std::sync::Arc<dyn i_am_effects::ScriptSource>> {
 		None
 	}
+
+	/// Drops the tail a reverb or delay is holding, for the card's clear button.
+	fn clear_tail(&mut self) {}
 }
 
 /// What kind of value a parameter takes, from its declared value.
@@ -214,6 +217,10 @@ impl ProductNode {
 impl BlockNode for ProductNode {
 	fn script_source(&self) -> Option<std::sync::Arc<dyn i_am_effects::ScriptSource>> {
 		self.script.clone()
+	}
+
+	fn clear_tail(&mut self) {
+		self.effect.clear_tail();
 	}
 
 	fn set_param(&mut self, name: &str, value: f32) {
