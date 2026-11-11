@@ -383,6 +383,7 @@ const CARD_PAGE = `<!doctype html>
     box.style.width = faceWidth + "px";
     box.style.height = faceHeight + "px";
     box.style.transformOrigin = "top center";
+    box.style.flex = "0 0 auto";
     const productFace =
       product && product.contentDocument && product.contentDocument.querySelector(".face");
     const fit = productFace
@@ -391,6 +392,36 @@ const CARD_PAGE = `<!doctype html>
     box.style.transform = "scale(" + fit + ")";
     box.appendChild(card);
     stage.appendChild(box);
+
+    // The product page sizes its face after its own scripts run; refit once it
+    // has, so both sides wrap their controls the same way.
+    function syncFit() {
+      const pf =
+        product && product.contentDocument && product.contentDocument.querySelector(".face");
+
+      if (!pf) return;
+
+      const rect = pf.getBoundingClientRect();
+      const next = rect.width / faceWidth;
+
+      if (next > 0) {
+        box.style.transform = "scale(" + next + ")";
+        box.style.height = rect.height / next + "px";
+      }
+    }
+
+    if (product) {
+      product.addEventListener("load", syncFit);
+
+      // The product page sizes its face a few frames after load; refit until it
+      // settles so both sides end up the same width.
+      let fitTries = 0;
+      const fitTimer = setInterval(function () {
+        syncFit();
+
+        if (++fitTries > 10) clearInterval(fitTimer);
+      }, 400);
+    }
 
     // The live routes answer with noise here, so the card's heroes move the
     // same way the product page's do.
@@ -538,6 +569,7 @@ const COMPARE_PAGE = `<!doctype html>
     box.style.width = faceWidth + "px";
     box.style.height = faceHeight + "px";
     box.style.transformOrigin = "top center";
+    box.style.flex = "0 0 auto";
     const productFace =
       product && product.contentDocument && product.contentDocument.querySelector(".face");
     const fit = productFace
@@ -546,6 +578,36 @@ const COMPARE_PAGE = `<!doctype html>
     box.style.transform = "scale(" + fit + ")";
     box.appendChild(card);
     stage.appendChild(box);
+
+    // The product page sizes its face after its own scripts run; refit once it
+    // has, so both sides wrap their controls the same way.
+    function syncFit() {
+      const pf =
+        product && product.contentDocument && product.contentDocument.querySelector(".face");
+
+      if (!pf) return;
+
+      const rect = pf.getBoundingClientRect();
+      const next = rect.width / faceWidth;
+
+      if (next > 0) {
+        box.style.transform = "scale(" + next + ")";
+        box.style.height = rect.height / next + "px";
+      }
+    }
+
+    if (product) {
+      product.addEventListener("load", syncFit);
+
+      // The product page sizes its face a few frames after load; refit until it
+      // settles so both sides end up the same width.
+      let fitTries = 0;
+      const fitTimer = setInterval(function () {
+        syncFit();
+
+        if (++fitTries > 10) clearInterval(fitTimer);
+      }, 400);
+    }
 
     // The live routes answer with noise here, so the card's heroes move the
     // same way the product page's do.

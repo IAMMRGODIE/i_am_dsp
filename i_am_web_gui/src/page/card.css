@@ -418,6 +418,7 @@
 /* A face with several sections draws one hero per section, side by side. */
 .mcard-sections{
   display:flex; flex-direction:column; gap:12px; min-height:0;
+  flex:1 1 auto;
   padding:12px;
 }
 /* The faceplate insets a section's picture and controls the same way. */
