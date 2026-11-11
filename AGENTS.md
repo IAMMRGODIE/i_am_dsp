@@ -158,6 +158,10 @@ node tools/preview/preview.mjs patch          # patcher 的实时编辑器
 
 ## 容易踩的坑
 
+- **序列化参数不能从页面写**：`Value::Serialized` 在 `ParamMap` 里是 `AtomicValue::Nothing`，
+  `ParamMap::set("imported", SetValue::Serialized(...))` 会**返回 false 且什么都不发生**。
+  页面要传表/采样/曲线，照 sampler / shapes 的做法用 `Arc<Mutex<...>>` 槽交给音频线程，
+  存档时再从槽里拷进参数（见 `I Am Modal` 的 `TableSlot`）。
 - **WebView2 仅 Windows**：其他平台能编译、只是打开编辑器会报错。不要在非 Windows 上加半套实现。
 - **WebView2 需要可写 profile**：默认 `%LOCALAPPDATA%\i_am_plugin_wry\WebView2-v2`；
   打不开先看 `%TEMP%\i_am_plugin_wry\last-error.log` 与 `open.log`。

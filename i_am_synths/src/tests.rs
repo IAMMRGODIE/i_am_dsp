@@ -701,6 +701,15 @@ fn the_modal_face_has_its_hero() {
 	let face = i_am_web_gui::face_json(&FittedWeb::new(), &fitted_faceplate());
 	assert!(face.contains("\"hero\":\"modal\""), "{face}");
 	assert!(face.contains("\"id\":\"attack\""), "{face}");
+	// A sample fitted an octave off is fixed with the transpose, so it has to be
+	// on the face, and it has to step in semitones from a centre of zero.
+	assert!(face.contains("\"id\":\"transpose\""), "{face}");
+	assert!(
+		face.contains("\"min\":-24,\"max\":24,\"default\":0"),
+		"{face}"
+	);
+	assert!(face.contains("\"bipolar\":true"), "{face}");
+	assert!(face.contains("\"step\":1,"), "{face}");
 	// The instrument picker lives in the header and offers every table.
 	assert!(face.contains("\"header\":["), "{face}");
 	assert!(face.contains("\"instrument\""), "{face}");

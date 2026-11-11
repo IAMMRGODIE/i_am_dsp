@@ -401,7 +401,12 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   最小二乘的 Gram 矩阵是阻尼正弦的几何级数，有闭式解，所以一次拟合是几百毫秒而不是几十秒；
   `cargo run -p i_am_dsp --release --example fit_sample -- sample.wav out.bin [note]` 是同一段代码的命令行入口。
 
-一个采样只提供自己那个音；其余键在播放时按对数音高从它派生（`derive`），所以单采样也能弹音阶。
+一个采样只提供自己那个音；其余键在播放时按对数音高从它派生（`derive`，导入时自动打开），
+所以单采样也能弹音阶。`transpose`（-24..+24 半音）整体移调，用来修拟合时差一个八度的采样。
+
+表**不走参数表**：`Value::Serialized` 在 `ParamMap` 里是 `AtomicValue::Nothing`，界面线程写不进去。
+路由把表放进 `TableSlot`（与音频线程共享），乐器每弹一个音从槽里取；存档前 `sync_params` 再把槽
+拷进 `imported` 参数，所以工程里仍然带着这张表。
 
 ### 6.3 `i_am_patch` + `i_am_patch_product`（2 个产品）
 
