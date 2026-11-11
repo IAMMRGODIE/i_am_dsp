@@ -653,14 +653,16 @@
     }
 
     if (spec.widget === "choice" || (spec.kind === "int" && spec.choices && spec.choices.length)) {
-      var choiceRow = document.createElement("div");
-      choiceRow.className = "mcard-row";
-      var choiceLabel = document.createElement("span");
-      choiceLabel.className = "mcard-row-label";
+      // The product page stacks a choice's label above its select; the card
+      // keeps the same column so the rows wrap the same way.
+      var choice = document.createElement("div");
+      choice.className = "mcard-choice";
+      var choiceLabel = document.createElement("div");
+      choiceLabel.className = "mcard-choice-label";
       choiceLabel.textContent = spec.label;
-      choiceRow.appendChild(choiceLabel);
-      choiceRow.appendChild(makeChoice(spec, value, onEdit));
-      return choiceRow;
+      choice.appendChild(choiceLabel);
+      choice.appendChild(makeChoice(spec, value, onEdit));
+      return choice;
     }
 
     return makeKnob(spec, value, onEdit).el;

@@ -252,9 +252,12 @@ const CARD_PAGE = `<!doctype html>
 <script>
   // /face describes a product page; a card takes the flat controls list.
   function asCard(face) {
+    var hidden = face.hidden || [];
     var controls = [];
     (face.sections || []).forEach(function (section) {
-      section.controls = (section.params || []).map(function (p) {
+      section.controls = (section.params || []).filter(function (p) {
+        return hidden.indexOf(p.id) < 0;
+      }).map(function (p) {
         return {
           id: p.id, label: p.label, kind: p.kind, unit: p.unit,
           min: p.min, max: p.max, default: p.default,
@@ -403,9 +406,12 @@ const COMPARE_PAGE = `<!doctype html>
 <script src="/card.js"></script>
 <script>
   function asCard(face) {
+    var hidden = face.hidden || [];
     var controls = [];
     (face.sections || []).forEach(function (section) {
-      section.controls = (section.params || []).map(function (p) {
+      section.controls = (section.params || []).filter(function (p) {
+        return hidden.indexOf(p.id) < 0;
+      }).map(function (p) {
         return {
           id: p.id, label: p.label, kind: p.kind, unit: p.unit,
           min: p.min, max: p.max, default: p.default,

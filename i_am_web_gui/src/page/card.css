@@ -107,9 +107,9 @@
 }
 .mcard-graph{width:100%; height:100%; display:block}
 .mcard-body{
-  display:flex; flex-wrap:wrap; justify-content:center; align-items:flex-start;
+  display:flex; flex-wrap:wrap; justify-content:space-around; align-items:flex-start;
   flex:0 0 auto;
-  gap:8px 8px; padding:10px 0 0;
+  gap:8px 8px; padding:0;
 }
 .mcard-row{
   display:flex; align-items:center; gap:8px; align-self:center;
@@ -156,7 +156,7 @@
 .knob:focus-visible .knob-bg{stroke:var(--accent)}
 .knob-label{
   margin-top:5px; color:var(--text2); font-size:11px;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap;
 }
 .knob-value{
   margin-top:1px; color:var(--text1); font-family:var(--mono);
@@ -434,3 +434,9 @@
 }
 .mcard-clear:hover{color:var(--text1); border-color:#4a4a4a}
 .mcard-clear.cleared{color:#111; background:var(--accent); border-color:var(--accent)}
+
+.mcard-choice{
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  min-width:0; padding:2px 4px 3px;
+}
+.mcard-choice-label{font-size:11px; color:var(--text2); white-space:nowrap}
