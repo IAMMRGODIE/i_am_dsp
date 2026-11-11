@@ -159,7 +159,7 @@
 }
 .knob-value{
   margin-top:1px; color:var(--text1); font-family:var(--mono);
-  font-size:11px; white-space:nowrap;
+  font-size:12px; white-space:nowrap;
 }
 
 .mcard-pill{
@@ -424,4 +424,4 @@
 .mcard-sections .mcard-body{padding:10px 0 4px}
 .mcard-section{flex:0 0 auto; min-width:0; display:flex; flex-direction:column; gap:4px}
 .mcard-section .mcard-hero{min-height:0}
-.mcard-section-caption{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--text3); padding:0 2px}
+.mcard-section-caption{font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--text3); padding:0 2px}
