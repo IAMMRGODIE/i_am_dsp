@@ -458,7 +458,7 @@
         }
 
         if (section.hero === "modal") {
-          hero.title = "Load a fitted instrument table (.bin)";
+          hero.title = "Load a fitted table (.bin), or a recorded note (.wav) to fit";
           hero.style.cursor = "pointer";
           hero.addEventListener("click", function () {
             if (tableInput) tableInput.click();
@@ -815,7 +815,7 @@
     if (wantsTable) {
       tableInput = document.createElement("input");
       tableInput.type = "file";
-      tableInput.accept = ".bin";
+      tableInput.accept = ".bin,.wav";
       tableInput.style.display = "none";
       tableInput.addEventListener("change", uploadTable);
       document.body.appendChild(tableInput);

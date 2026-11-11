@@ -72,6 +72,7 @@ mod dispersion;
 pub mod contact;
 pub mod core;
 pub mod engine;
+pub mod fit;
 pub mod fitted;
 pub mod instrument;
 pub mod modal;

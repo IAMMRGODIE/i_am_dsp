@@ -454,15 +454,17 @@
     if (waveInput) waveInput.value = "";
   }
 
-  /// Hands a picked fitted table to the product's route, which parses it and
-  /// stores it in the plug-in state.
+  /// Hands a picked table or sample to the product's route. A `.bin` is a
+  /// table the fitter already wrote; a `.wav` is one recorded note, which the
+  /// product fits itself before it stores it.
   function uploadTable() {
     var file = tableInput && tableInput.files && tableInput.files[0];
     if (!file) return;
 
+    var sample = /\.wav$/i.test(file.name);
     var reader = new FileReader();
     reader.onload = function () {
-      fetch("/table", {
+      fetch(sample ? "/sample?name=" + encodeURIComponent(file.name) : "/table", {
         method: "POST",
         body: reader.result
       })

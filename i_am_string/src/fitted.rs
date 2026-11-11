@@ -161,6 +161,49 @@ fitted_table!(bass, "../assets/bass.bin");
 fitted_table!(celeste, "../assets/celeste.bin");
 fitted_table!(harp, "../assets/harp.bin");
 
+/// Write a table in the format [parse_table] reads.
+///
+/// The notes are expected in the order the engine plays them and their modes
+/// sorted by frequency; the velocity matrix is `rows` partial orders by
+/// `cols` velocity layers, in dB relative to the hardest layer. A table
+/// fitted from one sample has a single cell, which says every velocity plays the
+/// same levels.
+pub fn write_table(notes: &[Note], gain: &[f32], rows: u8, cols: u8) -> Vec<u8> {
+	let mut out = Vec::new();
+	out.extend_from_slice(b"MODE");
+	out.push(3);
+	out.push(0);
+	out.push(notes.len() as u8);
+	for note in notes {
+		out.push(note.note);
+		out.push(0);
+		for channel in [&note.left, &note.right] {
+			out.push(channel.len().min(u8::MAX as usize) as u8);
+			for mode in channel.iter().take(u8::MAX as usize) {
+				let order = mode.order.max(1.0) as u16;
+				out.extend_from_slice(&order.to_le_bytes());
+				for value in [
+					mode.frequency,
+					mode.prompt,
+					mode.tail,
+					mode.prompt_t60.max(0.02),
+					mode.tail_t60.max(0.03),
+					mode.prompt_phase,
+					mode.tail_phase,
+				] {
+					out.extend_from_slice(&value.to_le_bytes());
+				}
+			}
+		}
+	}
+	out.push(rows);
+	out.push(cols);
+	for value in gain.iter().take(rows as usize * cols as usize) {
+		out.extend_from_slice(&value.to_le_bytes());
+	}
+	out
+}
+
 /// Read a table from bytes, or nothing if they are not one.
 pub fn parse_table(data: &[u8]) -> Option<Instrument> {
 	try_parse(data)

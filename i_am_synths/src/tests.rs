@@ -5,6 +5,7 @@ use crate::spectrum::spectrum_route;
 use i_am_dsp::prelude::{SetValue, SpectralFeed, SpectralFrame};
 use i_am_plugin::{Plugin, Tag};
 use i_am_web_gui::ProtocolRequest;
+use std::sync::Arc;
 
 use i_am_dsp::ProcessInfos;
 
@@ -886,4 +887,98 @@ fn the_drummer_plays_in_stereo() {
 	}
 
 	assert!(spread > 0.01, "the host only saw the mono sum: {spread}");
+}
+
+/// A 16 bit mono WAV holding one note, as a page would post it.
+fn wav_of(samples: &[f32], rate: u32) -> Vec<u8> {
+	let data = (samples.len() * 2) as u32;
+	let mut out = Vec::new();
+	out.extend_from_slice(b"RIFF");
+	out.extend_from_slice(&(36 + data).to_le_bytes());
+	out.extend_from_slice(b"WAVEfmt ");
+	out.extend_from_slice(&16u32.to_le_bytes());
+	out.extend_from_slice(&1u16.to_le_bytes());
+	out.extend_from_slice(&1u16.to_le_bytes());
+	out.extend_from_slice(&rate.to_le_bytes());
+	out.extend_from_slice(&(rate * 2).to_le_bytes());
+	out.extend_from_slice(&2u16.to_le_bytes());
+	out.extend_from_slice(&16u16.to_le_bytes());
+	out.extend_from_slice(b"data");
+	out.extend_from_slice(&data.to_le_bytes());
+	for sample in samples {
+		let value = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
+		out.extend_from_slice(&value.to_le_bytes());
+	}
+	out
+}
+
+/// The page posts one recorded note; the product fits it, stores it as the
+/// imported table and selects it.
+#[test]
+fn a_sample_is_fitted_into_the_instrument() {
+	let rate = 44_100u32;
+	let samples: Vec<f32> = (0..rate)
+		.map(|index| {
+			let time = index as f32 / rate as f32;
+			let decay = (-3.0 * time).exp();
+			decay
+				* (0.5 * (std::f32::consts::TAU * 220.0 * time).sin()
+					+ 0.25 * (std::f32::consts::TAU * 330.0 * time).sin())
+		})
+		.collect();
+	let wav = wav_of(&samples, rate);
+	let map = ParamMap::new_with([
+		(
+			"instrument".to_string(),
+			Arc::new(
+				i_am_dsp::prelude::Value::Int {
+					value: 0,
+					range: 0..=5,
+					logarithmic: false,
+				}
+				.to_atomic_value(),
+			),
+		),
+		(
+			"imported".to_string(),
+			Arc::new(i_am_dsp::prelude::Value::Nothing.to_atomic_value()),
+		),
+	]);
+
+	let request = ProtocolRequest {
+		method: "POST",
+		path: "/sample",
+		query: Some("name=note_A4_127.wav"),
+		body: &wav,
+	};
+	let body = String::from_utf8(
+		crate::fitted::sample_route(&request, &map)
+			.expect("the sample route")
+			.body,
+	)
+	.expect("utf-8");
+
+	assert!(body.contains("\"ok\":true"), "{body}");
+	assert!(body.contains("\"note\":57"), "{body}");
+	assert!(body.contains("\"modes\":"), "{body}");
+	assert_eq!(
+		map.get("instrument")
+			.expect("the instrument parameter")
+			.load(std::sync::atomic::Ordering::Relaxed),
+		SetValue::Int(5),
+		"the fitted table was not selected"
+	);
+}
+
+/// A library file name says which note it holds, in the octave a DAW writes.
+#[test]
+fn a_file_name_says_which_note_it_holds() {
+	assert_eq!(
+		crate::fitted::note_of_name("The Gentleman_C4_127.wav"),
+		Some(48)
+	);
+	assert_eq!(crate::fitted::note_of_name("Bass_A#1_51.wav"), Some(22));
+	assert_eq!(crate::fitted::note_of_name("Celeste_C#8_127.wav"), Some(97));
+	assert_eq!(crate::fitted::note_of_name("kick_1.wav"), None);
+	assert_eq!(crate::fitted::note_of_name("mypad.wav"), None);
 }

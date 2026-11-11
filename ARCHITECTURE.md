@@ -392,6 +392,17 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 - 参数表与音符播放的转发由 `synth_product!` 生成；只有鼓机的 `set_parameter` 要顺手写 kit 的旋钮，
   所以它用 `synth_processor!` 并保留自己的参数实现。
 
+**Fitted（I Am Modal）** 是唯一表驱动的音源：`i_am_string::fitted` 的 `MODE` 表按音存一组衰减正弦
+（每个分音带 prompt/tail 两段衰减、振幅和初相），播放就是把表查出来求和，不做弦模型。表有两个来源：
+
+- 仓库自带的五张（Gentleman / Peel / Bass / Celeste / Harp），由 `gentleman-modal/` 的 numpy 脚本拟合；
+- 插件自己拟合：`i_am_string::fit` 是同一套分析流程的 Rust 版（补零 FFT 找分音、解调测两段衰减、
+  一次最小二乘定振幅相位），`i_am_dsp` 的 `fit_sample` 把 WAV 变成表，`/sample` 路由收下就换成 Custom。
+  最小二乘的 Gram 矩阵是阻尼正弦的几何级数，有闭式解，所以一次拟合是几百毫秒而不是几十秒；
+  `cargo run -p i_am_dsp --release --example fit_sample -- sample.wav out.bin [note]` 是同一段代码的命令行入口。
+
+一个采样只提供自己那个音；其余键在播放时按对数音高从它派生（`derive`），所以单采样也能弹音阶。
+
 ### 6.3 `i_am_patch` + `i_am_patch_product`（2 个产品）
 
 ```
