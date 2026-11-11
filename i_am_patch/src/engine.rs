@@ -92,6 +92,18 @@ pub struct Engine {
 
 impl Engine {
 	/// Compiles a graph and builds its nodes.
+	/// The scripts the running nodes own, by node id, for the page's editor.
+	pub fn script_sources(&self) -> Vec<(u32, std::sync::Arc<dyn i_am_effects::ScriptSource>)> {
+		self.steps
+			.iter()
+			.filter_map(|(id, step)| {
+				self.nodes[*step]
+					.script_source()
+					.map(|script| (id.0, script))
+			})
+			.collect()
+	}
+
 	pub fn new(graph: &Graph, rate: usize) -> Result<Self, EngineError> {
 		let plan: Plan = compile(graph)?;
 		let steps: std::collections::BTreeMap<NodeId, usize> = plan

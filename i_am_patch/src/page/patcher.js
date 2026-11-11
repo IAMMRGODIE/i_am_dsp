@@ -517,6 +517,24 @@
       face: kind,
       values: node.params,
       context,
+      script: !!kind.script,
+      loadScript: () => {
+        fetch("/script?node=" + node.id)
+          .then((response) => (response.ok ? response.json() : null))
+          .then((state) => {
+            if (state) card.setScript(state.source || "");
+          })
+          .catch(() => {});
+      },
+      applyScript: (source) => {
+        fetch("/script?node=" + node.id, { method: "POST", body: source })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((state) => {
+            if (state && state.error) card.setScriptError(state.error);
+            else card.setScriptError("");
+          })
+          .catch(() => {});
+      },
       activePage,
       onPage: (index) => {
         pagesOf[node.id] = index;

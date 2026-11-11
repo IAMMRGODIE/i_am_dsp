@@ -1,9 +1,11 @@
 //! What the audio thread and the page share.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::NoteEvent;
+use i_am_effects::ScriptSource;
 use i_am_patch::block::BLOCK;
 use i_am_patch::compile::voice_group;
 use i_am_patch::engine::Engine;
@@ -26,6 +28,8 @@ pub struct PatcherShared {
 	pub phases: Mutex<Vec<(u32, f32)>>,
 	/// The last compile error, for the page's status bar.
 	pub error: Mutex<Option<String>>,
+	/// The scripts the running nodes own, by node id, for the page's editor.
+	pub scripts: Mutex<HashMap<u32, Arc<dyn ScriptSource>>>,
 }
 
 /// One watched node and the ring its output goes into.
@@ -46,6 +50,7 @@ impl Default for PatcherShared {
 			taps: Mutex::new(Vec::new()),
 			phases: Mutex::new(Vec::new()),
 			error: Mutex::new(None),
+			scripts: Mutex::new(HashMap::new()),
 		}
 	}
 }
@@ -249,6 +254,19 @@ impl Body {
 					self.poly = None;
 					self.engine = None;
 					self.shared.set_error(Some(format!("{error:?}")));
+				}
+			}
+		}
+
+		// The page edits a scripted node through this map; a rebuild replaces it,
+		// because the nodes that owned the old workers are gone.
+		{
+			let mut scripts = self.shared.scripts.lock().expect("the script lock");
+			scripts.clear();
+
+			if let Some(engine) = &self.engine {
+				for (node, script) in engine.script_sources() {
+					scripts.insert(node, script);
 				}
 			}
 		}

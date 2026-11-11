@@ -33,6 +33,12 @@ pub trait BlockNode: Send + Sync {
 	fn phase(&self) -> Option<f32> {
 		None
 	}
+
+	/// The script this node runs, when its product has one. The page edits it
+	/// through the patch product's /script route.
+	fn script_source(&self) -> Option<std::sync::Arc<dyn i_am_effects::ScriptSource>> {
+		None
+	}
 }
 
 /// What kind of value a parameter takes, from its declared value.
@@ -119,7 +125,24 @@ pub fn make(
 		}
 		kind if kind.starts_with("mod:") => {
 			let module = i_am_effects::catalog::get(&kind[4..])?;
-			Box::new(ProductNode::new((module.build)(rate)))
+
+			match module.id {
+				"script_mapper" => {
+					let worker = i_am_effects::mapper_worker();
+					let effect =
+						Box::new(i_am_effects::ScriptMapperEffect::new(rate, worker.clone()));
+
+					Box::new(ProductNode::with_script(effect, worker))
+				}
+				"script_distortion" => {
+					let worker = i_am_effects::distortion_worker();
+					let effect =
+						Box::new(i_am_effects::ScriptDistortionEffect::new(worker.clone()));
+
+					Box::new(ProductNode::with_script(effect, worker))
+				}
+				_ => Box::new(ProductNode::new((module.build)(rate))),
+			}
 		}
 		_ => return None,
 	};
@@ -156,6 +179,8 @@ struct ProductNode {
 	ramps: Vec<(&'static str, f32, f32)>,
 	/// The value type each parameter declares.
 	kinds: BTreeMap<String, ParamKind>,
+	/// The worker a scripted product runs, so the page can edit its source.
+	script: Option<std::sync::Arc<dyn i_am_effects::ScriptSource>>,
 }
 
 impl ProductNode {
@@ -166,11 +191,26 @@ impl ProductNode {
 			effect,
 			ramps: Vec::with_capacity(8),
 			kinds,
+			script: None,
 		}
+	}
+
+	/// A product whose page edits the script it runs.
+	fn with_script(
+		effect: Box<dyn Effect<2>>,
+		script: std::sync::Arc<dyn i_am_effects::ScriptSource>,
+	) -> Self {
+		let mut node = Self::new(effect);
+		node.script = Some(script);
+		node
 	}
 }
 
 impl BlockNode for ProductNode {
+	fn script_source(&self) -> Option<std::sync::Arc<dyn i_am_effects::ScriptSource>> {
+		self.script.clone()
+	}
+
 	fn set_param(&mut self, name: &str, value: f32) {
 		let kind = self.kinds.get(name).copied().unwrap_or(ParamKind::Float);
 		self.effect.set_parameter(name, set_value(kind, value));
@@ -188,6 +228,7 @@ impl BlockNode for ProductNode {
 			effect,
 			ramps,
 			kinds,
+			..
 		} = self;
 
 		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
