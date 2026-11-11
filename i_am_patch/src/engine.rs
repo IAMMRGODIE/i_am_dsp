@@ -9,7 +9,7 @@ use i_am_dsp::ProcessContext;
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer, PatchContext};
 use crate::compile::{CompileError, Plan, compile};
 use crate::graph::{Graph, ModulationMode, NodeId, SignalKind};
-use crate::nodes::{BlockNode, make};
+use crate::nodes::{BlockNode, make_with};
 
 /// Why an engine could not be built.
 #[derive(Debug)]
@@ -80,6 +80,8 @@ pub struct Engine {
 	controls: Vec<Vec<f32>>,
 	base: Vec<BTreeMap<&'static str, f32>>,
 	points: Vec<Vec<crate::graph::Point>>,
+	/// The fitted tables the Modal nodes read, shared with the page.
+	tables: crate::Tables,
 	output_step: Option<usize>,
 	latency: usize,
 	tempo: Option<f32>,
@@ -112,6 +114,16 @@ impl Engine {
 	}
 
 	pub fn new(graph: &Graph, rate: usize) -> Result<Self, EngineError> {
+		Self::new_with(graph, rate, &crate::Tables::default())
+	}
+
+	/// Builds a graph over tables the caller already owns, so a Modal node can
+	/// play a sample the page fitted.
+	pub fn new_with(
+		graph: &Graph,
+		rate: usize,
+		tables: &crate::Tables,
+	) -> Result<Self, EngineError> {
 		let plan: Plan = compile(graph)?;
 		let steps: std::collections::BTreeMap<NodeId, usize> = plan
 			.order
@@ -139,8 +151,15 @@ impl Engine {
 			let kind = instance.kind;
 			kinds.push(kind.id);
 			nodes.push(
-				make(kind.id, rate, &instance.params, &instance.points)
-					.ok_or_else(|| EngineError::UnknownKind(kind.id.to_string()))?,
+				make_with(
+					kind.id,
+					id.0,
+					rate,
+					&instance.params,
+					&instance.points,
+					tables,
+				)
+				.ok_or_else(|| EngineError::UnknownKind(kind.id.to_string()))?,
 			);
 
 			let mut node_outputs = Vec::with_capacity(kind.outputs.len());
@@ -244,6 +263,7 @@ impl Engine {
 			controls,
 			base,
 			points,
+			tables: tables.clone(),
 			output_step,
 			latency,
 			tempo: None,
@@ -321,7 +341,19 @@ impl Engine {
 		seconds: f32,
 		events: &[(u64, NoteEvent)],
 	) -> Result<Vec<[f32; 2]>, EngineError> {
-		let mut engine = Self::new(graph, rate)?;
+		Self::render_graph_with(graph, rate, seconds, events, &crate::Tables::default())
+	}
+
+	/// Renders a graph offline over tables the caller already owns, which is
+	/// how a test hears a sample the page fitted.
+	pub fn render_graph_with(
+		graph: &Graph,
+		rate: usize,
+		seconds: f32,
+		events: &[(u64, NoteEvent)],
+		tables: &crate::Tables,
+	) -> Result<Vec<[f32; 2]>, EngineError> {
+		let mut engine = Self::new_with(graph, rate, tables)?;
 		let blocks = (seconds.max(0.01) * rate as f32 / BLOCK as f32).ceil() as u64;
 		let mut out = Vec::with_capacity(blocks as usize * BLOCK);
 
@@ -387,11 +419,13 @@ impl Engine {
 			let retrigger = std::mem::take(&mut self.retrigger);
 
 			for &step in &retrigger {
-				if let Some(node) = make(
+				if let Some(node) = make_with(
 					self.kinds[step],
+					self.order[step].0,
 					self.rate,
 					&self.base[step],
 					&self.points[step],
+					&self.tables,
 				) {
 					self.nodes[step] = node;
 				}

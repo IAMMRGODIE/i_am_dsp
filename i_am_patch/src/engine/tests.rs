@@ -2,6 +2,7 @@ use crate::voice_patch;
 
 use super::*;
 use crate::graph::Graph;
+use crate::nodes::make;
 
 fn note_event(note: usize) -> NoteEvent {
 	NoteEvent::NoteOn {

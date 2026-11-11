@@ -281,6 +281,7 @@
 }
 
 /* The convolver's picture is its file picker. */
+.mcard-hero.drop{outline:1px dashed var(--accent); outline-offset:-1px}
 .mcard-hero.ir-target{cursor:pointer}
 .mcard-hero.ir-target:hover{outline:1px solid var(--accent); outline-offset:-1px}
 

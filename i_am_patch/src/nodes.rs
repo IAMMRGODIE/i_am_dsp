@@ -82,12 +82,34 @@ fn param(params: &BTreeMap<&'static str, f32>, name: &str, fallback: f32) -> f32
 	params.get(name).copied().unwrap_or(fallback)
 }
 
-/// Builds the node for a catalog kind at a sample rate.
+/// The slot one node's fitted table lives in, created on first use.
+pub fn table_for(tables: &crate::Tables, node: u32) -> i_am_dsp::prelude::TableSlot {
+	tables
+		.lock()
+		.unwrap_or_else(|error| error.into_inner())
+		.entry(node)
+		.or_default()
+		.clone()
+}
+
+/// Builds the node for a catalog kind at a sample rate, with no fitted tables.
 pub fn make(
 	kind: &str,
 	rate: usize,
 	params: &BTreeMap<&'static str, f32>,
 	points: &[crate::graph::Point],
+) -> Option<Box<dyn BlockNode>> {
+	make_with(kind, 0, rate, params, points, &crate::Tables::default())
+}
+
+/// Builds the node for a catalog kind, with the tables a Modal node plays.
+pub fn make_with(
+	kind: &str,
+	node: u32,
+	rate: usize,
+	params: &BTreeMap<&'static str, f32>,
+	points: &[crate::graph::Point],
+	tables: &crate::Tables,
 ) -> Option<Box<dyn BlockNode>> {
 	let node: Box<dyn BlockNode> = match kind {
 		"input:midi" => Box::new(Quiet),
@@ -117,7 +139,10 @@ pub fn make(
 				"additive" => Box::new(SynthNode::<AdditiveWeb>::new(rate)),
 				"canvas" => Box::new(SynthNode::<CanvasWeb>::new(rate)),
 				"drummer" => Box::new(SynthNode::<DrummerWeb>::new(rate)),
-				"fitted" => Box::new(SynthNode::<FittedWeb>::new(rate)),
+				"fitted" => Box::new(SynthNode::with_plugin(
+					FittedWeb::with_slot(table_for(tables, node)),
+					rate,
+				)),
 				"sampler" => Box::new(SynthNode::<SamplerWeb>::new(rate)),
 				"script" => {
 					let inner = ScriptWeb::default();
@@ -623,7 +648,11 @@ struct SynthNode<P: Default + Plugin> {
 
 impl<P: Default + Plugin> SynthNode<P> {
 	fn new(rate: usize) -> Self {
-		let mut inner = P::default();
+		Self::with_plugin(P::default(), rate)
+	}
+
+	/// A synth built with state of its own, like the table a Modal node plays.
+	fn with_plugin(mut inner: P, rate: usize) -> Self {
 		inner.on_activate(rate);
 		let kinds = parameter_kinds(&inner.get_parameters());
 

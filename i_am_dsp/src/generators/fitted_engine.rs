@@ -296,6 +296,36 @@ pub struct FittedSample {
 	pub bytes: Vec<u8>,
 }
 
+/// The note a file name carries, in the `Name_A4_127.wav` convention the
+/// sample libraries use.
+///
+/// The octave is the one a DAW writes, which counts middle C as C5, so the
+/// name is an octave above the note it sounds. A name with no note in it gives
+/// `None`, and the fit reads the pitch from the recording instead.
+pub fn note_of_name(name: &str) -> Option<u8> {
+	const NAMES: [&str; 12] = [
+		"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+	];
+	let body = name.rsplit_once('.').map(|(body, _)| body).unwrap_or(name);
+	for token in body.split('_') {
+		for (index, pitch) in NAMES.iter().enumerate() {
+			let Some(octave) = token.strip_prefix(pitch) else {
+				continue;
+			};
+			// "C" also prefixes "C#", so only the reading whose rest is the
+			// octave counts.
+			let Ok(octave) = octave.parse::<i32>() else {
+				continue;
+			};
+			let note = (octave + 1) * 12 + index as i32 - 12;
+			if (0..=127).contains(&note) {
+				return Some(note as u8);
+			}
+		}
+	}
+	None
+}
+
 /// Fit one recorded note into a table the instrument can play.
 ///
 /// `wav` is the file as the page sent it. The two channels are fitted

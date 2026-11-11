@@ -65,7 +65,7 @@ pub(crate) fn sample_route(
 	// does not say falls back to the fit's own guess.
 	let note = query_value(request.query, "note")
 		.and_then(|value| value.parse::<u8>().ok())
-		.or_else(|| note_of_name(&name));
+		.or_else(|| i_am_dsp::prelude::note_of_name(&name));
 	let fitted = match i_am_dsp::prelude::fit_sample(request.body, note) {
 		Ok(fitted) => fitted,
 		Err(error) => {
@@ -105,35 +105,6 @@ fn import(route_map: &ParamMap, slot: &TableSlot, table: ImportedTable) {
 	route_map.set("transpose", 0i32, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// The note a file name carries, in the `Name_A4_127.wav` convention the
-/// sample libraries use.
-///
-/// The octave is the one a DAW writes, which counts middle C as C5, so the
-/// name is an octave above the note it sounds.
-pub(crate) fn note_of_name(name: &str) -> Option<u8> {
-	const NAMES: [&str; 12] = [
-		"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-	];
-	let body = name.rsplit_once('.').map(|(body, _)| body).unwrap_or(name);
-	for token in body.split('_') {
-		for (index, pitch) in NAMES.iter().enumerate() {
-			let Some(octave) = token.strip_prefix(pitch) else {
-				continue;
-			};
-			// "C" also prefixes "C#", so only the reading whose rest is the
-			// octave counts.
-			let Ok(octave) = octave.parse::<i32>() else {
-				continue;
-			};
-			let note = (octave + 1) * 12 + index as i32 - 12;
-			if (0..=127).contains(&note) {
-				return Some(note as u8);
-			}
-		}
-	}
-	None
-}
-
 /// One value out of a query string like `name=a%20b&note=60`.
 fn query_value<'a>(query: Option<&'a str>, key: &str) -> Option<&'a str> {
 	query?.split('&').find_map(|part| {
@@ -162,7 +133,16 @@ pub struct FittedWeb {
 
 impl Default for FittedWeb {
 	fn default() -> Self {
-		let slot = TableSlot::default();
+		Self::with_slot(TableSlot::default())
+	}
+}
+
+synth_product!(FittedWeb);
+
+impl FittedWeb {
+	/// A product whose instrument plays from a table the host already owns,
+	/// which is how the patcher hands a node its fitted table.
+	pub fn with_slot(slot: TableSlot) -> Self {
 		let build_slot = slot.clone();
 
 		Self {
@@ -175,11 +155,7 @@ impl Default for FittedWeb {
 			imported_version: 0,
 		}
 	}
-}
 
-synth_product!(FittedWeb);
-
-impl FittedWeb {
 	/// The slot the page's fitted table lives in.
 	pub fn slot(&self) -> TableSlot {
 		self.slot.clone()

@@ -92,6 +92,8 @@ struct Shared {
 	taps: Taps,
 	phases: Arc<Mutex<Vec<(u32, f32)>>>,
 	error: Arc<Mutex<Option<String>>>,
+	/// The fitted tables a Modal node plays; the demo graph has none.
+	tables: i_am_patch::Tables,
 }
 
 impl Shared {
@@ -145,6 +147,7 @@ fn main() {
 		taps: Arc::new(Mutex::new(Vec::new())),
 		phases: Arc::new(Mutex::new(Vec::new())),
 		error: Arc::new(Mutex::new(None)),
+		tables: Default::default(),
 	};
 	spawn_audio(shared.clone());
 
@@ -170,7 +173,7 @@ fn spawn_audio(shared: Shared) {
 			if generation != built {
 				let graph = shared.graph.lock().expect("graph").clone();
 
-				poly = match Poly::new(&graph, shared.rate) {
+				poly = match Poly::new_with(&graph, shared.rate, &shared.tables) {
 					Ok(poly) => {
 						*shared.error.lock().expect("error") = None;
 						Some(poly)

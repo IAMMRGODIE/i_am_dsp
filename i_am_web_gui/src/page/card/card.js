@@ -591,6 +591,31 @@
         heroBox.innerHTML = hero(section.hero, values, options.context);
         box.appendChild(heroBox);
         heroes.push({ el: heroBox, name: section.hero });
+
+        // The fitted instrument's picture is also its file target: a click
+        // asks the page for a picker, a drop hands over the file itself. The
+        // page owns the route, because only it knows which node this is.
+        if (options.sample && section.hero === "modal") {
+          heroBox.classList.add("ir-target");
+          heroBox.title = "Load a recorded note (.wav) to fit: click or drop a file";
+          heroBox.addEventListener("click", function () {
+            if (options.pickSample) options.pickSample();
+          });
+          heroBox.addEventListener("dragover", function (event) {
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+            heroBox.classList.add("drop");
+          });
+          heroBox.addEventListener("dragleave", function () {
+            heroBox.classList.remove("drop");
+          });
+          heroBox.addEventListener("drop", function (event) {
+            event.preventDefault();
+            heroBox.classList.remove("drop");
+            var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+            if (file && options.pickSample) options.pickSample(file);
+          });
+        }
       }
 
       var body = document.createElement("div");

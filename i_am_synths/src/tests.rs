@@ -1075,11 +1075,14 @@ fn a_fitted_table_is_saved_with_the_parameters() {
 #[test]
 fn a_file_name_says_which_note_it_holds() {
 	assert_eq!(
-		crate::fitted::note_of_name("The Gentleman_C4_127.wav"),
+		i_am_dsp::prelude::note_of_name("The Gentleman_C4_127.wav"),
 		Some(48)
 	);
-	assert_eq!(crate::fitted::note_of_name("Bass_A#1_51.wav"), Some(22));
-	assert_eq!(crate::fitted::note_of_name("Celeste_C#8_127.wav"), Some(97));
-	assert_eq!(crate::fitted::note_of_name("kick_1.wav"), None);
-	assert_eq!(crate::fitted::note_of_name("mypad.wav"), None);
+	assert_eq!(i_am_dsp::prelude::note_of_name("Bass_A#1_51.wav"), Some(22));
+	assert_eq!(
+		i_am_dsp::prelude::note_of_name("Celeste_C#8_127.wav"),
+		Some(97)
+	);
+	assert_eq!(i_am_dsp::prelude::note_of_name("kick_1.wav"), None);
+	assert_eq!(i_am_dsp::prelude::note_of_name("mypad.wav"), None);
 }

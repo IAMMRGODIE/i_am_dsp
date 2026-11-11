@@ -481,6 +481,47 @@
     return entry.host;
   }
 
+  // A recorded note dropped or picked on a Modal card: the page posts it to
+  // the node's route, which fits it and selects the result.
+  let sampleInput = null;
+
+  function pickSampleFile(onFile) {
+    if (!sampleInput) {
+      sampleInput = document.createElement("input");
+      sampleInput.type = "file";
+      sampleInput.accept = ".wav";
+      sampleInput.style.display = "none";
+      document.body.appendChild(sampleInput);
+    }
+
+    sampleInput.onchange = () => {
+      const file = sampleInput.files && sampleInput.files[0];
+      sampleInput.value = "";
+      if (file) onFile(file);
+    };
+    sampleInput.click();
+  }
+
+  function postSample(node, file) {
+    const reader = new FileReader();
+
+    reader.onload = async () => {
+      const response = await fetch(
+        "/sample?node=" + node + "&name=" + encodeURIComponent(file.name),
+        { method: "POST", body: reader.result },
+      );
+      const result = response.ok ? await response.json() : null;
+
+      if (result && result.ok) {
+        patch = readPatch(await (await fetch("/patch")).json());
+        draw();
+      } else {
+        showStatus((result && result.error) || "the sample could not be fitted");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
   // A product card is the product's own face: the shared builder draws its
   // sections, pages, heroes and controls, so the patch cannot drift from the
   // product page. The patch adds the modulation rings around the controls.
@@ -522,6 +563,11 @@
         fetch("/clear?node=" + node.id, { method: "POST" }).catch(() => {});
       },
       script: !!kind.script,
+      sample: kind.id === "synth:fitted",
+      pickSample: (file) => {
+        if (file) postSample(node.id, file);
+        else pickSampleFile((picked) => postSample(node.id, picked));
+      },
       loadScript: () => {
         fetch("/script?node=" + node.id)
           .then((response) => (response.ok ? response.json() : null))

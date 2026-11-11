@@ -50,3 +50,12 @@ pub type Scripts = std::sync::Arc<
 		std::collections::HashMap<u32, std::sync::Arc<dyn i_am_effects::ScriptSource>>,
 	>,
 >;
+
+/// The fitted tables the patcher's Modal nodes play, by node id.
+///
+/// A fitted table is a serialized value, which a graph parameter cannot carry,
+/// so the page's upload route writes it here and the node picks it up when the
+/// graph is rebuilt. The slot is what the instrument reads on every note, so a
+/// rebuild is not needed to hear a table that was just fitted.
+pub type Tables =
+	std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, i_am_dsp::prelude::TableSlot>>>;

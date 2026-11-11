@@ -58,6 +58,70 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				))
 			}
 		}
+		("POST", "/sample") => {
+			// One recorded note, fitted where it is loaded: the table goes into
+			// the node's slot, because a graph parameter holds a number and a
+			// serialized table cannot travel through it.
+			let node = request
+				.query
+				.unwrap_or("")
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("node="))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let name = request
+				.query
+				.unwrap_or("")
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("name="))
+				.map(i_am_web_gui::percent_decode)
+				.filter(|name| !name.is_empty())
+				.unwrap_or_else(|| "sample".to_string());
+			let note = request
+				.query
+				.unwrap_or("")
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("note="))
+				.and_then(|value| value.parse::<u8>().ok())
+				.or_else(|| i_am_dsp::prelude::note_of_name(&name));
+
+			match i_am_dsp::prelude::fit_sample(request.body, note) {
+				Ok(fitted) => {
+					if let Ok(mut tables) = shared.tables.lock() {
+						tables
+							.entry(node)
+							.or_default()
+							.set(i_am_dsp::prelude::ImportedTable {
+								name,
+								bytes: fitted.bytes,
+							});
+					}
+
+					if let Ok(mut graph) = shared.graph.lock() {
+						let id = NodeId(node);
+
+						graph.set_param(id, "instrument", 5.0);
+						graph.set_param(id, "derive", 1.0);
+						graph.set_param(id, "transpose", 0.0);
+					}
+
+					shared.bump();
+
+					Some(ProtocolResponse::json(
+						json!({
+							"ok": true,
+							"note": fitted.note,
+							"frequency": fitted.frequency,
+							"modes": fitted.modes,
+						})
+						.to_string(),
+					))
+				}
+				Err(error) => Some(ProtocolResponse::json(
+					json!({ "ok": false, "error": error }).to_string(),
+				)),
+			}
+		}
 		("GET", "/text") => Some(ProtocolResponse::json(json!(shared.text()).to_string())),
 		("POST", "/text") => {
 			let body = std::str::from_utf8(request.body).unwrap_or("");
@@ -325,5 +389,123 @@ fn op(shared: &PatcherShared, body: &str) -> Value {
 			json!({ "ok": true })
 		}
 		other => json!({ "error": format!("unknown op {other}") }),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use i_am_dsp::prelude::NoteEvent;
+	use i_am_patch::engine::Engine;
+	use i_am_patch::graph::Graph;
+
+	/// A 16 bit mono WAV holding one decaying note at 220 Hz.
+	fn wav(rate: u32) -> Vec<u8> {
+		let samples: Vec<f32> = (0..rate)
+			.map(|index| {
+				let time = index as f32 / rate as f32;
+				let decay = (-3.0 * time).exp();
+				decay
+					* (0.5 * (std::f32::consts::TAU * 220.0 * time).sin()
+						+ 0.25 * (std::f32::consts::TAU * 330.0 * time).sin())
+			})
+			.collect();
+		let data = (samples.len() * 2) as u32;
+		let mut out = Vec::new();
+
+		out.extend_from_slice(b"RIFF");
+		out.extend_from_slice(&(36 + data).to_le_bytes());
+		out.extend_from_slice(b"WAVEfmt ");
+		out.extend_from_slice(&16u32.to_le_bytes());
+		out.extend_from_slice(&1u16.to_le_bytes());
+		out.extend_from_slice(&1u16.to_le_bytes());
+		out.extend_from_slice(&rate.to_le_bytes());
+		out.extend_from_slice(&(rate * 2).to_le_bytes());
+		out.extend_from_slice(&2u16.to_le_bytes());
+		out.extend_from_slice(&16u16.to_le_bytes());
+		out.extend_from_slice(b"data");
+		out.extend_from_slice(&data.to_le_bytes());
+
+		for sample in &samples {
+			out.extend_from_slice(&((sample.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+		}
+
+		out
+	}
+
+	/// A graph with one Modal node feeding the output.
+	fn modal_graph() -> (Graph, u32) {
+		let mut graph = Graph::new();
+		let modal = graph
+			.add_node("synth:fitted", (100.0, 0.0))
+			.expect("a modal node");
+		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+
+		graph.connect((modal, 0), (out, 0));
+		(graph, modal.0)
+	}
+
+	/// Posts one recorded note to a node, the way the card does.
+	fn post(shared: &PatcherShared, node: u32) -> String {
+		let bytes = wav(44_100);
+		let query = format!("node={node}&name=note_A4_127.wav");
+		let request = ProtocolRequest {
+			method: "POST",
+			path: "/sample",
+			query: Some(&query),
+			body: &bytes,
+		};
+
+		String::from_utf8(route(&request, shared).expect("the sample route").body).expect("utf-8")
+	}
+
+	#[test]
+	fn a_sample_posted_to_a_node_is_fitted_into_it() {
+		let (graph, modal) = modal_graph();
+		let shared = PatcherShared::default();
+
+		*shared.graph.lock().expect("the graph lock") = graph;
+
+		let body = post(&shared, modal);
+		assert!(body.contains("\"ok\":true"), "{body}");
+		assert!(body.contains("\"note\":57"), "{body}");
+		assert!(
+			shared
+				.tables
+				.lock()
+				.expect("the table lock")
+				.contains_key(&modal),
+			"the fitted table never reached the node"
+		);
+
+		let graph = shared.graph();
+		let node = graph
+			.get(i_am_patch::graph::NodeId(modal))
+			.expect("the node");
+		assert_eq!(node.params.get("instrument"), Some(&5.0));
+		assert_eq!(node.params.get("derive"), Some(&1.0));
+	}
+
+	#[test]
+	fn a_node_with_a_fitted_sample_plays() {
+		let (graph, modal) = modal_graph();
+		let shared = PatcherShared::default();
+
+		*shared.graph.lock().expect("the graph lock") = graph;
+		post(&shared, modal);
+
+		let graph = shared.graph();
+		let note = NoteEvent::NoteOn {
+			channel: 0,
+			note: 57,
+			velocity: 1.0,
+		};
+		let rendered = Engine::render_graph_with(&graph, 48_000, 0.5, &[(0, note)], &shared.tables)
+			.expect("the engine");
+		let peak = rendered
+			.iter()
+			.fold(0.0f32, |peak, frame| peak.max(frame[0].abs()));
+
+		assert!(peak > 1e-4, "the fitted node was silent: {peak}");
 	}
 }
