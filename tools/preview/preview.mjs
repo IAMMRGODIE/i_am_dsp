@@ -6,6 +6,8 @@
 //
 //   node tools/preview/preview.mjs cards            the card/hero gallery (the default)
 //   node tools/preview/preview.mjs product gain     one product's real faceplate
+//   node tools/preview/preview.mjs card gain        the same face as a patch card
+//   node tools/preview/preview.mjs compare gain     product page and card side by side
 //   node tools/preview/preview.mjs rack             the Multipass page
 //   node tools/preview/preview.mjs patch            the patcher's live editor
 //
@@ -13,6 +15,7 @@
 //   --port N     the port to listen on (default 8950)
 //   --dir DIR    where to build the static preview (default target/preview/<mode>)
 //   --no-build   serve what is already on disk instead of rebuilding
+//   --synth      the name is an instrument, not an effect (card/compare)
 //
 // The product and rack pages are static: the page fetches the same JSON the
 // plug-in serves over its custom protocol, and this server hands it the files
@@ -214,6 +217,109 @@ function liveRoute(url, response) {
 	return false;
 }
 
+
+// The same face, drawn the way a patcher node or a rack module draws it.
+const CARD_PAGE = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>card</title>
+<link rel="stylesheet" href="/card.css">
+<link rel="stylesheet" href="/patcher.css">
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#141414}
+  #stage{padding:28px;max-width:980px;width:100%;display:flex;justify-content:center}
+  #stage .mcard{height:auto;width:100%}
+</style>
+<div id="stage" class="card-host"></div>
+<script src="/card.js"></script>
+<script>
+  // /face describes a product page; a card takes the flat controls list.
+  function asCard(face) {
+    var controls = [];
+    (face.sections || []).forEach(function (section) {
+      section.controls = (section.params || []).map(function (p) {
+        return {
+          id: p.id, label: p.label, kind: p.kind, unit: p.unit,
+          min: p.min, max: p.max, default: p.default,
+          log: p.log, bipolar: p.bipolar, step: p.step,
+          widget: p.widget, size: p.size, order: p.order, choices: p.choices
+        };
+      });
+      controls = controls.concat(section.controls);
+    });
+    face.controls = controls;
+    return face;
+  }
+  Promise.all([fetch("/face").then(r => r.json()), fetch("/state").then(r => r.json())]).then(([face, state]) => {
+    const card = IAmCard.faceCard({
+      face: asCard(face),
+      values: state,
+      context: { rate: face.rate || 48000, scope: { input: null, output: null }, spectra: {} },
+      activePage: 0,
+      onPage: function () {},
+      onEdit: function () {}
+    });
+    document.getElementById("stage").appendChild(card);
+  });
+</script>
+</html>
+`;
+
+// The product page and the card side by side, on one face and one state.
+const COMPARE_PAGE = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>compare</title>
+<link rel="stylesheet" href="/card.css">
+<link rel="stylesheet" href="/patcher.css">
+<style>
+  html,body{margin:0;height:100%;background:#0f0f0f;color:#bbb;font:12px system-ui,sans-serif}
+  #panes{display:grid;grid-template-columns:1fr 1fr;height:100%}
+  .pane{display:flex;flex-direction:column;min-width:0;border-right:1px solid #222}
+  .pane:last-child{border-right:0}
+  .label{padding:6px 10px;color:#777;border-bottom:1px solid #222}
+  .body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:18px}
+  iframe{width:100%;height:100%;border:0;background:transparent}
+  #stage{width:100%;max-width:980px}
+  #stage .mcard{height:auto;width:100%}
+</style>
+<div id="panes">
+  <div class="pane"><div class="label">product page</div><div class="body"><iframe src="/product/index.html"></iframe></div></div>
+  <div class="pane"><div class="label">patch card</div><div class="body"><div id="stage" class="card-host"></div></div></div>
+</div>
+<script src="/card.js"></script>
+<script>
+  function asCard(face) {
+    var controls = [];
+    (face.sections || []).forEach(function (section) {
+      section.controls = (section.params || []).map(function (p) {
+        return {
+          id: p.id, label: p.label, kind: p.kind, unit: p.unit,
+          min: p.min, max: p.max, default: p.default,
+          log: p.log, bipolar: p.bipolar, step: p.step,
+          widget: p.widget, size: p.size, order: p.order, choices: p.choices
+        };
+      });
+      controls = controls.concat(section.controls);
+    });
+    face.controls = controls;
+    return face;
+  }
+  Promise.all([fetch("/face").then(r => r.json()), fetch("/state").then(r => r.json())]).then(([face, state]) => {
+    const card = IAmCard.faceCard({
+      face: asCard(face),
+      values: state,
+      context: { rate: face.rate || 48000, scope: { input: null, output: null }, spectra: {} },
+      activePage: 0,
+      onPage: function () {},
+      onEdit: function () {}
+    });
+    document.getElementById("stage").appendChild(card);
+  });
+</script>
+</html>
+`;
+
 // Serves dir until the process is killed.
 function serve(dir, port, index = "index.html") {
 	const root = path.resolve(dir);
@@ -323,8 +429,52 @@ function main() {
 		return;
 	}
 
+	if (mode === "card" || mode === "compare") {
+		const name = args[args.indexOf(mode) + 1];
+		if (!name || name.startsWith("--")) {
+			console.error(mode + " needs a name, for example: preview.mjs " + mode + " gain");
+			process.exit(2);
+		}
+
+		const synth = args.includes("--synth");
+		const out = path.join(dir, name);
+
+		if (!noBuild) {
+			mkdirSync(out, { recursive: true });
+			if (synth) {
+				cargo(["run", "-q", "-p", "i_am_synths", "--example", "dump_synths", "--", out, name]);
+			} else {
+				cargo(["run", "-q", "-p", "i_am_effects", "--example", "dump_face", "--", out, name]);
+			}
+			refreshAssets(out, "faceplate");
+			// The card's tabs and body live in the patcher sheet.
+			copyFileSync(
+				path.join(REPO, "i_am_patch/src/page/patcher.css"),
+				path.join(out, "patcher.css"),
+			);
+
+			if (mode === "card") {
+				writeFileSync(path.join(out, "index.html"), CARD_PAGE);
+			} else {
+				// The page is one directory down, but it fetches /face, /state and
+				// /kit.js from the root, which is where the face already lives.
+				const product = path.join(out, "product");
+				mkdirSync(product, { recursive: true });
+				copyFileSync(
+					path.join(REPO, "i_am_web_gui/src/page/index.html"),
+					path.join(product, "index.html"),
+				);
+				writeFileSync(path.join(out, "index.html"), COMPARE_PAGE);
+			}
+			console.log("built " + out);
+		}
+
+		serve(out, port);
+		return;
+	}
+
 	console.error("unknown mode: " + mode);
-	console.error("usage: preview.mjs [cards|product <name>|rack|patch] [--port N] [--dir DIR] [--no-build]");
+	console.error("usage: preview.mjs [cards|product <name>|card <name>|compare <name>|rack|patch] [--port N] [--dir DIR] [--no-build] [--synth]");
 	process.exit(2);
 }
 
