@@ -13,6 +13,24 @@
     return element;
   }
 
+  // A dot drawn as HTML: the picture is stretched over the card, and a circle
+  // inside it would follow the card's aspect instead of staying round. The
+  // viewBox is 300x70, so the percentages are x/3 and y/0.7.
+  function pip(dots, x, y, radius, fill, ring) {
+    var dot = document.createElement("div");
+
+    dot.className = "hero-pip";
+    dot.style.left = (x / 3).toFixed(2) + "%";
+    dot.style.top = (y / 0.7).toFixed(2) + "%";
+    dot.style.width = (radius * 2).toFixed(1) + "px";
+    dot.style.height = (radius * 2).toFixed(1) + "px";
+
+    if (fill) dot.style.background = fill;
+    if (ring) dot.style.border = "1.4px solid " + ring;
+
+    dots.appendChild(dot);
+  }
+
   function bend(t, factor) {
     if (Math.abs(factor) < 0.0001) return t;
     return (Math.exp(t * factor) - 1) / (Math.exp(factor) - 1);
@@ -57,7 +75,7 @@
     }));
   }
 
-  function lfoPreview(svg, data) {
+  function lfoPreview(svg, data, dots) {
     var points = (data.points || []).slice().sort(function (a, b) { return a.time - b.time; });
 
     if (points.length < 2) {
@@ -104,9 +122,17 @@
     }));
 
     points.forEach(function (item) {
+      var x = 8 + item.time * 284;
+      var y = 60 - item.value * 52;
+
+      if (dots) {
+        pip(dots, x, y, 3.5, "#4c8dff", "#1a1a1a");
+        return;
+      }
+
       var circle = node("circle", {
-        cx: (8 + item.time * 284).toFixed(1),
-        cy: (60 - item.value * 52).toFixed(1),
+        cx: x.toFixed(1),
+        cy: y.toFixed(1),
         r: "3.5", fill: "#4c8dff", stroke: "#1a1a1a", "stroke-width": "1.5"
       });
       circle.style.pointerEvents = "none";
@@ -118,9 +144,17 @@
       var end = points[index + 1];
       var bendTime = (start.time + end.time) / 2;
       var bendValue = start.value + (end.value - start.value) * bend(0.5, start.bend);
+      var bx = 8 + bendTime * 284;
+      var by = 60 - bendValue * 52;
+
+      if (dots) {
+        pip(dots, bx, by, 2.6, null, "#8fb8ff");
+        continue;
+      }
+
       var handle = node("circle", {
-        cx: (8 + bendTime * 284).toFixed(1),
-        cy: (60 - bendValue * 52).toFixed(1),
+        cx: bx.toFixed(1),
+        cy: by.toFixed(1),
         r: "2.6", fill: "none", stroke: "#8fb8ff", "stroke-width": "1.4"
       });
       handle.style.pointerEvents = "none";
@@ -151,13 +185,15 @@
     }));
   }
 
-  function drawPreview(svg, kind, data) {
+  function drawPreview(svg, kind, data, dots) {
     svg.textContent = "";
+    // The HTML dots are a second layer, so they have to be cleared with it.
+    if (dots) dots.textContent = "";
     data = data || {};
 
     if (kind === "lfo") {
       baseline(svg, 60);
-      lfoPreview(svg, data);
+      lfoPreview(svg, data, dots);
     } else if (kind === "table") {
       tablePreview(svg, data);
     } else if (kind === "envelope") {
@@ -184,11 +220,17 @@
     }));
   }
 
-  function playhead(svg, x, y, color, fill) {
+  function playhead(svg, x, y, color, fill, dots) {
     svg.appendChild(node("line", {
       x1: x, y1: 6, x2: x, y2: 60,
       stroke: color, "stroke-opacity": ".35", "stroke-width": "1"
     }));
+
+    if (dots) {
+      pip(dots, Number(x), Number(y), 3.5, fill, color);
+      return;
+    }
+
     svg.appendChild(node("circle", {
       cx: x, cy: y, r: "3.5", fill: fill, stroke: color, "stroke-width": "1.5"
     }));
@@ -196,18 +238,21 @@
 
   // The live overlay: a playhead for the LFO and the table, a trace for the
   // others. clear defaults to true; pass false to draw over a static preview.
-  function drawLive(svg, kind, live, id, clear) {
-    if (clear !== false) svg.textContent = "";
+  function drawLive(svg, kind, live, id, clear, dots) {
+    if (clear !== false) {
+      svg.textContent = "";
+      if (dots) dots.textContent = "";
+    }
 
     var phase = live.phases[id] || 0;
     var value = live.values[id] || 0;
 
     if (kind === "lfo") {
       playhead(svg, (8 + phase * 284).toFixed(1),
-        (60 - ((value + 1) / 2) * 52).toFixed(1), "#4c8dff", "#dce9ff");
+        (60 - ((value + 1) / 2) * 52).toFixed(1), "#4c8dff", "#dce9ff", dots);
     } else if (kind === "table") {
       playhead(svg, (8 + phase * 284).toFixed(1),
-        (32 - value * 22).toFixed(1), "#c8e04a", "#f4ffd0");
+        (32 - value * 22).toFixed(1), "#c8e04a", "#f4ffd0", dots);
     } else {
       var history = (live.history[id] || []).slice(-120);
 
@@ -293,7 +338,7 @@
     }
 
     function paint() {
-      drawPreview(svg, "lfo", { points: holder.points });
+      drawPreview(svg, "lfo", { points: holder.points }, options.dots);
     }
 
     var drag = null;

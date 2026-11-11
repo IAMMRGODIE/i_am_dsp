@@ -65,7 +65,7 @@
 
   
 
-  function drawSourceStatic(svg, node, kind) {
+  function drawSourceStatic(svg, node, kind, dots) {
     const params = (node && node.params) || {};
 
     if (kind === "lfo") {
@@ -74,12 +74,12 @@
         ? node.points
         : IAmCard.sources.preset(shape);
 
-      IAmCard.sources.drawPreview(svg, "lfo", { points, shape });
+      IAmCard.sources.drawPreview(svg, "lfo", { points, shape }, dots);
     } else if (kind === "table") {
       IAmCard.sources.drawPreview(svg, "table", {
         shape: Math.round(params.shape ?? 0),
         morph: params.morph ?? 0,
-      });
+      }, dots);
     } else if (kind === "midi") {
       // A mapping, not a value: the note (or velocity) goes in on the x axis
       // and the control value comes out on the y, like the product's page.
@@ -94,7 +94,7 @@
         "vector-effect": "non-scaling-stroke",
       }));
     } else {
-      IAmCard.sources.drawPreview(svg, kind, {});
+      IAmCard.sources.drawPreview(svg, kind, {}, dots);
     }
   }
 
@@ -108,14 +108,28 @@
 
     layer.textContent = "";
 
+    if (entry.liveDots) entry.liveDots.textContent = "";
+
     if (entry.kind.id === "midi") {
       // The mapping's live dot: input equals output on the default curve.
       const value = typeof entry.lastValue === "number" ? entry.lastValue : 0;
-      const x = (8 + value * 284).toFixed(1);
-      const y = (60 - value * 52).toFixed(1);
+      const x = 8 + value * 284;
+      const y = 60 - value * 52;
 
-      layer.appendChild(rackNode("line", { x1: x, y1: 60, x2: x, y2: y, stroke: "#ff6f91", "stroke-opacity": ".35", "stroke-width": 1 }));
-      layer.appendChild(rackNode("circle", { cx: x, cy: y, r: "3.5", fill: "#ffe1ea", stroke: "#ff6f91", "stroke-width": "1.5" }));
+      layer.appendChild(rackNode("line", { x1: x.toFixed(1), y1: 60, x2: x.toFixed(1), y2: y.toFixed(1), stroke: "#ff6f91", "stroke-opacity": ".35", "stroke-width": 1 }));
+
+      if (entry.liveDots) {
+        const dot = document.createElement("div");
+        dot.className = "hero-pip";
+        dot.style.left = (x / 3).toFixed(2) + "%";
+        dot.style.top = (y / 0.7).toFixed(2) + "%";
+        dot.style.width = "7px";
+        dot.style.height = "7px";
+        dot.style.background = "#ffe1ea";
+        dot.style.border = "1.4px solid #ff6f91";
+        entry.liveDots.appendChild(dot);
+      }
+
       return;
     }
 
@@ -125,7 +139,7 @@
       history: { patch: entry.history },
       phases: { patch: typeof entry.phase === "number" ? entry.phase : 0 },
       values: { patch: typeof entry.lastValue === "number" ? entry.lastValue : 0 },
-    }, "patch", false);
+    }, "patch", false, entry.liveDots);
   }
 
   // The control sources' pictures, the ones the rack's modulation page draws:
@@ -280,9 +294,16 @@
   };
 
   // The source hero is a drawing surface the page fills after every repaint.
+  // The picture is stretched over the card, so the dots it would draw (an LFO's
+  // points, a playhead) live in their own HTML layer above it, where the card's
+  // aspect cannot squash them.
   if (window.IAmCard) {
     window.IAmCard.registerHero("patch-source", () =>
-      '<svg viewBox="0 0 300 70" preserveAspectRatio="none" class="rack-hero"></svg>',
+      '<div class="source-hero">' +
+        '<svg viewBox="0 0 300 70" preserveAspectRatio="none" class="rack-hero"></svg>' +
+        '<div class="source-dots"></div>' +
+        '<div class="source-live-dots"></div>' +
+      '</div>',
     );
   }
 
@@ -304,6 +325,14 @@
     const svg = entry.card.querySelector(".mcard-hero svg");
     if (!svg) return;
 
+    const dots = entry.card.querySelector(".mcard-hero .source-dots");
+    const liveDots = entry.card.querySelector(".mcard-hero .source-live-dots");
+
+    entry.dots = dots;
+    entry.liveDots = liveDots;
+
+    if (dots) dots.textContent = "";
+
     const params = (entry.node && entry.node.params) || {};
 
     if (entry.kind.id === "lfo" && (!entry.node.points || entry.node.points.length < 2)) {
@@ -311,11 +340,12 @@
     }
 
     svg.textContent = "";
-    drawSourceStatic(svg, entry.node, entry.kind.id);
+    drawSourceStatic(svg, entry.node, entry.kind.id, dots);
 
     if (entry.kind.id === "lfo") {
       IAmCard.sources.editLfo(svg, entry.node, {
         shape: params.shape,
+        dots,
         commit: (points) => {
           op({
             op: "set_points",
