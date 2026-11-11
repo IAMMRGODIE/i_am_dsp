@@ -375,7 +375,7 @@
       entry.kind = kind;
       entry.host.style.setProperty(
         "--k",
-        String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
+        String(Math.max(0.05, Math.min(w / baseWidth(node), h / baseHeight(node)))),
       );
       entry.host.classList.toggle("compact", w < 430);
       drawSourceCard(entry);
@@ -1658,8 +1658,8 @@
       draw();
     } else if (drag.kind === "scale") {
       const point = toWorld(event);
-      const sx = Math.max(0.3, drag.start.x * (1 + (point.x - drag.from.x) / 160));
-      const sy = Math.max(0.3, drag.start.y * (1 + (point.y - drag.from.y) / 120));
+      const sx = Math.max(0.1, drag.start.x * (1 + (point.x - drag.from.x) / 160));
+      const sy = Math.max(0.1, drag.start.y * (1 + (point.y - drag.from.y) / 120));
       scales[drag.id] = { x: sx, y: sy };
       draw();
     } else if (drag.kind === "pan") {
