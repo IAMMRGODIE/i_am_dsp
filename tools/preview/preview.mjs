@@ -245,7 +245,7 @@ const CARD_PAGE = `<!doctype html>
 <style>
   body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#141414}
   #card-stage{padding:28px;max-width:980px;width:100%;display:flex;justify-content:center}
-  #card-stage .mcard{height:auto;width:100%}
+  #card-stage .mcard{width:100%;height:100%}
 </style>
 <div id="card-stage" class="card-host"></div>
 <script src="/card.js"></script>
@@ -269,7 +269,6 @@ const CARD_PAGE = `<!doctype html>
   }
   Promise.all([fetch("/face").then(r => r.json()), fetch("/state").then(r => r.json())]).then(([face, state]) => {
     const stage = document.getElementById("card-stage");
-    stage.style.width = Math.min(face.size ? face.size[0] : 620, stage.clientWidth || 620) + "px";
     const product = document.querySelector("iframe");
     function syncCompact() {
       const doc = product && product.contentDocument;
@@ -315,7 +314,20 @@ const CARD_PAGE = `<!doctype html>
       onPage: function () {},
       onEdit: function () {}
     });
-    stage.appendChild(card);
+    const faceWidth = face.size ? face.size[0] : 620;
+    const faceHeight = face.size ? face.size[1] : 420;
+    const box = document.createElement("div");
+    box.style.width = faceWidth + "px";
+    box.style.height = faceHeight + "px";
+    box.style.transformOrigin = "top center";
+    const productFace =
+      product && product.contentDocument && product.contentDocument.querySelector(".face");
+    const fit = productFace
+      ? productFace.getBoundingClientRect().width / faceWidth
+      : Math.min((stage.clientWidth || 620) / faceWidth, 1);
+    box.style.transform = "scale(" + fit + ")";
+    box.appendChild(card);
+    stage.appendChild(box);
 
     // The live routes answer with noise here, so the card's heroes move the
     // same way the product page's do.
@@ -382,7 +394,7 @@ const COMPARE_PAGE = `<!doctype html>
   .body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:18px}
   iframe{width:100%;height:100%;border:0;background:transparent}
   #card-stage{width:100%;max-width:980px}
-  #card-stage .mcard{height:auto;width:100%}
+  #card-stage .mcard{width:100%;height:100%}
 </style>
 <div id="panes">
   <div class="pane"><div class="label">product page</div><div class="body"><iframe src="/product/index.html"></iframe></div></div>
@@ -454,7 +466,20 @@ const COMPARE_PAGE = `<!doctype html>
       onPage: function () {},
       onEdit: function () {}
     });
-    stage.appendChild(card);
+    const faceWidth = face.size ? face.size[0] : 620;
+    const faceHeight = face.size ? face.size[1] : 420;
+    const box = document.createElement("div");
+    box.style.width = faceWidth + "px";
+    box.style.height = faceHeight + "px";
+    box.style.transformOrigin = "top center";
+    const productFace =
+      product && product.contentDocument && product.contentDocument.querySelector(".face");
+    const fit = productFace
+      ? productFace.getBoundingClientRect().width / faceWidth
+      : Math.min((stage.clientWidth || 620) / faceWidth, 1);
+    box.style.transform = "scale(" + fit + ")";
+    box.appendChild(card);
+    stage.appendChild(box);
 
     // The live routes answer with noise here, so the card's heroes move the
     // same way the product page's do.
