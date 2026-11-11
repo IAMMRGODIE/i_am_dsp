@@ -113,6 +113,10 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 /* A narrow card keeps the header readable: the mode and slope selects stay,
    their labels step aside. */
 .card-host.compact .mcard-head .label{display:none}
+/* The product page's compact face shrinks its knobs the same way. */
+.card-host.compact .knob-wrap{width:56px; min-width:56px}
+.card-host.compact .knob{width:48px; height:48px}
+.card-host.compact .knob-label{font-size:10px}
 .card-host.compact .mcard-select{max-width:none; flex:1 1 auto}
 
 /* The node library: a right-click opens the categories, a category opens its

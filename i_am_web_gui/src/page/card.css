@@ -123,9 +123,9 @@
 }
 .mcard-toggle:hover{background:#3a3a3a; border-color:#555; color:var(--text1)}
 .mcard-toggle[aria-pressed="true"]{color:#111; background:var(--accent); border-color:var(--accent)}
-.knob-wrap{width:88px; text-align:center; min-width:0}
+.knob-wrap{width:64px; text-align:center; min-width:0}
 .knob{
-  width:68px; height:68px; margin:0 auto;
+  width:56px; height:56px; margin:0 auto;
   border-radius:50%; cursor:ns-resize; touch-action:none; outline:none;
   transition:background .12s ease;
 }

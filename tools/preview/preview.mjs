@@ -253,6 +253,15 @@ const CARD_PAGE = `<!doctype html>
   Promise.all([fetch("/face").then(r => r.json()), fetch("/state").then(r => r.json())]).then(([face, state]) => {
     const stage = document.getElementById("card-stage");
     stage.style.width = Math.min(face.size ? face.size[0] : 620, stage.clientWidth || 620) + "px";
+    const product = document.querySelector("iframe");
+    function syncCompact() {
+      const doc = product && product.contentDocument;
+      if (doc && doc.querySelector(".face.compact")) stage.classList.add("compact");
+    }
+    if (product) {
+      product.addEventListener("load", syncCompact);
+      setTimeout(syncCompact, 1200);
+    }
     const context = {
       rate: face.rate || 48000,
       scope: { input: null, output: null, sidechain: null },
@@ -363,6 +372,15 @@ const COMPARE_PAGE = `<!doctype html>
   Promise.all([fetch("/face").then(r => r.json()), fetch("/state").then(r => r.json())]).then(([face, state]) => {
     const stage = document.getElementById("card-stage");
     stage.style.width = Math.min(face.size ? face.size[0] : 620, stage.clientWidth || 620) + "px";
+    const product = document.querySelector("iframe");
+    function syncCompact() {
+      const doc = product && product.contentDocument;
+      if (doc && doc.querySelector(".face.compact")) stage.classList.add("compact");
+    }
+    if (product) {
+      product.addEventListener("load", syncCompact);
+      setTimeout(syncCompact, 1200);
+    }
     const context = {
       rate: face.rate || 48000,
       scope: { input: null, output: null, sidechain: null },
