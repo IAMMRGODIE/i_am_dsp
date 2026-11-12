@@ -252,20 +252,6 @@
   }
 
   /// Moves one slice mark, once a drag on it ends.
-  function moveSlice(from, to) {
-    fetch("/sample?action=slice-move&from=" + from + "&to=" + to, { method: "POST", body: "move" })
-      .then(function (response) {
-        return response.ok ? response.json() : null;
-      })
-      .then(function (result) {
-        if (result && result.version) {
-          sampleState = result;
-          markDirty();
-        }
-      })
-      .catch(function () {});
-  }
-
   /// Asks the route for a fresh set of slice marks, from the grid settings or
   /// from the transients.
   function generateSlices() {
@@ -288,67 +274,10 @@
   }
 
   /// Adds one mark where the picture was double-clicked.
-  function addSlice(position) {
-    fetch("/sample?action=slice-add&at=" + clamp(position, 0, 1), { method: "POST", body: "add" })
-      .then(function (response) {
-        return response.ok ? response.json() : null;
-      })
-      .then(function (result) {
-        if (result && result.version) {
-          sampleState = result;
-          markDirty();
-        }
-      })
-      .catch(function () {});
-  }
-
   /// Removes the mark under a right-click.
-  function removeSlice(position) {
-    fetch("/sample?action=slice-remove&at=" + clamp(position, 0, 1), { method: "POST", body: "remove" })
-      .then(function (response) {
-        return response.ok ? response.json() : null;
-      })
-      .then(function (result) {
-        if (result && result.version) {
-          sampleState = result;
-          markDirty();
-        }
-      })
-      .catch(function () {});
-  }
-
   /// Sets where the sample starts playing, from a drag on the picture.
-  function setSampleStart(value) {
-    setControl("oscillator.start", clamp(value, 0, 1));
-  }
-
   /// Sets the loop region from a right-drag; the ends are ordered here.
-  function setLoopRange(start, end, on) {
-    setControl("oscillator.loop_start", Math.min(start, end));
-    setControl("oscillator.loop_end", Math.max(start, end));
-    setControl("oscillator.loop", on ? 1 : 0);
-  }
-
   /// Flips one of the sampler hero's switches.
-  function toggleSample(action) {
-    if (action === "load") {
-      if (sampleInput) sampleInput.click();
-      return;
-    }
-
-    if (action === "slice") {
-      generateSlices();
-      return;
-    }
-
-    var id = "oscillator." + action;
-    var control = controls[id];
-
-    if (!control) return;
-
-    setControl(id, control.value > 0.5 ? 0 : 1);
-  }
-
   /// The picker's change handler.
   function uploadSample() {
     postSample(sampleInput && sampleInput.files && sampleInput.files[0]);
@@ -357,18 +286,6 @@
   }
 
   /// Runs one of the shape hero's buttons.
-  function runWaveAction(action) {
-    if (action === "mode") {
-      cycleWaveMode();
-    } else if (action === "prev" || action === "next") {
-      stepWaveFrame(action === "next" ? 1 : -1);
-    } else if (action === "delete") {
-      deleteWaveFrame();
-    } else {
-      editWave(action);
-    }
-  }
-
   /// The table's frame count and the frame the morph sits on.
   function waveCount() {
     return wavesState && wavesState.previews ? wavesState.previews.length : 0;
@@ -430,23 +347,6 @@
   }
 
   /// Flips the imported table; the route rebuilds it and describes it back.
-  function editWave(action) {
-    fetch("/waves?action=" + encodeURIComponent(action), {
-      method: "POST",
-      body: action
-    })
-      .then(function (response) {
-        return response.ok ? response.json() : null;
-      })
-      .then(function (result) {
-        if (result && result.version) {
-          wavesState = result;
-          markDirty();
-        }
-      })
-      .catch(function () {});
-  }
-
   /// The picker's change handler.
   function uploadWave() {
     postWave(waveInput && waveInput.files && waveInput.files[0]);

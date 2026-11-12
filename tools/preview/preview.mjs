@@ -154,6 +154,14 @@ function binary(response, parts) {
 	response.end(body);
 }
 
+function json(response, body) {
+	response.writeHead(200, {
+		"content-type": "application/json",
+		"cache-control": "no-store",
+	});
+	response.end(JSON.stringify(body));
+}
+
 function dbOf(level) {
 	return 20 * Math.log10(Math.max(level, 1e-6));
 }
@@ -176,6 +184,62 @@ function liveRoute(url, response, request) {
 		const outLeft = noiseFrames(level * 0.6);
 		const outRight = noiseFrames(level * 0.6);
 		binary(response, [left, right, outLeft, outRight]);
+		return true;
+	}
+
+	if (url === "/sample") {
+		// A short decaying tone, so a page that draws its sample has a picture
+		// and its gestures have something to land on.
+		const peaks = Array.from({ length: 480 }, (_, index) =>
+			Math.sin(index * 0.9) * 0.6 * Math.exp(-index / 90),
+		);
+
+		json(response, {
+			version: 1,
+			name: "preview.wav",
+			rate: 48000,
+			samples: 12000,
+			error: null,
+			peaks,
+			slices: [0, 0.25, 0.5, 0.75],
+		});
+		return true;
+	}
+
+	if (url === "/waves") {
+		const previews = [0, 1, 2].map((frame) =>
+			Array.from({ length: 33 }, (_, index) =>
+				Math.sin(2 * Math.PI * (index / 32 + frame * 0.1)) * 0.8,
+			),
+		);
+
+		json(response, {
+			version: 1,
+			name: "preview.wav",
+			count: previews.length,
+			error: null,
+			previews,
+		});
+		return true;
+	}
+
+	if (url === "/ir") {
+		const peaks = Array.from({ length: 480 }, (_, index) => {
+			const value = Math.sin(index * 1.7) * Math.exp(-index / 60);
+
+			return [value, value];
+		});
+
+		json(response, {
+			name: "preview.wav",
+			rate: 48000,
+			samples: 12000,
+			peaks,
+			fade_in: 0,
+			fade_out: 0,
+			error: null,
+			pending: false,
+		});
 		return true;
 	}
 
@@ -913,7 +977,11 @@ function main() {
 		if (!noBuild) {
 			mkdirSync(out, { recursive: true });
 			if (mode === "product") {
-				cargo(["run", "-q", "-p", "i_am_effects", "--example", "dump_face", "--", out, name]);
+				if (args.includes("--synth")) {
+					cargo(["run", "-q", "-p", "i_am_synths", "--example", "dump_synths", "--", out, name]);
+				} else {
+					cargo(["run", "-q", "-p", "i_am_effects", "--example", "dump_face", "--", out, name]);
+				}
 				copyFileSync(path.join(REPO, "i_am_web_gui/src/page/index.html"), path.join(out, "index.html"));
 				refreshAssets(out, "faceplate");
 			} else {

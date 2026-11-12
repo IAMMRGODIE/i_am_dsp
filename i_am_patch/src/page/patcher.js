@@ -370,8 +370,6 @@
     // not only right after the drop that loaded it.
     if (IMPORT_ROUTES[kind.id]) refreshImport(entry, IMPORT_ROUTES[kind.id].path);
 
-    wireHeroDrags(entry, kind);
-
     if (SOURCE_KINDS.includes(kind.id)) {
       const repaint = card.repaintHero;
       card.repaintHero = function (values) {
@@ -462,17 +460,6 @@
     reader.readAsArrayBuffer(file);
   }
 
-  // The gestures a product's hero has on its own page: the sampler's loop and
-  // slice drags, the convolver's fades.
-  function wireHeroDrags(entry, kind) {
-    const hero = entry.card && entry.card.querySelector(".mcard-hero");
-
-    if (!hero) return;
-
-    if (kind.id === "synth:sampler") wireSampleDrags(entry, hero);
-    if (kind.id === "mod:convolver") wireIrFades(entry, hero);
-  }
-
   /// Where a press sits along a hero, as a share of it.
   function heroShare(hero, event) {
     const rect = hero.getBoundingClientRect();
@@ -480,228 +467,117 @@
     return Math.min(1, Math.max(0, ((event.clientX - rect.left) / rect.width * 520 - 20) / 480));
   }
 
-  /// The sampler's picture: drag to set the start or the loop, double-click to
-  /// drop a slice, right-click a mark to take it off.
-  function wireSampleDrags(entry, hero) {
-    let drag = null;
+  /// What a hero's behaviour acts on for a patch node: the card's own values and
+  /// the graph behind them, instead of the product page's parameter map.
+  function heroContextFor(node, kind) {
+    const route = IMPORT_ROUTES[kind.id];
+    const entryOf = () => cards[node.id];
+    const cardOf = () => (entryOf() && entryOf().card) || null;
+    const state = () => (entryOf() && entryOf().context) || {};
+    const heroOf = () => {
+      const card = cardOf();
 
-    const sample = () => entry.context.sample;
-    const ready = () => sample() && sample().peaks && sample().peaks.length;
-    const marks = () => (sample() && sample().slices) || [];
-    const near = (x) => marks().some((mark) => Math.abs(mark - x) < 0.02);
-
-    // The gesture shows itself on the card and the graph is told once it ends,
-    // so a drag does not rebuild the engine on every pixel.
-    const set = (id, value) => {
-      entry.node.params[id] = value;
-
-      if (entry.card.setValue) entry.card.setValue(id, value);
+      return card ? card.querySelector(".mcard-hero") : null;
     };
 
-    hero.addEventListener("pointerdown", (event) => {
-      if (!ready() || event.target.closest(".hero-action")) return;
+    // The gesture shows itself on the card; the graph is told once it ends, so
+    // a drag does not rebuild the engine on every pixel.
+    const set = (id, value) => {
+      node.params[id] = value;
 
-      const x = heroShare(hero, event);
+      const card = cardOf();
 
-      if (event.button === 2) {
-        if (near(x)) {
-          sliceAction(entry, "slice-remove", { at: x });
-          return;
-        }
+      if (card && card.setValue) card.setValue(id, value);
+    };
 
-        drag = { kind: "loop", at: x };
-        set("oscillator.loop_start", x);
-        set("oscillator.loop_end", x);
-        set("oscillator.loop", 1);
-      } else if (event.button === 0) {
-        if (Math.round(entry.node.params["oscillator.mode"] ?? 0) === 1 && near(x)) {
-          drag = { kind: "mark", from: x, to: x };
-        } else {
-          drag = { kind: "start", at: x };
-          set("oscillator.start", x);
-          set("oscillator.loop", 0);
-        }
-      } else {
-        return;
-      }
+    const post = async (ids) => {
+      if (kind.id === "mod:convolver") {
+        const ir = state().ir || {};
 
-      hero.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    });
-
-    hero.addEventListener("pointermove", (event) => {
-      if (!drag) return;
-
-      const x = heroShare(hero, event);
-
-      if (drag.kind === "loop") {
-        set("oscillator.loop_start", Math.min(drag.at, x));
-        set("oscillator.loop_end", Math.max(drag.at, x));
-      } else if (drag.kind === "start") {
-        set("oscillator.start", x);
-      } else if (drag.kind === "mark") {
-        drag.to = x;
-      }
-    });
-
-    hero.addEventListener("pointerup", () => {
-      if (!drag) return;
-
-      const finished = drag;
-      drag = null;
-
-      if (finished.kind === "mark") {
-        if (Math.abs(finished.to - finished.from) > 1e-4) {
-          sliceAction(entry, "slice-move", { from: finished.from, to: finished.to });
-        }
+        await fetch(
+          "/ir?node=" + node.id + "&fade_in=" + (ir.fade_in || 0) +
+            "&fade_out=" + (ir.fade_out || 0),
+          { method: "POST", body: "fades" },
+        );
 
         return;
       }
 
-      postSampleParams(entry, finished.kind === "loop"
-        ? ["oscillator.loop_start", "oscillator.loop_end", "oscillator.loop"]
-        : ["oscillator.start", "oscillator.loop"]);
-    });
-
-    hero.addEventListener("dblclick", (event) => {
-      if (!ready() || event.target.closest(".hero-action")) return;
-
-      const x = heroShare(hero, event);
-
-      if (near(x)) return;
-
-      sliceAction(entry, "slice-add", { at: x });
-    });
-  }
-
-  /// Writes the parameters a sampler gesture moved, then redraws the card.
-  async function postSampleParams(entry, ids) {
-    for (const id of ids) {
-      await op({ op: "param", id: entry.node.id, key: id, value: entry.node.params[id] }, false);
-    }
-
-    await reload();
-  }
-
-  /// Posts one slice edit and redraws the sample's picture.
-  async function sliceAction(entry, action, params) {
-    const query = Object.entries(params)
-      .map(([key, value]) => "&" + key + "=" + value)
-      .join("");
-    const response = await fetch(
-      "/sampler?node=" + entry.node.id + "&action=" + action + query,
-      { method: "POST", body: action },
-    );
-    const result = response.ok ? await response.json() : null;
-
-    if (!result || !result.ok) {
-      showStatus((result && result.error) || "the slice edit did not run");
-      return;
-    }
-
-    showStatus("");
-    await refreshImport(entry, "sampler");
-  }
-
-  /// The convolver's picture: the dots on its top corners set the fades.
-  function wireIrFades(entry, hero) {
-    let drag = null;
-
-    const state = () => entry.context.ir;
-    const ready = () => state() && state().peaks && state().peaks.length;
-
-    hero.addEventListener("pointerdown", (event) => {
-      if (!ready()) return;
-
-      const rect = hero.getBoundingClientRect();
-
-      // The dots ride the envelope's top corners, so only a press up there
-      // starts a fade; a press on the body still asks for the picker.
-      if ((event.clientY - rect.top) / rect.height > 0.4) return;
-
-      const x = heroShare(hero, event);
-      const fadeIn = Math.min(1, Math.max(0, state().fade_in || 0));
-      const fadeOut = Math.min(1, Math.max(0, state().fade_out || 0));
-
-      if (Math.abs(x - fadeIn) < 0.03) drag = "in";
-      else if (Math.abs(x - (1 - fadeOut)) < 0.03) drag = "out";
-      else return;
-
-      hero.setPointerCapture(event.pointerId);
-      event.preventDefault();
-      event.stopPropagation();
-    });
-
-    hero.addEventListener("pointermove", (event) => {
-      if (!drag) return;
-
-      const x = heroShare(hero, event);
-
-      if (drag === "in") state().fade_in = x;
-      else state().fade_out = 1 - x;
-
-      if (entry.card.repaintHero) entry.card.repaintHero();
-    });
-
-    hero.addEventListener("pointerup", async () => {
-      if (!drag) return;
-
-      drag = null;
-
-      const ir = state();
-
-      await fetch(
-        "/ir?node=" + entry.node.id +
-          "&fade_in=" + (ir.fade_in || 0) +
-          "&fade_out=" + (ir.fade_out || 0),
-        { method: "POST", body: "fades" },
-      );
-    });
-  }
-
-  /// Runs one of a hero's own buttons on the node the card is showing.
-  ///
-  /// The product's page wires these per hero; a patch card is built from the
-  /// metadata, so the page does the same work for the node here.
-  async function heroAction(node, kind, action) {
-    if (kind.id === "synth:sampler") {
-      if (action === "slice") {
-        await postImportAction(node.id, "sampler", "slices");
-        return;
+      for (const id of ids) {
+        await op({ op: "param", id: node.id, key: id, value: node.params[id] }, false);
       }
 
-      // The sampler's switches are oscillator parameters: 1 flips to 0.
-      const key = "oscillator." + action;
-      const value = (node.params[key] ?? 0) > 0.5 ? 0 : 1;
-
-      await op({ op: "param", id: node.id, key, value }, false);
       await reload();
-      return;
-    }
+    };
 
-    if (kind.id !== "synth:shapes") return;
+    const frames = () => (state().waves && state().waves.count) || 0;
 
-    if (action === "prev" || action === "next") {
-      await stepFrame(node, action === "next" ? 1 : -1);
-      return;
-    }
+    return {
+      read: () => {
+        const current = state();
 
-    if (action === "mode") {
-      const entry = cards[node.id];
+        if (kind.id === "mod:convolver") return current.ir;
+        if (kind.id === "synth:shapes") return current.waves;
 
-      if (entry) {
+        return current.sample;
+      },
+      value: (id) => node.params[id] ?? 0,
+      set,
+      toggle: (id) => set(id, (node.params[id] ?? 0) > 0.5 ? 0 : 1),
+      commit: post,
+      action: async (name, query) => {
+        if (!route) return;
+
+        await postImportAction(node.id, route.path, name, query);
+      },
+      pick: (file) => {
+        if (!route) return;
+
+        if (file) postImport(node.id, route.path, file);
+        else pickSampleFile((picked) => postImport(node.id, route.path, picked));
+      },
+      share: (event) => {
+        const hero = heroOf();
+
+        return hero ? heroShare(hero, event) : 0;
+      },
+      near: (at) => {
+        const sample = state().sample;
+
+        return !!(
+          sample &&
+          sample.slices &&
+          sample.slices.some((mark) => Math.abs(mark - at) < 0.02)
+        );
+      },
+      repaint: () => {
+        const card = cardOf();
+
+        if (card && card.repaintHero) card.repaintHero();
+      },
+      frame: (step) => stepFrame(node, step),
+      frameIndex: () => {
+        const count = frames();
+
+        if (count <= 1) return 0;
+
+        return Math.round((node.params["oscillator.smooth_factor"] ?? 0) * (count - 1));
+      },
+      cycleMode: () => {
+        const entry = entryOf();
+
+        if (!entry) return;
+
         const modes = ["auto", "fixed", "pitch", "single"];
         const index = modes.indexOf(entry.context.waveMode || "auto");
 
         entry.context.waveMode = modes[(index + 1) % modes.length];
 
-        if (entry.card.repaintHero) entry.card.repaintHero();
-      }
+        const card = cardOf();
 
-      return;
-    }
-
-    await postImportAction(node.id, "waves", action);
+        if (card && card.repaintHero) card.repaintHero();
+      },
+    };
   }
 
   /// Moves the morph to the next whole frame, the way the shape hero's arrows
@@ -729,9 +605,12 @@
   }
 
   /// Posts one of the hero's edit actions and redraws the picture.
-  async function postImportAction(node, path, action) {
+  async function postImportAction(node, path, action, query) {
+    const extra = Object.entries(query || {})
+      .map(([key, value]) => "&" + key + "=" + value)
+      .join("");
     const response = await fetch(
-      "/" + path + "?node=" + node + "&action=" + encodeURIComponent(action),
+      "/" + path + "?node=" + node + "&action=" + encodeURIComponent(action) + extra,
       { method: "POST", body: action },
     );
     const result = response.ok ? await response.json() : null;
@@ -817,7 +696,7 @@
       sampleHint: importRoute
         ? importRoute.hint
         : "Load a recorded note (.wav) to fit: click or drop a file",
-      onHeroAction: (action) => heroAction(node, kind, action),
+      heroContext: heroContextFor(node, kind),
       pickSample: (file) => {
         if (kind.id === "synth:fitted") {
           if (file) postSample(node.id, file);
@@ -892,8 +771,6 @@
     // A node that already holds a file shows it as soon as the card is built,
     // not only right after the drop that loaded it.
     if (IMPORT_ROUTES[kind.id]) refreshImport(entry, IMPORT_ROUTES[kind.id].path);
-
-    wireHeroDrags(entry, kind);
     entry.host.style.setProperty(
       "--k",
       String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),

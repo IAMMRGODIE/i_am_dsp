@@ -217,14 +217,11 @@
           hero.style.touchAction = "none";
           acceptDrop(hero, postSample);
 
-          // The switches act on release, so a press that drags away cancels.
-          var samplePress = "";
-          var samplerDrag = null;
-          var lastSampleClick = { time: 0, x: 0 };
-
           // The picture leaves a margin at each end of its 520 unit box, so the
           // sample itself runs from 20 to 500 inside it; the view says which
           // part of the sample those 480 units show.
+          var sampleView = { from: 0, to: 1 };
+
           var sampleX = function (event) {
             var rect = hero.getBoundingClientRect();
             var across = (event.clientX - rect.left) / rect.width;
@@ -233,144 +230,92 @@
             return sampleView.from + unit * (sampleView.to - sampleView.from);
           };
 
-          // Six pixels of the picture, measured in sample units, so the hit
-          // test stays the same size however far the picture is zoomed in.
+          // Six pixels of the picture, measured in sample units, so the hit test
+          // stays the same size however far the picture is zoomed in.
           var nearMark = function (x, marks) {
             var reach = (sampleView.to - sampleView.from) * 0.0125;
 
             return marks.some(function (mark) { return Math.abs(mark - x) < reach; });
           };
 
-          hero.addEventListener("pointerdown", function (event) {
-            var button = event.target.closest(".hero-action");
-
-            samplePress = button ? button.getAttribute("data-action") || "" : "";
-
-            if (button) return;
-
-            if (!sampleState || !sampleState.peaks || !sampleState.peaks.length) return;
-
-            var x = sampleX(event);
-            var now = Date.now();
-            var marks = sampleState.slices || [];
-            var sliceMode = controls["oscillator.mode"] && Math.round(controls["oscillator.mode"].value) === 1;
-
-            // A double click on the picture drops a slice mark.
-            if (
-              event.button === 0 &&
-              now - lastSampleClick.time < 350 &&
-              Math.abs(x - lastSampleClick.x) < (sampleView.to - sampleView.from) * 0.025
-            ) {
-              lastSampleClick = { time: 0, x: 0 };
-              addSlice(x);
-              event.preventDefault();
-              return;
-            }
-
-            if (event.button === 0) lastSampleClick = { time: now, x: x };
-
-            if (event.button === 2) {
-              // The right button removes the mark it lands on, and elsewhere
-              // draws the loop region, from press to release.
-              if (nearMark(x, marks)) {
-                samplerDrag = { mode: "remove", start: x };
-              } else {
-                samplerDrag = { mode: "loop", start: x };
-                setLoopRange(x, x, true);
-              }
-            } else if (event.shiftKey) {
-              // Shift pans the picture while it is zoomed.
-              var rect = hero.getBoundingClientRect();
-
-              samplerDrag = {
-                mode: "pan",
-                startX: event.clientX,
-                width: rect.width,
-                from: sampleView.from,
-                to: sampleView.to
-              };
-            } else if (sliceMode && nearMark(x, marks)) {
-              // A mark can be dragged to where the slice should start.
-              var mark = marks.reduce(function (best, candidate) {
-                return Math.abs(candidate - x) < Math.abs(best - x) ? candidate : best;
-              }, marks[0]);
-
-              samplerDrag = { mode: "mark", from: mark, to: mark };
+          // What a click or a drag means is the hero's own behaviour, shared
+          // with a patcher node; this page says where the edit goes.
+          wireHero(hero, "sampler", {
+            read: function () { return sampleState; },
+            value: function (id) { return controls[id] ? controls[id].value : 0; },
+            set: function (id, value) {
               sampleDragging = true;
-            } else {
-              // The left button sets where playback starts, and drops the loop,
-              // the way the sampler's own editor does.
-              samplerDrag = { mode: "start", start: x };
-              setSampleStart(x);
-            }
+              setControl(id, value);
+            },
+            toggle: function (id) {
+              var control = controls[id];
 
-            event.preventDefault();
+              if (!control) return;
+
+              setControl(id, control.value > 0.5 ? 0 : 1);
+            },
+            commit: function () {
+              sampleDragging = false;
+              markDirty();
+            },
+            action: function (name, query) {
+              var extra = Object.keys(query || {})
+                .map(function (key) { return "&" + key + "=" + query[key]; })
+                .join("");
+
+              fetch("/sample?action=" + name + extra, { method: "POST", body: name })
+                .then(function (response) { return response.ok ? response.json() : null; })
+                .then(function (result) {
+                  if (!result || !result.version) return;
+                  sampleState = result;
+                  markDirty();
+                })
+                .catch(function () {});
+            },
+            pick: function (file) {
+              if (file) {
+                postSample(file);
+                return;
+              }
+
+              if (sampleInput) sampleInput.click();
+            },
+            share: function (event) { return sampleX(event); },
+            near: function (at) {
+              return nearMark(at, (sampleState && sampleState.slices) || []);
+            },
+            repaint: function () { markDirty(); }
           });
 
-          hero.addEventListener("pointermove", function (event) {
-            if (!samplerDrag) return;
+          // The view is the page's own: panning and zooming change what the
+          // picture shows, not what the sample is.
+          hero.addEventListener("pointerdown", function (event) {
+            if (!event.shiftKey || !sampleState || !sampleState.peaks) return;
 
-            if (samplerDrag.mode === "pan") {
-              var span = samplerDrag.to - samplerDrag.from;
-              var delta = (event.clientX - samplerDrag.startX) / samplerDrag.width * span;
-              var from = clamp(samplerDrag.from - delta, 0, 1 - span);
+            var rect = hero.getBoundingClientRect();
+            var pan = {
+              startX: event.clientX,
+              width: rect.width,
+              from: sampleView.from,
+              to: sampleView.to
+            };
+            var move = function (moved) {
+              var span = pan.to - pan.from;
+              var delta = (moved.clientX - pan.startX) / pan.width * span;
+              var from = clamp(pan.from - delta, 0, 1 - span);
 
               sampleView.from = from;
               sampleView.to = from + span;
               markDirty();
-              return;
-            }
+            };
+            var up = function () {
+              hero.removeEventListener("pointermove", move);
+              hero.removeEventListener("pointerup", up);
+            };
 
-            var x = sampleX(event);
-
-            if (samplerDrag.mode === "mark") {
-              var list = (sampleState.slices || []).filter(function (mark) {
-                return Math.abs(mark - samplerDrag.to) > 1e-6;
-              });
-
-              list.push(x);
-              list.sort(function (a, b) { return a - b; });
-              sampleState.slices = list;
-              samplerDrag.to = x;
-              markDirty();
-            } else if (samplerDrag.mode === "loop") {
-              setLoopRange(Math.min(samplerDrag.start, x), Math.max(samplerDrag.start, x), true);
-            } else if (samplerDrag.mode === "start") {
-              setSampleStart(x);
-              setControl("oscillator.loop", 0);
-            }
-          });
-
-          hero.addEventListener("pointerup", function (event) {
-            var button = event.target.closest(".hero-action");
-            var action = samplePress;
-
-            samplePress = "";
-
-            if (button && action && button.getAttribute("data-action") === action) {
-              event.preventDefault();
-              event.stopPropagation();
-              toggleSample(action);
-              return;
-            }
-
-            if (samplerDrag) {
-              if (samplerDrag.mode === "remove") {
-                removeSlice(samplerDrag.start);
-              } else if (samplerDrag.mode === "mark") {
-                sampleDragging = false;
-                if (Math.abs(samplerDrag.to - samplerDrag.from) > 1e-4) {
-                  moveSlice(samplerDrag.from, samplerDrag.to);
-                }
-              }
-            }
-
-            samplerDrag = null;
-          });
-
-          hero.addEventListener("pointercancel", function () {
-            sampleDragging = false;
-            samplerDrag = null;
+            hero.addEventListener("pointermove", move);
+            hero.addEventListener("pointerup", up);
+            event.preventDefault();
           });
 
           // The wheel narrows the window around the pointer, so a drag lands on
@@ -391,72 +336,52 @@
             sampleView.to = from + next;
             markDirty();
           }, { passive: false });
-
-          hero.addEventListener("contextmenu", function (event) {
-            if (sampleState && sampleState.peaks && sampleState.peaks.length) {
-              event.preventDefault();
-            }
-          });
-
-          hero.addEventListener("click", function (event) {
-            var button = event.target.closest(".hero-action");
-
-            if (button) {
-              if (event.detail === 0) toggleSample(button.getAttribute("data-action"));
-              return;
-            }
-
-            // With nothing loaded, a click anywhere asks for a file; with a
-            // sample up, the picture belongs to the gestures.
-            if (!sampleState || !sampleState.peaks || !sampleState.peaks.length) {
-              if (sampleInput) sampleInput.click();
-            }
-          });
         }
-
-
         if (section.hero === "shape") {
           hero.title = "Load a wavetable: click, or drop a .wav";
           hero.style.cursor = "pointer";
           acceptDrop(hero, postWave);
 
-          // The buttons act on release, not on the press: holding one and
-          // dragging away cancels, the way a click would, while a hero rebuilt
-          // between the two events does not lose the action.
-          var pressedAction = "";
+          wireHero(hero, "shape", {
+            read: function () { return wavesState; },
+            value: function (id) { return controls[id] ? controls[id].value : 0; },
+            set: setControl,
+            toggle: function (id) {
+              var control = controls[id];
 
-          hero.addEventListener("pointerdown", function (event) {
-            var button = event.target.closest(".hero-action");
+              if (!control) return;
 
-            pressedAction = button ? button.getAttribute("data-action") || "" : "";
-          });
+              setControl(id, control.value > 0.5 ? 0 : 1);
+            },
+            commit: markDirty,
+            action: function (name, query) {
+              var extra = Object.keys(query || {})
+                .map(function (key) { return "&" + key + "=" + query[key]; })
+                .join("");
 
-          hero.addEventListener("pointerup", function (event) {
-            var button = event.target.closest(".hero-action");
-            var action = pressedAction;
+              fetch("/waves?action=" + name + extra, { method: "POST", body: name })
+                .then(function (response) { return response.ok ? response.json() : null; })
+                .then(function (result) {
+                  if (!result || !result.version) return;
+                  wavesState = result;
+                  markDirty();
+                })
+                .catch(function () {});
+            },
+            pick: function (file) {
+              if (file) {
+                postWave(file);
+                return;
+              }
 
-            pressedAction = "";
-
-            if (!button || !action || button.getAttribute("data-action") !== action) return;
-
-            event.preventDefault();
-            event.stopPropagation();
-            runWaveAction(action);
-          });
-
-          // A keyboard press has no pointer release of its own.
-          hero.addEventListener("click", function (event) {
-            var button = event.target.closest(".hero-action");
-
-            if (button) {
-              if (event.detail === 0) runWaveAction(button.getAttribute("data-action"));
-              return;
-            }
-
-            if (waveInput) waveInput.click();
+              if (waveInput) waveInput.click();
+            },
+            frame: function (step) { stepWaveFrame(step); },
+            frameIndex: waveFrame,
+            cycleMode: cycleWaveMode,
+            repaint: markDirty
           });
         }
-
         if (section.hero === "modal") {
           hero.title = "Load a fitted table (.bin), or a recorded note (.wav) to fit: click or drop a file";
           hero.style.cursor = "pointer";
@@ -601,10 +526,6 @@
           hero.title = "Load an impulse response: click or drop a file; drag the dots to fade its ends";
           acceptDrop(hero, postIr);
 
-          var fadeDrag = null;
-          var fadeMoved = false;
-          var suppressIrClick = false;
-
           var irX = function (event) {
             var rect = hero.getBoundingClientRect();
             var across = (event.clientX - rect.left) / rect.width;
@@ -612,74 +533,48 @@
             return clamp((across * 520 - 20) / 480, 0, 1);
           };
 
-          hero.addEventListener("pointerdown", function (event) {
-            if (!irState || !irState.peaks || !irState.peaks.length) return;
+          wireHero(hero, "impulse", {
+            read: function () { return irState; },
+            value: function (id) { return controls[id] ? controls[id].value : 0; },
+            set: setControl,
+            toggle: function (id) {
+              var control = controls[id];
 
-            var rect = hero.getBoundingClientRect();
+              if (!control) return;
 
-            // The dots ride the envelope's top corners, so only a press up there
-            // starts a fade; a press on the body still asks for the picker.
-            if ((event.clientY - rect.top) / rect.height > 0.4) return;
+              setControl(id, control.value > 0.5 ? 0 : 1);
+            },
+            commit: function () {
+              irDragging = false;
 
-            var x = irX(event);
-            var fadeIn = clamp(irState.fade_in || 0, 0, 1);
-            var fadeOut = clamp(irState.fade_out || 0, 0, 1);
+              fetch("/ir?fade_in=" + irState.fade_in + "&fade_out=" + irState.fade_out, {
+                method: "POST",
+                body: "fades"
+              }).catch(function () {});
+            },
+            pick: function (file) {
+              if (file) {
+                postIr(file);
+                return;
+              }
 
-            if (Math.abs(x - fadeIn) < 0.03) fadeDrag = "in";
-            else if (Math.abs(x - (1 - fadeOut)) < 0.03) fadeDrag = "out";
-            else return;
+              // In a host, ask Rust for a native dialog owned by the DAW. The
+              // browser's own file input has no owner there, which is why its
+              // picker can open behind the window or appear not to open at all.
+              if (window.ipc && window.ipc.postMessage) {
+                window.ipc.postMessage("__load_ir");
+                return;
+              }
 
-            fadeMoved = false;
-            irDragging = true;
-            event.preventDefault();
-            event.stopPropagation();
-          });
-
-          hero.addEventListener("pointermove", function (event) {
-            if (!fadeDrag) return;
-
-            var x = irX(event);
-
-            if (fadeDrag === "in") irState.fade_in = clamp(x, 0, 1);
-            else irState.fade_out = clamp(1 - x, 0, 1);
-
-            fadeMoved = true;
-            markDirty();
-          });
-
-          hero.addEventListener("pointerup", function () {
-            if (!fadeDrag) return;
-
-            fadeDrag = null;
-            irDragging = false;
-
-            if (!fadeMoved) return;
-
-            fadeMoved = false;
-            suppressIrClick = true;
-            setTimeout(function () { suppressIrClick = false; }, 250);
-            fetch("/ir?fade_in=" + irState.fade_in + "&fade_out=" + irState.fade_out, {
-              method: "POST",
-              body: "fades"
-            }).catch(function () {});
-          });
-
-          hero.addEventListener("click", function (event) {
-            if (suppressIrClick) return;
-
-            // In a host, ask Rust for a native dialog owned by the DAW. The
-            // browser's own file input has no owner there, which is why its
-            // picker can open behind the window or appear not to open at all.
-            // The preview server has no IPC, so it uses the input instead.
-            if (window.ipc && window.ipc.postMessage) {
-              window.ipc.postMessage("__load_ir");
-              return;
+              if (irInput) irInput.click();
+            },
+            share: function (event) { return irX(event); },
+            repaint: function () {
+              irDragging = true;
+              markDirty();
             }
-
-            if (irInput) irInput.click();
           });
         }
-
         if (section.hero === "eq") {
           hero.title = "Drag a band: horizontal frequency, vertical gain; wheel changes Q";
           hero.style.touchAction = "none";

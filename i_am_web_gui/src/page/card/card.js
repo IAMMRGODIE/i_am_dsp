@@ -612,53 +612,11 @@
         heroes.push({ el: heroBox, name: section.hero });
 
         // The picture of an instrument that takes a file is also its target: a
-        // click asks the page for a picker, a drop hands over the file itself.
-        // The page owns the route, because only it knows which node this is.
+        // drop hands over the file itself. The page owns the route, because
+        // only it knows which node this is.
         if (options.sample) {
           heroBox.classList.add("ir-target");
           heroBox.title = options.sampleHint || "Click or drop a file";
-
-          // A gesture on the picture ends with a click of its own; the press
-          // point says whether the pointer travelled, so a drag does not also
-          // ask for a file.
-          var pressed = null;
-
-          heroBox.addEventListener("pointerdown", function (event) {
-            pressed = { x: event.clientX, y: event.clientY };
-          });
-          heroBox.addEventListener("click", function (event) {
-            // The picture's own buttons belong to the page: a click on one of
-            // them is not a click on the picture. Load is the one action every
-            // file-taking picture has, so it opens the picker here; the rest go
-            // to the page, which knows what this product does with them.
-            var button = event.target.closest("button, select, input, textarea, a");
-
-            if (button) {
-              var action = button.getAttribute("data-action");
-
-              if (!action) return;
-
-              if (action === "load" && options.pickSample) {
-                options.pickSample();
-              } else if (options.onHeroAction) {
-                options.onHeroAction(action);
-              }
-
-              return;
-            }
-
-            if (
-              pressed &&
-              Math.abs(event.clientX - pressed.x) + Math.abs(event.clientY - pressed.y) > 4
-            ) {
-              pressed = null;
-              return;
-            }
-
-            pressed = null;
-
-            if (options.pickSample) options.pickSample();
-          });
           heroBox.addEventListener("dragover", function (event) {
             event.preventDefault();
             if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
@@ -672,6 +630,19 @@
             heroBox.classList.remove("drop");
             var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
             if (file && options.pickSample) options.pickSample(file);
+          });
+        }
+
+        // What a click on the picture means is the hero's own business, and the
+        // page supplies the context it acts on: the same behaviour drives the
+        // product's page and a patcher node. A page that only takes a file gets
+        // the plain click.
+        if (options.heroContext) {
+          wireHero(heroBox, section.hero, options.heroContext);
+        } else if (options.sample) {
+          heroBox.addEventListener("click", function (event) {
+            if (event.target.closest("button, select, input, textarea, a")) return;
+            if (options.pickSample) options.pickSample();
           });
         }
       }

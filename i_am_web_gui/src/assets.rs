@@ -8,6 +8,8 @@ pub(crate) const SCRIPT: &str = concat!(
 	include_str!("page/kit/controls.js"),
 	include_str!("page/kit/eq.js"),
 	include_str!("page/kit/heroes.js"),
+	// What a hero's buttons and gestures mean, shared with the patcher cards.
+	include_str!("page/card/hero-behaviour.js"),
 	include_str!("page/kit/polls.js"),
 	include_str!("page/kit/pitch.js"),
 	include_str!("page/kit/amp.js"),
@@ -37,6 +39,10 @@ pub const CARD_SCRIPT: &str = concat!(
 	include_str!("page/card/card.js"),
 	// The control-source pictures shared by the patch and the rack page.
 	include_str!("page/card/sources.js"),
+	// What a hero's buttons and gestures mean, shared by every page that draws
+	// one: the product's own page and a patcher node differ only in where an
+	// edit goes.
+	include_str!("page/card/hero-behaviour.js"),
 );
 
 /// The three assets a page is made of.

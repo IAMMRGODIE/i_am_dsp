@@ -914,6 +914,57 @@ mod tests {
 		);
 	}
 
+	/// A hero draws its own buttons, and what each one means lives in one place
+	/// so that a product page and a patcher node cannot drift apart. A button
+	/// nobody handles is a click that does nothing, which is silent in a host.
+	#[test]
+	fn every_hero_button_has_a_behaviour() {
+		// The canvas and spectra heroes still wire their pages themselves, and
+		// the drum kit's load button belongs to its own page.
+		const PENDING: &[&str] = &[
+			"page-prev",
+			"page-next",
+			"page-add",
+			"page-remove",
+			"spectrum-prev",
+			"spectrum-next",
+			"spectrum-add",
+			"spectrum-remove",
+			"load",
+		];
+
+		let behaviour = include_str!("page/card/hero-behaviour.js");
+		let mut checked = 0;
+
+		for source in [
+			include_str!("page/card/heroes-voice.js"),
+			include_str!("page/card/heroes-drums.js"),
+		] {
+			let mut rest = source;
+
+			while let Some(at) = rest.find("data-action=\"") {
+				rest = &rest[at + "data-action=\"".len()..];
+
+				let end = rest.find('"').expect("a closed attribute");
+				let action = &rest[..end];
+
+				checked += 1;
+
+				if PENDING.contains(&action) {
+					continue;
+				}
+
+				assert!(
+					behaviour.contains(&format!("\"{action}\""))
+						|| behaviour.contains(&format!("{action}:")),
+					"{action} is drawn but nothing handles it"
+				);
+			}
+		}
+
+		assert!(checked > 10, "the scan found only {checked} buttons");
+	}
+
 	/// The page needs the rate to place a spectrum on the response's axis.
 	#[test]
 	fn the_rate_is_written_when_the_host_has_one() {

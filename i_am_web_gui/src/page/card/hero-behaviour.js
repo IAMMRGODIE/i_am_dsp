@@ -1,0 +1,257 @@
+// Part ten: what a hero's buttons and gestures mean.
+//
+// A product page and a patcher node draw the same picture from the same
+// metadata; the only difference is where an edit goes. So the meaning lives
+// here, once per hero, and the page supplies a context:
+//
+//   read()          what the picture shows now
+//   value(id)       one control's current value
+//   set(id, value)  move one control (the page decides whether that posts)
+//   toggle(id)      flip a switch
+//   action(name, query)  run one of the product's own actions
+//   commit(ids)     the gesture ended: write what it moved
+//   pick()          ask the page for a file
+//   share(event)    where a press sits along the picture, 0..1
+//   near(at)        whether a slice mark is that close
+//
+// A hero without a behaviour keeps whatever its page wires itself.
+  var HERO_BEHAVIOURS = {};
+
+  function registerHeroBehaviour(hero, behaviour) {
+    HERO_BEHAVIOURS[hero] = behaviour;
+  }
+
+  function heroBehaviour(hero) {
+    return HERO_BEHAVIOURS[hero] || null;
+  }
+
+  /// Wires one hero to a page's context: its buttons, its drags, its clicks.
+  ///
+  /// The listeners are attached here rather than per page, so a hero behaves
+  /// the same wherever it is drawn. A press that travels is a drag, not a
+  /// click, and neither runs the other.
+  function wireHero(hero, name, context) {
+    var behaviour = heroBehaviour(name);
+
+    if (!behaviour) return;
+
+    var drag = null;
+    var pressed = null;
+    var moved = false;
+
+    hero.addEventListener("pointerdown", function (event) {
+      pressed = { x: event.clientX, y: event.clientY };
+      moved = false;
+
+      if (event.target.closest(".hero-action")) return;
+      if (!behaviour.down) return;
+
+      drag = behaviour.down(context, event) || null;
+
+      if (drag) {
+        try {
+          hero.setPointerCapture(event.pointerId);
+        } catch (ignore) {}
+        event.preventDefault();
+      }
+    });
+
+    hero.addEventListener("pointermove", function (event) {
+      if (pressed) {
+        moved = moved ||
+          Math.abs(event.clientX - pressed.x) + Math.abs(event.clientY - pressed.y) > 4;
+      }
+
+      if (!drag || !behaviour.move) return;
+
+      behaviour.move(context, drag, event);
+    });
+
+    hero.addEventListener("pointerup", function () {
+      var finished = drag;
+
+      drag = null;
+
+      if (finished && behaviour.up) behaviour.up(context, finished);
+    });
+
+    hero.addEventListener("pointercancel", function () {
+      drag = null;
+    });
+
+    hero.addEventListener("click", function (event) {
+      var button = event.target.closest(".hero-action");
+      var action = button && button.getAttribute("data-action");
+
+      if (button && action) {
+        var handler = behaviour.actions && behaviour.actions[action];
+
+        if (handler) handler(context);
+
+        return;
+      }
+
+      // A drag ends with a click of its own; it is not a press on the picture.
+      if (moved) {
+        moved = false;
+        return;
+      }
+
+      if (behaviour.click) behaviour.click(context, event);
+    });
+
+    hero.addEventListener("dblclick", function (event) {
+      if (!behaviour.double || event.target.closest(".hero-action")) return;
+
+      behaviour.double(context, event);
+    });
+
+    hero.addEventListener("contextmenu", function (event) {
+      if (behaviour.menu && behaviour.menu(context, event)) event.preventDefault();
+    });
+  }
+
+  /// Flips a switch: a button is a whole edit, so it is written at once rather
+  /// than left for a gesture to finish.
+  function flip(ctx, id) {
+    ctx.set(id, ctx.value(id) > 0.5 ? 0 : 1);
+    ctx.commit([id]);
+  }
+
+  registerHeroBehaviour("sampler", {
+    actions: {
+      load: function (ctx) { ctx.pick(); },
+      slice: function (ctx) { ctx.action("slices"); },
+      loop: function (ctx) { flip(ctx, "oscillator.loop"); },
+      pingpong: function (ctx) { flip(ctx, "oscillator.pingpong"); },
+      reverse: function (ctx) { flip(ctx, "oscillator.reverse"); },
+      polarity: function (ctx) { flip(ctx, "oscillator.polarity"); }
+    },
+    down: function (ctx, event) {
+      var sample = ctx.read();
+
+      if (!sample || !sample.peaks || !sample.peaks.length) return null;
+
+      var at = ctx.share(event);
+
+      if (event.button === 2) {
+        // The right button takes off the mark it lands on, and elsewhere draws
+        // the loop region from press to release.
+        if (ctx.near(at)) {
+          ctx.action("slice-remove", { at: at });
+          return null;
+        }
+
+        ctx.set("oscillator.loop_start", at);
+        ctx.set("oscillator.loop_end", at);
+        ctx.set("oscillator.loop", 1);
+        return { kind: "loop", at: at };
+      }
+
+      if (event.button !== 0 || event.shiftKey) return null;
+
+      if (Math.round(ctx.value("oscillator.mode") || 0) === 1 && ctx.near(at)) {
+        return { kind: "mark", from: at, to: at };
+      }
+
+      // The left button sets where playback starts and drops the loop, the way
+      // the sampler's own editor does.
+      ctx.set("oscillator.start", at);
+      ctx.set("oscillator.loop", 0);
+      return { kind: "start" };
+    },
+    move: function (ctx, drag, event) {
+      var at = ctx.share(event);
+
+      if (drag.kind === "loop") {
+        ctx.set("oscillator.loop_start", Math.min(drag.at, at));
+        ctx.set("oscillator.loop_end", Math.max(drag.at, at));
+      } else if (drag.kind === "start") {
+        ctx.set("oscillator.start", at);
+      } else if (drag.kind === "mark") {
+        drag.to = at;
+      }
+    },
+    up: function (ctx, drag) {
+      if (drag.kind === "mark") {
+        if (Math.abs(drag.to - drag.from) > 1e-4) {
+          ctx.action("slice-move", { from: drag.from, to: drag.to });
+        }
+
+        return;
+      }
+
+      ctx.commit(drag.kind === "loop"
+        ? ["oscillator.loop_start", "oscillator.loop_end", "oscillator.loop"]
+        : ["oscillator.start", "oscillator.loop"]);
+    },
+    double: function (ctx, event) {
+      var at = ctx.share(event);
+
+      if (ctx.near(at)) return;
+
+      ctx.action("slice-add", { at: at });
+    },
+    click: function (ctx) {
+      var sample = ctx.read();
+
+      // With nothing loaded, a click anywhere asks for a file; with a sample
+      // up, the picture belongs to the gestures.
+      if (!sample || !sample.peaks || !sample.peaks.length) ctx.pick();
+    },
+    menu: function (ctx) {
+      var sample = ctx.read();
+
+      return !!(sample && sample.peaks && sample.peaks.length);
+    }
+  });
+
+  registerHeroBehaviour("shape", {
+    actions: {
+      prev: function (ctx) { ctx.frame(-1); },
+      next: function (ctx) { ctx.frame(1); },
+      delete: function (ctx) { ctx.action("delete", { frame: ctx.frameIndex() }); },
+      mode: function (ctx) { ctx.cycleMode(); },
+      reverse: function (ctx) { ctx.action("reverse"); },
+      invert: function (ctx) { ctx.action("invert"); },
+      dc: function (ctx) { ctx.action("dc"); },
+      normalize: function (ctx) { ctx.action("normalize"); }
+    },
+    click: function (ctx) { ctx.pick(); }
+  });
+
+  registerHeroBehaviour("impulse", {
+    down: function (ctx, event) {
+      var ir = ctx.read();
+
+      if (!ir || !ir.peaks || !ir.peaks.length) return null;
+
+      var rect = event.currentTarget.getBoundingClientRect();
+
+      // The dots ride the envelope's top corners, so only a press up there
+      // starts a fade; a press on the body still asks for the picker.
+      if ((event.clientY - rect.top) / rect.height > 0.4) return null;
+
+      var at = ctx.share(event);
+      var fadeIn = Math.min(1, Math.max(0, ir.fade_in || 0));
+      var fadeOut = Math.min(1, Math.max(0, ir.fade_out || 0));
+
+      if (Math.abs(at - fadeIn) < 0.03) return { kind: "in" };
+      if (Math.abs(at - (1 - fadeOut)) < 0.03) return { kind: "out" };
+
+      return null;
+    },
+    move: function (ctx, drag, event) {
+      var at = ctx.share(event);
+      var ir = ctx.read();
+
+      if (drag.kind === "in") ir.fade_in = at;
+      else ir.fade_out = 1 - at;
+
+      ctx.repaint();
+    },
+    up: function (ctx) {
+      ctx.commit(["fade_in", "fade_out"]);
+    },
+    click: function (ctx) { ctx.pick(); }
+  });
