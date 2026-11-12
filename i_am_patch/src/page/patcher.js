@@ -364,6 +364,10 @@
     entry = { host, key, kindId: node.kind, context, card, node, kind, samples: null, phase: null };
     cards[node.id] = entry;
 
+    // A node that already holds a file shows it as soon as the card is built,
+    // not only right after the drop that loaded it.
+    if (IMPORT_ROUTES[kind.id]) refreshImport(entry, IMPORT_ROUTES[kind.id].path);
+
     if (SOURCE_KINDS.includes(kind.id)) {
       const repaint = card.repaintHero;
       card.repaintHero = function (values) {
@@ -389,7 +393,7 @@
     if (!sampleInput) {
       sampleInput = document.createElement("input");
       sampleInput.type = "file";
-      sampleInput.accept = ".wav";
+      sampleInput.accept = ".wav,.aif,.aiff";
       sampleInput.style.display = "none";
       document.body.appendChild(sampleInput);
     }
@@ -420,6 +424,52 @@
       }
     };
     reader.readAsArrayBuffer(file);
+  }
+
+  // The kinds whose card takes a file, and the route that loads it.
+  const IMPORT_ROUTES = {
+    "synth:sampler": { path: "sampler", hint: "Load a sample: click or drop a .wav" },
+    "synth:shapes": { path: "waves", hint: "Build the table from a .wav: click or drop a file" },
+    "mod:convolver": { path: "ir", hint: "Load an impulse response: click or drop a file" },
+  };
+
+  /// Posts a file to a node's import route, then redraws what the card shows.
+  function postImport(node, path, file) {
+    const reader = new FileReader();
+
+    reader.onload = async () => {
+      const response = await fetch(
+        "/" + path + "?node=" + node + "&name=" + encodeURIComponent(file.name),
+        { method: "POST", body: reader.result },
+      );
+      const result = response.ok ? await response.json() : null;
+
+      if (!result || !result.ok) {
+        showStatus((result && result.error) || "the file could not be loaded");
+        return;
+      }
+
+      showStatus("");
+      await refreshImport(cards[node], path);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  /// Fetches what a node's slot now holds and repaints the card's picture.
+  async function refreshImport(entry, path) {
+    if (!entry || !entry.card || !entry.context) return;
+
+    const response = await fetch("/" + path + "?node=" + entry.node.id, {
+      cache: "no-store",
+    });
+
+    if (!response.ok) return;
+
+    const state = await response.json();
+    const key = path === "ir" ? "ir" : path === "waves" ? "waves" : "sample";
+    entry.context[key] = state;
+
+    if (entry.card.repaintHero) entry.card.repaintHero();
   }
 
   // A product card is the product's own face: the shared builder draws its
@@ -454,6 +504,7 @@
     }
 
     const context = { rate: 48000, scope: { input: null, output: null }, spectra: {} };
+    const importRoute = IMPORT_ROUTES[kind.id];
     const card = IAmCard.faceCard({
       face: kind,
       values: node.params,
@@ -463,10 +514,23 @@
         fetch("/clear?node=" + node.id, { method: "POST" }).catch(() => {});
       },
       script: !!kind.script,
-      sample: kind.id === "synth:fitted",
+      // The fitted instrument fits a recorded note; the sampler, the shapes and
+      // the convolver load the file straight into the slot their voice reads.
+      sample: kind.id === "synth:fitted" || !!importRoute,
+      sampleHint: importRoute
+        ? importRoute.hint
+        : "Load a recorded note (.wav) to fit: click or drop a file",
       pickSample: (file) => {
-        if (file) postSample(node.id, file);
-        else pickSampleFile((picked) => postSample(node.id, picked));
+        if (kind.id === "synth:fitted") {
+          if (file) postSample(node.id, file);
+          else pickSampleFile((picked) => postSample(node.id, picked));
+          return;
+        }
+
+        if (!importRoute) return;
+
+        if (file) postImport(node.id, importRoute.path, file);
+        else pickSampleFile((picked) => postImport(node.id, importRoute.path, picked));
       },
       loadScript: () => {
         fetch("/script?node=" + node.id)
@@ -527,6 +591,10 @@
     host.appendChild(scale);
     entry = { host, key, kindId: node.kind, context, card, node, kind, samples: null, phase: null };
     cards[node.id] = entry;
+
+    // A node that already holds a file shows it as soon as the card is built,
+    // not only right after the drop that loaded it.
+    if (IMPORT_ROUTES[kind.id]) refreshImport(entry, IMPORT_ROUTES[kind.id].path);
     entry.host.style.setProperty(
       "--k",
       String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),

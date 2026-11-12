@@ -11,7 +11,16 @@ pub struct ConvolverWeb {
 
 impl Default for ConvolverWeb {
 	fn default() -> Self {
-		let ir = Arc::new(IrSlot::new());
+		Self::with_slot(Arc::new(IrSlot::new()))
+	}
+}
+
+impl ConvolverWeb {
+	/// The product over a slot the caller already holds.
+	///
+	/// The patcher keeps the slot itself, so a response dropped on a patch node
+	/// reaches the effect the same way the product's own page does.
+	pub fn with_slot(ir: Arc<IrSlot>) -> Self {
 		let build_slot = ir.clone();
 
 		Self {
@@ -25,9 +34,7 @@ impl Default for ConvolverWeb {
 			clear: Arc::new(AtomicBool::new(false)),
 		}
 	}
-}
 
-impl ConvolverWeb {
 	/// The faceplate size this product declares to a host.
 	pub const fn size() -> (f32, f32) {
 		SIZE

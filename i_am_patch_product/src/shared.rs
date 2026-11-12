@@ -28,8 +28,8 @@ pub struct PatcherShared {
 	pub error: Mutex<Option<String>>,
 	/// The scripts the running nodes own, by node id, for the page's editor.
 	pub scripts: i_am_patch::Scripts,
-	/// The fitted tables the Modal nodes play, by node id.
-	pub tables: i_am_patch::Tables,
+	/// What the page hands the nodes: fitted tables, samples, responses.
+	pub slots: i_am_patch::Slots,
 	/// The nodes the page asked to clear their tail, drained by the audio thread.
 	pub clear_requests: Mutex<Vec<u32>>,
 }
@@ -53,7 +53,7 @@ impl Default for PatcherShared {
 			phases: Mutex::new(Vec::new()),
 			error: Mutex::new(None),
 			scripts: Default::default(),
-			tables: Default::default(),
+			slots: Default::default(),
 			clear_requests: Mutex::new(Vec::new()),
 		}
 	}
@@ -246,7 +246,7 @@ impl Body {
 		let rate = self.shared.rate.load(Ordering::Relaxed).max(1);
 
 		if voice_group(&graph).is_empty() {
-			match Engine::new_with(&graph, rate, &self.shared.tables) {
+			match Engine::new_with(&graph, rate, &self.shared.slots) {
 				Ok(engine) => {
 					self.engine = Some(engine);
 					self.poly = None;
@@ -259,7 +259,7 @@ impl Body {
 				}
 			}
 		} else {
-			match Poly::new_with(&graph, rate, &self.shared.tables) {
+			match Poly::new_with(&graph, rate, &self.shared.slots) {
 				Ok(poly) => {
 					self.poly = Some(poly);
 					self.engine = None;

@@ -66,8 +66,8 @@ pub struct Poly {
 	voice_graph: Graph,
 	/// Where a page reads the scripts the voices own, by node id.
 	scripts: Option<crate::Scripts>,
-	/// The fitted tables the Modal nodes read, shared with the page.
-	tables: crate::Tables,
+	/// What the page handed the nodes: fitted tables, samples, responses.
+	slots: crate::Slots,
 	rate: usize,
 	out: NodeId,
 	voice_latency: usize,
@@ -104,15 +104,11 @@ impl Poly {
 
 	/// Splits the graph and builds the outer engine.
 	pub fn new(graph: &Graph, rate: usize) -> Result<Self, EngineError> {
-		Self::new_with(graph, rate, &crate::Tables::default())
+		Self::new_with(graph, rate, &crate::Slots::default())
 	}
 
-	/// A polyphonic graph over tables the caller already owns.
-	pub fn new_with(
-		graph: &Graph,
-		rate: usize,
-		tables: &crate::Tables,
-	) -> Result<Self, EngineError> {
+	/// A polyphonic graph over the slots the caller already owns.
+	pub fn new_with(graph: &Graph, rate: usize, slots: &crate::Slots) -> Result<Self, EngineError> {
 		let group = voice_group(graph);
 
 		if group.is_empty() {
@@ -209,8 +205,8 @@ impl Poly {
 
 		Ok(Self {
 			scripts: None,
-			tables: tables.clone(),
-			outer: Engine::new_with(&outer, rate, tables)?,
+			slots: slots.clone(),
+			outer: Engine::new_with(&outer, rate, slots)?,
 			voice_graph,
 			rate,
 			out,
@@ -373,7 +369,7 @@ impl Poly {
 						self.voices.remove(position);
 					}
 
-					if let Ok(engine) = Engine::new_with(&self.voice_graph, self.rate, &self.tables)
+					if let Ok(engine) = Engine::new_with(&self.voice_graph, self.rate, &self.slots)
 					{
 						if let Some(scripts) = &self.scripts {
 							let mut scripts = scripts.lock().expect("the script lock");

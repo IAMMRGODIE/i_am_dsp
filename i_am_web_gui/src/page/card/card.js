@@ -597,12 +597,12 @@
         box.appendChild(heroBox);
         heroes.push({ el: heroBox, name: section.hero });
 
-        // The fitted instrument's picture is also its file target: a click
-        // asks the page for a picker, a drop hands over the file itself. The
-        // page owns the route, because only it knows which node this is.
-        if (options.sample && section.hero === "modal") {
+        // The picture of an instrument that takes a file is also its target: a
+        // click asks the page for a picker, a drop hands over the file itself.
+        // The page owns the route, because only it knows which node this is.
+        if (options.sample) {
           heroBox.classList.add("ir-target");
-          heroBox.title = "Load a recorded note (.wav) to fit: click or drop a file";
+          heroBox.title = options.sampleHint || "Click or drop a file";
           heroBox.addEventListener("click", function () {
             if (options.pickSample) options.pickSample();
           });

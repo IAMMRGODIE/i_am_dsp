@@ -88,9 +88,9 @@ pub use additive::{AdditiveWeb, additive_faceplate};
 pub use canvas::{CanvasWeb, canvas_faceplate, canvas_shape};
 pub use drummer::{DrummerWeb, faceplate as drummer_faceplate};
 pub use fitted::{FittedWeb, faceplate as fitted_faceplate};
-pub use sampler::{SamplerWeb, sampler_faceplate};
+pub use sampler::{SamplerWeb, import_sample, sample_preview, sampler_faceplate};
 pub use script::{ScriptWeb, script_faceplate};
-pub use shapes::{ShapesWeb, shapes_faceplate};
+pub use shapes::{ShapesWeb, import_waves, shapes_faceplate, waves_preview};
 pub use spectrum::{SpectrumWeb, spectrum_faceplate};
 pub use strings::{StringWeb, faceplate};
 

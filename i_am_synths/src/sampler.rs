@@ -248,6 +248,42 @@ fn build_preview(sample: &Arc<SampleData>, slices: &[f32]) -> SamplePreview {
 	}
 }
 
+/// Loads a WAV into a slot, the way a drop on the product's own page does.
+///
+/// The page owns the slot and the voice reads it, so a patch node can take a
+/// sample without going through the product's routes.
+pub fn import_sample(
+	slot: &Arc<Mutex<SampleSlot>>,
+	bytes: &[u8],
+	name: &str,
+) -> Result<(String, usize, f32), String> {
+	let sample = decode_sample(bytes, name)?;
+	let samples = sample.pcm.len();
+	let seconds = sample.seconds();
+	let mut guard = slot.lock().unwrap_or_else(|error| error.into_inner());
+
+	guard.sample = Some(Arc::new(sample));
+	guard.slices.clear();
+
+	Ok((name.to_string(), samples, seconds))
+}
+
+/// What the page draws for a slot: the peaks, the slices and the name.
+pub fn sample_preview(slot: &Arc<Mutex<SampleSlot>>) -> String {
+	let (sample, slices) = {
+		let guard = slot.lock().unwrap_or_else(|error| error.into_inner());
+
+		(guard.sample.clone(), guard.slices.clone())
+	};
+
+	let cache = match &sample {
+		Some(sample) => build_preview(sample, &slices),
+		None => SamplePreview::default(),
+	};
+
+	preview_json(&cache)
+}
+
 /// Edits the sample's slice marks: make a grid, follow the transients, or add
 /// and remove single marks from the picture.
 fn edit_sample(
@@ -526,7 +562,16 @@ pub struct SamplerWeb {
 
 impl Default for SamplerWeb {
 	fn default() -> Self {
-		let slot = Arc::new(Mutex::new(SampleSlot::default()));
+		Self::with_slot(Arc::new(Mutex::new(SampleSlot::default())))
+	}
+}
+
+impl SamplerWeb {
+	/// The instrument over a slot the caller already holds.
+	///
+	/// The patcher keeps the slot itself, so a sample dropped on a patch node
+	/// reaches the voice the same way the product's own page does.
+	pub fn with_slot(slot: Arc<Mutex<SampleSlot>>) -> Self {
 		let build_slot = slot.clone();
 
 		Self {
@@ -539,9 +584,12 @@ impl Default for SamplerWeb {
 			preview: Arc::new(Mutex::new(SamplePreview::default())),
 		}
 	}
-}
 
-impl SamplerWeb {
+	/// The slot the page writes a sample into.
+	pub fn slot(&self) -> Arc<Mutex<SampleSlot>> {
+		self.slot.clone()
+	}
+
 	/// The rate the instrument inside is currently built for.
 	pub fn sample_rate(&self) -> usize {
 		self.processor.sample_rate()

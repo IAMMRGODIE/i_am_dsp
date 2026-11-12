@@ -80,8 +80,8 @@ pub struct Engine {
 	controls: Vec<Vec<f32>>,
 	base: Vec<BTreeMap<&'static str, f32>>,
 	points: Vec<Vec<crate::graph::Point>>,
-	/// The fitted tables the Modal nodes read, shared with the page.
-	tables: crate::Tables,
+	/// What the page handed the nodes: fitted tables, samples, responses.
+	slots: crate::Slots,
 	output_step: Option<usize>,
 	latency: usize,
 	tempo: Option<f32>,
@@ -114,16 +114,12 @@ impl Engine {
 	}
 
 	pub fn new(graph: &Graph, rate: usize) -> Result<Self, EngineError> {
-		Self::new_with(graph, rate, &crate::Tables::default())
+		Self::new_with(graph, rate, &crate::Slots::default())
 	}
 
-	/// Builds a graph over tables the caller already owns, so a Modal node can
-	/// play a sample the page fitted.
-	pub fn new_with(
-		graph: &Graph,
-		rate: usize,
-		tables: &crate::Tables,
-	) -> Result<Self, EngineError> {
+	/// Builds a graph over the slots the caller already owns, so a Modal node can
+	/// play a sample the page fitted and a sampler the one it dropped.
+	pub fn new_with(graph: &Graph, rate: usize, slots: &crate::Slots) -> Result<Self, EngineError> {
 		let plan: Plan = compile(graph)?;
 		let steps: std::collections::BTreeMap<NodeId, usize> = plan
 			.order
@@ -157,7 +153,7 @@ impl Engine {
 					rate,
 					&instance.params,
 					&instance.points,
-					tables,
+					slots,
 				)
 				.ok_or_else(|| EngineError::UnknownKind(kind.id.to_string()))?,
 			);
@@ -263,7 +259,7 @@ impl Engine {
 			controls,
 			base,
 			points,
-			tables: tables.clone(),
+			slots: slots.clone(),
 			output_step,
 			latency,
 			tempo: None,
@@ -349,7 +345,7 @@ impl Engine {
 		seconds: f32,
 		events: &[(u64, NoteEvent)],
 	) -> Result<Vec<[f32; 2]>, EngineError> {
-		Self::render_graph_with(graph, rate, seconds, events, &crate::Tables::default())
+		Self::render_graph_with(graph, rate, seconds, events, &crate::Slots::default())
 	}
 
 	/// Renders a graph offline over tables the caller already owns, which is
@@ -359,9 +355,9 @@ impl Engine {
 		rate: usize,
 		seconds: f32,
 		events: &[(u64, NoteEvent)],
-		tables: &crate::Tables,
+		slots: &crate::Slots,
 	) -> Result<Vec<[f32; 2]>, EngineError> {
-		let mut engine = Self::new_with(graph, rate, tables)?;
+		let mut engine = Self::new_with(graph, rate, slots)?;
 		let blocks = (seconds.max(0.01) * rate as f32 / BLOCK as f32).ceil() as u64;
 		let mut out = Vec::with_capacity(blocks as usize * BLOCK);
 
@@ -433,7 +429,7 @@ impl Engine {
 					self.rate,
 					&self.base[step],
 					&self.points[step],
-					&self.tables,
+					&self.slots,
 				) {
 					self.nodes[step] = node;
 				}

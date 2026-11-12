@@ -95,8 +95,8 @@ struct Shared {
 	taps: Taps,
 	phases: Arc<Mutex<Vec<(u32, f32)>>>,
 	error: Arc<Mutex<Option<String>>>,
-	/// The fitted tables a Modal node plays; the demo graph has none.
-	tables: i_am_patch::Tables,
+	/// What the page handed the nodes; the demo graph has none.
+	slots: i_am_patch::Slots,
 }
 
 impl Shared {
@@ -150,7 +150,7 @@ fn main() {
 		taps: Arc::new(Mutex::new(Vec::new())),
 		phases: Arc::new(Mutex::new(Vec::new())),
 		error: Arc::new(Mutex::new(None)),
-		tables: Default::default(),
+		slots: Default::default(),
 	};
 	spawn_audio(shared.clone());
 
@@ -182,7 +182,7 @@ fn spawn_audio(shared: Shared) {
 				// same, so a patch that never used a voice group still has audio.
 				if voice_group(&graph).is_empty() {
 					poly = None;
-					engine = match Engine::new_with(&graph, shared.rate, &shared.tables) {
+					engine = match Engine::new_with(&graph, shared.rate, &shared.slots) {
 						Ok(engine) => {
 							*shared.error.lock().expect("error") = None;
 							Some(engine)
@@ -195,7 +195,7 @@ fn spawn_audio(shared: Shared) {
 					};
 				} else {
 					engine = None;
-					poly = match Poly::new_with(&graph, shared.rate, &shared.tables) {
+					poly = match Poly::new_with(&graph, shared.rate, &shared.slots) {
 						Ok(poly) => {
 							*shared.error.lock().expect("error") = None;
 							Some(poly)
@@ -446,6 +446,21 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			"application/json",
 			sample_route(shared, path, body_bytes).to_string(),
 		),
+		(method, path) if path == "/sampler" || path.starts_with("/sampler?") => (
+			"200 OK",
+			"application/json",
+			import_route(shared, method, path, body_bytes, Import::Sample),
+		),
+		(method, path) if path == "/waves" || path.starts_with("/waves?") => (
+			"200 OK",
+			"application/json",
+			import_route(shared, method, path, body_bytes, Import::Waves),
+		),
+		(method, path) if path == "/ir" || path.starts_with("/ir?") => (
+			"200 OK",
+			"application/json",
+			import_route(shared, method, path, body_bytes, Import::Ir),
+		),
 		_ => ("404 Not Found", "text/plain", "not found".to_string()),
 	};
 
@@ -619,6 +634,87 @@ fn op_graph(shared: &Shared, value: &Value) -> Value {
 }
 
 /// Fits one recorded note into a Modal node, the way the product's route does.
+/// The three files a node can take besides a fitted note.
+#[derive(Clone, Copy)]
+enum Import {
+	/// The sampler's sample.
+	Sample,
+	/// The shapes' wavetable.
+	Waves,
+	/// The convolver's impulse response.
+	Ir,
+}
+
+/// Answers the sampler, the shapes and the convolver: a GET describes what the
+/// slot holds, a POST loads a file into it.
+fn import_route(shared: &Shared, method: &str, path: &str, body: &[u8], which: Import) -> String {
+	let query = path.split_once('?').map(|(_, query)| query).unwrap_or("");
+	let node = query
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("node="))
+		.and_then(|value| value.parse::<u32>().ok())
+		.unwrap_or(0);
+	let name = query
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("name="))
+		.map(i_am_web_gui::percent_decode)
+		.filter(|name| !name.is_empty())
+		.unwrap_or_else(|| "file".to_string());
+
+	match which {
+		Import::Sample => {
+			let slot = shared.slots.sample(node);
+
+			if method == "GET" {
+				return i_am_patch::sample_preview(&slot);
+			}
+
+			match i_am_patch::import_sample(&slot, body, &name) {
+				Ok((name, samples, seconds)) => json!({
+					"ok": true,
+					"name": name,
+					"samples": samples,
+					"seconds": seconds,
+				})
+				.to_string(),
+				Err(error) => json!({ "ok": false, "error": error }).to_string(),
+			}
+		}
+		Import::Waves => {
+			let slot = shared.slots.waves(node);
+
+			if method == "GET" {
+				return i_am_patch::waves_preview(&slot);
+			}
+
+			match i_am_patch::import_waves(&slot, body, &name) {
+				Ok((name, frames)) => {
+					json!({ "ok": true, "name": name, "frames": frames }).to_string()
+				}
+				Err(error) => json!({ "ok": false, "error": error }).to_string(),
+			}
+		}
+		Import::Ir => {
+			let slot = shared.slots.ir(node);
+
+			if method == "GET" {
+				return slot.json();
+			}
+
+			match i_am_effects::decode_ir(body, slot.host_rate(), name) {
+				Ok(ir) => {
+					slot.set(std::sync::Arc::new(ir));
+					json!({ "ok": true }).to_string()
+				}
+				Err(error) => {
+					slot.fail(error.clone());
+					json!({ "ok": false, "error": error }).to_string()
+				}
+			}
+		}
+	}
+}
+
 fn sample_route(shared: &Shared, path: &str, body: &[u8]) -> Value {
 	let query = path.split_once('?').map(|(_, query)| query).unwrap_or("");
 	let node = query
@@ -633,12 +729,13 @@ fn sample_route(shared: &Shared, path: &str, body: &[u8]) -> Value {
 
 	match i_am_dsp::prelude::fit_sample(body, i_am_dsp::prelude::note_of_name(name)) {
 		Ok(fitted) => {
-			i_am_patch::nodes::table_for(&shared.tables, node).set(
-				i_am_dsp::prelude::ImportedTable {
+			shared
+				.slots
+				.fitted(node)
+				.set(i_am_dsp::prelude::ImportedTable {
 					name: name.to_string(),
 					bytes: fitted.bytes,
-				},
-			);
+				});
 
 			if let Ok(mut graph) = shared.graph.lock() {
 				let id = i_am_patch::graph::NodeId(node);

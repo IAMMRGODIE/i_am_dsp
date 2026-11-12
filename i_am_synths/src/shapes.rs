@@ -181,6 +181,48 @@ fn waves_route(
 	}
 }
 
+/// Turns a WAV into a table and puts it in a slot, the way a drop on the
+/// product's own page does.
+pub fn import_waves(
+	slot: &Arc<Mutex<WaveSlot>>,
+	bytes: &[u8],
+	name: &str,
+) -> Result<(String, usize), String> {
+	let wave = decode_table(bytes, name, SliceMode::parse(None))?;
+	let bank = WaveBank::new(Some(name.to_string()), wave.frames);
+	let count = bank.len();
+
+	slot.lock().unwrap_or_else(|error| error.into_inner()).bank = Some(bank);
+
+	Ok((name.to_string(), count))
+}
+
+/// What the page draws for a slot: one preview per frame, and the name.
+pub fn waves_preview(slot: &Arc<Mutex<WaveSlot>>) -> String {
+	let bank = slot
+		.lock()
+		.unwrap_or_else(|error| error.into_inner())
+		.bank
+		.clone();
+
+	let cache = match &bank {
+		Some(bank) => WavePreview {
+			version: bank.id(),
+			name: bank.name().map(str::to_string),
+			count: bank.len(),
+			previews: bank
+				.frames()
+				.iter()
+				.map(|frame| preview_points(frame, PREVIEW_POINTS))
+				.collect(),
+			error: None,
+		},
+		None => WavePreview::default(),
+	};
+
+	preview_json(&cache)
+}
+
 /// Puts a rebuilt table in the slot and describes it back to the page.
 fn store_bank(
 	slot: &Arc<Mutex<WaveSlot>>,
@@ -358,7 +400,16 @@ pub struct ShapesWeb {
 
 impl Default for ShapesWeb {
 	fn default() -> Self {
-		let slot = Arc::new(Mutex::new(WaveSlot::default()));
+		Self::with_slot(Arc::new(Mutex::new(WaveSlot::default())))
+	}
+}
+
+impl ShapesWeb {
+	/// The instrument over a slot the caller already holds.
+	///
+	/// The patcher keeps the slot itself, so a table dropped on a patch node
+	/// reaches the voice the same way the product's own page does.
+	pub fn with_slot(slot: Arc<Mutex<WaveSlot>>) -> Self {
 		let build_slot = slot.clone();
 
 		Self {
@@ -371,9 +422,12 @@ impl Default for ShapesWeb {
 			preview: Arc::new(Mutex::new(WavePreview::default())),
 		}
 	}
-}
 
-impl ShapesWeb {
+	/// The slot the page writes a table into.
+	pub fn slot(&self) -> Arc<Mutex<WaveSlot>> {
+		self.slot.clone()
+	}
+
 	/// The rate the instrument inside is currently built for.
 	pub fn sample_rate(&self) -> usize {
 		self.processor.sample_rate()

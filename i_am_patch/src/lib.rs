@@ -19,6 +19,10 @@ pub mod sources;
 pub mod synths;
 pub mod text;
 
+/// How a node takes a file: the products' own decoders, re-exported so the crate
+/// that hosts them does not need a dependency of its own.
+pub use i_am_synths::{import_sample, import_waves, sample_preview, waves_preview};
+
 #[cfg(test)]
 /// A graph with one note voice, used by more than one module's tests.
 pub(crate) fn voice_patch() -> crate::graph::Graph {
@@ -51,11 +55,84 @@ pub type Scripts = std::sync::Arc<
 	>,
 >;
 
-/// The fitted tables the patcher's Modal nodes play, by node id.
+/// What a page hands to the nodes: the things a graph parameter cannot carry.
 ///
-/// A fitted table is a serialized value, which a graph parameter cannot carry,
-/// so the page's upload route writes it here and the node picks it up when the
-/// graph is rebuilt. The slot is what the instrument reads on every note, so a
-/// rebuild is not needed to hear a table that was just fitted.
-pub type Tables =
-	std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, i_am_dsp::prelude::TableSlot>>>;
+/// A fitted table, a sample, a wavetable and an impulse response are all
+/// serialized values, which a graph parameter cannot hold, so the page's upload
+/// routes write them into slots here. The node is built with the slot the page
+/// already holds, so an import lands on the next block and the graph does not
+/// have to be rebuilt for it.
+#[derive(Clone, Default)]
+pub struct Slots {
+	fitted: std::sync::Arc<
+		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_dsp::prelude::TableSlot>>,
+	>,
+	samples: std::sync::Arc<
+		std::sync::Mutex<
+			std::collections::BTreeMap<
+				u32,
+				std::sync::Arc<std::sync::Mutex<i_am_dsp::prelude::SampleSlot>>,
+			>,
+		>,
+	>,
+	waves: std::sync::Arc<
+		std::sync::Mutex<
+			std::collections::BTreeMap<
+				u32,
+				std::sync::Arc<std::sync::Mutex<i_am_dsp::prelude::WaveSlot>>,
+			>,
+		>,
+	>,
+	irs: std::sync::Arc<
+		std::sync::Mutex<std::collections::BTreeMap<u32, std::sync::Arc<i_am_effects::IrSlot>>>,
+	>,
+}
+
+impl Slots {
+	/// The fitted table of one node, created the first time it is asked for.
+	pub fn fitted(&self, node: u32) -> i_am_dsp::prelude::TableSlot {
+		self.fitted
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.entry(node)
+			.or_default()
+			.clone()
+	}
+
+	/// The sample slot of one node, created the first time it is asked for.
+	pub fn sample(
+		&self,
+		node: u32,
+	) -> std::sync::Arc<std::sync::Mutex<i_am_dsp::prelude::SampleSlot>> {
+		self.samples
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.entry(node)
+			.or_default()
+			.clone()
+	}
+
+	/// The wavetable slot of one node, created the first time it is asked for.
+	pub fn waves(
+		&self,
+		node: u32,
+	) -> std::sync::Arc<std::sync::Mutex<i_am_dsp::prelude::WaveSlot>> {
+		self.waves
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.entry(node)
+			.or_default()
+			.clone()
+	}
+
+	/// The impulse response slot of one node, created the first time it is
+	/// asked for.
+	pub fn ir(&self, node: u32) -> std::sync::Arc<i_am_effects::IrSlot> {
+		self.irs
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.entry(node)
+			.or_default()
+			.clone()
+	}
+}

@@ -70,6 +70,23 @@ fn an_impulse_response_is_brought_to_the_host_rate() {
 }
 
 #[test]
+fn a_mono_response_is_brought_to_the_host_rate() {
+	let mut click = vec![0.0; 4096];
+	click[0] = 1.0;
+	// One channel only: the resampler wants both, and a mono file at another
+	// rate used to trip its bounds check.
+	let bytes = wav_bytes(&[click], 48_000);
+	let ir = decode_ir(&bytes, 24_000, "mono.wav".to_string()).expect("a mono response");
+
+	assert_eq!(ir.left, ir.right, "the two sides differ");
+	assert!(
+		(ir.samples() as isize - 2048).abs() < 64,
+		"a click of 4096 samples at 48 kHz should be about 2048 at 24 kHz, got {}",
+		ir.samples(),
+	);
+}
+
+#[test]
 fn the_ir_route_loads_and_describes_a_file() {
 	let slot = IrSlot::new();
 	slot.set_host_rate(48_000);

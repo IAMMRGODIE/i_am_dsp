@@ -58,6 +58,13 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				))
 			}
 		}
+		("GET", "/sampler") | ("POST", "/sampler") => Some(ProtocolResponse::json(
+			sampler_route(request, shared).to_string(),
+		)),
+		("GET", "/waves") | ("POST", "/waves") => Some(ProtocolResponse::json(
+			waves_route(request, shared).to_string(),
+		)),
+		("GET", "/ir") | ("POST", "/ir") => Some(ProtocolResponse::json(ir_route(request, shared))),
 		("POST", "/sample") => {
 			// One recorded note, fitted where it is loaded: the table goes into
 			// the node's slot, because a graph parameter holds a number and a
@@ -87,15 +94,13 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			match i_am_dsp::prelude::fit_sample(request.body, note) {
 				Ok(fitted) => {
-					if let Ok(mut tables) = shared.tables.lock() {
-						tables
-							.entry(node)
-							.or_default()
-							.set(i_am_dsp::prelude::ImportedTable {
-								name,
-								bytes: fitted.bytes,
-							});
-					}
+					shared
+						.slots
+						.fitted(node)
+						.set(i_am_dsp::prelude::ImportedTable {
+							name,
+							bytes: fitted.bytes,
+						});
 
 					if let Ok(mut graph) = shared.graph.lock() {
 						let id = NodeId(node);
@@ -202,6 +207,92 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 		}
 		_ => None,
 	}
+}
+
+/// The sample a sampler node plays: a GET describes it, a POST loads a WAV.
+///
+/// The slot is the page's, so the import reaches the voice the way the
+/// product's own page does, without a rebuild.
+fn sampler_route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> String {
+	let slot = shared.slots.sample(query_node(request));
+
+	if request.method == "GET" {
+		return i_am_patch::sample_preview(&slot);
+	}
+
+	let name = query_name(request, "sample");
+
+	match i_am_patch::import_sample(&slot, request.body, &name) {
+		Ok((name, samples, seconds)) => json!({
+			"ok": true,
+			"name": name,
+			"samples": samples,
+			"seconds": seconds,
+		})
+		.to_string(),
+		Err(error) => json!({ "ok": false, "error": error }).to_string(),
+	}
+}
+
+/// The wavetable a shapes node plays: a GET describes it, a POST loads a WAV.
+fn waves_route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> String {
+	let slot = shared.slots.waves(query_node(request));
+
+	if request.method == "GET" {
+		return i_am_patch::waves_preview(&slot);
+	}
+
+	let name = query_name(request, "table");
+
+	match i_am_patch::import_waves(&slot, request.body, &name) {
+		Ok((name, frames)) => json!({ "ok": true, "name": name, "frames": frames }).to_string(),
+		Err(error) => json!({ "ok": false, "error": error }).to_string(),
+	}
+}
+
+/// The response a convolver node plays: a GET describes it, a POST loads one.
+fn ir_route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> String {
+	let slot = shared.slots.ir(query_node(request));
+
+	if request.method == "GET" {
+		return slot.json();
+	}
+
+	let name = query_name(request, "impulse");
+
+	match i_am_effects::decode_ir(request.body, slot.host_rate(), name) {
+		Ok(ir) => {
+			slot.set(std::sync::Arc::new(ir));
+			json!({ "ok": true }).to_string()
+		}
+		Err(error) => {
+			slot.fail(error.clone());
+			json!({ "ok": false, "error": error }).to_string()
+		}
+	}
+}
+
+/// The node a route was asked about.
+fn query_node(request: &ProtocolRequest<'_>) -> u32 {
+	request
+		.query
+		.unwrap_or("")
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("node="))
+		.and_then(|value| value.parse::<u32>().ok())
+		.unwrap_or(0)
+}
+
+/// The name a page sent with a file, decoded.
+fn query_name(request: &ProtocolRequest<'_>, fallback: &str) -> String {
+	request
+		.query
+		.unwrap_or("")
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("name="))
+		.map(i_am_web_gui::percent_decode)
+		.filter(|name| !name.is_empty())
+		.unwrap_or_else(|| fallback.to_string())
 }
 
 /// Every node kind, with its ports and parameters.
@@ -474,11 +565,7 @@ mod tests {
 		assert!(body.contains("\"ok\":true"), "{body}");
 		assert!(body.contains("\"note\":57"), "{body}");
 		assert!(
-			shared
-				.tables
-				.lock()
-				.expect("the table lock")
-				.contains_key(&modal),
+			shared.slots.fitted(modal).current().is_some(),
 			"the fitted table never reached the node"
 		);
 
@@ -504,7 +591,7 @@ mod tests {
 			note: 57,
 			velocity: 1.0,
 		};
-		let rendered = Engine::render_graph_with(&graph, 48_000, 0.5, &[(0, note)], &shared.tables)
+		let rendered = Engine::render_graph_with(&graph, 48_000, 0.5, &[(0, note)], &shared.slots)
 			.expect("the engine");
 		let peak = rendered
 			.iter()

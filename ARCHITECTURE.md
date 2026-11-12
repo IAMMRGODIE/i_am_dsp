@@ -439,9 +439,11 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   可读、可被 agent 编辑；JSON 是真相，文本是投影。
 - 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`、`/sample?node=N`；页面编辑 bump generation，
   音频线程在块边界重建引擎。
-- 采样导入走 `Tables`（按节点 id 的 `TableSlot`）：图参数只有 f32，序列化的表进不了图，
-  所以 `/sample?node=N` 拟合完把表放进槽、把 instrument/derive/transpose 写进图参数；
-  引擎重建时 Modal 节点从槽里取到同一个 slot，弹下一个音就能听到。
+- 文件导入走 `Slots`（按节点 id 的四种槽：拟合表、采样、波表、冲激响应）：图参数只有 f32，
+  序列化的东西进不了图，所以页面把文件 POST 到 `/sample?node=N`（Modal，拟合后放表 + 写
+  instrument/derive/transpose）、`/sampler?node=N`（Sampler）、`/waves?node=N`（Shapes）、
+  `/ir?node=N`（Convolver）。节点在**建的时候**就拿的是页面那个槽（`Slots::fitted/sample/waves/ir`），
+  所以导入下一块就生效，不需要重建；页面用同一路径 GET 回预览图来画卡片。
 - 节点目录只有一份：`i_am_patch/src/catalog.rs` 的 `kinds_json()` 同时喂给编辑器 example 和
   产品的 `/catalog`；产品节点的 sections/pages/heroes/switches 从产品自己的元数据派生，
   所以产品页有的字段 patch 一定有。

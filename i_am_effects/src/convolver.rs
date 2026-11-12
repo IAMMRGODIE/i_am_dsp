@@ -577,6 +577,25 @@ pub fn decode_ir(bytes: &[u8], sample_rate: usize, name: String) -> Result<IrDat
 
 	let mut pcm = load_from_bytes::<2>(bytes.to_vec()).map_err(|error| error.to_string())?;
 
+	// A mono file is the same response on both sides, and it has to be filled
+	// in before the resampler runs: it wants two buffers of one length, so an
+	// empty side would trip its bounds check.
+	{
+		let [left, right] = &mut pcm.pcm_data;
+
+		if left.is_empty() && right.is_empty() {
+			return Err("the file has no audio".to_string());
+		}
+
+		if right.is_empty() {
+			*right = left.clone();
+		}
+
+		if left.is_empty() {
+			*left = right.clone();
+		}
+	}
+
 	if pcm.sample_rate != sample_rate {
 		pcm.pcm_data = resample(pcm.pcm_data, pcm.sample_rate, sample_rate)
 			.map_err(|error| error.to_string())?;
@@ -584,18 +603,6 @@ pub fn decode_ir(bytes: &[u8], sample_rate: usize, name: String) -> Result<IrDat
 	}
 
 	let [mut left, mut right] = pcm.pcm_data;
-
-	if left.is_empty() && right.is_empty() {
-		return Err("the file has no audio".to_string());
-	}
-
-	if right.is_empty() {
-		right = left.clone();
-	}
-
-	if left.is_empty() {
-		left = right.clone();
-	}
 
 	let limit = sample_rate.saturating_mul(MAX_SECONDS);
 	left.truncate(limit);

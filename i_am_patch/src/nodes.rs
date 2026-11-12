@@ -83,34 +83,24 @@ fn param(params: &BTreeMap<&'static str, f32>, name: &str, fallback: f32) -> f32
 	params.get(name).copied().unwrap_or(fallback)
 }
 
-/// The slot one node's fitted table lives in, created on first use.
-pub fn table_for(tables: &crate::Tables, node: u32) -> i_am_dsp::prelude::TableSlot {
-	tables
-		.lock()
-		.unwrap_or_else(|error| error.into_inner())
-		.entry(node)
-		.or_default()
-		.clone()
-}
-
-/// Builds the node for a catalog kind at a sample rate, with no fitted tables.
+/// Builds the node for a catalog kind at a sample rate, with empty slots.
 pub fn make(
 	kind: &str,
 	rate: usize,
 	params: &BTreeMap<&'static str, f32>,
 	points: &[crate::graph::Point],
 ) -> Option<Box<dyn BlockNode>> {
-	make_with(kind, 0, rate, params, points, &crate::Tables::default())
+	make_with(kind, 0, rate, params, points, &crate::Slots::default())
 }
 
-/// Builds the node for a catalog kind, with the tables a Modal node plays.
+/// Builds the node for a catalog kind over the slots the page already holds.
 pub fn make_with(
 	kind: &str,
 	node: u32,
 	rate: usize,
 	params: &BTreeMap<&'static str, f32>,
 	points: &[crate::graph::Point],
-	tables: &crate::Tables,
+	slots: &crate::Slots,
 ) -> Option<Box<dyn BlockNode>> {
 	let node: Box<dyn BlockNode> = match kind {
 		"input:midi" => Box::new(Quiet),
@@ -150,17 +140,26 @@ pub fn make_with(
 				"canvas" => Box::new(SynthNode::<CanvasWeb>::new(rate)),
 				"drummer" => Box::new(SynthNode::<DrummerWeb>::new(rate)),
 				"fitted" => Box::new(SynthNode::with_plugin(
-					FittedWeb::with_slot(table_for(tables, node)),
+					FittedWeb::with_slot(slots.fitted(node)),
 					rate,
 				)),
-				"sampler" => Box::new(SynthNode::<SamplerWeb>::new(rate)),
+				// The sampler and the shapes keep their sample and their table
+				// in slots the page owns, so a drop on a patch card reaches the
+				// voice without a rebuild.
+				"sampler" => Box::new(SynthNode::with_plugin(
+					SamplerWeb::with_slot(slots.sample(node)),
+					rate,
+				)),
 				"script" => {
 					let inner = ScriptWeb::default();
 					let feed = inner.feed();
 
 					Box::new(SynthNode::with_script(inner, feed, rate))
 				}
-				"shapes" => Box::new(SynthNode::<ShapesWeb>::new(rate)),
+				"shapes" => Box::new(SynthNode::with_plugin(
+					ShapesWeb::with_slot(slots.waves(node)),
+					rate,
+				)),
 				"spectrum" => Box::new(SynthNode::<SpectrumWeb>::new(rate)),
 				"strings" => Box::new(SynthNode::<StringWeb>::new(rate)),
 				_ => return None,
@@ -184,7 +183,13 @@ pub fn make_with(
 
 					Box::new(ProductNode::with_script(effect, worker))
 				}
-				_ => Box::new(ProductNode::new((module.build)(rate))),
+				// The convolver is the one module whose state is a slot the page
+				// owns: a response dropped on its card lands in the same slot
+				// the effect reads.
+				_ => match module.build_with_ir {
+					Some(build) => Box::new(ProductNode::new(build(rate, slots.ir(node)))),
+					None => Box::new(ProductNode::new((module.build)(rate))),
+				},
 			}
 		}
 		_ => return None,
