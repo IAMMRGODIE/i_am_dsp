@@ -311,6 +311,65 @@ pub fn generate_slices(slot: &Arc<Mutex<SampleSlot>>, mode: &str) -> Result<usiz
 	Ok(count)
 }
 
+/// Edits the slice marks on a slot the way the sampler hero's gestures do.
+///
+/// `at` is where the gesture landed and `to` where it ended, both as a share of
+/// the sample; the product's own route parses the same numbers out of a query.
+pub fn edit_slices(
+	slot: &Arc<Mutex<SampleSlot>>,
+	action: &str,
+	at: f32,
+	to: f32,
+) -> Result<usize, String> {
+	let mut slices = slot
+		.lock()
+		.unwrap_or_else(|error| error.into_inner())
+		.slices
+		.clone();
+
+	let nearest = |slices: &[f32], position: f32| {
+		slices
+			.iter()
+			.enumerate()
+			.min_by(|a, b| {
+				(a.1 - position)
+					.abs()
+					.partial_cmp(&(b.1 - position).abs())
+					.unwrap_or(std::cmp::Ordering::Equal)
+			})
+			.map(|(index, _)| index)
+	};
+
+	match action {
+		"slice-add" => {
+			slices.push(at.clamp(0.0, 1.0));
+			slices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+			slices.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+		}
+		"slice-remove" => {
+			if let Some(index) = nearest(&slices, at) {
+				slices.remove(index);
+			}
+		}
+		"slice-move" => {
+			if let Some(index) = nearest(&slices, at) {
+				slices[index] = to.clamp(0.0, 1.0);
+				slices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+				slices.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+			}
+		}
+		_ => return Err("unknown action".to_string()),
+	}
+
+	let count = slices.len();
+
+	slot.lock()
+		.unwrap_or_else(|error| error.into_inner())
+		.slices = slices;
+
+	Ok(count)
+}
+
 /// Edits the sample's slice marks: make a grid, follow the transients, or add
 /// and remove single marks from the picture.
 fn edit_sample(

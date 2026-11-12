@@ -370,6 +370,8 @@
     // not only right after the drop that loaded it.
     if (IMPORT_ROUTES[kind.id]) refreshImport(entry, IMPORT_ROUTES[kind.id].path);
 
+    wireHeroDrags(entry, kind);
+
     if (SOURCE_KINDS.includes(kind.id)) {
       const repaint = card.repaintHero;
       card.repaintHero = function (values) {
@@ -458,6 +460,203 @@
       await refreshImport(cards[node], path);
     };
     reader.readAsArrayBuffer(file);
+  }
+
+  // The gestures a product's hero has on its own page: the sampler's loop and
+  // slice drags, the convolver's fades.
+  function wireHeroDrags(entry, kind) {
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    if (!hero) return;
+
+    if (kind.id === "synth:sampler") wireSampleDrags(entry, hero);
+    if (kind.id === "mod:convolver") wireIrFades(entry, hero);
+  }
+
+  /// Where a press sits along a hero, as a share of it.
+  function heroShare(hero, event) {
+    const rect = hero.getBoundingClientRect();
+
+    return Math.min(1, Math.max(0, ((event.clientX - rect.left) / rect.width * 520 - 20) / 480));
+  }
+
+  /// The sampler's picture: drag to set the start or the loop, double-click to
+  /// drop a slice, right-click a mark to take it off.
+  function wireSampleDrags(entry, hero) {
+    let drag = null;
+
+    const sample = () => entry.context.sample;
+    const ready = () => sample() && sample().peaks && sample().peaks.length;
+    const marks = () => (sample() && sample().slices) || [];
+    const near = (x) => marks().some((mark) => Math.abs(mark - x) < 0.02);
+
+    // The gesture shows itself on the card and the graph is told once it ends,
+    // so a drag does not rebuild the engine on every pixel.
+    const set = (id, value) => {
+      entry.node.params[id] = value;
+
+      if (entry.card.setValue) entry.card.setValue(id, value);
+    };
+
+    hero.addEventListener("pointerdown", (event) => {
+      if (!ready() || event.target.closest(".hero-action")) return;
+
+      const x = heroShare(hero, event);
+
+      if (event.button === 2) {
+        if (near(x)) {
+          sliceAction(entry, "slice-remove", { at: x });
+          return;
+        }
+
+        drag = { kind: "loop", at: x };
+        set("oscillator.loop_start", x);
+        set("oscillator.loop_end", x);
+        set("oscillator.loop", 1);
+      } else if (event.button === 0) {
+        if (Math.round(entry.node.params["oscillator.mode"] ?? 0) === 1 && near(x)) {
+          drag = { kind: "mark", from: x, to: x };
+        } else {
+          drag = { kind: "start", at: x };
+          set("oscillator.start", x);
+          set("oscillator.loop", 0);
+        }
+      } else {
+        return;
+      }
+
+      hero.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    hero.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+
+      const x = heroShare(hero, event);
+
+      if (drag.kind === "loop") {
+        set("oscillator.loop_start", Math.min(drag.at, x));
+        set("oscillator.loop_end", Math.max(drag.at, x));
+      } else if (drag.kind === "start") {
+        set("oscillator.start", x);
+      } else if (drag.kind === "mark") {
+        drag.to = x;
+      }
+    });
+
+    hero.addEventListener("pointerup", () => {
+      if (!drag) return;
+
+      const finished = drag;
+      drag = null;
+
+      if (finished.kind === "mark") {
+        if (Math.abs(finished.to - finished.from) > 1e-4) {
+          sliceAction(entry, "slice-move", { from: finished.from, to: finished.to });
+        }
+
+        return;
+      }
+
+      postSampleParams(entry, finished.kind === "loop"
+        ? ["oscillator.loop_start", "oscillator.loop_end", "oscillator.loop"]
+        : ["oscillator.start", "oscillator.loop"]);
+    });
+
+    hero.addEventListener("dblclick", (event) => {
+      if (!ready() || event.target.closest(".hero-action")) return;
+
+      const x = heroShare(hero, event);
+
+      if (near(x)) return;
+
+      sliceAction(entry, "slice-add", { at: x });
+    });
+  }
+
+  /// Writes the parameters a sampler gesture moved, then redraws the card.
+  async function postSampleParams(entry, ids) {
+    for (const id of ids) {
+      await op({ op: "param", id: entry.node.id, key: id, value: entry.node.params[id] }, false);
+    }
+
+    await reload();
+  }
+
+  /// Posts one slice edit and redraws the sample's picture.
+  async function sliceAction(entry, action, params) {
+    const query = Object.entries(params)
+      .map(([key, value]) => "&" + key + "=" + value)
+      .join("");
+    const response = await fetch(
+      "/sampler?node=" + entry.node.id + "&action=" + action + query,
+      { method: "POST", body: action },
+    );
+    const result = response.ok ? await response.json() : null;
+
+    if (!result || !result.ok) {
+      showStatus((result && result.error) || "the slice edit did not run");
+      return;
+    }
+
+    showStatus("");
+    await refreshImport(entry, "sampler");
+  }
+
+  /// The convolver's picture: the dots on its top corners set the fades.
+  function wireIrFades(entry, hero) {
+    let drag = null;
+
+    const state = () => entry.context.ir;
+    const ready = () => state() && state().peaks && state().peaks.length;
+
+    hero.addEventListener("pointerdown", (event) => {
+      if (!ready()) return;
+
+      const rect = hero.getBoundingClientRect();
+
+      // The dots ride the envelope's top corners, so only a press up there
+      // starts a fade; a press on the body still asks for the picker.
+      if ((event.clientY - rect.top) / rect.height > 0.4) return;
+
+      const x = heroShare(hero, event);
+      const fadeIn = Math.min(1, Math.max(0, state().fade_in || 0));
+      const fadeOut = Math.min(1, Math.max(0, state().fade_out || 0));
+
+      if (Math.abs(x - fadeIn) < 0.03) drag = "in";
+      else if (Math.abs(x - (1 - fadeOut)) < 0.03) drag = "out";
+      else return;
+
+      hero.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    hero.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+
+      const x = heroShare(hero, event);
+
+      if (drag === "in") state().fade_in = x;
+      else state().fade_out = 1 - x;
+
+      if (entry.card.repaintHero) entry.card.repaintHero();
+    });
+
+    hero.addEventListener("pointerup", async () => {
+      if (!drag) return;
+
+      drag = null;
+
+      const ir = state();
+
+      await fetch(
+        "/ir?node=" + entry.node.id +
+          "&fade_in=" + (ir.fade_in || 0) +
+          "&fade_out=" + (ir.fade_out || 0),
+        { method: "POST", body: "fades" },
+      );
+    });
   }
 
   /// Runs one of a hero's own buttons on the node the card is showing.
@@ -693,6 +892,8 @@
     // A node that already holds a file shows it as soon as the card is built,
     // not only right after the drop that loaded it.
     if (IMPORT_ROUTES[kind.id]) refreshImport(entry, IMPORT_ROUTES[kind.id].path);
+
+    wireHeroDrags(entry, kind);
     entry.host.style.setProperty(
       "--k",
       String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),

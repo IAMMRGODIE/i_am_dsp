@@ -220,16 +220,26 @@ fn sampler_route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Strin
 		return i_am_patch::sample_preview(&slot);
 	}
 
-	// The sampler hero's Slice button works on what the slot already holds.
+	// The sampler hero's Slice button works on what the slot already holds, and
+	// its gestures add, move and take marks off.
 	if let Some(action) = query_value(request, "action") {
 		let mode = query_value(request, "mode").unwrap_or("grid");
+		let at = query_value(request, "at")
+			.and_then(|value| value.parse::<f32>().ok())
+			.unwrap_or(0.0);
+		let to = query_value(request, "to")
+			.and_then(|value| value.parse::<f32>().ok())
+			.unwrap_or(at);
 
 		return match action {
 			"slices" => match i_am_patch::generate_slices(&slot, mode) {
 				Ok(count) => json!({ "ok": true, "slices": count }).to_string(),
 				Err(error) => json!({ "ok": false, "error": error }).to_string(),
 			},
-			_ => json!({ "ok": false, "error": "unknown action" }).to_string(),
+			_ => match i_am_patch::edit_slices(&slot, action, at, to) {
+				Ok(count) => json!({ "ok": true, "slices": count }).to_string(),
+				Err(error) => json!({ "ok": false, "error": error }).to_string(),
+			},
 		};
 	}
 
@@ -279,6 +289,19 @@ fn ir_route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> String {
 
 	if request.method == "GET" {
 		return slot.json();
+	}
+
+	// Dragging the dots on the picture moves the fades; a file replaces the lot.
+	if let (Some(fade_in), Some(fade_out)) = (
+		query_value(request, "fade_in").and_then(|value| value.parse::<f32>().ok()),
+		query_value(request, "fade_out").and_then(|value| value.parse::<f32>().ok()),
+	) {
+		slot.set_fades(i_am_effects::IrFades {
+			fade_in: fade_in.clamp(0.0, 1.0),
+			fade_out: fade_out.clamp(0.0, 1.0),
+		});
+
+		return json!({ "ok": true }).to_string();
 	}
 
 	let name = query_name(request, "impulse");

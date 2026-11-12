@@ -359,6 +359,20 @@
     // does: the page keeps the card and calls this on every scope frame.
     card.repaintHero = paintHero;
 
+    /// Moves one control's value without telling the page.
+    ///
+    /// A gesture that is still running shows its own state and posts once it
+    /// ends, which is what keeps a drag from rebuilding the graph per pixel.
+    card.setValue = function (id, value) {
+      values[id] = value;
+      baseValues[id] = value;
+
+      if (typeof card.repaintHero === "function") card.repaintHero(values);
+      else paintHero();
+
+      applyVisibility();
+    };
+
     card.setLiveValues = function (live) {
       var changed = false;
 
@@ -603,6 +617,15 @@
         if (options.sample) {
           heroBox.classList.add("ir-target");
           heroBox.title = options.sampleHint || "Click or drop a file";
+
+          // A gesture on the picture ends with a click of its own; the press
+          // point says whether the pointer travelled, so a drag does not also
+          // ask for a file.
+          var pressed = null;
+
+          heroBox.addEventListener("pointerdown", function (event) {
+            pressed = { x: event.clientX, y: event.clientY };
+          });
           heroBox.addEventListener("click", function (event) {
             // The picture's own buttons belong to the page: a click on one of
             // them is not a click on the picture. Load is the one action every
@@ -623,6 +646,16 @@
 
               return;
             }
+
+            if (
+              pressed &&
+              Math.abs(event.clientX - pressed.x) + Math.abs(event.clientY - pressed.y) > 4
+            ) {
+              pressed = null;
+              return;
+            }
+
+            pressed = null;
 
             if (options.pickSample) options.pickSample();
           });

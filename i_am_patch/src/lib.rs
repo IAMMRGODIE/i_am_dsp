@@ -22,7 +22,8 @@ pub mod text;
 /// How a node takes a file: the products' own decoders, re-exported so the crate
 /// that hosts them does not need a dependency of its own.
 pub use i_am_synths::{
-	edit_waves, generate_slices, import_sample, import_waves, sample_preview, waves_preview,
+	edit_slices, edit_waves, generate_slices, import_sample, import_waves, sample_preview,
+	waves_preview,
 };
 
 #[cfg(test)]

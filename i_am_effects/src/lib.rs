@@ -43,7 +43,7 @@ mod vocoder;
 use allpass::AllpassEffect;
 use comb::CombEffect;
 pub use compressor::CompressorEffect;
-pub use convolver::{ConvolverWeb, IrData, IrSlot, decode_ir};
+pub use convolver::{ConvolverWeb, IrData, IrFades, IrSlot, decode_ir};
 use disperser::Dispersion;
 use ir_reverb::IrReverbEffect;
 pub use ott::{OTT_PAGES, OttWeb};
