@@ -198,7 +198,9 @@ pub fn demo() -> Graph {
 	graph.connect((generator, 0), (filter, 0));
 	graph.connect((filter, 0), (voice_out, 0));
 	graph.connect((voice_out, 0), (out, 0));
-	graph.modulate((lfo, 0), (filter, "cutoff"), 800.0);
+	// A depth is a share of the cutoff's own range: a third of it is a sweep of
+	// about two octaves either way, which is what the demo is for.
+	graph.modulate((lfo, 0), (filter, "cutoff"), 0.33);
 	graph.set_param(filter, "cutoff", 1_200.0);
 
 	graph
@@ -466,5 +468,73 @@ impl Default for UiState {
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(i_am_web_gui::Scope::default()),
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use i_am_dsp::prelude::NoteEvent;
+
+	/// The peak of the next blocks of output.
+	fn peak(body: &mut Body, blocks: usize) -> f32 {
+		let mut peak = 0.0_f32;
+
+		for _ in 0..blocks {
+			for _ in 0..BLOCK {
+				let frame = body.process([0.0; 2], [0.0; 2]);
+				peak = peak.max(frame[0].abs());
+			}
+		}
+
+		peak
+	}
+
+	/// A control that moves reaches the engine that is already playing: the
+	/// page does not have to make the graph look different for the sound to
+	/// follow.
+	#[test]
+	fn an_edit_moves_the_running_engine() {
+		let shared = Arc::new(PatcherShared::default());
+		let mut body = Body::new(shared.clone());
+		let out = shared
+			.graph()
+			.nodes
+			.iter()
+			.find(|node| node.kind.id == "out:audio")
+			.map(|node| node.id)
+			.expect("the demo graph has an output");
+
+		body.push_event(&NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 1.0,
+		});
+
+		// The note's attack takes longer than a block, so the level is measured
+		// once it has settled, over a window short enough that the envelope
+		// moves little between the two readings.
+		peak(&mut body, 40);
+
+		let before = peak(&mut body, 4);
+
+		assert!(before > 0.01, "the demo graph did not sound: {before}");
+
+		shared.edit(i_am_patch::edit::Edit::Param {
+			node: out,
+			key: "gain".to_string(),
+			value: 0.25,
+		});
+
+		// The body hands back the block that ended before the edit landed, so the
+		// first window after it is still the old level.
+		peak(&mut body, 4);
+
+		let after = peak(&mut body, 4);
+
+		assert!(
+			after < before * 0.5,
+			"{after} did not follow {before}: the edit never reached the engine"
+		);
 	}
 }

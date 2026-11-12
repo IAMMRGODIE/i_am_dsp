@@ -46,7 +46,9 @@ fn demo() -> Graph {
 	graph.connect((generator, 0), (voice_out, 0));
 	graph.connect((voice_out, 0), (filter, 0));
 	graph.connect((filter, 0), (out, 0));
-	graph.modulate((lfo, 0), (filter, "cutoff"), 800.0);
+	// A depth is a share of the cutoff's own range, so a third of it is a sweep
+	// of about two octaves either way.
+	graph.modulate((lfo, 0), (filter, "cutoff"), 0.33);
 	graph.set_param(filter, "cutoff", 1_200.0);
 
 	graph

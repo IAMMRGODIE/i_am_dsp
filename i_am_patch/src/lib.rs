@@ -47,7 +47,7 @@ pub(crate) fn voice_patch() -> crate::graph::Graph {
 	graph.connect((generator, 0), (filter, 0));
 	graph.connect((filter, 0), (voice_out, 0));
 	graph.connect((voice_out, 0), (out, 0));
-	graph.modulate((lfo, 0), (filter, "cutoff"), 400.0);
+	graph.modulate((lfo, 0), (filter, "cutoff"), 0.33);
 
 	graph
 }

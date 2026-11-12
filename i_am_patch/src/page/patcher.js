@@ -480,33 +480,38 @@
       return card ? card.querySelector(".mcard-hero") : null;
     };
 
-    // The gesture shows itself on the card; the graph is told once it ends, so
-    // a drag does not rebuild the engine on every pixel.
+    // The card paints the gesture at once; the graph hears every step, so the
+    // sound follows the hand instead of waiting for the pointer to come up.
     const set = (id, value) => {
       node.params[id] = value;
 
       const card = cardOf();
 
       if (card && card.setValue) card.setValue(id, value);
+
+      postParam(node.id, id, value);
+    };
+
+    const postFades = () => {
+      const ir = state().ir || {};
+
+      fetch(
+        "/ir?node=" + node.id + "&fade_in=" + (ir.fade_in || 0) +
+          "&fade_out=" + (ir.fade_out || 0),
+        { method: "POST", body: "fades" },
+      ).catch(() => {});
     };
 
     const post = async (ids) => {
       if (kind.id === "mod:convolver") {
-        const ir = state().ir || {};
-
-        await fetch(
-          "/ir?node=" + node.id + "&fade_in=" + (ir.fade_in || 0) +
-            "&fade_out=" + (ir.fade_out || 0),
-          { method: "POST", body: "fades" },
-        );
-
+        postFades();
         return;
       }
 
-      for (const id of ids) {
-        await op({ op: "param", id: node.id, key: id, value: node.params[id] }, false);
-      }
+      for (const id of ids) postParam(node.id, id, node.params[id]);
 
+      // The gesture is over: the card is rebuilt from the graph, which is now
+      // what the hand left it at.
       await reload();
     };
 
@@ -551,6 +556,10 @@
         );
       },
       repaint: () => {
+        // The fades are the convolver's own state, so the picture and the graph
+        // move together.
+        if (kind.id === "mod:convolver") postFades();
+
         const card = cardOf();
 
         if (card && card.repaintHero) card.repaintHero();
@@ -622,6 +631,19 @@
 
     showStatus("");
     await refreshImport(cards[node], path);
+  }
+
+  /// Writes one parameter without the page's undo snapshot or a redraw.
+  ///
+  /// A gesture that is still running posts as it goes, so the sound follows the
+  /// hand and the graph ends up with what the card already shows. A parameter
+  /// is cheap now: the engine takes the value without rebuilding.
+  function postParam(node, key, value) {
+    fetch("/op", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ op: "param", id: node, key, value }),
+    }).catch(() => {});
   }
 
   /// Reloads the graph from the server and draws it, so a card that shows a
