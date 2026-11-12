@@ -297,6 +297,7 @@ impl BlockNode for ProductNode {
 					None => &[],
 				};
 
+				context.context.set_sample_offset(frame);
 				effect.process(&mut samples, other, &mut context.context);
 				out.channels[0][frame] = samples[0];
 				out.channels[1][frame] = samples[1];

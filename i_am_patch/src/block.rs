@@ -120,6 +120,13 @@ pub struct BlockContext {
 pub struct PatchContext {
 	infos: ProcessInfos,
 	events: Vec<NoteEvent>,
+	/// Which frame of the block is being processed.
+	///
+	/// A note belongs to the frame it arrives on, the way a host hands its events
+	/// over, so a node that walks the block frame by frame sees it once. Without
+	/// this a synth following the events starts a new voice on every frame of the
+	/// block, which is sixty-four voices per note.
+	sample: usize,
 }
 
 impl PatchContext {
@@ -133,6 +140,7 @@ impl PatchContext {
 		Self {
 			infos,
 			events: Vec::new(),
+			sample: 0,
 		}
 	}
 
@@ -149,6 +157,10 @@ impl ProcessContext for PatchContext {
 	}
 
 	fn next_event(&mut self) -> Option<NoteEvent> {
+		if self.sample != 0 {
+			return None;
+		}
+
 		self.events.pop()
 	}
 
@@ -157,10 +169,14 @@ impl ProcessContext for PatchContext {
 	}
 
 	fn events(&self) -> &[NoteEvent] {
-		&self.events
+		if self.sample == 0 { &self.events } else { &[] }
 	}
 
 	fn clear_events(&mut self) {
 		self.events.clear();
+	}
+
+	fn set_sample_offset(&mut self, sample: usize) {
+		self.sample = sample;
 	}
 }
