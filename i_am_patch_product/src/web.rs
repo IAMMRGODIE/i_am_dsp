@@ -200,11 +200,46 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 			let result = op(shared, body);
 
 			if result.get("ok").and_then(Value::as_bool) == Some(true) {
-				shared.bump();
+				// A control that moved is not a graph change: it goes to the
+				// engine that is already playing, so the notes in flight keep
+				// sounding under the hand.
+				match live_edit(body) {
+					Some(edit) => shared.edit(edit),
+					None => shared.bump(),
+				}
 			}
 
 			Some(ProtocolResponse::json(result.to_string()))
 		}
+		_ => None,
+	}
+}
+
+/// The edit an op makes without changing the graph's shape, if it is one.
+///
+/// Everything else — a node, a wire, a curve, a new modulation — needs the
+/// engine rebuilt, and a rebuild is what cuts the notes.
+fn live_edit(body: &str) -> Option<i_am_patch::edit::Edit> {
+	let value: Value = serde_json::from_str(body).ok()?;
+
+	match value["op"].as_str()? {
+		"param" => Some(i_am_patch::edit::Edit::Param {
+			node: i_am_patch::graph::NodeId(value["id"].as_u64()? as u32),
+			key: value["key"].as_str()?.to_string(),
+			value: value["value"].as_f64()? as f32,
+		}),
+		"mod_depth" => Some(i_am_patch::edit::Edit::Depth {
+			index: value["index"].as_u64()? as usize,
+			depth: value["depth"].as_f64()? as f32,
+		}),
+		"mod_mode" => Some(i_am_patch::edit::Edit::Mode {
+			index: value["index"].as_u64()? as usize,
+			mode: if value["mode"].as_str() == Some("base") {
+				i_am_patch::graph::ModulationMode::FromBase
+			} else {
+				i_am_patch::graph::ModulationMode::Centered
+			},
+		}),
 		_ => None,
 	}
 }
@@ -603,6 +638,40 @@ mod tests {
 		};
 
 		String::from_utf8(route(&request, shared).expect("the sample route").body).expect("utf-8")
+	}
+
+	/// A control that moves is not a graph change: it goes to the engine that is
+	/// already playing, because a rebuild re-creates the nodes and cuts the
+	/// notes in flight.
+	#[test]
+	fn a_control_change_does_not_ask_for_a_rebuild() {
+		assert_eq!(
+			live_edit(r#"{"op":"param","id":3,"key":"oscillator.gain","value":0.4}"#),
+			Some(i_am_patch::edit::Edit::Param {
+				node: i_am_patch::graph::NodeId(3),
+				key: "oscillator.gain".to_string(),
+				value: 0.4,
+			})
+		);
+
+		assert_eq!(
+			live_edit(r#"{"op":"mod_depth","index":1,"depth":-0.25}"#),
+			Some(i_am_patch::edit::Edit::Depth {
+				index: 1,
+				depth: -0.25,
+			})
+		);
+
+		// Anything that changes the shape of the graph still rebuilds.
+		assert_eq!(
+			live_edit(r#"{"op":"add","kind":"mixer","x":0,"y":0}"#),
+			None
+		);
+		assert_eq!(
+			live_edit(r#"{"op":"connect","from":[1,0],"to":[2,0]}"#),
+			None
+		);
+		assert_eq!(live_edit(r#"{"op":"set_points","id":4,"points":[]}"#), None);
 	}
 
 	#[test]

@@ -304,6 +304,36 @@ impl Poly {
 	}
 
 	/// The host's tempo and song position, for the voices and the outer graph.
+	/// Moves one parameter of a node in the outer graph and in every voice.
+	///
+	/// A control that moves is not a graph change: rebuilding would re-create
+	/// the voices and cut the notes that were playing.
+	pub fn set_param(&mut self, node: NodeId, key: &str, value: f32) {
+		self.outer.set_param(node, key, value);
+
+		for voice in &mut self.voices {
+			voice.engine.set_param(node, key, value);
+		}
+	}
+
+	/// Turns one modulation's depth in the outer graph and in every voice.
+	pub fn set_modulation_depth(&mut self, index: usize, depth: f32) {
+		self.outer.set_modulation_depth(index, depth);
+
+		for voice in &mut self.voices {
+			voice.engine.set_modulation_depth(index, depth);
+		}
+	}
+
+	/// Swings one modulation around its base, or only up from it.
+	pub fn set_modulation_mode(&mut self, index: usize, mode: crate::graph::ModulationMode) {
+		self.outer.set_modulation_mode(index, mode);
+
+		for voice in &mut self.voices {
+			voice.engine.set_modulation_mode(index, mode);
+		}
+	}
+
 	pub fn set_transport(&mut self, tempo: Option<f32>, position: Option<f32>) {
 		self.tempo = tempo;
 		self.position = position;

@@ -32,6 +32,9 @@ pub struct PatcherShared {
 	pub slots: i_am_patch::Slots,
 	/// The nodes the page asked to clear their tail, drained by the audio thread.
 	pub clear_requests: Mutex<Vec<u32>>,
+	/// The edits that move a control without changing the graph, drained by the
+	/// audio thread at the next block so the notes in flight keep playing.
+	pub edits: Mutex<Vec<i_am_patch::edit::Edit>>,
 }
 
 /// One watched node and the ring its output goes into.
@@ -55,6 +58,7 @@ impl Default for PatcherShared {
 			scripts: Default::default(),
 			slots: Default::default(),
 			clear_requests: Mutex::new(Vec::new()),
+			edits: Mutex::new(Vec::new()),
 		}
 	}
 }
@@ -63,6 +67,11 @@ impl PatcherShared {
 	/// The current graph.
 	pub fn graph(&self) -> Graph {
 		self.graph.lock().expect("the graph lock").clone()
+	}
+
+	/// Queues an edit that moves a control, for the running engine.
+	pub fn edit(&self, edit: i_am_patch::edit::Edit) {
+		self.edits.lock().expect("the edit lock").push(edit);
 	}
 
 	/// The graph as the line patch text, which is what the host state saves.
@@ -241,7 +250,35 @@ impl Body {
 		}
 	}
 
+	/// Applies the edits the page made since the last block.
+	///
+	/// The lock is tried, not taken: a page holding it for a moment costs one
+	/// block, and the edit stays queued for the next one.
+	fn apply_edits(&mut self) {
+		let Ok(mut edits) = self.shared.edits.try_lock() else {
+			return;
+		};
+
+		if edits.is_empty() {
+			return;
+		}
+
+		for edit in edits.drain(..) {
+			if let Some(poly) = &mut self.poly {
+				edit.apply_poly(poly);
+			} else if let Some(engine) = &mut self.engine {
+				edit.apply(engine);
+			}
+		}
+	}
+
 	fn rebuild(&mut self) {
+		// The new engine is built from the graph, which already holds these, so
+		// the queue is dropped rather than replayed onto a fresh engine.
+		if let Ok(mut edits) = self.shared.edits.try_lock() {
+			edits.clear();
+		}
+
 		let graph = self.shared.graph();
 		let rate = self.shared.rate.load(Ordering::Relaxed).max(1);
 
@@ -327,6 +364,7 @@ impl Body {
 
 		if self.index >= BLOCK {
 			self.index = 0;
+			self.apply_edits();
 
 			if let Some(poly) = &mut self.poly {
 				poly.set_transport(self.tempo, self.position);

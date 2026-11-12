@@ -275,6 +275,47 @@ impl Engine {
 		})
 	}
 
+	/// Moves one parameter of a node the graph already holds.
+	///
+	/// The value is what the next block's ramp starts from, so a knob reaches
+	/// the sound without rebuilding the graph: a rebuild re-creates every node
+	/// and cuts the notes that were playing.
+	pub fn set_param(&mut self, node: NodeId, key: &str, value: f32) -> bool {
+		let Some(step) = self.order.iter().position(|id| *id == node) else {
+			return false;
+		};
+
+		let Some((_, stored)) = self.base[step].iter_mut().find(|(name, _)| **name == key) else {
+			return false;
+		};
+
+		*stored = value;
+
+		true
+	}
+
+	/// Turns one modulation's depth, which is the same kind of edit as a knob.
+	pub fn set_modulation_depth(&mut self, index: usize, depth: f32) -> bool {
+		let Some(link) = self.links.get_mut(index) else {
+			return false;
+		};
+
+		link.depth = depth;
+
+		true
+	}
+
+	/// Swings one modulation around its base, or only up from it.
+	pub fn set_modulation_mode(&mut self, index: usize, mode: ModulationMode) -> bool {
+		let Some(link) = self.links.get_mut(index) else {
+			return false;
+		};
+
+		link.mode = mode;
+
+		true
+	}
+
 	/// The host's tempo and song position, for the sources that sync.
 	pub fn set_transport(&mut self, tempo: Option<f32>, position: Option<f32>) {
 		self.tempo = tempo;

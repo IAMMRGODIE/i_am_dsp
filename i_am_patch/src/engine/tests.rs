@@ -1083,6 +1083,38 @@ fn a_one_shot_lfo_holds_the_end_of_its_curve() {
 }
 
 #[test]
+fn a_parameter_moves_through_the_running_engine() {
+	// A knob is not a graph change: the engine that is playing takes the value
+	// and keeps running, which is what leaves the notes in flight alone.
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+	graph.connect((input, 0), (gain, 0));
+	graph.connect((gain, 0), (out, 0));
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let host = vec![[0.5f32; 2]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+
+	engine.process(&host, &[], &mut block);
+	let before = block[BLOCK - 1][0];
+
+	assert!(engine.set_param(gain, "gain", 2.0));
+	engine.process(&host, &[], &mut block);
+
+	assert!(
+		block[BLOCK - 1][0] > before * 1.5,
+		"{} did not follow {before}",
+		block[BLOCK - 1][0]
+	);
+
+	// A parameter the node does not have is refused rather than invented.
+	assert!(!engine.set_param(gain, "nope", 1.0));
+	assert!(!engine.set_param(crate::graph::NodeId(99), "gain", 1.0));
+}
+
+#[test]
 fn a_logarithmic_parameter_moves_by_a_ratio() {
 	use crate::graph::Point;
 

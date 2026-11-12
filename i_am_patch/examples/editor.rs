@@ -97,6 +97,8 @@ struct Shared {
 	error: Arc<Mutex<Option<String>>>,
 	/// What the page handed the nodes; the demo graph has none.
 	slots: i_am_patch::Slots,
+	/// The control edits that reach the running engine without a rebuild.
+	edits: Arc<Mutex<Vec<i_am_patch::edit::Edit>>>,
 }
 
 impl Shared {
@@ -151,6 +153,7 @@ fn main() {
 		phases: Arc::new(Mutex::new(Vec::new())),
 		error: Arc::new(Mutex::new(None)),
 		slots: Default::default(),
+		edits: Arc::new(Mutex::new(Vec::new())),
 	};
 	spawn_audio(shared.clone());
 
@@ -175,6 +178,12 @@ fn spawn_audio(shared: Shared) {
 			let generation = shared.generation.load(Ordering::Relaxed);
 
 			if generation != built {
+				// The new engine is built from the graph, which already holds the
+				// queued edits, so they are dropped rather than replayed.
+				if let Ok(mut edits) = shared.edits.try_lock() {
+					edits.clear();
+				}
+
 				let graph = shared.graph.lock().expect("graph").clone();
 
 				// The product plays a graph with a voice group through Poly and
@@ -209,6 +218,18 @@ fn spawn_audio(shared: Shared) {
 				}
 				built = generation;
 				blocks = 0;
+			}
+
+			// The edits a hand made since the last block reach the engine that
+			// is already playing, so a knob does not cut the notes.
+			if let Ok(mut edits) = shared.edits.try_lock() {
+				for edit in edits.drain(..) {
+					if let Some(poly) = &mut poly {
+						edit.apply_poly(poly);
+					} else if let Some(engine) = &mut engine {
+						edit.apply(engine);
+					}
+				}
 			}
 
 			let mut events = Vec::new();
@@ -478,10 +499,41 @@ fn op(shared: &Shared, body: &str) -> Value {
 	let result = op_graph(shared, &value);
 
 	if result.get("ok").and_then(Value::as_bool) == Some(true) {
-		shared.generation.fetch_add(1, Ordering::Relaxed);
+		// A control that moved is not a graph change: it goes to the engine
+		// that is already playing.
+		match live_edit(&value) {
+			Some(edit) => shared.edits.lock().expect("edits").push(edit),
+			None => {
+				shared.generation.fetch_add(1, Ordering::Relaxed);
+			}
+		}
 	}
 
 	result
+}
+
+/// The edit an op makes without changing the graph's shape, if it is one.
+fn live_edit(value: &Value) -> Option<i_am_patch::edit::Edit> {
+	match value["op"].as_str()? {
+		"param" => Some(i_am_patch::edit::Edit::Param {
+			node: NodeId(value["id"].as_u64()? as u32),
+			key: value["key"].as_str()?.to_string(),
+			value: value["value"].as_f64()? as f32,
+		}),
+		"mod_depth" => Some(i_am_patch::edit::Edit::Depth {
+			index: value["index"].as_u64()? as usize,
+			depth: value["depth"].as_f64()? as f32,
+		}),
+		"mod_mode" => Some(i_am_patch::edit::Edit::Mode {
+			index: value["index"].as_u64()? as usize,
+			mode: if value["mode"].as_str() == Some("base") {
+				i_am_patch::graph::ModulationMode::FromBase
+			} else {
+				i_am_patch::graph::ModulationMode::Centered
+			},
+		}),
+		_ => None,
+	}
 }
 
 fn op_graph(shared: &Shared, value: &Value) -> Value {

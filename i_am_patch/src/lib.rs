@@ -8,6 +8,7 @@ pub mod block;
 pub mod catalog;
 pub mod compile;
 pub mod crossover;
+pub mod edit;
 pub mod engine;
 pub mod graph;
 pub mod modulation;
