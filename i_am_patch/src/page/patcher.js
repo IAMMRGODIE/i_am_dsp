@@ -679,7 +679,14 @@
       return entry.host;
     }
 
-    const context = { rate: 48000, scope: { input: null, output: null }, spectra: {} };
+    // The heroes that draw live data read it from here; a card that has none
+    // draws its own picture, which is what a card nobody watches looks like.
+    const context = {
+      rate: 48000,
+      scope: { input: null, output: null },
+      spectra: {},
+      eqSpectrum: {},
+    };
     const importRoute = IMPORT_ROUTES[kind.id];
     const card = IAmCard.faceCard({
       face: kind,
@@ -1815,6 +1822,9 @@
       const arriving = mono(
         (await (await fetch(`/scope?node=${id}&which=input`, { cache: "no-store" })).json()).samples || [],
       );
+
+      // The rate the host runs at, so a spectrum lands on the right axis.
+      if (data.rate) entry.context.rate = data.rate;
 
       entry.context.scope.input = arriving.length > 1 ? arriving : null;
       entry.context.scope.output = mono(samples);
