@@ -435,6 +435,12 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   和宿主交给产品的语义一致；否则音源节点会在一块的每一帧都看见同一个 note-on，一个音符叠 64 层。
 - `Poly` 每个音符一份完整引擎（所有节点缓冲都各一份，demo 补丁上一个 voice ≈ 276 KB、1.9% 单核），
   上限是 `POLYPHONY`（8）。页面看的是"一个"voice 的值：控制量取最新那个，音频仍然相加。
+- **改一个值不重建图**：页面的 `op` 分两类，只有结构操作（增删节点/连线/曲线/调制）才 `bump()`；
+  `param`、`mod_depth`、`mod_mode` 走 `i_am_patch::edit::Edit`——页面把它推进 `PatcherShared.edits`，
+  音频线程在每个块边界 `try_lock` 取走（和 `clear_requests` 同一个套路），直接改引擎里的 `base`/调制表，
+  所以拖旋钮时正在响的音不会被重建掉。**`Poly::set_param` 必须同时改三处**：外层引擎、活着的 voices、
+  以及 `voice_graph`（下一个音符的模板）；只改前两处时，下一个音符会从旧模板出生，听起来就是"参数自己跳回去了"。
+  调制深度还要按 `Poly::voice_links` 的映射换算索引（voice 图只含组内的调制，行号和外层不一样）。
 - 控制源只有一份实现：图节点（`nodes.rs` 的 `SourceNode`）是 `SourceRuntime` 的适配器，
   参数映射到 `SourceSettings`，值、相位、同步频率、随机流和平滑都与 rack 的 slot 一致；
   `source_dsp.rs` 放两者共用的底层形状与系数。
