@@ -65,16 +65,17 @@
 
   
 
-  function drawSourceStatic(svg, node, kind, dots) {
-    const params = (node && node.params) || {};
+  function drawSourceStatic(svg, node, kind, dots, values, points) {
+    const params = values || (node && node.params) || {};
 
     if (kind === "lfo") {
       const shape = Math.round(params.shape ?? 0);
-      const points = node && node.points && node.points.length >= 2
-        ? node.points
-        : IAmCard.sources.preset(shape);
+      const curve = points || (node && node.points) || [];
 
-      IAmCard.sources.drawPreview(svg, "lfo", { points, shape }, dots);
+      IAmCard.sources.drawPreview(svg, "lfo", {
+        points: curve.length >= 2 ? curve : IAmCard.sources.preset(shape),
+        shape,
+      }, dots);
     } else if (kind === "table") {
       IAmCard.sources.drawPreview(svg, "table", {
         shape: Math.round(params.shape ?? 0),
@@ -175,7 +176,10 @@
     fetch(`/scope?node=${id}`, { cache: "no-store" }).catch(() => {});
   }
 
-  function drawSourceCard(entry) {
+  // `values` is the card's own control map, passed when a control moved: the
+  // page's copy of the node is only refreshed by the next full redraw, so the
+  // hero has to be drawn from what the control just said.
+  function drawSourceCard(entry, values) {
     if (!entry || !entry.card || !entry.kind) return;
 
     tapSource(entry.node.id);
@@ -191,24 +195,27 @@
 
     if (dots) dots.textContent = "";
 
-    const params = (entry.node && entry.node.params) || {};
-
-    if (entry.kind.id === "lfo" && (!entry.node.points || entry.node.points.length < 2)) {
-      entry.node.points = IAmCard.sources.preset(Math.round(params.shape ?? 0));
-    }
+    const params = Object.assign({}, (entry.node && entry.node.params) || {}, values || {});
+    const pasted = entry.node && entry.node.points && entry.node.points.length >= 2;
+    // A pasted curve wins; otherwise the shape decides. The derived curve stays
+    // local: writing it back into the node would outrank the shape for good and
+    // make the page disagree with the server on every poll.
+    const points = pasted
+      ? entry.node.points
+      : IAmCard.sources.preset(Math.round(params.shape ?? 0));
 
     svg.textContent = "";
-    drawSourceStatic(svg, entry.node, entry.kind.id, dots);
+    drawSourceStatic(svg, entry.node, entry.kind.id, dots, params, points);
 
     if (entry.kind.id === "lfo") {
-      IAmCard.sources.editLfo(svg, entry.node, {
+      IAmCard.sources.editLfo(svg, { points: points.slice() }, {
         shape: params.shape,
         dots,
-        commit: (points) => {
+        commit: (next) => {
           op({
             op: "set_points",
             id: entry.node.id,
-            points: points.map((point) => [point.time, point.value, point.bend || 0]),
+            points: next.map((point) => [point.time, point.value, point.bend || 0]),
           }, false);
         },
         onStart: () => { editingPoints = true; },
@@ -359,9 +366,9 @@
 
     if (SOURCE_KINDS.includes(kind.id)) {
       const repaint = card.repaintHero;
-      card.repaintHero = function () {
-        repaint();
-        drawSourceCard(entry);
+      card.repaintHero = function (values) {
+        repaint(values);
+        drawSourceCard(entry, values);
       };
       drawSourceCard(entry);
     }

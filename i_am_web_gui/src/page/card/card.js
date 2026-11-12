@@ -236,7 +236,12 @@
     function edited(id, value) {
       values[id] = value;
       baseValues[id] = value;
-      paintHero();
+      // A page that draws into the hero itself (the patcher's source cards)
+      // owns the repaint: painting the bare template here would wipe its curve,
+      // and nothing would put it back, because such a page skips its redraw for
+      // its own edits. The hook is set by the time a control can be touched.
+      if (typeof card.repaintHero === "function") card.repaintHero(values);
+      else paintHero();
       // A switch appears in the header, so the body has to follow it.
       applyVisibility();
       if (options.onEdit) options.onEdit(id, value);
