@@ -17,26 +17,7 @@ use crate::web;
 
 /// The faceplate size, in points.
 pub const SIZE: (f32, f32) = (960.0, 640.0);
-
-/// What the host calls the product.
-///
-/// The measurement build is a plugin of its own — its own id, so a project can
-/// hold both and compare them — rather than a different behaviour under the
-/// same name, which would make the two impossible to tell apart in a session.
-#[cfg(feature = "mono")]
-const TITLE: &str = "I Am Patch Mono";
-#[cfg(not(feature = "mono"))]
 const TITLE: &str = "I Am Patch";
-
-#[cfg(feature = "mono")]
-const EFFECT_ID: &str = "iamdsp.patch.effect.mono";
-#[cfg(not(feature = "mono"))]
-const EFFECT_ID: &str = "iamdsp.patch.effect";
-
-#[cfg(feature = "mono")]
-const GENERATOR_ID: &str = "iamdsp.patch.generator.mono";
-#[cfg(not(feature = "mono"))]
-const GENERATOR_ID: &str = "iamdsp.patch.generator";
 
 const PAGE_HTML: &str = include_str!("../../i_am_patch/src/page/index.html");
 const PAGE_CSS: &str = concat!(
@@ -68,7 +49,7 @@ impl Patcher {
 /// Implements the four traits a product needs, with the boundary differences
 /// passed in: the effect takes audio, the generator does not.
 macro_rules! product {
-	($name:ident, $id:expr, $description:literal, $tags:expr, $ports:expr, $generator:expr) => {
+	($name:ident, $id:literal, $description:literal, $tags:expr, $ports:expr, $generator:expr) => {
 		/// See the module docs.
 		pub struct $name(Patcher);
 
@@ -148,7 +129,7 @@ macro_rules! product {
 		}
 
 		impl Plugin for $name {
-			const DESCRIPTOR: Descriptor = Descriptor::new($id, TITLE)
+			const DESCRIPTOR: Descriptor = Descriptor::new($id, "I Am Patch")
 				.with_vendor("iamplugins")
 				.with_version(env!("CARGO_PKG_VERSION"))
 				.with_description($description)
@@ -208,7 +189,7 @@ use i_am_dsp::prelude::{Parameters, Value};
 
 product!(
 	PatcherEffect,
-	EFFECT_ID,
+	"iamdsp.patch.effect",
 	"A patcher: an effect whose graph the page edits.",
 	&[Tag::AudioEffect],
 	&[AudioPort { name: "Main" }, AudioPort { name: "Sidechain" }],
@@ -217,7 +198,7 @@ product!(
 
 product!(
 	PatcherGenerator,
-	GENERATOR_ID,
+	"iamdsp.patch.generator",
 	"A patcher: a generator whose graph the page edits.",
 	&[Tag::Instrument, Tag::Synthesizer],
 	&[],
@@ -347,17 +328,6 @@ mod tests {
 		};
 
 		String::from_utf8(bytes.clone()).expect("utf-8")
-	}
-
-	#[test]
-	fn the_voice_limit_is_what_the_build_says() {
-		let expected = if cfg!(feature = "mono") {
-			1
-		} else {
-			i_am_patch::poly::POLYPHONY
-		};
-
-		assert_eq!(crate::shared::voice_limit(), expected);
 	}
 
 	#[test]

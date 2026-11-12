@@ -13,7 +13,7 @@ use crate::compile::voice_group;
 use crate::engine::{Engine, EngineError};
 use crate::graph::{Edge, Graph, NodeId, NodeInstance, node};
 
-/// How many notes can sound at once, unless the caller asks for fewer.
+/// How many notes can sound at once.
 pub const POLYPHONY: usize = 8;
 
 /// How many quiet blocks retire a voice whose graph has already faded out.
@@ -59,8 +59,6 @@ pub struct Poly {
 	voice_latency: usize,
 	tempo: Option<f32>,
 	position: Option<f32>,
-	/// How many voices may sound at once.
-	limit: usize,
 	voices: Vec<Voice>,
 }
 
@@ -203,19 +201,8 @@ impl Poly {
 			voice_latency,
 			tempo: None,
 			position: None,
-			limit: POLYPHONY,
 			voices: Vec::new(),
 		})
-	}
-
-	/// The same poly, over at most `limit` voices.
-	///
-	/// One voice makes the patch monophonic: a new note takes the voice the last
-	/// one had, so the patch runs one engine instead of eight. It is what a
-	/// measurement build uses to hear what a single voice costs.
-	pub fn with_limit(mut self, limit: usize) -> Self {
-		self.limit = limit.max(1);
-		self
 	}
 
 	/// Where a source's cycle is: the outer graph's, or the newest voice's.
@@ -353,7 +340,7 @@ impl Poly {
 						self.voices.remove(position);
 					}
 
-					if self.voices.len() >= self.limit {
+					if self.voices.len() >= POLYPHONY {
 						// A released voice is the one to lose; otherwise the oldest.
 						let position = self
 							.voices
@@ -549,19 +536,6 @@ mod tests {
 			"a repeated note-on stacked {} voices",
 			poly.voices.len()
 		);
-	}
-
-	#[test]
-	fn one_voice_limit_plays_the_newest_note_only() {
-		let graph = voice_patch();
-		let mut poly = Poly::new(&graph, 48_000)
-			.expect("poly builds")
-			.with_limit(1);
-
-		let _ = render(&mut poly, 8, &[(0, note(60)), (2, note(67))]);
-
-		assert_eq!(poly.voices.len(), 1, "a second note found a second voice");
-		assert_eq!(poly.voices[0].note, 67, "the newest note did not take over");
 	}
 
 	#[test]

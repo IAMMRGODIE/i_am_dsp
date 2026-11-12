@@ -159,18 +159,6 @@ impl PatcherShared {
 	}
 }
 
-/// The polyphony the body runs at.
-///
-/// The `mono` build forces one voice, so a project can hear what a single voice
-/// costs: one engine instead of up to eight.
-pub(crate) fn voice_limit() -> usize {
-	if cfg!(feature = "mono") {
-		1
-	} else {
-		i_am_patch::poly::POLYPHONY
-	}
-}
-
 /// The graph a fresh instance starts with: the pluck, one voice, one LFO.
 pub fn demo() -> Graph {
 	let mut graph = Graph::new();
@@ -273,7 +261,7 @@ impl Body {
 		} else {
 			match Poly::new_with(&graph, rate, &self.shared.tables) {
 				Ok(poly) => {
-					self.poly = Some(poly.with_limit(voice_limit()));
+					self.poly = Some(poly);
 					self.engine = None;
 					self.shared.set_error(None);
 				}
