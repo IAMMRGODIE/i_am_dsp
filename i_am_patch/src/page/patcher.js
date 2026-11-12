@@ -481,7 +481,11 @@
     };
 
     // The card paints the gesture at once; the graph hears every step, so the
-    // sound follows the hand instead of waiting for the pointer to come up.
+    // sound follows the hand instead of waiting for the pointer to come up. The
+    // writes are chained, so the card is rebuilt from a graph that already has
+    // the last one instead of from the value before the gesture.
+    let pending = Promise.resolve();
+
     const set = (id, value) => {
       node.params[id] = value;
 
@@ -489,13 +493,13 @@
 
       if (card && card.setValue) card.setValue(id, value);
 
-      postParam(node.id, id, value);
+      pending = pending.then(() => postParam(node.id, id, value));
     };
 
     const postFades = () => {
       const ir = state().ir || {};
 
-      fetch(
+      return fetch(
         "/ir?node=" + node.id + "&fade_in=" + (ir.fade_in || 0) +
           "&fade_out=" + (ir.fade_out || 0),
         { method: "POST", body: "fades" },
@@ -503,15 +507,14 @@
     };
 
     const post = async (ids) => {
-      if (kind.id === "mod:convolver") {
-        postFades();
-        return;
-      }
+      // The gesture is over: wait for its writes, then rebuild the card from the
+      // graph, which is now what the hand left it at.
+      await pending;
 
-      for (const id of ids) postParam(node.id, id, node.params[id]);
+      if (kind.id === "mod:convolver") return;
 
-      // The gesture is over: the card is rebuilt from the graph, which is now
-      // what the hand left it at.
+      for (const id of ids) await postParam(node.id, id, node.params[id]);
+
       await reload();
     };
 
@@ -558,7 +561,7 @@
       repaint: () => {
         // The fades are the convolver's own state, so the picture and the graph
         // move together.
-        if (kind.id === "mod:convolver") postFades();
+        if (kind.id === "mod:convolver") pending = pending.then(postFades);
 
         const card = cardOf();
 
@@ -639,7 +642,7 @@
   /// hand and the graph ends up with what the card already shows. A parameter
   /// is cheap now: the engine takes the value without rebuilding.
   function postParam(node, key, value) {
-    fetch("/op", {
+    return fetch("/op", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ op: "param", id: node, key, value }),
