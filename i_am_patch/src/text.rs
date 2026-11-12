@@ -206,12 +206,27 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 				};
 				let (from_node, from_port) = resolve(&graph, from, line, true)?;
 				let (to_node, to_port) = resolve_param(&graph, to, line)?;
+				let depth = parse_f32(Some(depth), line)?;
+				// A depth is a share of the parameter's own range. A file written
+				// before that was so stored it in the parameter's units, which is
+				// always more than a whole range; read it as the same offset
+				// measured against the range instead of losing the link.
+				let depth = if depth.abs() > 1.0 {
+					let span = graph
+						.get(to_node)
+						.and_then(|node| {
+							node.kind.params.iter().find(|param| param.name == to_port)
+						})
+						.map(|param| param.max - param.min)
+						.unwrap_or(1.0)
+						.max(1e-9);
 
-				graph.modulate(
-					(from_node, from_port),
-					(to_node, to_port),
-					parse_f32(Some(depth), line)?,
-				);
+					depth / span
+				} else {
+					depth
+				};
+
+				graph.modulate((from_node, from_port), (to_node, to_port), depth);
 
 				if let Some(link) = graph.modulations.last_mut() {
 					link.mode = mode;

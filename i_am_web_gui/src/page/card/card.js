@@ -603,7 +603,20 @@
         if (options.sample) {
           heroBox.classList.add("ir-target");
           heroBox.title = options.sampleHint || "Click or drop a file";
-          heroBox.addEventListener("click", function () {
+          heroBox.addEventListener("click", function (event) {
+            // The picture's own buttons belong to the page: a click on one of
+            // them is not a click on the picture. Load is the one action every
+            // file-taking picture has, so it opens the picker here.
+            var button = event.target.closest("button, select, input, textarea, a");
+
+            if (button) {
+              if (button.getAttribute("data-action") === "load" && options.pickSample) {
+                options.pickSample();
+              }
+
+              return;
+            }
+
             if (options.pickSample) options.pickSample();
           });
           heroBox.addEventListener("dragover", function (event) {

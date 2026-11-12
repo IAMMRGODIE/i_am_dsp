@@ -556,11 +556,12 @@ fn an_lfo_plays_its_points() {
 	let mut graph = Graph::new();
 	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
 	let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
-	let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
+	// The mixer's a is a plain 0..2 level, so the depth is the offset it adds.
+	let mixer = graph.add_node("mixer", (100.0, 0.0)).expect("mixer");
 	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
-	graph.connect((input, 0), (gain, 0));
-	graph.connect((gain, 0), (out, 0));
-	// A flat curve at the top: the gain doubles across the whole block.
+	graph.connect((input, 0), (mixer, 0));
+	graph.connect((mixer, 0), (out, 0));
+	// A flat curve at the top: the level doubles across the whole block.
 	graph.set_points(
 		lfo,
 		vec![
@@ -576,7 +577,7 @@ fn an_lfo_plays_its_points() {
 			},
 		],
 	);
-	graph.modulate((lfo, 0), (gain, "gain"), 1.0);
+	graph.modulate((lfo, 0), (mixer, "a"), 1.0);
 
 	let mut engine = Engine::new(&graph, 48_000).expect("builds");
 	let host = vec![[0.5f32; 2]; BLOCK];
@@ -604,12 +605,14 @@ fn a_unipolar_source_rises_from_zero() {
 	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
 	let midi_in = graph.add_node("input:midi", (0.0, 100.0)).expect("midi in");
 	let midi = graph.add_node("midi", (100.0, 100.0)).expect("midi");
-	let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
+	let mixer = graph.add_node("mixer", (100.0, 0.0)).expect("mixer");
 	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
-	graph.connect((input, 0), (gain, 0));
-	graph.connect((gain, 0), (out, 0));
+	graph.connect((input, 0), (mixer, 0));
+	graph.connect((mixer, 0), (out, 0));
 	graph.connect((midi_in, 0), (midi, 0));
-	graph.modulate((midi, 0), (gain, "gain"), 1.0);
+	// The mixer's a spans 0..2, so a depth of half a range is the whole unit
+	// the source adds; from-base adds the source value itself.
+	graph.modulate((midi, 0), (mixer, "a"), 0.5);
 	assert!(graph.set_modulation_mode(0, ModulationMode::FromBase));
 
 	let mut engine = Engine::new(&graph, 48_000).expect("builds");
@@ -1076,5 +1079,62 @@ fn a_one_shot_lfo_holds_the_end_of_its_curve() {
 	assert!(
 		(held - 1.0).abs() < 0.01,
 		"the one-shot held {held}, not the end of its curve"
+	);
+}
+
+#[test]
+fn a_logarithmic_parameter_moves_by_a_ratio() {
+	use crate::graph::Point;
+
+	// The gain's level is logarithmic, so a depth is a share of its curve: the
+	// offset that doubles it once is the same offset anywhere on the knob.
+	let level = crate::graph::node("mod:gain")
+		.expect("gain")
+		.params
+		.iter()
+		.find(|param| param.name == "gain")
+		.copied()
+		.expect("gain");
+	let depth = level.normalize(2.0) - level.normalize(1.0);
+
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+	let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
+	graph.connect((input, 0), (gain, 0));
+	graph.connect((gain, 0), (out, 0));
+	graph.set_param(gain, "gain", 1.0);
+	// A flat curve at the top, so the offset is the whole depth.
+	graph.set_points(
+		lfo,
+		vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: 1.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+		],
+	);
+	graph.modulate((lfo, 0), (gain, "gain"), depth);
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let host = vec![[0.5f32; 2]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+
+	engine.process(&host, &[], &mut block);
+	engine.process(&host, &[], &mut block);
+
+	// A gain of 2 on a 0.5 input is 1.0; a linear reading of the same depth
+	// would have left it near 1.0 instead of doubling it.
+	assert!(
+		(block[BLOCK - 1][0] - 1.0).abs() < 1e-2,
+		"{}",
+		block[BLOCK - 1][0]
 	);
 }

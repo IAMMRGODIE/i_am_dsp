@@ -292,7 +292,9 @@ fn a_modulation_ramps_across_the_block() {
 
 	let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
 	graph.set_param(lfo, "rate", 100.0);
-	graph.modulate((lfo, 0), (gain, "gain"), 0.5);
+	// The level is logarithmic: a small share of its range swings it either way
+	// without running into the end of the knob.
+	graph.modulate((lfo, 0), (gain, "gain"), 0.05);
 
 	let mut engine = Engine::new(&graph, 48_000).expect("builds");
 	let mut frames = Vec::new();

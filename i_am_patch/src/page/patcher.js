@@ -303,20 +303,22 @@
         choices,
       };
 
-      const rangeSpan = Math.max(1e-9, control.max - control.min);
+      // A depth is a share of the parameter's own range, which is the unit the
+      // card's ring already works in: a logarithmic control then swings by a
+      // ratio, the way its knob moves.
       const assignments = modsOf(node.id)
         .filter((mod) => mod.to[1] === control.id)
         .map((mod) => ({
           slot: mod.slot,
           label: sourceName(mod.from[0]),
-          depth: mod.depth / rangeSpan,
+          depth: mod.depth,
           mode: mod.mode === "base" ? "frombase" : "centered",
         }));
 
       return IAmCard.modulate(control, {
         assignments,
         onDepth: (slot, next) => {
-          op({ op: "mod_depth", index: slot, depth: next * rangeSpan }, false);
+          op({ op: "mod_depth", index: slot, depth: next }, false);
         },
         onMode: (slots, next) => {
           op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
@@ -561,19 +563,18 @@
         op({ op: "param", id: node.id, key: identifier, value }, false);
       },
       wrapControl: (control) => {
-        const range = Math.max(1e-9, control.max - control.min);
         const assignments = mods
           .filter((mod) => mod.to[1] === control.id)
           .map((mod) => ({
             slot: mod.slot,
             label: sourceName(mod.from[0]),
-            depth: mod.depth / range,
+            depth: mod.depth,
             mode: mod.mode === "base" ? "frombase" : "centered",
           }));
 
         return IAmCard.modulate(control, {
           assignments,
-          onDepth: (slot, next) => op({ op: "mod_depth", index: slot, depth: next * range }, false),
+          onDepth: (slot, next) => op({ op: "mod_depth", index: slot, depth: next }, false),
           onMode: (slots, next) => op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false),
           dropTarget: node.id + ":" + control.id,
         });

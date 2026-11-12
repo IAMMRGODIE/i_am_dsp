@@ -424,6 +424,9 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 - 拆分与合并成对出现，端口同名对得上：`split:ms`/`mix:ms`（mid/side）、`split:lr`/`mix:lr`（左右各复制成双声道）、
   `split:bands`/`mix:bands`（低/中/高，直接复用 rack 的 LR4 分频器 `crossover.rs`，两个分频点可调）。
 - 调制是控制率的：引擎每 64 样本取一次值；每个源槽各有自己的相位/包络/随机状态。
+- 调制深度是**参数自身范围的比例**（-1..1），引擎把它加在归一化空间里：`ParamDesc::normalize/denormalize`
+  对 `logarithmic` 的参数取对数，所以 cutoff 这种旋钮按比例摆动（一圈一个八度），和 rack 的调制一致；
+  没有被调制的参数原样下发，不会因为归一化被夹进范围。
 - LFO 可以 one-shot：跑完一个周期停在末尾（相位停在 1，不再回绕），在 voice group 里就是每个音符扫一次；
   共享的 `SourceSettings` 里是 `lfo_one_shot`，patch 节点上是 `one_shot` 开关。
 - `voice:in` 的 `voices` 控制决定同时能响几个音（1–8，默认 8）：它是图参数，改一下 generation 就变，

@@ -66,6 +66,8 @@ pub struct Engine {
 	block: u64,
 	order: Vec<NodeId>,
 	kinds: Vec<&'static str>,
+	/// The catalog entry of each step, for the range a parameter declares.
+	descs: Vec<&'static crate::graph::NodeDesc>,
 	nodes: Vec<Box<dyn BlockNode>>,
 	outputs: Vec<Vec<Buffer>>,
 	inputs: Vec<Vec<Buffer>>,
@@ -129,6 +131,7 @@ impl Engine {
 			.collect();
 
 		let mut kinds = Vec::with_capacity(plan.order.len());
+		let mut descs = Vec::with_capacity(plan.order.len());
 		let mut nodes = Vec::with_capacity(plan.order.len());
 		let mut outputs = Vec::with_capacity(plan.order.len());
 		let mut inputs = Vec::with_capacity(plan.order.len());
@@ -146,6 +149,7 @@ impl Engine {
 				.expect("the plan only names nodes in the graph");
 			let kind = instance.kind;
 			kinds.push(kind.id);
+			descs.push(kind);
 			nodes.push(
 				make_with(
 					kind.id,
@@ -245,6 +249,7 @@ impl Engine {
 			block: 0,
 			order: plan.order,
 			kinds,
+			descs,
 			nodes,
 			outputs,
 			inputs,
@@ -509,8 +514,8 @@ impl Engine {
 
 			for (name, base) in &self.base[step] {
 				let name = *name;
-				let mut start = *base;
-				let mut end = *base;
+				let mut offset_start = 0.0;
+				let mut offset_end = 0.0;
 
 				for link in &self.links {
 					if link.target == step && link.param == name {
@@ -538,10 +543,32 @@ impl Engine {
 							ModulationMode::FromBase => (value + 1.0) * 0.5,
 						};
 
-						start += link.depth * unit(last);
-						end += link.depth * unit(now);
+						offset_start += link.depth * unit(last);
+						offset_end += link.depth * unit(now);
 					}
 				}
+
+				// The offset is a share of the parameter's own range, so a
+				// logarithmic control moves by a ratio instead of by a fixed
+				// number of hertz, which is what its knob does. A parameter
+				// nothing drives is passed on untouched: its base may sit
+				// outside the range the catalog declares, and normalising would
+				// quietly pull it in.
+				let (start, end) = match self.descs[step]
+					.params
+					.iter()
+					.find(|param| param.name == name)
+				{
+					Some(param) if offset_start != 0.0 || offset_end != 0.0 => {
+						let unit = param.normalize(*base);
+
+						(
+							param.denormalize(unit + offset_start),
+							param.denormalize(unit + offset_end),
+						)
+					}
+					_ => (*base + offset_start, *base + offset_end),
+				};
 
 				updates.push((name, start, end));
 			}

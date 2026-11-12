@@ -162,6 +162,40 @@ pub struct NodeDesc {
 	pub params: &'static [ParamDesc],
 }
 
+impl ParamDesc {
+	/// Where a value sits on this parameter's own curve, 0..1.
+	///
+	/// A logarithmic parameter takes the log of the ratio, so the same step is
+	/// the same musical interval rather than the same number of hertz.
+	pub fn normalize(&self, value: f32) -> f32 {
+		if self.max <= self.min {
+			return 0.0;
+		}
+
+		if self.logarithmic && self.min > 0.0 {
+			((value.max(self.min).ln() - self.min.ln()) / (self.max.ln() - self.min.ln()))
+				.clamp(0.0, 1.0)
+		} else {
+			((value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
+		}
+	}
+
+	/// Maps 0..1 back into the parameter's units.
+	pub fn denormalize(&self, position: f32) -> f32 {
+		let position = position.clamp(0.0, 1.0);
+
+		if self.max <= self.min {
+			return self.min;
+		}
+
+		if self.logarithmic && self.min > 0.0 {
+			self.min * (self.max / self.min).powf(position)
+		} else {
+			self.min + (self.max - self.min) * position
+		}
+	}
+}
+
 impl NodeDesc {
 	/// The index of a named input port.
 	pub fn input(&self, name: &str) -> Option<usize> {
@@ -876,6 +910,30 @@ mod tests {
 				);
 			}
 		}
+	}
+
+	#[test]
+	fn a_logarithmic_parameter_normalizes_by_ratio() {
+		let cutoff = node("mod:filter")
+			.expect("filter")
+			.params
+			.iter()
+			.find(|param| param.name == "cutoff")
+			.copied()
+			.expect("cutoff");
+
+		assert!(cutoff.logarithmic);
+
+		// The geometric middle of a log range is the middle of its curve.
+		let middle = (cutoff.min * cutoff.max).sqrt();
+		assert!((cutoff.normalize(middle) - 0.5).abs() < 1e-5);
+		assert!((cutoff.denormalize(0.5) - middle).abs() < 1.0);
+
+		// Doubling is the same step wherever it starts, which a linear
+		// normaliser cannot do.
+		let first = cutoff.normalize(cutoff.min * 4.0) - cutoff.normalize(cutoff.min * 2.0);
+		let second = cutoff.normalize(cutoff.min * 8.0) - cutoff.normalize(cutoff.min * 4.0);
+		assert!((first - second).abs() < 1e-5, "{first} vs {second}");
 	}
 
 	#[test]
