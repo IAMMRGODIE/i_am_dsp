@@ -719,9 +719,13 @@
   /// Copies the selected nodes, the edges between them and the modulations
   /// inside the selection.
   function copySelection() {
-    if (!selection.size) return;
+    copyNodes([...selection]);
+  }
 
-    const ids = [...selection];
+  /// Copies the given nodes, with the wires and links between them.
+  function copyNodes(ids) {
+    if (!ids.length) return;
+
     const index = new Map(ids.map((id, position) => [id, position]));
 
     clipboard = {
@@ -1188,6 +1192,10 @@
 
   /// Right-clicking a node offers what can be done to it.
   function openNodeMenu(nodeId, clientX, clientY) {
+    const wired = patch.edges.some(
+      (edge) => edge.from[0] === nodeId || edge.to[0] === nodeId,
+    );
+
     menu.innerHTML = "";
     // Replacing keeps the node's id, its place and the wires the new kind can
     // still carry, so a patch can be rerouted without redrawing the graph.
@@ -1196,10 +1204,23 @@
         op({ op: "replace", id: nodeId, kind });
       });
     }));
+    // A right-click does not select, so Copy here is how one node is copied.
+    menu.appendChild(menuButton("Copy", () => {
+      copyNodes([nodeId]);
+      closeMenu();
+    }));
     menu.appendChild(menuButton("Duplicate", () => {
       op({ op: "duplicate", id: nodeId });
       closeMenu();
     }));
+
+    if (wired) {
+      menu.appendChild(menuButton("Disconnect", () => {
+        disconnectNode(nodeId);
+        closeMenu();
+      }));
+    }
+
     menu.appendChild(menuButton("Delete", () => {
       op({ op: "remove", id: nodeId });
       delete cards[nodeId];
@@ -1209,15 +1230,116 @@
     placeMenu(clientX, clientY);
   }
 
-  /// Right-clicking a wire offers to cut it.
+  /// Takes every wire off one node, as one undo step.
+  ///
+  /// The edges are cut from the end of the list: each cut shifts the ones after
+  /// it, so going backwards keeps the indices the page is holding valid.
+  async function disconnectNode(id) {
+    const indices = patch.edges
+      .map((edge, index) => ({ edge, index }))
+      .filter(({ edge }) => edge.from[0] === id || edge.to[0] === id)
+      .map(({ index }) => index)
+      .sort((a, b) => b - a);
+
+    if (!indices.length) return;
+
+    await snapshot({ op: "disconnect" });
+    suspendSnapshot += 1;
+
+    try {
+      for (const index of indices) {
+        await op({ op: "disconnect", index }, false);
+      }
+    } finally {
+      suspendSnapshot -= 1;
+    }
+
+    draw();
+  }
+
+  /// Right-clicking a wire offers to cut it, or to put a node in the middle.
   function openWireMenu(index, clientX, clientY) {
+    const edge = patch.edges[index];
+    const from = edge && nodeOf(edge.from[0]);
+    const to = edge && nodeOf(edge.to[0]);
+    const audio = from && to &&
+      kindOf(from.kind).outputs[edge.from[1]].kind === "audio" &&
+      kindOf(to.kind).inputs[edge.to[1]].kind === "audio";
+
     menu.innerHTML = "";
+
+    if (audio) {
+      menu.appendChild(menuButton("Insert…", () => {
+        openLibrary(
+          clientX,
+          clientY,
+          (kind) => insertInto(index, kind),
+          // One audio in and one audio out: the processors a wire can carry.
+          (kind) => categoryOf(kind) === "Effect" &&
+            kind.inputs.length === 1 && kind.outputs.length === 1 &&
+            kind.inputs[0].kind === "audio" && kind.outputs[0].kind === "audio",
+        );
+      }));
+    }
+
     menu.appendChild(menuButton("Delete connection", () => {
       op({ op: "disconnect", index });
       closeMenu();
     }));
 
     placeMenu(clientX, clientY);
+  }
+
+  /// Puts a node in the middle of one wire, keeping what was on both sides.
+  async function insertInto(index, kind) {
+    const edge = patch.edges[index];
+    const from = edge && nodeOf(edge.from[0]);
+    const to = edge && nodeOf(edge.to[0]);
+
+    if (!from || !to) return;
+
+    const a = portXY(from, kindOf(from.kind).outputs[edge.from[1]], true);
+    const b = portXY(to, kindOf(to.kind).inputs[edge.to[1]], false);
+    const [w, h] = baseSize({ kind });
+    const fromSize = baseSize(from);
+    const toSize = baseSize(to);
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    // Between the two cards when the gap takes it, otherwise under them: a node
+    // dropped on top of its neighbours hides the very wires it joined.
+    const between = mid.x - w / 2 > from.x + fromSize[0] + 20 &&
+      mid.x + w / 2 < to.x - 20;
+    const x = Math.round(between ? mid.x - w / 2 : from.x + fromSize[0] + 40);
+    const y = Math.round(
+      between
+        ? mid.y - 44
+        : Math.max(from.y, to.y) + Math.max(fromSize[1], toSize[1]) + 40,
+    );
+
+    await snapshot({ op: "insert" });
+    suspendSnapshot += 1;
+
+    try {
+      const added = await op({ op: "add", kind, x, y }, false);
+      const id = added && added.id;
+
+      if (id !== undefined) {
+        // The old wire goes first: cutting it later would use an index that the
+        // two connects have already moved.
+        await op({ op: "disconnect", index }, false);
+        await op(
+          { op: "connect", from: [edge.from[0], edge.from[1]], to: [id, 0] },
+          false,
+        );
+        await op(
+          { op: "connect", from: [id, 0], to: [edge.to[0], edge.to[1]] },
+          false,
+        );
+      }
+    } finally {
+      suspendSnapshot -= 1;
+    }
+
+    draw();
   }
 
   /// Right-clicking a modulation wire offers to take the assignment off.
@@ -1232,8 +1354,9 @@
   }
 
   /// The node library, with a search box: the canvas adds what it picks, a
-  /// node's menu replaces that node with it.
-  function openLibrary(clientX, clientY, onPick) {
+  /// node's menu replaces that node with it, a wire's menu puts it in between.
+  function openLibrary(clientX, clientY, onPick, fits) {
+    const allowed = fits || (() => true);
     menu.innerHTML = "";
 
     const search = document.createElement("input");
@@ -1256,7 +1379,8 @@
 
       if (query) {
         const matches = catalog
-          .filter((kind) => categoryOf(kind) && kind.name.toLowerCase().includes(query))
+          .filter((kind) =>
+            categoryOf(kind) && allowed(kind) && kind.name.toLowerCase().includes(query))
           .sort((a, b) => a.name.localeCompare(b.name));
 
         for (const kind of matches) {
@@ -1270,7 +1394,7 @@
 
       for (const kind of catalog) {
         const category = categoryOf(kind);
-        if (!category) continue;
+        if (!category || !allowed(kind)) continue;
         if (!groups.has(category)) groups.set(category, []);
         groups.get(category).push(kind);
       }

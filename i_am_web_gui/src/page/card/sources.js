@@ -453,10 +453,13 @@
     svg.oncontextmenu = function (event) {
       var point = pointAt(event);
 
-      if (point) {
-        removePoint(point);
-        event.preventDefault();
-      }
+      if (!point) return;
+
+      // The card sits on a canvas with a menu of its own: taking a point off
+      // must not also open that menu.
+      event.preventDefault();
+      event.stopPropagation();
+      removePoint(point);
     };
 
     paint();
