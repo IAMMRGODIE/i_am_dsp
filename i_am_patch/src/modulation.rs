@@ -120,7 +120,16 @@ impl SourceRuntime {
 					self.settings.lfo_beats,
 					infos,
 				);
-				self.lfo_phase = (self.lfo_phase + frequency / rate as f32).fract();
+				let next = self.lfo_phase + frequency / rate as f32;
+
+				// One-shot stops at the end of the cycle instead of wrapping, so
+				// the shape's last point is what it holds: the playhead parks at
+				// the right edge and the modulation stays where the sweep left it.
+				self.lfo_phase = if self.settings.lfo_one_shot {
+					next.min(1.0)
+				} else {
+					next.fract()
+				};
 			}
 			SourceKind::Envelope => {
 				let target = input.abs();

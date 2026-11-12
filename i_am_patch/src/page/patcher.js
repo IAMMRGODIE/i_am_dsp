@@ -224,7 +224,7 @@
 
   // The rack's source cards put these choices in the header instead of a knob.
   const GENERIC_HEADER = {
-    lfo: ["shape", "sync"],
+    lfo: ["shape", "sync", "one_shot"],
     table: ["shape", "sync"],
     random: ["sync"],
     midi: ["mode"],
@@ -561,7 +561,7 @@
     "input:audio": [260, 150],
     "input:sidechain": [260, 150],
     "out:audio": [260, 150],
-    "voice:in": [260, 150],
+    "voice:in": [260, 190],
     "voice:out": [260, 150],
     // The source cards are wide like the rack's: a full-width hero and the
     // knobs in a row under it.
@@ -578,7 +578,7 @@
     "split:bands": [300, 210],
     "mix:ms": [280, 170],
     "mix:lr": [280, 170],
-    "mix:bands": [280, 170],
+    "mix:bands": [340, 190],
     delay: [280, 210],
   };
 

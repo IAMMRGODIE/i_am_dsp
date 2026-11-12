@@ -123,7 +123,11 @@ pub fn make_with(
 		"split:bands" => Box::new(BandSplit::new(rate, params)),
 		"mix:ms" => Box::new(MixMs),
 		"mix:lr" => Box::new(MixLr),
-		"mix:bands" => Box::new(BandMix),
+		"mix:bands" => Box::new(BandMix {
+			low: param(params, "low", 1.0),
+			mid: param(params, "mid", 1.0),
+			high: param(params, "high", 1.0),
+		}),
 		"mixer" => Box::new(Mixer {
 			a: param(params, "a", 1.0),
 			b: param(params, "b", 1.0),
@@ -432,9 +436,25 @@ impl BlockNode for BandSplit {
 }
 
 /// The three bands added back together: the inverse of [BandSplit].
-struct BandMix;
+///
+/// Each band has a gain, so a split can be rebalanced without an extra node per
+/// band; at 1.0 the sum is the input again.
+struct BandMix {
+	low: f32,
+	mid: f32,
+	high: f32,
+}
 
 impl BlockNode for BandMix {
+	fn set_param(&mut self, name: &str, value: f32) {
+		match name {
+			"low" => self.low = value,
+			"mid" => self.mid = value,
+			"high" => self.high = value,
+			_ => {}
+		}
+	}
+
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
 		let low = audio(inputs, 0);
 		let mid = audio(inputs, 1);
@@ -446,9 +466,9 @@ impl BlockNode for BandMix {
 
 			for channel in 0..2 {
 				for frame in 0..context.frames {
-					out.channels[channel][frame] = low.channels[channel][frame]
-						+ mid.channels[channel][frame]
-						+ high.channels[channel][frame];
+					out.channels[channel][frame] = low.channels[channel][frame] * self.low
+						+ mid.channels[channel][frame] * self.mid
+						+ high.channels[channel][frame] * self.high;
 				}
 			}
 		}
@@ -623,6 +643,13 @@ impl BlockNode for SourceNode {
 							settings.lfo_points = lfo_preset(next);
 						}
 
+						changed = true;
+					}
+				}
+				(SourceKind::Lfo, "one_shot") => {
+					let next = value != 0.0;
+					if settings.lfo_one_shot != next {
+						settings.lfo_one_shot = next;
 						changed = true;
 					}
 				}

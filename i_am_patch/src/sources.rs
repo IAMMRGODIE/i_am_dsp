@@ -32,6 +32,11 @@ pub struct SourceSettings {
 	pub table_shape: i32,
 	/// How far the table morphs toward the next shape, 0..1.
 	pub table_morph: f32,
+	/// Whether the LFO plays one cycle and holds the end of it.
+	///
+	/// A note restarts the voice group, and the LFO with it, so a one-shot LFO
+	/// inside a voice group sweeps once per note.
+	pub lfo_one_shot: bool,
 	/// Whether the LFO rate is musical rather than hertz.
 	pub lfo_sync: bool,
 	/// The LFO period in beats when synced.
@@ -83,6 +88,7 @@ impl Default for SourceSettings {
 			table_rate: 1.0,
 			table_shape: 0,
 			table_morph: 0.0,
+			lfo_one_shot: false,
 			lfo_sync: false,
 			lfo_beats: 1.0,
 			random_sync: false,

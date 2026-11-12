@@ -13,8 +13,22 @@ use crate::compile::voice_group;
 use crate::engine::{Engine, EngineError};
 use crate::graph::{Edge, Graph, NodeId, NodeInstance, node};
 
-/// How many notes can sound at once.
+/// How many notes can sound at once, unless the graph asks for fewer.
 pub const POLYPHONY: usize = 8;
+
+/// How many voices a graph allows: the `voices` control on its `voice:in`.
+///
+/// The page writes it as a graph parameter, so it is read when the patch is
+/// built; moving the control bumps the generation and the engine is rebuilt.
+pub fn voices_of(graph: &Graph) -> usize {
+	graph
+		.nodes
+		.iter()
+		.find(|node| node.kind.id == "voice:in")
+		.and_then(|node| node.params.get("voices"))
+		.map(|voices| (*voices as usize).clamp(1, POLYPHONY))
+		.unwrap_or(POLYPHONY)
+}
 
 /// How many quiet blocks retire a voice whose graph has already faded out.
 const SILENT_BLOCKS: u32 = 150;
@@ -59,6 +73,8 @@ pub struct Poly {
 	voice_latency: usize,
 	tempo: Option<f32>,
 	position: Option<f32>,
+	/// How many voices may sound at once.
+	limit: usize,
 	voices: Vec<Voice>,
 }
 
@@ -201,8 +217,15 @@ impl Poly {
 			voice_latency,
 			tempo: None,
 			position: None,
+			limit: voices_of(graph),
 			voices: Vec::new(),
 		})
+	}
+
+	/// The same poly, over at most `limit` voices.
+	pub fn with_limit(mut self, limit: usize) -> Self {
+		self.limit = limit.clamp(1, POLYPHONY);
+		self
 	}
 
 	/// Where a source's cycle is: the outer graph's, or the newest voice's.
@@ -340,7 +363,7 @@ impl Poly {
 						self.voices.remove(position);
 					}
 
-					if self.voices.len() >= POLYPHONY {
+					if self.voices.len() >= self.limit {
 						// A released voice is the one to lose; otherwise the oldest.
 						let position = self
 							.voices
@@ -536,6 +559,33 @@ mod tests {
 			"a repeated note-on stacked {} voices",
 			poly.voices.len()
 		);
+	}
+
+	#[test]
+	fn a_voice_limit_in_the_graph_caps_the_poly() {
+		let mut graph = voice_patch();
+		let voice_in = graph
+			.nodes
+			.iter()
+			.find(|node| node.kind.id == "voice:in")
+			.expect("voice in")
+			.id;
+		graph.set_param(voice_in, "voices", 1.0);
+
+		assert_eq!(voices_of(&graph), 1);
+
+		let mut poly = Poly::new(&graph, 48_000).expect("poly builds");
+		let _ = render(&mut poly, 8, &[(0, note(60)), (2, note(67))]);
+
+		assert_eq!(poly.voices.len(), 1, "a second note found a second voice");
+		assert_eq!(poly.voices[0].note, 67, "the newest note did not take over");
+	}
+
+	#[test]
+	fn a_graph_without_a_voice_control_keeps_the_default() {
+		let graph = voice_patch();
+
+		assert_eq!(voices_of(&graph), POLYPHONY);
 	}
 
 	#[test]

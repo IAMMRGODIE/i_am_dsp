@@ -424,6 +424,10 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 - 拆分与合并成对出现，端口同名对得上：`split:ms`/`mix:ms`（mid/side）、`split:lr`/`mix:lr`（左右各复制成双声道）、
   `split:bands`/`mix:bands`（低/中/高，直接复用 rack 的 LR4 分频器 `crossover.rs`，两个分频点可调）。
 - 调制是控制率的：引擎每 64 样本取一次值；每个源槽各有自己的相位/包络/随机状态。
+- LFO 可以 one-shot：跑完一个周期停在末尾（相位停在 1，不再回绕），在 voice group 里就是每个音符扫一次；
+  共享的 `SourceSettings` 里是 `lfo_one_shot`，patch 节点上是 `one_shot` 开关。
+- `voice:in` 的 `voices` 控制决定同时能响几个音（1–8，默认 8）：它是图参数，改一下 generation 就变，
+  引擎重建时 `Poly::voices_of` 读它。
 - 一个音符只起一个 voice：`PatchContext` 按 `set_sample_offset` 把 `events()` 收窄到块的第一帧，
   和宿主交给产品的语义一致；否则音源节点会在一块的每一帧都看见同一个 note-on，一个音符叠 64 层。
 - `Poly` 每个音符一份完整引擎（所有节点缓冲都各一份，demo 补丁上一个 voice ≈ 276 KB、1.9% 单核），

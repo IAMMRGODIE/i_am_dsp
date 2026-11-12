@@ -930,3 +930,109 @@ fn a_band_split_sums_back_to_the_input() {
 		"the bands did not sum back: {decibels:.3} dB"
 	);
 }
+
+#[test]
+fn a_one_shot_lfo_stops_at_the_end_of_its_cycle() {
+	// A control source needs no wiring: the engine runs it before the audio path.
+	let mut graph = Graph::new();
+	let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+	graph.set_param(lfo, "rate", 20.0);
+	graph.set_param(lfo, "one_shot", 1.0);
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let step = engine.step_of(lfo).expect("the lfo is in the plan");
+	let input = vec![[0.0f32; 2]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+
+	// 20 Hz is a 2400 frame cycle, so forty blocks is past the end of it.
+	for _ in 0..40 {
+		engine.process(&input, &[], &mut block);
+	}
+
+	let phase = engine.control_phase(step).expect("a phase");
+	let held = engine.tap_block(step).expect("a value").frame(0)[0];
+
+	assert!(
+		(phase - 1.0).abs() < 1e-3,
+		"the one-shot did not stop: {phase}"
+	);
+
+	for _ in 0..8 {
+		engine.process(&input, &[], &mut block);
+	}
+
+	let phase = engine.control_phase(step).expect("a phase");
+	let after = engine.tap_block(step).expect("a value").frame(0)[0];
+
+	assert!((phase - 1.0).abs() < 1e-3, "the phase wrapped: {phase}");
+	assert_eq!(after, held, "the held value moved");
+}
+
+#[test]
+fn a_looping_lfo_keeps_wrapping() {
+	let mut graph = Graph::new();
+	let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+	graph.set_param(lfo, "rate", 20.0);
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let step = engine.step_of(lfo).expect("the lfo is in the plan");
+	let input = vec![[0.0f32; 2]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+
+	for _ in 0..40 {
+		engine.process(&input, &[], &mut block);
+	}
+
+	let phase = engine.control_phase(step).expect("a phase");
+	assert!(phase < 1.0, "the loop parked at the end: {phase}");
+}
+
+/// The steady-state peak a sine leaves after a graph's filters settle.
+fn engine_peak(graph: &Graph, frequency: f32) -> f32 {
+	let mut engine = Engine::new(graph, 48_000).expect("builds");
+	let mut peak = 0.0f32;
+
+	for block in 0..32 {
+		let mut input = vec![[0.0f32; 2]; BLOCK];
+
+		for (frame, slot) in input.iter_mut().enumerate() {
+			let index = block * BLOCK + frame;
+			let value = (std::f32::consts::TAU * frequency * index as f32 / 48_000.0).sin() * 0.5;
+			*slot = [value, value];
+		}
+
+		let mut out = vec![[0.0f32; 2]; BLOCK];
+		engine.process(&input, &[], &mut out);
+
+		if block >= 16 {
+			for frame in &out {
+				peak = peak.max(frame[0].abs());
+			}
+		}
+	}
+
+	peak
+}
+
+#[test]
+fn a_band_mix_gain_balances_its_band() {
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let split = graph.add_node("split:bands", (100.0, 0.0)).expect("split");
+	let mix = graph.add_node("mix:bands", (200.0, 0.0)).expect("mix");
+	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+	graph.connect((input, 0), (split, 0));
+	graph.connect((split, 0), (mix, 0));
+	graph.connect((split, 1), (mix, 1));
+	graph.connect((split, 2), (mix, 2));
+	graph.connect((mix, 0), (out, 0));
+	let full = engine_peak(&graph, 1_000.0);
+	graph.set_param(mix, "mid", 0.0);
+	let muted = engine_peak(&graph, 1_000.0);
+
+	assert!(full > 0.4, "the mid band was not carrying the tone: {full}");
+	assert!(
+		muted < 0.1 * full,
+		"muting mid left {muted} of {full}: the gain did not reach the band"
+	);
+}

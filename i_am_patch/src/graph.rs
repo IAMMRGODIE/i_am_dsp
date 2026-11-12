@@ -224,7 +224,7 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[port("midi", SignalKind::Midi)],
 		outputs: &[port("midi", SignalKind::Midi)],
 		latency: 0,
-		params: &[],
+		params: &[step_param("voices", 8.0, 1.0, 8.0, 1.0)],
 	},
 	NodeDesc {
 		id: "voice:out",
@@ -302,7 +302,11 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[port("low", AUDIO), port("mid", AUDIO), port("high", AUDIO)],
 		outputs: &[port("audio", AUDIO)],
 		latency: 0,
-		params: &[],
+		params: &[
+			param("low", 1.0, 0.0, 2.0),
+			param("mid", 1.0, 0.0, 2.0),
+			param("high", 1.0, 0.0, 2.0),
+		],
 	},
 	NodeDesc {
 		id: "lfo",
@@ -315,6 +319,7 @@ const BUILTINS: &[NodeDesc] = &[
 			choice_param("shape", 0.0, 3.0, SHAPES),
 			bool_param("sync", 0.0),
 			log_param("beats", 1.0, 0.03125, 32.0),
+			bool_param("one_shot", 0.0),
 		],
 	},
 	NodeDesc {
