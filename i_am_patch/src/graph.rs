@@ -760,6 +760,66 @@ impl Graph {
 		}
 	}
 
+	/// Swaps one node's kind, keeping its id and where it sits.
+	///
+	/// What the new kind cannot use goes with the old one: a wire into a port it
+	/// does not have, or that now carries something else, and a modulation onto a
+	/// parameter it does not declare. The parameters the two kinds share keep
+	/// their value, so a filter can become another filter without losing its
+	/// cutoff.
+	pub fn replace_kind(&mut self, id: NodeId, kind: &str) -> bool {
+		let Some(desc) = node(kind) else {
+			return false;
+		};
+
+		let Some(node) = self.nodes.iter_mut().find(|node| node.id == id) else {
+			return false;
+		};
+
+		let old = node.kind;
+		let mut params: BTreeMap<&'static str, f32> = desc
+			.params
+			.iter()
+			.map(|param| (param.name, param.default))
+			.collect();
+
+		for (name, value) in &node.params {
+			if let Some(param) = desc.params.iter().find(|param| param.name == *name) {
+				params.insert(param.name, value.clamp(param.min, param.max));
+			}
+		}
+
+		node.kind = desc;
+		node.params = params;
+
+		// Only the LFO carries a pasted curve.
+		if desc.id != "lfo" {
+			node.points.clear();
+		}
+
+		let survives = |old: &[PortDesc], new: &[PortDesc], index: usize| {
+			matches!(
+				(old.get(index), new.get(index)),
+				(Some(before), Some(after)) if before.kind == after.kind
+			)
+		};
+
+		self.edges.retain(|edge| {
+			(edge.from.0 != id || survives(old.outputs, desc.outputs, edge.from.1))
+				&& (edge.to.0 != id || survives(old.inputs, desc.inputs, edge.to.1))
+		});
+
+		self.modulations.retain(|link| {
+			let source = link.source.0 != id || survives(old.outputs, desc.outputs, link.source.1);
+			let target =
+				link.target.0 != id || desc.params.iter().any(|param| param.name == link.target.1);
+
+			source && target
+		});
+
+		true
+	}
+
 	/// Removes a node and every edge and modulation that touched it.
 	pub fn remove_node(&mut self, id: NodeId) {
 		self.nodes.retain(|node| node.id != id);
@@ -816,6 +876,67 @@ mod tests {
 				);
 			}
 		}
+	}
+
+	#[test]
+	fn replacing_a_kind_keeps_the_wires_it_can_carry() {
+		let mut graph = Graph::new();
+		let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+		let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
+		let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+		graph.connect((input, 0), (gain, 0));
+		graph.connect((gain, 0), (out, 0));
+
+		assert!(graph.replace_kind(gain, "mod:filter"));
+
+		let node = graph.get(gain).expect("the node kept its id");
+		assert_eq!(node.kind.id, "mod:filter");
+		assert_eq!(node.position, (100.0, 0.0));
+		assert_eq!(graph.edges.len(), 2, "an audio wire on port 0 was dropped");
+		assert!(node.params.contains_key("cutoff"));
+	}
+
+	#[test]
+	fn replacing_a_kind_keeps_a_parameter_it_shares() {
+		let mut graph = Graph::new();
+		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+		graph.set_param(lfo, "rate", 3.0);
+		graph.set_points(
+			lfo,
+			vec![
+				Point {
+					time: 0.0,
+					value: 0.0,
+					bend: 0.0,
+				},
+				Point {
+					time: 1.0,
+					value: 1.0,
+					bend: 0.0,
+				},
+			],
+		);
+
+		assert!(graph.replace_kind(lfo, "table"));
+
+		let node = graph.get(lfo).expect("the node kept its id");
+		assert_eq!(node.params.get("rate"), Some(&3.0));
+		assert!(node.points.is_empty(), "a table kept an lfo's curve");
+	}
+
+	#[test]
+	fn replacing_a_kind_drops_what_the_new_one_cannot_use() {
+		let mut graph = Graph::new();
+		let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+		let filter = graph.add_node("mod:filter", (100.0, 0.0)).expect("filter");
+		graph.modulate((lfo, 0), (filter, "cutoff"), 400.0);
+
+		assert!(graph.replace_kind(filter, "mod:reverb"));
+
+		assert!(
+			graph.modulations.is_empty(),
+			"a link onto a parameter the new kind does not have survived"
+		);
 	}
 
 	#[test]

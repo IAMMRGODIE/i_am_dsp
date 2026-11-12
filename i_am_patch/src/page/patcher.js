@@ -1189,6 +1189,13 @@
   /// Right-clicking a node offers what can be done to it.
   function openNodeMenu(nodeId, clientX, clientY) {
     menu.innerHTML = "";
+    // Replacing keeps the node's id, its place and the wires the new kind can
+    // still carry, so a patch can be rerouted without redrawing the graph.
+    menu.appendChild(menuButton("Replace…", () => {
+      openLibrary(clientX, clientY, (kind) => {
+        op({ op: "replace", id: nodeId, kind });
+      });
+    }));
     menu.appendChild(menuButton("Duplicate", () => {
       op({ op: "duplicate", id: nodeId });
       closeMenu();
@@ -1202,8 +1209,31 @@
     placeMenu(clientX, clientY);
   }
 
-  /// Right-clicking the canvas offers the library, with a search box.
-  function openAddMenu(clientX, clientY, world) {
+  /// Right-clicking a wire offers to cut it.
+  function openWireMenu(index, clientX, clientY) {
+    menu.innerHTML = "";
+    menu.appendChild(menuButton("Delete connection", () => {
+      op({ op: "disconnect", index });
+      closeMenu();
+    }));
+
+    placeMenu(clientX, clientY);
+  }
+
+  /// Right-clicking a modulation wire offers to take the assignment off.
+  function openModMenu(index, clientX, clientY) {
+    menu.innerHTML = "";
+    menu.appendChild(menuButton("Remove modulation", () => {
+      op({ op: "unmodulate", index });
+      closeMenu();
+    }));
+
+    placeMenu(clientX, clientY);
+  }
+
+  /// The node library, with a search box: the canvas adds what it picks, a
+  /// node's menu replaces that node with it.
+  function openLibrary(clientX, clientY, onPick) {
     menu.innerHTML = "";
 
     const search = document.createElement("input");
@@ -1215,8 +1245,8 @@
     list.className = "menu-list";
     menu.appendChild(list);
 
-    const addAt = (kind) => {
-      op({ op: "add", kind, x: Math.round(world.x), y: Math.round(world.y) });
+    const pick = (kind) => {
+      onPick(kind);
       closeMenu();
     };
 
@@ -1230,7 +1260,7 @@
           .sort((a, b) => a.name.localeCompare(b.name));
 
         for (const kind of matches) {
-          list.appendChild(menuButton(kind.name, () => addAt(kind.id)));
+          list.appendChild(menuButton(kind.name, () => pick(kind.id)));
         }
 
         return;
@@ -1261,7 +1291,7 @@
         sub.className = "menu-sub";
 
         for (const kind of items) {
-          sub.appendChild(menuButton(kind.name, () => addAt(kind.id)));
+          sub.appendChild(menuButton(kind.name, () => pick(kind.id)));
         }
 
         row.appendChild(sub);
@@ -1284,11 +1314,20 @@
   svg.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     const nodeEl = event.target.closest("[data-node]");
+    const wireEl = event.target.closest("[data-edge]");
+    const modEl = event.target.closest("[data-mod]");
 
-    if (nodeEl) {
+    if (wireEl) {
+      openWireMenu(Number(wireEl.getAttribute("data-edge")), event.clientX, event.clientY);
+    } else if (modEl) {
+      openModMenu(Number(modEl.getAttribute("data-mod")), event.clientX, event.clientY);
+    } else if (nodeEl) {
       openNodeMenu(Number(nodeEl.getAttribute("data-node")), event.clientX, event.clientY);
     } else {
-      openAddMenu(event.clientX, event.clientY, toWorld(event));
+      const world = toWorld(event);
+      openLibrary(event.clientX, event.clientY, (kind) => {
+        op({ op: "add", kind, x: Math.round(world.x), y: Math.round(world.y) });
+      });
     }
   });
 

@@ -537,6 +537,10 @@ fn op_graph(shared: &Shared, value: &Value) -> Value {
 
 			json!({ "ok": true, "id": new_id.map(|id| id.0) })
 		}
+		"replace" => {
+			let kind = value["kind"].as_str().unwrap_or("");
+			json!({ "ok": graph.replace_kind(id(&value["id"]), kind) })
+		}
 		"remove" => {
 			graph.remove_node(id(&value["id"]));
 			json!({ "ok": true })
