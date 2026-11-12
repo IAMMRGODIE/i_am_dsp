@@ -7,6 +7,7 @@ use i_am_plugin::Plugin;
 use std::sync::atomic::Ordering;
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
+use crate::crossover::Crossover;
 use crate::modulation::SourceRuntime;
 use crate::sources::{SourceKind, SourceSettings, lfo_preset};
 
@@ -118,6 +119,11 @@ pub fn make_with(
 		"voice:in" => Box::new(Quiet),
 		"voice:out" => Box::new(Quiet),
 		"split:ms" => Box::new(SplitMs),
+		"split:lr" => Box::new(SplitLr),
+		"split:bands" => Box::new(BandSplit::new(rate, params)),
+		"mix:ms" => Box::new(MixMs),
+		"mix:lr" => Box::new(MixLr),
+		"mix:bands" => Box::new(BandMix),
 		"mixer" => Box::new(Mixer {
 			a: param(params, "a", 1.0),
 			b: param(params, "b", 1.0),
@@ -341,6 +347,157 @@ impl BlockNode for SplitMs {
 }
 
 /// Sums its inputs, with a gain each.
+/// Left and right, each copied into both channels.
+///
+/// A split side is a normal stereo signal, so it can go through any node that
+/// wants one; the copy is what makes the two sides interchangeable in a patch.
+struct SplitLr;
+
+impl BlockNode for SplitLr {
+	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
+		let input = audio(inputs, 0);
+
+		for (port, channel) in [(0, 0), (1, 1)] {
+			if let Some(Buffer::Audio(out)) = outputs.get_mut(port) {
+				out.clear();
+				out.frames = context.frames;
+
+				for frame in 0..context.frames {
+					out.channels[0][frame] = input.channels[channel][frame];
+					out.channels[1][frame] = input.channels[channel][frame];
+				}
+			}
+		}
+	}
+}
+
+/// The rack's three-way split, as a node: low, mid and high.
+struct BandSplit {
+	low: f32,
+	high: f32,
+	crossover: Crossover,
+}
+
+impl BandSplit {
+	fn new(rate: usize, params: &BTreeMap<&'static str, f32>) -> Self {
+		let low = param(params, "low", 120.0);
+		let high = param(params, "high", 2_000.0);
+
+		Self {
+			low,
+			high,
+			crossover: Crossover::new(rate, low, high),
+		}
+	}
+}
+
+impl BlockNode for BandSplit {
+	fn set_param(&mut self, name: &str, value: f32) {
+		match name {
+			"low" if value != self.low => {
+				self.low = value;
+				self.crossover.set_splits(self.low, self.high);
+			}
+			"high" if value != self.high => {
+				self.high = value;
+				self.crossover.set_splits(self.low, self.high);
+			}
+			_ => {}
+		}
+	}
+
+	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
+		let input = audio(inputs, 0);
+
+		for out in outputs.iter_mut() {
+			if let Buffer::Audio(out) = out {
+				out.clear();
+				out.frames = context.frames;
+			}
+		}
+
+		for frame in 0..context.frames {
+			let bands = self
+				.crossover
+				.split(input.frame(frame), &mut context.context);
+
+			for (port, band) in bands.iter().enumerate() {
+				if let Some(Buffer::Audio(out)) = outputs.get_mut(port) {
+					out.channels[0][frame] = band[0];
+					out.channels[1][frame] = band[1];
+				}
+			}
+		}
+	}
+}
+
+/// The three bands added back together: the inverse of [BandSplit].
+struct BandMix;
+
+impl BlockNode for BandMix {
+	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
+		let low = audio(inputs, 0);
+		let mid = audio(inputs, 1);
+		let high = audio(inputs, 2);
+
+		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
+			out.clear();
+			out.frames = context.frames;
+
+			for channel in 0..2 {
+				for frame in 0..context.frames {
+					out.channels[channel][frame] = low.channels[channel][frame]
+						+ mid.channels[channel][frame]
+						+ high.channels[channel][frame];
+				}
+			}
+		}
+	}
+}
+
+/// Left and right back into a stereo pair: the inverse of [SplitLr].
+struct MixLr;
+
+impl BlockNode for MixLr {
+	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
+		let left = audio(inputs, 0);
+		let right = audio(inputs, 1);
+
+		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
+			out.clear();
+			out.frames = context.frames;
+
+			for frame in 0..context.frames {
+				out.channels[0][frame] = left.channels[0][frame];
+				out.channels[1][frame] = right.channels[0][frame];
+			}
+		}
+	}
+}
+
+/// Mid and side back into left and right: the inverse of [SplitMs].
+struct MixMs;
+
+impl BlockNode for MixMs {
+	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
+		let mid = audio(inputs, 0);
+		let side = audio(inputs, 1);
+
+		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
+			out.clear();
+			out.frames = context.frames;
+
+			for frame in 0..context.frames {
+				let m = mid.channels[0][frame];
+				let s = side.channels[0][frame];
+
+				out.channels[0][frame] = m + s;
+				out.channels[1][frame] = m - s;
+			}
+		}
+	}
+}
+
 struct Mixer {
 	a: f32,
 	b: f32,

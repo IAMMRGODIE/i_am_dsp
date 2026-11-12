@@ -9,6 +9,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::NoteEvent;
+use i_am_patch::block::AudioBlock;
+use i_am_patch::compile::voice_group;
+use i_am_patch::engine::Engine;
 use i_am_patch::poly::Poly;
 use i_am_patch::scope::Scope;
 
@@ -163,6 +166,7 @@ fn main() {
 fn spawn_audio(shared: Shared) {
 	std::thread::spawn(move || {
 		let mut poly: Option<Poly> = None;
+		let mut engine: Option<Engine> = None;
 		let mut built = 0u64;
 		let mut blocks = 0u32;
 		let mut taps: Vec<(u32, std::sync::Arc<Scope>)> = Vec::new();
@@ -173,17 +177,36 @@ fn spawn_audio(shared: Shared) {
 			if generation != built {
 				let graph = shared.graph.lock().expect("graph").clone();
 
-				poly = match Poly::new_with(&graph, shared.rate, &shared.tables) {
-					Ok(poly) => {
-						*shared.error.lock().expect("error") = None;
-						Some(poly)
-					}
-					Err(error) => {
-						eprintln!("the demo graph does not play: {error:?}");
-						*shared.error.lock().expect("error") = Some(format!("{error:?}"));
-						None
-					}
-				};
+				// The product plays a graph with a voice group through Poly and
+				// one without through the plain engine; the preview does the
+				// same, so a patch that never used a voice group still has audio.
+				if voice_group(&graph).is_empty() {
+					poly = None;
+					engine = match Engine::new_with(&graph, shared.rate, &shared.tables) {
+						Ok(engine) => {
+							*shared.error.lock().expect("error") = None;
+							Some(engine)
+						}
+						Err(error) => {
+							eprintln!("the demo graph does not play: {error:?}");
+							*shared.error.lock().expect("error") = Some(format!("{error:?}"));
+							None
+						}
+					};
+				} else {
+					engine = None;
+					poly = match Poly::new_with(&graph, shared.rate, &shared.tables) {
+						Ok(poly) => {
+							*shared.error.lock().expect("error") = None;
+							Some(poly)
+						}
+						Err(error) => {
+							eprintln!("the demo graph does not play: {error:?}");
+							*shared.error.lock().expect("error") = Some(format!("{error:?}"));
+							None
+						}
+					};
+				}
 				built = generation;
 				blocks = 0;
 			}
@@ -231,6 +254,33 @@ fn spawn_audio(shared: Shared) {
 					}
 
 					if let Some(phase) = poly.control_phase(NodeId(*node)) {
+						shared.set_phase(*node, phase);
+					}
+				}
+			} else if let Some(engine) = &mut engine {
+				engine.set_transport(
+					Some(120.0),
+					Some(
+						blocks as f32 * i_am_patch::block::BLOCK as f32 / shared.rate as f32 * 2.0,
+					),
+				);
+				engine.process(&input, &events, &mut output);
+
+				shared.tap_snapshot_into(&mut taps);
+
+				for (node, scope) in &taps {
+					let id = NodeId(*node);
+					let block: Option<AudioBlock> =
+						engine.step_of(id).and_then(|step| engine.tap_block(step));
+
+					if let Some(block) = block {
+						scope.write(&block);
+					}
+
+					if let Some(phase) = engine
+						.step_of(id)
+						.and_then(|step| engine.control_phase(step))
+					{
 						shared.set_phase(*node, phase);
 					}
 				}

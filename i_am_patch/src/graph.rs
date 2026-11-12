@@ -254,12 +254,55 @@ const BUILTINS: &[NodeDesc] = &[
 		params: &[],
 	},
 	NodeDesc {
+		id: "split:lr",
+		name: "L/R Split",
+		inputs: &[port("audio", AUDIO)],
+		outputs: &[port("left", AUDIO), port("right", AUDIO)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
+		id: "split:bands",
+		name: "Band Split",
+		inputs: &[port("audio", AUDIO)],
+		outputs: &[port("low", AUDIO), port("mid", AUDIO), port("high", AUDIO)],
+		latency: 0,
+		params: &[
+			log_param("low", 120.0, 20.0, 1_000.0),
+			log_param("high", 2_000.0, 200.0, 20_000.0),
+		],
+	},
+	NodeDesc {
 		id: "mixer",
 		name: "Mixer",
 		inputs: &[port("a", AUDIO), optional("b", AUDIO)],
 		outputs: &[port("audio", AUDIO)],
 		latency: 0,
 		params: &[param("a", 1.0, 0.0, 2.0), param("b", 1.0, 0.0, 2.0)],
+	},
+	NodeDesc {
+		id: "mix:ms",
+		name: "M/S Mix",
+		inputs: &[port("mid", AUDIO), port("side", AUDIO)],
+		outputs: &[port("audio", AUDIO)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
+		id: "mix:lr",
+		name: "L/R Mix",
+		inputs: &[port("left", AUDIO), port("right", AUDIO)],
+		outputs: &[port("audio", AUDIO)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
+		id: "mix:bands",
+		name: "Band Mix",
+		inputs: &[port("low", AUDIO), port("mid", AUDIO), port("high", AUDIO)],
+		outputs: &[port("audio", AUDIO)],
+		latency: 0,
+		params: &[],
 	},
 	NodeDesc {
 		id: "lfo",
@@ -744,6 +787,30 @@ mod tests {
 		let sync = lfo.params.iter().find(|p| p.name == "sync").expect("sync");
 		assert!(sync.boolean);
 		assert_eq!(sync.step, 1.0);
+	}
+
+	/// Every splitter has a mixer, and the two line up port for port.
+	#[test]
+	fn a_split_has_its_mix() {
+		for (split_id, mix_id, ports) in [
+			("split:ms", "mix:ms", 2),
+			("split:lr", "mix:lr", 2),
+			("split:bands", "mix:bands", 3),
+		] {
+			let split = node(split_id).unwrap_or_else(|| panic!("{split_id} is a kind"));
+			let mix = node(mix_id).unwrap_or_else(|| panic!("{mix_id} is a kind"));
+
+			assert_eq!(split.outputs.len(), ports, "{split_id}");
+			assert_eq!(mix.inputs.len(), ports, "{mix_id}");
+
+			for output in split.outputs {
+				assert!(
+					mix.inputs.iter().any(|input| input.name == output.name),
+					"{mix_id} has no {} input",
+					output.name
+				);
+			}
+		}
 	}
 
 	#[test]

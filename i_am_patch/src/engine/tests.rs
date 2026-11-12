@@ -779,3 +779,154 @@ fn the_voice_group_does_not_double_the_level() {
 		"the voice group doubled the level: {poly_peak} vs {plain_peak}"
 	);
 }
+
+/// Runs a graph on a host signal and returns what came out.
+fn render_host(graph: &Graph, blocks: usize, host: [f32; 2]) -> Vec<[f32; 2]> {
+	let mut engine = Engine::new(graph, 48_000).expect("the graph builds");
+	let mut out = Vec::new();
+
+	for _ in 0..blocks {
+		let input = vec![host; BLOCK];
+		let mut block = vec![[0.0f32; 2]; BLOCK];
+
+		engine.process(&input, &[], &mut block);
+		out.extend(block);
+	}
+
+	out
+}
+
+#[test]
+fn an_lr_split_and_mix_is_the_identity() {
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let split = graph.add_node("split:lr", (100.0, 0.0)).expect("split");
+	let mix = graph.add_node("mix:lr", (200.0, 0.0)).expect("mix");
+	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+	graph.connect((input, 0), (split, 0));
+	graph.connect((split, 0), (mix, 0));
+	graph.connect((split, 1), (mix, 1));
+	graph.connect((mix, 0), (out, 0));
+
+	let frames = render_host(&graph, 2, [0.5, -0.25]);
+
+	for frame in &frames {
+		assert!((frame[0] - 0.5).abs() < 1e-6, "left {}", frame[0]);
+		assert!((frame[1] + 0.25).abs() < 1e-6, "right {}", frame[1]);
+	}
+}
+
+#[test]
+fn a_ms_split_and_mix_is_the_identity() {
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let split = graph.add_node("split:ms", (100.0, 0.0)).expect("split");
+	let mix = graph.add_node("mix:ms", (200.0, 0.0)).expect("mix");
+	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+	graph.connect((input, 0), (split, 0));
+	graph.connect((split, 0), (mix, 0));
+	graph.connect((split, 1), (mix, 1));
+	graph.connect((mix, 0), (out, 0));
+
+	let frames = render_host(&graph, 2, [0.5, -0.25]);
+
+	for frame in &frames {
+		assert!((frame[0] - 0.5).abs() < 1e-6, "left {}", frame[0]);
+		assert!((frame[1] + 0.25).abs() < 1e-6, "right {}", frame[1]);
+	}
+}
+
+/// Renders a sine through a graph and returns how loud each of the split
+/// node's three outputs ended up.
+fn band_levels(frequency: f32) -> [f32; 3] {
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let split = graph.add_node("split:bands", (100.0, 0.0)).expect("split");
+	graph.connect((input, 0), (split, 0));
+
+	let mut engine = Engine::new(&graph, 48_000).expect("the graph builds");
+	let step = engine.step_of(split).expect("the split is in the plan");
+	let mut levels = [0.0f32; 3];
+
+	for block in 0..32 {
+		let mut input = vec![[0.0f32; 2]; BLOCK];
+
+		for (frame, slot) in input.iter_mut().enumerate() {
+			let index = block * BLOCK + frame;
+			let value = (std::f32::consts::TAU * frequency * index as f32 / 48_000.0).sin() * 0.5;
+			*slot = [value, value];
+		}
+
+		let mut out = vec![[0.0f32; 2]; BLOCK];
+		engine.process(&input, &[], &mut out);
+
+		// The filters settle in the first blocks; the rest is the steady state.
+		if block >= 16 {
+			for (port, level) in levels.iter_mut().enumerate() {
+				let band = engine.output_block(step, port).expect("a band").frame(0);
+				*level = (*level).max(band[0].abs());
+			}
+		}
+	}
+
+	levels
+}
+
+#[test]
+fn the_bands_carry_what_they_name() {
+	let low = band_levels(30.0);
+	let high = band_levels(10_000.0);
+
+	assert!(
+		low[0] > 10.0 * low[2] && low[0] > 2.0 * low[1],
+		"30 Hz did not land in the low band: {low:?}"
+	);
+	assert!(
+		high[2] > 10.0 * high[0] && high[2] > 2.0 * high[1],
+		"10 kHz did not land in the high band: {high:?}"
+	);
+}
+
+#[test]
+fn a_band_split_sums_back_to_the_input() {
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let split = graph.add_node("split:bands", (100.0, 0.0)).expect("split");
+	let mix = graph.add_node("mix:bands", (200.0, 0.0)).expect("mix");
+	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+	graph.connect((input, 0), (split, 0));
+	graph.connect((split, 0), (mix, 0));
+	graph.connect((split, 1), (mix, 1));
+	graph.connect((split, 2), (mix, 2));
+	graph.connect((mix, 0), (out, 0));
+
+	let mut engine = Engine::new(&graph, 48_000).expect("the graph builds");
+	let mut peak = 0.0f32;
+
+	for block in 0..32 {
+		let mut input = vec![[0.0f32; 2]; BLOCK];
+
+		for (frame, slot) in input.iter_mut().enumerate() {
+			let index = block * BLOCK + frame;
+			let value = (std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0).sin() * 0.5;
+			*slot = [value, value];
+		}
+
+		let mut out = vec![[0.0f32; 2]; BLOCK];
+		engine.process(&input, &[], &mut out);
+
+		if block >= 16 {
+			for frame in &out {
+				peak = peak.max(frame[0].abs());
+			}
+		}
+	}
+
+	// A 1 kHz sine sampled at 48 kHz peaks at 0.5 within a thousandth.
+	let decibels = 20.0 * (peak / 0.5).log10();
+
+	assert!(
+		decibels.abs() < 0.2,
+		"the bands did not sum back: {decibels:.3} dB"
+	);
+}

@@ -236,6 +236,11 @@
     "out:audio": "Host audio output",
     "voice:in": "A note starts the voice group here",
     "voice:out": "The voice group's audio leaves here",
+    "split:ms": "Mid and side, each one mono",
+    "split:lr": "Left and right, each copied into both channels",
+    "mix:ms": "Mid and side back into left and right",
+    "mix:lr": "Left and right back into a stereo pair",
+    "mix:bands": "Low, mid and high added back together",
   };
 
   function labelOf(key) {
@@ -568,7 +573,12 @@
     midi: [600, 320],
     "synth:additive": [300, 210],
     mixer: [280, 190],
-    "split:ms": [280, 160],
+    "split:ms": [280, 170],
+    "split:lr": [280, 170],
+    "split:bands": [300, 210],
+    "mix:ms": [280, 170],
+    "mix:lr": [280, 170],
+    "mix:bands": [280, 170],
     delay: [280, 210],
   };
 
@@ -1131,7 +1141,19 @@
     // it is not the echo product, so it has its own entry.
     if (id === "delay") return "Effect";
 
-    if (["mixer", "split:ms"].includes(id)) return "Effect";
+    if (
+      [
+        "mixer",
+        "split:ms",
+        "split:lr",
+        "split:bands",
+        "mix:ms",
+        "mix:lr",
+        "mix:bands",
+      ].includes(id)
+    ) {
+      return "Effect";
+    }
     if (id.startsWith("gen:") || id.startsWith("synth:")) return "Generator";
     if (CONTROL_KINDS.includes(id)) return "Control";
 
