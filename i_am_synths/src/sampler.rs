@@ -284,6 +284,33 @@ pub fn sample_preview(slot: &Arc<Mutex<SampleSlot>>) -> String {
 	preview_json(&cache)
 }
 
+/// Sets the slice marks on a slot, the way the sampler hero's Slice button
+/// does. The product's own route does this for its page.
+pub fn generate_slices(slot: &Arc<Mutex<SampleSlot>>, mode: &str) -> Result<usize, String> {
+	let sample = slot
+		.lock()
+		.unwrap_or_else(|error| error.into_inner())
+		.sample
+		.clone();
+	let Some(sample) = sample else {
+		return Err("no sample".to_string());
+	};
+
+	let slices = if mode == "transient" {
+		onsets(&sample.pcm, sample.rate)
+	} else {
+		grid(0.0, 0.125)
+	};
+
+	let count = slices.len();
+
+	slot.lock()
+		.unwrap_or_else(|error| error.into_inner())
+		.slices = slices;
+
+	Ok(count)
+}
+
 /// Edits the sample's slice marks: make a grid, follow the transients, or add
 /// and remove single marks from the picture.
 fn edit_sample(

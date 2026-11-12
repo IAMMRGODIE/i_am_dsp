@@ -606,12 +606,19 @@
           heroBox.addEventListener("click", function (event) {
             // The picture's own buttons belong to the page: a click on one of
             // them is not a click on the picture. Load is the one action every
-            // file-taking picture has, so it opens the picker here.
+            // file-taking picture has, so it opens the picker here; the rest go
+            // to the page, which knows what this product does with them.
             var button = event.target.closest("button, select, input, textarea, a");
 
             if (button) {
-              if (button.getAttribute("data-action") === "load" && options.pickSample) {
+              var action = button.getAttribute("data-action");
+
+              if (!action) return;
+
+              if (action === "load" && options.pickSample) {
                 options.pickSample();
+              } else if (options.onHeroAction) {
+                options.onHeroAction(action);
               }
 
               return;

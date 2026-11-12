@@ -440,8 +440,11 @@
     const reader = new FileReader();
 
     reader.onload = async () => {
+      const entry = cards[node];
+      const mode = entry && entry.context && entry.context.waveMode;
       const response = await fetch(
-        "/" + path + "?node=" + node + "&name=" + encodeURIComponent(file.name),
+        "/" + path + "?node=" + node + "&name=" + encodeURIComponent(file.name) +
+          (mode ? "&mode=" + encodeURIComponent(mode) : ""),
         { method: "POST", body: reader.result },
       );
       const result = response.ok ? await response.json() : null;
@@ -455,6 +458,99 @@
       await refreshImport(cards[node], path);
     };
     reader.readAsArrayBuffer(file);
+  }
+
+  /// Runs one of a hero's own buttons on the node the card is showing.
+  ///
+  /// The product's page wires these per hero; a patch card is built from the
+  /// metadata, so the page does the same work for the node here.
+  async function heroAction(node, kind, action) {
+    if (kind.id === "synth:sampler") {
+      if (action === "slice") {
+        await postImportAction(node.id, "sampler", "slices");
+        return;
+      }
+
+      // The sampler's switches are oscillator parameters: 1 flips to 0.
+      const key = "oscillator." + action;
+      const value = (node.params[key] ?? 0) > 0.5 ? 0 : 1;
+
+      await op({ op: "param", id: node.id, key, value }, false);
+      await reload();
+      return;
+    }
+
+    if (kind.id !== "synth:shapes") return;
+
+    if (action === "prev" || action === "next") {
+      await stepFrame(node, action === "next" ? 1 : -1);
+      return;
+    }
+
+    if (action === "mode") {
+      const entry = cards[node.id];
+
+      if (entry) {
+        const modes = ["auto", "fixed", "pitch", "single"];
+        const index = modes.indexOf(entry.context.waveMode || "auto");
+
+        entry.context.waveMode = modes[(index + 1) % modes.length];
+
+        if (entry.card.repaintHero) entry.card.repaintHero();
+      }
+
+      return;
+    }
+
+    await postImportAction(node.id, "waves", action);
+  }
+
+  /// Moves the morph to the next whole frame, the way the shape hero's arrows
+  /// do.
+  async function stepFrame(node, step) {
+    const entry = cards[node.id];
+    const count = (entry && entry.context.waves && entry.context.waves.count) || 0;
+
+    if (count <= 1) return;
+
+    const current = node.params["oscillator.smooth_factor"] ?? 0;
+    const frame = Math.round(current * (count - 1)) + step;
+    const clamped = Math.min(Math.max(frame, 0), count - 1);
+
+    await op(
+      {
+        op: "param",
+        id: node.id,
+        key: "oscillator.smooth_factor",
+        value: clamped / (count - 1),
+      },
+      false,
+    );
+    await reload();
+  }
+
+  /// Posts one of the hero's edit actions and redraws the picture.
+  async function postImportAction(node, path, action) {
+    const response = await fetch(
+      "/" + path + "?node=" + node + "&action=" + encodeURIComponent(action),
+      { method: "POST", body: action },
+    );
+    const result = response.ok ? await response.json() : null;
+
+    if (!result || !result.ok) {
+      showStatus((result && result.error) || "the action did not run");
+      return;
+    }
+
+    showStatus("");
+    await refreshImport(cards[node], path);
+  }
+
+  /// Reloads the graph from the server and draws it, so a card that shows a
+  /// parameter picks the new value up.
+  async function reload() {
+    patch = readPatch(await (await fetch("/patch")).json());
+    draw();
   }
 
   /// Fetches what a node's slot now holds and repaints the card's picture.
@@ -522,6 +618,7 @@
       sampleHint: importRoute
         ? importRoute.hint
         : "Load a recorded note (.wav) to fit: click or drop a file",
+      onHeroAction: (action) => heroAction(node, kind, action),
       pickSample: (file) => {
         if (kind.id === "synth:fitted") {
           if (file) postSample(node.id, file);

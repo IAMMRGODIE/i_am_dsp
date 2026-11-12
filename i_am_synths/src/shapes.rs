@@ -187,8 +187,9 @@ pub fn import_waves(
 	slot: &Arc<Mutex<WaveSlot>>,
 	bytes: &[u8],
 	name: &str,
+	mode: Option<&str>,
 ) -> Result<(String, usize), String> {
-	let wave = decode_table(bytes, name, SliceMode::parse(None))?;
+	let wave = decode_table(bytes, name, SliceMode::parse(mode))?;
 	let bank = WaveBank::new(Some(name.to_string()), wave.frames);
 	let count = bank.len();
 
@@ -221,6 +222,60 @@ pub fn waves_preview(slot: &Arc<Mutex<WaveSlot>>) -> String {
 	};
 
 	preview_json(&cache)
+}
+
+/// Edits the table a slot holds, the way the shape hero's buttons do.
+///
+/// The product's own route does this for its page; the patcher has no page of
+/// its own per node, so the same edit is offered over a slot the patch owns.
+pub fn edit_waves(
+	slot: &Arc<Mutex<WaveSlot>>,
+	action: &str,
+	frame: Option<usize>,
+) -> Result<usize, String> {
+	let bank = slot
+		.lock()
+		.unwrap_or_else(|error| error.into_inner())
+		.bank
+		.clone();
+	let Some(bank) = bank else {
+		return Err("no table".to_string());
+	};
+
+	let mut frames = bank.frames().to_vec();
+
+	match action {
+		"reverse" => {
+			for frame in frames.iter_mut() {
+				frame.reverse();
+			}
+		}
+		"invert" => {
+			for frame in frames.iter_mut() {
+				for value in frame.iter_mut() {
+					*value = -*value;
+				}
+			}
+		}
+		"dc" => remove_dc(&mut frames),
+		"normalize" => normalize_frames(&mut frames),
+		"delete" => {
+			if frames.len() <= 1 {
+				return Err("the last frame stays".to_string());
+			}
+
+			let index = frame.unwrap_or(0).min(frames.len() - 1);
+			frames.remove(index);
+		}
+		_ => return Err("unknown action".to_string()),
+	}
+
+	let count = frames.len();
+	let bank = WaveBank::new(bank.name().map(str::to_string), frames);
+
+	slot.lock().unwrap_or_else(|error| error.into_inner()).bank = Some(bank);
+
+	Ok(count)
 }
 
 /// Puts a rebuilt table in the slot and describes it back to the page.

@@ -661,12 +661,27 @@ fn import_route(shared: &Shared, method: &str, path: &str, body: &[u8], which: I
 		.filter(|name| !name.is_empty())
 		.unwrap_or_else(|| "file".to_string());
 
+	let action = query
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("action="))
+		.filter(|action| !action.is_empty());
+
 	match which {
 		Import::Sample => {
 			let slot = shared.slots.sample(node);
 
 			if method == "GET" {
 				return i_am_patch::sample_preview(&slot);
+			}
+
+			if let Some(action) = action {
+				return match action {
+					"slices" => match i_am_patch::generate_slices(&slot, "grid") {
+						Ok(count) => json!({ "ok": true, "slices": count }).to_string(),
+						Err(error) => json!({ "ok": false, "error": error }).to_string(),
+					},
+					_ => json!({ "ok": false, "error": "unknown action" }).to_string(),
+				};
 			}
 
 			match i_am_patch::import_sample(&slot, body, &name) {
@@ -687,7 +702,24 @@ fn import_route(shared: &Shared, method: &str, path: &str, body: &[u8], which: I
 				return i_am_patch::waves_preview(&slot);
 			}
 
-			match i_am_patch::import_waves(&slot, body, &name) {
+			if let Some(action) = action {
+				let frame = query
+					.split('&')
+					.find_map(|pair| pair.strip_prefix("frame="))
+					.and_then(|frame| frame.parse::<usize>().ok());
+
+				return match i_am_patch::edit_waves(&slot, action, frame) {
+					Ok(count) => json!({ "ok": true, "count": count }).to_string(),
+					Err(error) => json!({ "ok": false, "error": error }).to_string(),
+				};
+			}
+
+			let mode = query
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("mode="))
+				.filter(|mode| !mode.is_empty());
+
+			match i_am_patch::import_waves(&slot, body, &name, mode) {
 				Ok((name, frames)) => {
 					json!({ "ok": true, "name": name, "frames": frames }).to_string()
 				}

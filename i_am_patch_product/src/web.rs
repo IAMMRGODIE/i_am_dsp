@@ -220,6 +220,19 @@ fn sampler_route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Strin
 		return i_am_patch::sample_preview(&slot);
 	}
 
+	// The sampler hero's Slice button works on what the slot already holds.
+	if let Some(action) = query_value(request, "action") {
+		let mode = query_value(request, "mode").unwrap_or("grid");
+
+		return match action {
+			"slices" => match i_am_patch::generate_slices(&slot, mode) {
+				Ok(count) => json!({ "ok": true, "slices": count }).to_string(),
+				Err(error) => json!({ "ok": false, "error": error }).to_string(),
+			},
+			_ => json!({ "ok": false, "error": "unknown action" }).to_string(),
+		};
+	}
+
 	let name = query_name(request, "sample");
 
 	match i_am_patch::import_sample(&slot, request.body, &name) {
@@ -242,9 +255,19 @@ fn waves_route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> String 
 		return i_am_patch::waves_preview(&slot);
 	}
 
+	// The shape hero's buttons edit the table in place; an upload replaces it.
+	if let Some(action) = query_value(request, "action") {
+		let frame = query_value(request, "frame").and_then(|frame| frame.parse::<usize>().ok());
+
+		return match i_am_patch::edit_waves(&slot, action, frame) {
+			Ok(count) => json!({ "ok": true, "count": count }).to_string(),
+			Err(error) => json!({ "ok": false, "error": error }).to_string(),
+		};
+	}
+
 	let name = query_name(request, "table");
 
-	match i_am_patch::import_waves(&slot, request.body, &name) {
+	match i_am_patch::import_waves(&slot, request.body, &name, query_value(request, "mode")) {
 		Ok((name, frames)) => json!({ "ok": true, "name": name, "frames": frames }).to_string(),
 		Err(error) => json!({ "ok": false, "error": error }).to_string(),
 	}
@@ -283,13 +306,18 @@ fn query_node(request: &ProtocolRequest<'_>) -> u32 {
 		.unwrap_or(0)
 }
 
+/// One value out of a query string like name=a%20b&action=slices.
+fn query_value<'a>(request: &'a ProtocolRequest<'_>, key: &str) -> Option<&'a str> {
+	request.query?.split('&').find_map(|pair| {
+		let (name, value) = pair.split_once('=')?;
+
+		(name == key).then_some(value)
+	})
+}
+
 /// The name a page sent with a file, decoded.
 fn query_name(request: &ProtocolRequest<'_>, fallback: &str) -> String {
-	request
-		.query
-		.unwrap_or("")
-		.split('&')
-		.find_map(|pair| pair.strip_prefix("name="))
+	query_value(request, "name")
 		.map(i_am_web_gui::percent_decode)
 		.filter(|name| !name.is_empty())
 		.unwrap_or_else(|| fallback.to_string())
