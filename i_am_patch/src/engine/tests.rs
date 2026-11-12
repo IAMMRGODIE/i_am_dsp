@@ -1036,3 +1036,45 @@ fn a_band_mix_gain_balances_its_band() {
 		"muting mid left {muted} of {full}: the gain did not reach the band"
 	);
 }
+
+#[test]
+fn a_one_shot_lfo_holds_the_end_of_its_curve() {
+	use crate::graph::Point;
+
+	let mut graph = Graph::new();
+	let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+	graph.set_param(lfo, "rate", 20.0);
+	graph.set_param(lfo, "one_shot", 1.0);
+	// A ramp from the bottom of the curve to the top: one shot has to end high.
+	graph.set_points(
+		lfo,
+		vec![
+			Point {
+				time: 0.0,
+				value: 0.0,
+				bend: 0.0,
+			},
+			Point {
+				time: 1.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+		],
+	);
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let step = engine.step_of(lfo).expect("the lfo is in the plan");
+	let input = vec![[0.0f32; 2]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+
+	for _ in 0..48 {
+		engine.process(&input, &[], &mut block);
+	}
+
+	let held = engine.tap_block(step).expect("a value").frame(0)[0];
+
+	assert!(
+		(held - 1.0).abs() < 0.01,
+		"the one-shot held {held}, not the end of its curve"
+	);
+}

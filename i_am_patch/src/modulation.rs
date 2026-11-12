@@ -125,8 +125,13 @@ impl SourceRuntime {
 				// One-shot stops at the end of the cycle instead of wrapping, so
 				// the shape's last point is what it holds: the playhead parks at
 				// the right edge and the modulation stays where the sweep left it.
+				//
+				// It stops a hair short of 1.0 rather than on it: the curve
+				// sampler wraps a time of exactly 1.0 back to 0.0, which would
+				// hold the value the sweep started from instead of the one it
+				// ended on.
 				self.lfo_phase = if self.settings.lfo_one_shot {
-					next.min(1.0)
+					next.min(1.0 - 1e-6)
 				} else {
 					next.fract()
 				};

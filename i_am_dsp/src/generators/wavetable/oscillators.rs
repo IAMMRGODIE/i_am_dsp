@@ -617,8 +617,50 @@ impl WaveTable for EditableLfo {
 
 		let (current_time, current_value) = current_time.unwrap_or((1.0, 0.0));
 
-		let t = (t - last_time) / (current_time - last_time);
+		// A time past the last point lands on a zero-length segment when the
+		// curve ends at 1.0; dividing by it would hand the caller a NaN, which
+		// one NaN away from the audio thread is one too many.
+		let span = current_time - last_time;
+		let t = if span > 0.0 {
+			(t - last_time) / span
+		} else {
+			1.0
+		};
 		let bended_t = bend(t, bend_amount);
 		(current_value - value) * bended_t + value
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// A time past the last point lands on a zero-length segment when the curve
+	/// ends at 1.0; the sampler must not divide by it, because a NaN here is a
+	/// NaN in the modulation.
+	#[test]
+	fn sampling_the_end_of_a_curve_is_finite() {
+		let mut lfo = EditableLfo::new();
+		lfo.add_point(0.0, 0.0, 0.0);
+		lfo.add_point(1.0, 1.0, 0.0);
+
+		for time in [0.0, 0.5, 0.999_999, 1.0, 1.5] {
+			let value = lfo.sample(time, 0);
+			assert!(value.is_finite(), "t = {time} gave {value}");
+		}
+	}
+
+	/// A curve that ends before 1.0 ramps to zero, which is what the sampler's
+	/// fallback segment is for. Only a one-shot reaches past the end; a looping
+	/// LFO wraps back to the start.
+	#[test]
+	fn a_curve_that_ends_early_falls_to_zero() {
+		let mut lfo = EditableLfo::new();
+		lfo.one_shot = true;
+		lfo.add_point(0.0, 1.0, 0.0);
+		lfo.add_point(0.5, 1.0, 0.0);
+
+		assert!(lfo.sample(0.75, 0) > 0.4 && lfo.sample(0.75, 0) < 0.6);
+		assert!(lfo.sample(1.0, 0).abs() < 1e-6);
 	}
 }
