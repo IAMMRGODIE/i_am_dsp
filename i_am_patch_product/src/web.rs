@@ -583,9 +583,11 @@ fn op(shared: &PatcherShared, body: &str) -> Value {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::shared::Body;
 	use i_am_dsp::prelude::NoteEvent;
 	use i_am_patch::engine::Engine;
 	use i_am_patch::graph::Graph;
+	use std::sync::Arc;
 
 	/// A 16 bit mono WAV holding one decaying note at 220 Hz.
 	fn wav(rate: u32) -> Vec<u8> {
@@ -645,6 +647,110 @@ mod tests {
 		};
 
 		String::from_utf8(route(&request, shared).expect("the sample route").body).expect("utf-8")
+	}
+
+	/// The whole way a knob goes: the page posts an op, the graph takes it, and
+	/// the body that is already playing follows without a rebuild.
+	#[test]
+	fn a_knob_op_moves_the_running_body() {
+		let shared = Arc::new(PatcherShared::default());
+		let mut body = Body::new(shared.clone());
+		let graph = shared.graph();
+		let filter = graph
+			.nodes
+			.iter()
+			.find(|node| node.kind.id == "mod:filter")
+			.expect("the demo has a filter");
+
+		body.push_event(&NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 1.0,
+		});
+
+		let peak = |body: &mut Body, blocks: usize| {
+			let mut best = 0.0_f32;
+
+			for _ in 0..blocks {
+				for _ in 0..i_am_patch::block::BLOCK {
+					let frame = body.process([0.0; 2], [0.0; 2]);
+					best = best.max(frame[0].abs());
+				}
+			}
+
+			best
+		};
+
+		peak(&mut body, 40);
+		let before = peak(&mut body, 4);
+
+		assert!(before > 0.01, "the demo did not sound: {before}");
+
+		// A cutoff well above the note's partials, the way the knob's drag ends.
+		let request_body = format!(
+			r#"{{"op":"param","id":{},"key":"cutoff","value":12000}}"#,
+			filter.id.0
+		);
+		let request = ProtocolRequest {
+			method: "POST",
+			path: "/op",
+			query: None,
+			body: request_body.as_bytes(),
+		};
+
+		route(&request, &shared).expect("the op route owns /op");
+
+		peak(&mut body, 4);
+		let after = peak(&mut body, 4);
+
+		assert!(
+			after > before * 1.2,
+			"{after} did not follow {before}: the op never reached the body"
+		);
+	}
+
+	/// A parameter edit has to reach both halves: the graph, which is the state
+	/// the host saves and the page reads back, and the engine that is playing.
+	#[test]
+	fn a_parameter_op_reaches_the_graph_and_the_engine() {
+		let shared = PatcherShared::default();
+		let graph = shared.graph();
+		let filter = graph
+			.nodes
+			.iter()
+			.find(|node| node.kind.id == "mod:filter")
+			.expect("the demo has a filter");
+		let body = format!(
+			r#"{{"op":"param","id":{},"key":"cutoff","value":2500}}"#,
+			filter.id.0
+		);
+		let request = ProtocolRequest {
+			method: "POST",
+			path: "/op",
+			query: None,
+			body: body.as_bytes(),
+		};
+
+		let response = route(&request, &shared).expect("the op route owns /op");
+		let text = String::from_utf8(response.body).expect("utf-8 json");
+
+		assert!(text.contains("\"ok\":true"), "{text}");
+
+		// The graph is what the page reads back and the host saves.
+		let stored = shared
+			.graph()
+			.get(filter.id)
+			.expect("the filter is still there")
+			.params
+			.get("cutoff")
+			.copied();
+
+		assert_eq!(stored, Some(2500.0), "the graph kept the old cutoff");
+
+		// And the engine that is playing is told without a rebuild.
+		let queued = shared.edits.lock().expect("the edit queue").len();
+
+		assert_eq!(queued, 1, "the engine was never told");
 	}
 
 	/// A control that moves is not a graph change: it goes to the engine that is

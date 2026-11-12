@@ -480,12 +480,9 @@
       return card ? card.querySelector(".mcard-hero") : null;
     };
 
-    // The card paints the gesture at once; the graph hears every step, so the
-    // sound follows the hand instead of waiting for the pointer to come up. The
-    // writes are chained, so the card is rebuilt from a graph that already has
-    // the last one instead of from the value before the gesture.
-    let pending = Promise.resolve();
-
+    // The card paints the gesture at once; the graph hears every step, in the
+    // order the hand made them, so the sound follows instead of waiting for the
+    // pointer to come up.
     const set = (id, value) => {
       node.params[id] = value;
 
@@ -493,23 +490,25 @@
 
       if (card && card.setValue) card.setValue(id, value);
 
-      pending = pending.then(() => postParam(node.id, id, value));
+      postParam(node.id, id, value);
     };
 
     const postFades = () => {
       const ir = state().ir || {};
 
-      return fetch(
-        "/ir?node=" + node.id + "&fade_in=" + (ir.fade_in || 0) +
-          "&fade_out=" + (ir.fade_out || 0),
-        { method: "POST", body: "fades" },
-      ).catch(() => {});
+      return queued(() =>
+        fetch(
+          "/ir?node=" + node.id + "&fade_in=" + (ir.fade_in || 0) +
+            "&fade_out=" + (ir.fade_out || 0),
+          { method: "POST", body: "fades" },
+        ).catch(() => {}),
+      );
     };
 
     const post = async (ids) => {
       // The gesture is over: wait for its writes, then rebuild the card from the
       // graph, which is now what the hand left it at.
-      await pending;
+      await writeChain;
 
       if (kind.id === "mod:convolver") return;
 
@@ -561,7 +560,7 @@
       repaint: () => {
         // The fades are the convolver's own state, so the picture and the graph
         // move together.
-        if (kind.id === "mod:convolver") pending = pending.then(postFades);
+        if (kind.id === "mod:convolver") postFades();
 
         const card = cardOf();
 
@@ -642,11 +641,13 @@
   /// hand and the graph ends up with what the card already shows. A parameter
   /// is cheap now: the engine takes the value without rebuilding.
   function postParam(node, key, value) {
-    return fetch("/op", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ op: "param", id: node, key, value }),
-    }).catch(() => {});
+    return queued(() =>
+      fetch("/op", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "param", id: node, key, value }),
+      }).catch(() => {}),
+    );
   }
 
   /// Reloads the graph from the server and draws it, so a card that shows a
@@ -1111,20 +1112,36 @@
     draw();
   }
 
+  // The page's writes go out one at a time, in the order the hand made them.
+  //
+  // A drag posts many of them, and each one first reads the patch for the undo
+  // step: left to race, a slower earlier request can land after a later one and
+  // put the graph back where the drag started, while the card still shows the
+  // new value.
+  let writeChain = Promise.resolve();
+
+  function queued(task) {
+    writeChain = writeChain.then(task, task);
+
+    return writeChain;
+  }
+
   async function op(body, redraw = true) {
-    if (suspendSnapshot === 0) await snapshot(body);
+    return queued(async () => {
+      if (suspendSnapshot === 0) await snapshot(body);
 
-    const response = await fetch("/op", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      const response = await fetch("/op", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json();
+      showStatus(result.error ? String(result.error) : "");
+      patch = readPatch(await (await fetch("/patch")).json());
+      if (redraw) draw();
+
+      return result;
     });
-    const result = await response.json();
-    showStatus(result.error ? String(result.error) : "");
-    patch = readPatch(await (await fetch("/patch")).json());
-    if (redraw) draw();
-
-    return result;
   }
 
   // The port circles sit on the card's edge, in base coordinates; the world
