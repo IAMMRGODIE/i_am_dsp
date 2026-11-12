@@ -422,6 +422,10 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 - 节点目录（`nodes.rs`）：`mixer`、`split:ms`、`delay`（Lookahead，对齐用）、`lfo`、`random`、`table`、`pitch`、
   `midi`、`envelope`，以及 9 个音源节点（`additive`…`strings`，直接包装 `i_am_synths` 的产品）。
 - 调制是控制率的：引擎每 64 样本取一次值；每个源槽各有自己的相位/包络/随机状态。
+- 一个音符只起一个 voice：`PatchContext` 按 `set_sample_offset` 把 `events()` 收窄到块的第一帧，
+  和宿主交给产品的语义一致；否则音源节点会在一块的每一帧都看见同一个 note-on，一个音符叠 64 层。
+- `Poly` 每个音符一份完整引擎（所有节点缓冲都各一份，demo 补丁上一个 voice ≈ 276 KB、1.9% 单核），
+  上限 `POLYPHONY` 是 8；`Poly::with_limit` 可以压低，`--features mono` 的测量版就是 1 个 voice。
 - 控制源只有一份实现：图节点（`nodes.rs` 的 `SourceNode`）是 `SourceRuntime` 的适配器，
   参数映射到 `SourceSettings`，值、相位、同步频率、随机流和平滑都与 rack 的 slot 一致；
   `source_dsp.rs` 放两者共用的底层形状与系数。

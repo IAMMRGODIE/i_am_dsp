@@ -5,6 +5,7 @@ edition = "2024"
 
 [features]
 vst3 = ["i_am_plugin/vst3"]
+mono = ["i_am_patch_product/mono"]
 
 [lib]
 crate-type = ["cdylib"]

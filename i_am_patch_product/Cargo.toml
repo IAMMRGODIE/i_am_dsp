@@ -8,6 +8,9 @@ edition = "2024"
 
 [features]
 vst3 = ["i_am_plugin/vst3"]
+# A measurement build: the patch runs one voice, so a project can hear what a
+# single voice costs instead of up to eight.
+mono = []
 
 [dependencies]
 i_am_dsp = { workspace = true }
