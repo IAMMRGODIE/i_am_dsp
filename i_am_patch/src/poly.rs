@@ -218,13 +218,17 @@ impl Poly {
 		self
 	}
 
-	/// Where a source's cycle is: the outer graph's, or the first voice's.
+	/// Where a source's cycle is: the outer graph's, or the newest voice's.
+	///
+	/// The newest voice is the one whose value the tap reports, so the playhead
+	/// and the dot belong to the same cycle; the first voice would be a different
+	/// note's, and its phase moves whenever that voice retires.
 	pub fn control_phase(&self, id: NodeId) -> Option<f32> {
 		self.outer
 			.step_of(id)
 			.and_then(|step| self.outer.control_phase(step))
 			.or_else(|| {
-				self.voices.iter().find_map(|voice| {
+				self.voices.iter().rev().find_map(|voice| {
 					voice
 						.engine
 						.step_of(id)
@@ -248,9 +252,35 @@ impl Poly {
 		self.outer.tap_block(step)
 	}
 
-	/// A node inside the voice group, summed across the voices that are
-	/// playing it. The page watches one picture, not one per voice.
+	/// A node inside the voice group, as the page watches it: audio summed
+	/// across the voices playing it, a control value taken from the newest one.
+	/// The page draws one picture, not one per voice.
 	pub fn tap_voice_block(&self, id: NodeId) -> Option<AudioBlock> {
+		let control = self
+			.voices
+			.iter()
+			.find_map(|voice| {
+				voice
+					.engine
+					.step_of(id)
+					.map(|step| voice.engine.is_control(step))
+			})
+			.unwrap_or(false);
+
+		if control {
+			// A control source exists once per voice and holds the same kind of
+			// number in each. Adding them would read N times the value with N
+			// notes held, so the card's dot leaves its curve; the newest voice is
+			// the note that was just played, and it is the one the playhead
+			// reports too.
+			return self.voices.iter().rev().find_map(|voice| {
+				voice
+					.engine
+					.step_of(id)
+					.and_then(|step| voice.engine.tap_block(step))
+			});
+		}
+
 		let mut sum: Option<AudioBlock> = None;
 
 		for voice in &self.voices {
@@ -635,6 +665,62 @@ mod tests {
 			Err(EngineError::NoVoiceGroup)
 		));
 	}
+	#[test]
+	fn a_control_tap_reads_one_voice_not_their_sum() {
+		let graph = voice_patch();
+		let lfo = graph
+			.nodes
+			.iter()
+			.find(|node| node.kind.id == "lfo")
+			.expect("lfo")
+			.id;
+		let mut poly = Poly::new(&graph, 48_000).expect("poly builds");
+		let input = vec![[0.0f32; 2]; BLOCK];
+		let mut out = vec![[0.0f32; 2]; BLOCK];
+
+		poly.process(&input, &[note(60)], &mut out);
+
+		for _ in 0..8 {
+			poly.process(&input, &[], &mut out);
+		}
+
+		poly.process(&input, &[note(67)], &mut out);
+
+		for _ in 0..8 {
+			poly.process(&input, &[], &mut out);
+		}
+
+		assert_eq!(
+			poly.voices.len(),
+			2,
+			"the second note did not start a voice"
+		);
+
+		let newest = poly.voices.last().expect("a voice");
+		let step = newest
+			.engine
+			.step_of(lfo)
+			.expect("the lfo is in the voice graph");
+		let expected = newest.engine.tap_block(step).expect("a block");
+		let tapped = poly.tap_voice_block(lfo).expect("a tap");
+
+		assert_eq!(
+			tapped.frame(0),
+			expected.frame(0),
+			"the tap added the voices up"
+		);
+		assert!(
+			tapped.frame(0)[0].abs() <= 1.0,
+			"the value left the lfo's range: {}",
+			tapped.frame(0)[0]
+		);
+		assert_eq!(
+			poly.control_phase(lfo),
+			newest.engine.control_phase(step),
+			"the playhead came from another voice"
+		);
+	}
+
 	#[test]
 	fn a_voice_node_can_be_watched() {
 		let mut graph = crate::graph::Graph::new();

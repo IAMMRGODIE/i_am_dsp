@@ -317,6 +317,14 @@ impl Engine {
 		}
 	}
 
+	/// Whether the node's first output is a control value rather than audio.
+	pub fn is_control(&self, step: usize) -> bool {
+		matches!(
+			self.outputs.get(step).and_then(|ports| ports.first()),
+			Some(Buffer::Control(_))
+		)
+	}
+
 	/// How many frames the graph itself delays its output.
 	pub fn latency(&self) -> usize {
 		self.latency
