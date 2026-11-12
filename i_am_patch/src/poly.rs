@@ -73,6 +73,8 @@ pub struct Poly {
 	voice_latency: usize,
 	tempo: Option<f32>,
 	position: Option<f32>,
+	/// Which of the voice graph's modulations is the graph's, by index.
+	voice_links: Vec<Option<usize>>,
 	/// How many voices may sound at once.
 	limit: usize,
 	voices: Vec<Voice>,
@@ -203,11 +205,26 @@ impl Poly {
 			.map(|plan| plan.latency.get(&out_id).copied().unwrap_or(0))
 			.unwrap_or(0);
 
+		// Which of the voice graph's links is the graph's link at each index, so a
+		// depth turned on the page reaches the voices and the graph they start
+		// from, not the wrong row.
+		let voice_links = graph
+			.modulations
+			.iter()
+			.map(|link| {
+				voice_graph
+					.modulations
+					.iter()
+					.position(|other| other.source == link.source && other.target == link.target)
+			})
+			.collect();
+
 		Ok(Self {
 			scripts: None,
 			slots: slots.clone(),
 			outer: Engine::new_with(&outer, rate, slots)?,
 			voice_graph,
+			voice_links,
 			rate,
 			out,
 			voice_latency,
@@ -304,15 +321,28 @@ impl Poly {
 	}
 
 	/// The host's tempo and song position, for the voices and the outer graph.
-	/// Moves one parameter of a node in the outer graph and in every voice.
+	/// Moves one parameter of a node in the outer graph, in every voice, and in
+	/// the graph the next voice is built from.
 	///
 	/// A control that moves is not a graph change: rebuilding would re-create
-	/// the voices and cut the notes that were playing.
+	/// the voices and cut the notes that were playing. The voice graph has to
+	/// follow as well, or a note that starts after the hand moved is born with
+	/// the value from before it, which is heard as the sound jumping back.
 	pub fn set_param(&mut self, node: NodeId, key: &str, value: f32) {
 		self.outer.set_param(node, key, value);
 
 		for voice in &mut self.voices {
 			voice.engine.set_param(node, key, value);
+		}
+
+		if let Some(instance) = self
+			.voice_graph
+			.nodes
+			.iter_mut()
+			.find(|instance| instance.id == node)
+			&& let Some(stored) = instance.params.get_mut(key)
+		{
+			*stored = value;
 		}
 	}
 
@@ -321,12 +351,19 @@ impl Poly {
 		self.outer.input_block(step)
 	}
 
-	/// Turns one modulation's depth in the outer graph and in every voice.
+	/// Turns one modulation's depth in the outer graph, in every voice, and in
+	/// the graph the next voice is built from.
 	pub fn set_modulation_depth(&mut self, index: usize, depth: f32) {
 		self.outer.set_modulation_depth(index, depth);
 
-		for voice in &mut self.voices {
-			voice.engine.set_modulation_depth(index, depth);
+		if let Some(Some(voice_index)) = self.voice_links.get(index).copied() {
+			for voice in &mut self.voices {
+				voice.engine.set_modulation_depth(voice_index, depth);
+			}
+
+			if let Some(link) = self.voice_graph.modulations.get_mut(voice_index) {
+				link.depth = depth;
+			}
 		}
 	}
 
@@ -334,8 +371,14 @@ impl Poly {
 	pub fn set_modulation_mode(&mut self, index: usize, mode: crate::graph::ModulationMode) {
 		self.outer.set_modulation_mode(index, mode);
 
-		for voice in &mut self.voices {
-			voice.engine.set_modulation_mode(index, mode);
+		if let Some(Some(voice_index)) = self.voice_links.get(index).copied() {
+			for voice in &mut self.voices {
+				voice.engine.set_modulation_mode(voice_index, mode);
+			}
+
+			if let Some(link) = self.voice_graph.modulations.get_mut(voice_index) {
+				link.mode = mode;
+			}
 		}
 	}
 
@@ -511,6 +554,63 @@ impl Poly {
 
 #[cfg(test)]
 mod tests {
+	/// The peak of one note's first forty blocks.
+	fn play(poly: &mut super::Poly, note: usize) -> f32 {
+		use crate::block::BLOCK;
+
+		let input = vec![[0.0f32; 2]; BLOCK];
+		let mut output = vec![[0.0f32; 2]; BLOCK];
+		let events = vec![NoteEvent::NoteOn {
+			channel: 0,
+			note,
+			velocity: 1.0,
+		}];
+		let mut peak = 0.0_f32;
+
+		for block in 0..40 {
+			let current: &[NoteEvent] = if block == 0 { &events } else { &[] };
+
+			poly.process(&input, current, &mut output);
+			peak = peak.max(
+				output
+					.iter()
+					.fold(0.0_f32, |peak, frame| peak.max(frame[0].abs())),
+			);
+		}
+
+		peak
+	}
+
+	/// A voice that starts after a control moved is born with the value the page
+	/// left it at: the voice graph the next note is built from has to move too,
+	/// or the sound jumps back to where it was before the hand.
+	#[test]
+	fn a_new_voice_takes_the_parameter_the_hand_moved() {
+		let graph = crate::voice_patch();
+		let generator = graph
+			.nodes
+			.iter()
+			.find(|node| node.kind.id == "synth:additive")
+			.map(|node| node.id)
+			.expect("the voice patch has a generator");
+		let mut poly =
+			super::Poly::new_with(&graph, 48_000, &crate::Slots::default()).expect("plays");
+
+		let loud = play(&mut poly, 60);
+
+		assert!(loud > 0.01, "the voice patch did not sound: {loud}");
+
+		// The hand turns the generator down, and the next note is a new voice.
+		poly.set_param(generator, "gain", 0.05);
+
+		let quiet = play(&mut poly, 62);
+
+		assert!(
+			quiet < loud * 0.5,
+			"{quiet} did not follow {loud}: the new voice took the old gain"
+		);
+	}
+
 	#[test]
 	fn a_released_voice_expires_even_when_it_keeps_sounding() {
 		// Released, still audible, past the two-second window.
