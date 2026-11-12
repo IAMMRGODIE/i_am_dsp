@@ -340,6 +340,20 @@ impl Engine {
 		}
 	}
 
+	/// One node's last input as a block: what arrived at its first audio port.
+	///
+	/// A card that draws a before and an after needs both sides of the node,
+	/// and the input is what the upstream nodes just handed it.
+	pub fn input_block(&self, step: usize) -> Option<AudioBlock> {
+		self.inputs
+			.get(step)?
+			.iter()
+			.find_map(|buffer| match buffer {
+				Buffer::Audio(block) => Some(*block),
+				_ => None,
+			})
+	}
+
 	/// One node's last output as a block: audio as it is, a control value
 	/// repeated across the block.
 	pub fn tap_block(&self, step: usize) -> Option<AudioBlock> {

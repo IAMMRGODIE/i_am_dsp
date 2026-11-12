@@ -84,7 +84,7 @@ fn patch_json(graph: &Graph) -> Value {
 }
 
 /// The watched nodes and their rings.
-type Taps = Arc<Mutex<Vec<(u32, Arc<Scope>)>>>;
+type Taps = Arc<Mutex<Vec<(u32, Arc<Scope>, Arc<Scope>)>>>;
 
 /// What the server and the demo audio thread share.
 #[derive(Clone)]
@@ -102,19 +102,21 @@ struct Shared {
 }
 
 impl Shared {
-	fn tap_for(&self, node: u32) -> Arc<Scope> {
+	/// The rings for a watched node: output and input.
+	fn tap_for(&self, node: u32) -> (Arc<Scope>, Arc<Scope>) {
 		let mut taps = self.taps.lock().expect("taps");
 
-		if let Some((_, scope)) = taps.iter().find(|(id, _)| *id == node) {
-			return scope.clone();
+		if let Some((_, scope, input)) = taps.iter().find(|(id, _, _)| *id == node) {
+			return (scope.clone(), input.clone());
 		}
 
 		let scope = Arc::new(Scope::new());
-		taps.push((node, scope.clone()));
-		scope
+		let input = Arc::new(Scope::new());
+		taps.push((node, scope.clone(), input.clone()));
+		(scope, input)
 	}
 
-	fn tap_snapshot_into(&self, out: &mut Vec<(u32, Arc<Scope>)>) {
+	fn tap_snapshot_into(&self, out: &mut Vec<(u32, Arc<Scope>, Arc<Scope>)>) {
 		out.clear();
 
 		if let Ok(taps) = self.taps.try_lock() {
@@ -172,7 +174,7 @@ fn spawn_audio(shared: Shared) {
 		let mut engine: Option<Engine> = None;
 		let mut built = 0u64;
 		let mut blocks = 0u32;
-		let mut taps: Vec<(u32, std::sync::Arc<Scope>)> = Vec::new();
+		let mut taps: Vec<(u32, std::sync::Arc<Scope>, std::sync::Arc<Scope>)> = Vec::new();
 
 		loop {
 			let generation = shared.generation.load(Ordering::Relaxed);
@@ -265,13 +267,20 @@ fn spawn_audio(shared: Shared) {
 
 				shared.tap_snapshot_into(&mut taps);
 
-				for (node, scope) in &taps {
+				for (node, scope, input) in &taps {
 					if let Some(block) = poly
 						.step_of(NodeId(*node))
 						.and_then(|step| poly.tap_block(step))
 						.or_else(|| poly.tap_voice_block(NodeId(*node)))
 					{
 						scope.write(&block);
+					}
+
+					if let Some(block) = poly
+						.step_of(NodeId(*node))
+						.and_then(|step| poly.input_block(step))
+					{
+						input.write(&block);
 					}
 
 					if let Some(phase) = poly.control_phase(NodeId(*node)) {
@@ -289,13 +298,19 @@ fn spawn_audio(shared: Shared) {
 
 				shared.tap_snapshot_into(&mut taps);
 
-				for (node, scope) in &taps {
+				for (node, scope, input) in &taps {
 					let id = NodeId(*node);
 					let block: Option<AudioBlock> =
 						engine.step_of(id).and_then(|step| engine.tap_block(step));
 
 					if let Some(block) = block {
 						scope.write(&block);
+					}
+
+					if let Some(block) =
+						engine.step_of(id).and_then(|step| engine.input_block(step))
+					{
+						input.write(&block);
 					}
 
 					if let Some(phase) = engine
@@ -423,7 +438,16 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
 				.and_then(|value| value.parse::<usize>().ok())
 				.unwrap_or(0);
-			let scope = shared.tap_for(node as u32);
+			let which = path
+				.split_once('?')
+				.and_then(|(_, query)| {
+					query
+						.split('&')
+						.find_map(|pair| pair.strip_prefix("which="))
+				})
+				.unwrap_or("output");
+			let (output, input) = shared.tap_for(node as u32);
+			let scope = if which == "input" { input } else { output };
 
 			(
 				"200 OK",
@@ -447,7 +471,7 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 					continue;
 				}
 
-				let scope = shared.tap_for(node.id.0);
+				let (scope, _) = shared.tap_for(node.id.0);
 				scopes.push(json!({
 					"node": node.id.0,
 					"samples": scope.read(64),

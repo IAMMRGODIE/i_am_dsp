@@ -144,7 +144,14 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				.find_map(|pair| pair.strip_prefix("node="))
 				.and_then(|value| value.parse::<usize>().ok())
 				.unwrap_or(0);
-			let scope = shared.tap_for(node as u32);
+			let which = request
+				.query
+				.unwrap_or("")
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("which="))
+				.unwrap_or("output");
+			let (output, input) = shared.taps_for(node as u32);
+			let scope = if which == "input" { input } else { output };
 
 			Some(ProtocolResponse::json(
 				json!({
@@ -179,7 +186,7 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 			let mut scopes = Vec::new();
 
 			for node in sources {
-				let scope = shared.tap_for(node);
+				let (scope, _) = shared.taps_for(node);
 				scopes.push(json!({
 					"node": node,
 					"samples": scope.read(64),

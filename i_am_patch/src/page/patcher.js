@@ -1804,16 +1804,21 @@
       const samples = data.samples || [];
       drawScope(id, samples);
 
-      // A product card's hero draws the same samples: the filter's spectrum
-      // sits on its response curve, the way the product page's does.
+      // A product card's hero draws both sides of the node, the way the product
+      // page's does: the filter's spectrum sits on its response curve, with
+      // what arrived at it behind what left it.
       const entry = cards[id];
 
-      if (entry && entry.context && entry.card && samples.length > 1) {
-        const mono = samples.map(([left, right]) => (left + right) * 0.5);
-        entry.context.scope.input = mono;
-        entry.context.scope.output = mono;
-        entry.card.repaintHero();
-      }
+      if (!entry || !entry.context || !entry.card || samples.length < 2) return;
+
+      const mono = (frames) => frames.map(([left, right]) => (left + right) * 0.5);
+      const arriving = mono(
+        (await (await fetch(`/scope?node=${id}&which=input`, { cache: "no-store" })).json()).samples || [],
+      );
+
+      entry.context.scope.input = arriving.length > 1 ? arriving : null;
+      entry.context.scope.output = mono(samples);
+      entry.card.repaintHero();
     } catch {
       // The page closed or the node went away; the next tick tries again.
     }

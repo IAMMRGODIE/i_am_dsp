@@ -37,12 +37,14 @@ pub struct PatcherShared {
 	pub edits: Mutex<Vec<i_am_patch::edit::Edit>>,
 }
 
-/// One watched node and the ring its output goes into.
+/// One watched node and the rings its signal goes into.
 pub struct Tap {
 	/// The node id.
 	pub node: u32,
 	/// The frames of its output.
 	pub scope: Arc<Scope>,
+	/// The frames arriving at it, so a card can draw before and after.
+	pub input: Arc<Scope>,
 }
 
 impl Default for PatcherShared {
@@ -90,20 +92,22 @@ impl PatcherShared {
 		true
 	}
 
-	/// The ring for a watched node, made on first use.
-	pub fn tap_for(&self, node: u32) -> Arc<Scope> {
+	/// The rings for a watched node, made on first use: output and input.
+	pub fn taps_for(&self, node: u32) -> (Arc<Scope>, Arc<Scope>) {
 		let mut taps = self.taps.lock().expect("the tap lock");
 
 		if let Some(tap) = taps.iter().find(|tap| tap.node == node) {
-			return tap.scope.clone();
+			return (tap.scope.clone(), tap.input.clone());
 		}
 
 		let scope = Arc::new(Scope::new());
+		let input = Arc::new(Scope::new());
 		taps.push(Tap {
 			node,
 			scope: scope.clone(),
+			input: input.clone(),
 		});
-		scope
+		(scope, input)
 	}
 
 	/// Records where a source's cycle is.
@@ -132,16 +136,19 @@ impl PatcherShared {
 	}
 
 	/// The watched nodes, copied into the output list without waiting.
-	pub fn tap_snapshot_into(&self, out: &mut Vec<(u32, Arc<Scope>)>) {
+	pub fn tap_snapshot_into(&self, out: &mut Vec<(u32, Arc<Scope>, Arc<Scope>)>) {
 		out.clear();
 
 		if let Ok(taps) = self.taps.try_lock() {
-			out.extend(taps.iter().map(|tap| (tap.node, tap.scope.clone())));
+			out.extend(
+				taps.iter()
+					.map(|tap| (tap.node, tap.scope.clone(), tap.input.clone())),
+			);
 		}
 	}
 
 	/// The watched nodes, for callers outside the audio thread.
-	pub fn tap_snapshot(&self) -> Vec<(u32, Arc<Scope>)> {
+	pub fn tap_snapshot(&self) -> Vec<(u32, Arc<Scope>, Arc<Scope>)> {
 		let mut out = Vec::new();
 		self.tap_snapshot_into(&mut out);
 		out
@@ -213,7 +220,7 @@ pub struct Body {
 	tempo: Option<f32>,
 	position: Option<f32>,
 	/// The watched nodes, reused each block.
-	taps: Vec<(u32, Arc<Scope>)>,
+	taps: Vec<(u32, Arc<Scope>, Arc<Scope>)>,
 }
 
 impl Body {
@@ -389,7 +396,7 @@ impl Body {
 			// Every watched node's output is copied for the page.
 			self.shared.tap_snapshot_into(&mut self.taps);
 
-			for (node, scope) in &self.taps {
+			for (node, scope, input) in &self.taps {
 				let id = i_am_patch::graph::NodeId(*node);
 				let block = self
 					.poly
@@ -407,6 +414,22 @@ impl Body {
 
 				if let Some(block) = block {
 					scope.write(&block);
+				}
+
+				// The other side of the node, so a card draws what arrived as
+				// well as what left.
+				let arriving = self
+					.poly
+					.as_ref()
+					.and_then(|poly| poly.step_of(id).and_then(|step| poly.input_block(step)))
+					.or_else(|| {
+						self.engine.as_ref().and_then(|engine| {
+							engine.step_of(id).and_then(|step| engine.input_block(step))
+						})
+					});
+
+				if let Some(block) = arriving {
+					input.write(&block);
 				}
 
 				let phase = self

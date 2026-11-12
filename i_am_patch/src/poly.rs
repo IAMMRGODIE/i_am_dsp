@@ -316,6 +316,11 @@ impl Poly {
 		}
 	}
 
+	/// One node's last input as a block, for a card that draws both sides.
+	pub fn input_block(&self, step: usize) -> Option<crate::block::AudioBlock> {
+		self.outer.input_block(step)
+	}
+
 	/// Turns one modulation's depth in the outer graph and in every voice.
 	pub fn set_modulation_depth(&mut self, index: usize, depth: f32) {
 		self.outer.set_modulation_depth(index, depth);
