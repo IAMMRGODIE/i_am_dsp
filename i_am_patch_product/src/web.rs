@@ -45,6 +45,19 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			Some(ProtocolResponse::json(answer))
 		}
+		("GET", "/spectrum") | ("POST", "/spectrum") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let spectrum = shared.slots.spectrum(node);
+			let answer = if request.method == "POST" {
+				spectrum.set_json(&String::from_utf8_lossy(request.body))
+			} else {
+				spectrum.state_json()
+			};
+
+			Some(ProtocolResponse::json(answer))
+		}
 		("GET", "/script") | ("POST", "/script") => {
 			let node = request
 				.query

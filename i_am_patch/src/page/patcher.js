@@ -896,6 +896,59 @@
     });
   }
 
+  /// The Spectrum node's pages are outside the parameter map too: the card
+  /// asks the product's route and the editor writes them back to the same node.
+  function refreshSpectrum(entry) {
+    if (!entry || entry.kind.id !== "synth:spectrum") return;
+
+    fetch("/spectrum?node=" + entry.node.id, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((state) => {
+        if (!state || !state.frames) return;
+
+        entry.context.spectrum = {
+          generation: state.generation,
+          frames: state.frames,
+          page: 0,
+        };
+
+        if (entry.card.repaintHero) entry.card.repaintHero();
+      })
+      .catch(() => {});
+  }
+
+  /// A spectrum hero on a patch card edits this node's pages and morph, not a
+  /// page-wide spectrum, so its writes carry the node id.
+  function wireSpectrumCard(entry) {
+    if (!entry || entry.kind.id !== "synth:spectrum" || !entry.context.spectrum) return;
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    if (!hero) return;
+
+    IAmCard.wire(hero, "spectrum", entry.node.params, {
+      spectrum: entry.context.spectrum,
+      set: (id, value) => {
+        entry.node.params[id] = value;
+        postParam(entry.node.id, id, value);
+
+        requestAnimationFrame(() => {
+          if (!entry.host.isConnected) return;
+
+          if (entry.card.setValue) entry.card.setValue(id, value);
+          else if (entry.card.repaintHero) entry.card.repaintHero();
+        });
+      },
+      post: (body) => {
+        fetch("/spectrum?node=" + entry.node.id, { method: "POST", body })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((result) => {
+            if (result && result.error) showStatus(result.error);
+          })
+          .catch(() => {});
+      },
+    });
+  }
+
   /// Fetches what a node's slot now holds and repaints the card's picture.
   async function refreshImport(entry, path) {
     if (!entry || !entry.card || !entry.context) return;
@@ -1056,6 +1109,17 @@
     // A node that already holds a file shows it as soon as the card is built,
     // not only right after the drop that loaded it.
     if (IMPORT_ROUTES[kind.id]) refreshImport(entry, IMPORT_ROUTES[kind.id].path);
+    if (kind.id === "synth:spectrum") {
+      const repaint = card.repaintHero;
+
+      card.repaintHero = function (values) {
+        repaint(values);
+        wireSpectrumCard(entry);
+      };
+
+      refreshSpectrum(entry);
+    }
+
     entry.host.style.setProperty(
       "--k",
       String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),

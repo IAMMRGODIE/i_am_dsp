@@ -174,7 +174,11 @@ pub fn make_with(
 					ShapesWeb::with_slot(slots.waves(node)),
 					rate,
 				)),
-				"spectrum" => Box::new(SynthNode::<SpectrumWeb>::new(rate)),
+				"spectrum" => Box::new(SynthNode::with_plugin(
+					SpectrumWeb::with_handle(slots.spectrum(node)),
+					rate,
+				)),
+
 				"strings" => Box::new(SynthNode::<StringWeb>::new(rate)),
 				_ => return None,
 			}

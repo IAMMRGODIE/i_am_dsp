@@ -1446,7 +1446,16 @@
     };
 
     var post = function () {
-      fetch("/spectrum", { method: "POST", body: JSON.stringify(frames) })
+      var body = JSON.stringify(frames);
+
+      // The product page owns one spectrum, so its POST has no node. A patch
+      // card shares the page with many, and its state carries the route to use.
+      if (state && state.post) {
+        state.post(body);
+        return;
+      }
+
+      fetch("/spectrum", { method: "POST", body })
         .then(function (response) { return response.ok ? response.json() : null; })
         .then(function (result) { if (result && result.error) console.warn(result.error); })
         .catch(function () {});

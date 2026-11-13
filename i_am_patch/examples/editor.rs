@@ -504,6 +504,32 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				shared.slots.canvas(node).set_shape(body.to_string()),
 			)
 		}
+		("GET", path) if path == "/spectrum" || path.starts_with("/spectrum?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.spectrum(node).state_json(),
+			)
+		}
+		("POST", path) if path == "/spectrum" || path.starts_with("/spectrum?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.spectrum(node).set_json(body),
+			)
+		}
 		("GET", path) if path == "/scope" || path.starts_with("/scope?") => {
 			let node = path
 				.split_once('?')

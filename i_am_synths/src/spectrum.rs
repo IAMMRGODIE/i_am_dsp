@@ -127,7 +127,55 @@ pub struct SpectrumWeb {
 
 impl Default for SpectrumWeb {
 	fn default() -> Self {
-		let feed = SpectralFeed::new(default_pages());
+		Self::with_handle(SpectrumHandle::new())
+	}
+}
+
+/// A handle to one Spectrum node's drawn pages, shared by the page and the voice.
+#[derive(Clone)]
+pub struct SpectrumHandle(Arc<SpectralFeed>);
+
+impl SpectrumHandle {
+	pub fn new() -> Self {
+		Self(SpectralFeed::new(default_pages()))
+	}
+
+	/// The route's GET answer.
+	pub fn state_json(&self) -> String {
+		let frames = self.0.frames();
+
+		format!(
+			"{{\"generation\":{},\"frames\":{}}}",
+			self.0.generation(),
+			serde_json::to_string(&*frames).expect("the pages serialize as JSON")
+		)
+	}
+
+	/// Applies the route's POST body, and answers it.
+	pub fn set_json(&self, body: &str) -> String {
+		match serde_json::from_str::<Vec<SpectralFrame>>(body) {
+			Ok(frames) => {
+				self.0.set(frames);
+				"{\"ok\":true}".to_string()
+			}
+			Err(error) => format!(
+				"{{\"ok\":false,\"error\":\"{}\"}}",
+				json_escape(&error.to_string())
+			),
+		}
+	}
+}
+
+impl Default for SpectrumHandle {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
+impl SpectrumWeb {
+	/// Builds the spectrum over pages the page already holds.
+	pub fn with_handle(handle: SpectrumHandle) -> Self {
+		let feed = handle.0.clone();
 		let build_feed = feed.clone();
 
 		Self {
@@ -139,9 +187,12 @@ impl Default for SpectrumWeb {
 			feed,
 		}
 	}
-}
 
-impl SpectrumWeb {
+	/// The pages handle this instrument uses.
+	pub fn handle(&self) -> SpectrumHandle {
+		SpectrumHandle(self.feed.clone())
+	}
+
 	/// The rate the instrument inside is currently built for.
 	pub fn sample_rate(&self) -> usize {
 		self.processor.sample_rate()
@@ -210,5 +261,24 @@ impl Plugin for SpectrumWeb {
 			move |request: &ProtocolRequest<'_>| spectrum_route(request, &feed),
 			|_: &str| false,
 		)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_spectrum_handle_round_trips_the_pages() {
+		let handle = SpectrumHandle::new();
+		let state: serde_json::Value =
+			serde_json::from_str(&handle.state_json()).expect("the state is JSON");
+		let frames = state["frames"].clone();
+
+		assert!(frames.as_array().is_some_and(|frames| !frames.is_empty()));
+
+		let result = handle.set_json(&frames.to_string());
+
+		assert!(result.contains("\"ok\":true"), "{result}");
 	}
 }

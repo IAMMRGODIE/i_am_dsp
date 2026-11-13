@@ -93,7 +93,7 @@ pub use sampler::{
 };
 pub use script::{ScriptWeb, script_faceplate};
 pub use shapes::{ShapesWeb, edit_waves, import_waves, shapes_faceplate, waves_preview};
-pub use spectrum::{SpectrumWeb, spectrum_faceplate};
+pub use spectrum::{SpectrumHandle, SpectrumWeb, spectrum_faceplate};
 pub use strings::{StringWeb, faceplate};
 
 use std::sync::atomic::Ordering;
