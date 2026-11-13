@@ -358,10 +358,45 @@
   min-width:220px; padding:8px 10px; background:#1b1b1b; border:1px solid #4a4a4a;
   border-radius:6px; box-shadow:0 8px 24px rgba(0,0,0,.55);
 }
-.knob-depth{display:grid; grid-template-columns:1fr 90px 34px; align-items:center; gap:6px}
+.knob-depth{display:grid; grid-template-columns:1fr 90px 46px; align-items:center; gap:6px}
 .knob-depth span{font-size:10px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.knob-depth input{width:100%; accent-color:var(--accent)}
-.knob-depth-value{font-family:var(--mono); font-size:9px; color:var(--text1); text-align:right; width:100%; background:var(--header); border:1px solid var(--line); border-radius:3px; padding:1px 2px}
+.knob-depth input[type=range]{width:100%; accent-color:var(--accent)}
+
+/* The value is a text box with its own stepper: the UA spinner is a light box
+   that belongs to no card, and this pair borrows the popup's border, the mono
+   face and the accent the slider already uses. */
+.knob-depth-value-wrap{display:flex; align-items:stretch; height:20px; min-width:0}
+.knob-depth-value-wrap input{
+  flex:1 1 auto; min-width:0; width:auto; height:100%; padding:0 3px;
+  color:var(--text1); background:var(--header);
+  border:1px solid var(--line); border-right:0; border-radius:3px 0 0 3px;
+  font-family:var(--mono); font-size:9px; text-align:right; outline:none;
+  -moz-appearance:textfield; appearance:textfield;
+}
+.knob-depth-value-wrap input:focus{border-color:var(--accent)}
+.knob-depth-value-wrap input::-webkit-outer-spin-button,
+.knob-depth-value-wrap input::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+.knob-depth-steps{
+  display:flex; flex-direction:column; flex:0 0 11px;
+  background:var(--header); border:1px solid var(--line); border-radius:0 3px 3px 0;
+  overflow:hidden;
+}
+.knob-depth-steps button{
+  position:relative; flex:1 1 50%; min-height:0; padding:0;
+  background:transparent; border:0; cursor:pointer;
+}
+.knob-depth-steps button + button{border-top:1px solid var(--line)}
+.knob-depth-steps button::before{
+  content:""; position:absolute; left:50%; top:50%; width:4px; height:4px;
+  border-left:1px solid var(--text2); border-top:1px solid var(--text2);
+  transform:translate(-50%,-50%) rotate(45deg);
+}
+.knob-depth-steps button.down::before{transform:translate(-50%,-50%) rotate(225deg)}
+.knob-depth-steps button:hover{background:rgba(255,255,255,.07)}
+.knob-depth-steps button:hover::before{border-color:var(--text1)}
+.knob-depth-steps button:focus-visible{outline:1px solid var(--accent); outline-offset:-1px}
+.knob-depth-steps button:active{background:var(--accent)}
+.knob-depth-steps button:active::before{border-color:#111}
 
 /* A dynamics picture keeps its transfer square on the left and lets the
    envelope take the rest. These rules lived only in the product page's

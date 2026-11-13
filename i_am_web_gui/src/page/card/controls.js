@@ -329,12 +329,50 @@
           apply(Number(range.value) / 100, range);
         });
         value.addEventListener("change", function () {
-          apply(Number(value.value) / 100, value);
+          var percent = Math.max(-100, Math.min(100, Math.round(Number(value.value) || 0)));
+
+          value.value = String(percent);
+          apply(percent / 100, value);
         });
+
+        var step = function (delta) {
+          var next = Math.max(-100, Math.min(100, Math.round((Number(value.value) || 0) + delta)));
+
+          value.value = String(next);
+          apply(next / 100, value);
+        };
+
+        // ArrowUp/Down step without waiting for the field to lose focus, so the
+        // field and its buttons agree on what a step is.
+        value.addEventListener("keydown", function (event) {
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+
+          event.preventDefault();
+          step(event.key === "ArrowUp" ? 1 : -1);
+        });
+
+        var wrap = document.createElement("span");
+        wrap.className = "knob-depth-value-wrap";
+        wrap.appendChild(value);
+
+        var steps = document.createElement("span");
+        steps.className = "knob-depth-steps";
+
+        [["up", 1, "Increase depth"], ["down", -1, "Decrease depth"]].forEach(function (item) {
+          var button = document.createElement("button");
+
+          button.type = "button";
+          button.className = item[0];
+          button.setAttribute("aria-label", item[2]);
+          button.addEventListener("click", function () { step(item[1]); });
+          steps.appendChild(button);
+        });
+
+        wrap.appendChild(steps);
 
         row.appendChild(name);
         row.appendChild(range);
-        row.appendChild(value);
+        row.appendChild(wrap);
         box.appendChild(row);
       });
 
