@@ -409,6 +409,10 @@
         onMode: (slots, next) => {
           op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
         },
+        // Ctrl + right click on the knob: every source comes off it.
+        onClearModulations: (slots) => {
+          for (const slot of slots) op({ op: "unmodulate", index: slot }, false);
+        },
         dropTarget: node.id + ":" + id,
       });
     });
@@ -886,6 +890,10 @@
           assignments,
           onDepth: (slot, next) => op({ op: "mod_depth", index: slot, depth: next }, false),
           onMode: (slots, next) => op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false),
+          // Ctrl + right click on the knob: every source comes off it.
+          onClearModulations: (slots) => {
+            for (const slot of slots) op({ op: "unmodulate", index: slot }, false);
+          },
           dropTarget: node.id + ":" + control.id,
         });
       },

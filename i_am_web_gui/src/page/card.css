@@ -361,7 +361,7 @@
 .knob-depth{display:grid; grid-template-columns:1fr 90px 34px; align-items:center; gap:6px}
 .knob-depth span{font-size:10px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .knob-depth input{width:100%; accent-color:var(--accent)}
-.knob-depth-value{font-family:var(--mono); font-size:9px; color:var(--text1); text-align:right}
+.knob-depth-value{font-family:var(--mono); font-size:9px; color:var(--text1); text-align:right; width:100%; background:var(--header); border:1px solid var(--line); border-radius:3px; padding:1px 2px}
 
 /* A dynamics picture keeps its transfer square on the left and lets the
    envelope take the rest. These rules lived only in the product page's

@@ -230,7 +230,13 @@
     });
     dial.title = "Drag to change; right-click to type a value";
     dial.addEventListener("contextmenu", function (event) {
+      // The modifiers belong to the modulation gestures below.
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+
       event.preventDefault();
+      // The page underneath has a menu of its own: a right click on a knob is
+      // not a right click on the canvas.
+      event.stopPropagation();
       openKnobEditor(spec, current, set, dial);
     });
 
@@ -254,11 +260,28 @@
       });
     }
 
-    // Alt + right click edits how far each source pushes this knob.
+    // Alt + right click edits how far each source pushes this knob; ctrl +
+    // right click takes every source off it.
     dial.addEventListener("contextmenu", function (event) {
-      if (!event.altKey || !modulations.length) return;
+      if (!modulations.length) return;
+
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (spec.onClearModulations) {
+          spec.onClearModulations(modulations.map(function (modulation) {
+            return modulation.slot;
+          }));
+        }
+
+        return;
+      }
+
+      if (!event.altKey) return;
 
       event.preventDefault();
+      event.stopPropagation();
       openDepths();
     });
 
@@ -280,17 +303,33 @@
         range.step = "1";
         range.value = String(Math.round((assignment.depth || 0) * 100));
 
-        var value = document.createElement("span");
+        // The number is the same value as the slider: a depth of 0.5 is hard to
+        // hit by dragging, and a patch wants the number it was told.
+        var value = document.createElement("input");
+        value.type = "number";
+        value.min = "-100";
+        value.max = "100";
+        value.step = "1";
         value.className = "knob-depth-value";
-        value.textContent = range.value + "%";
+        value.value = range.value;
 
-        range.addEventListener("input", function () {
-          var depth = Number(range.value) / 100;
+        var apply = function (depth, source) {
+          depth = Math.max(-1, Math.min(1, depth));
           assignment.depth = depth;
-          value.textContent = range.value + "%";
+          range.value = String(Math.round(depth * 100));
+
+          if (source !== value) value.value = range.value;
+
           paint();
 
           if (spec.onModulation) spec.onModulation(assignment.slot, depth);
+        };
+
+        range.addEventListener("input", function () {
+          apply(Number(range.value) / 100, range);
+        });
+        value.addEventListener("change", function () {
+          apply(Number(value.value) / 100, value);
         });
 
         row.appendChild(name);
@@ -678,6 +717,7 @@
 
     if (options.onDepth) spec.onModulation = options.onDepth;
     if (options.onMode) spec.onModeToggle = options.onMode;
+    if (options.onClearModulations) spec.onClearModulations = options.onClearModulations;
 
     if (options.dropTarget) {
       spec.dropTarget = options.dropTarget;

@@ -206,12 +206,34 @@
   function trace(svg, values, color, base, height) {
     if (!values || values.length < 2) return;
 
+    // The samples are twenty milliseconds apart and the sources are one-pole
+    // smoothed, so a curve through them reads truer than a polyline: straight
+    // segments turn a slow ramp into a staircase.
     var path = "";
+    var at = function (index) {
+      var i = Math.max(0, Math.min(values.length - 1, index));
 
-    for (var index = 0; index < values.length; index++) {
-      var x = 8 + index / (values.length - 1) * 284;
-      var y = base - values[index] * height;
-      path += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(2);
+      return {
+        x: 8 + i / (values.length - 1) * 284,
+        y: base - values[i] * height
+      };
+    };
+    var first = at(0);
+    path = "M " + first.x.toFixed(1) + " " + first.y.toFixed(2);
+
+    for (var index = 0; index < values.length - 1; index++) {
+      var p0 = at(index - 1);
+      var p1 = at(index);
+      var p2 = at(index + 1);
+      var p3 = at(index + 2);
+      var c1x = p1.x + (p2.x - p0.x) / 6;
+      var c1y = p1.y + (p2.y - p0.y) / 6;
+      var c2x = p2.x - (p3.x - p1.x) / 6;
+      var c2y = p2.y - (p3.y - p1.y) / 6;
+
+      path += " C " + c1x.toFixed(1) + " " + c1y.toFixed(2) + " " +
+        c2x.toFixed(1) + " " + c2y.toFixed(2) + " " +
+        p2.x.toFixed(1) + " " + p2.y.toFixed(2);
     }
 
     svg.appendChild(node("path", {
