@@ -169,8 +169,9 @@ pub fn make_with(
 					rate,
 				)),
 				"script" => {
-					let inner = ScriptWeb::default();
-					let feed = inner.feed();
+					let handle = slots.script(node);
+					let inner = ScriptWeb::with_handle(handle.clone());
+					let feed = handle.source();
 
 					Box::new(SynthNode::with_script(inner, feed, rate))
 				}

@@ -122,33 +122,17 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 			Some(ProtocolResponse::json(answer))
 		}
 		("GET", "/script") | ("POST", "/script") => {
-			let node = request
-				.query
-				.unwrap_or("")
-				.split('&')
-				.find_map(|pair| pair.strip_prefix("node="))
+			let node = query_value(request, "node")
 				.and_then(|value| value.parse::<u32>().ok())
 				.unwrap_or(0);
-			let scripts = shared.scripts.lock().expect("the script lock");
-
-			if request.method == "POST" {
-				let body = std::str::from_utf8(request.body).unwrap_or("");
-
-				if let Some(script) = scripts.get(&node) {
-					script.set_script_source(body.to_string());
-				}
-
-				Some(ProtocolResponse::json(json!({ "ok": true }).to_string()))
+			let script = shared.slots.script(node);
+			let answer = if request.method == "POST" {
+				script.apply(String::from_utf8_lossy(request.body).to_string())
 			} else {
-				let source = scripts
-					.get(&node)
-					.map(|script| script.script_source())
-					.unwrap_or_default();
+				script.state_json()
+			};
 
-				Some(ProtocolResponse::json(
-					json!({ "source": source }).to_string(),
-				))
-			}
+			Some(ProtocolResponse::json(answer))
 		}
 		("GET", "/sampler") | ("POST", "/sampler") => Some(ProtocolResponse::json(
 			sampler_route(request, shared).to_string(),

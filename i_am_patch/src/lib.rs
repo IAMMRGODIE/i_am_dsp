@@ -99,6 +99,9 @@ pub struct Slots {
 	drummers: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_synths::DrummerHandle>>,
 	>,
+	scripts: std::sync::Arc<
+		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_synths::ScriptHandle>>,
+	>,
 }
 
 impl Slots {
@@ -170,6 +173,15 @@ impl Slots {
 	/// The Drummer click and slots of one node, created the first time it is asked for.
 	pub fn drummer(&self, node: u32) -> i_am_synths::DrummerHandle {
 		self.drummers
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.entry(node)
+			.or_default()
+			.clone()
+	}
+	/// The script feed of one node, created the first time it is asked for.
+	pub fn script(&self, node: u32) -> i_am_synths::ScriptHandle {
+		self.scripts
 			.lock()
 			.unwrap_or_else(|error| error.into_inner())
 			.entry(node)

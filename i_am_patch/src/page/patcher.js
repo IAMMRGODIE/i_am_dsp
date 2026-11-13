@@ -1324,6 +1324,25 @@
     reader.readAsArrayBuffer(file);
   }
 
+  /// The Script's source, error and spectrum are the product's own state. The
+  /// card asks for it through the node's route and shows it in the panel and
+  /// the hero.
+  function refreshScript(entry) {
+    if (!entry || entry.kind.id !== "synth:script") return;
+
+    fetch("/script?node=" + entry.node.id, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((state) => {
+        if (!state) return;
+
+        entry.context.script = state;
+        if (entry.card.setScript) entry.card.setScript(state.source || "");
+        if (entry.card.setScriptError) entry.card.setScriptError(state.error || "");
+        if (entry.card.repaintHero) entry.card.repaintHero();
+      })
+      .catch(() => {});
+  }
+
   /// Fetches what a node's slot now holds and repaints the card's picture.
   async function refreshImport(entry, path) {
     if (!entry || !entry.card || !entry.context) return;
@@ -1407,10 +1426,18 @@
         else pickSampleFile((picked) => postImport(node.id, importRoute.path, picked));
       },
       loadScript: () => {
-        fetch("/script?node=" + node.id)
+        fetch("/script?node=" + node.id, { cache: "no-store" })
           .then((response) => (response.ok ? response.json() : null))
           .then((state) => {
-            if (state) card.setScript(state.source || "");
+            if (!state) return;
+
+            card.setScript(state.source || "");
+            card.setScriptError(state.error || "");
+
+            if (entry) {
+              entry.context.script = state;
+              if (card.repaintHero) card.repaintHero();
+            }
           })
           .catch(() => {});
       },
@@ -1418,8 +1445,18 @@
         fetch("/script?node=" + node.id, { method: "POST", body: source })
           .then((response) => (response.ok ? response.json() : null))
           .then((state) => {
-            if (state && state.error) card.setScriptError(state.error);
-            else card.setScriptError("");
+            if (!state) return;
+
+            card.setScriptError(state.error || "");
+
+            if (state.error) {
+              if (entry) {
+                entry.context.script = Object.assign({}, entry.context.script, { error: state.error, spectrum: [] });
+                if (card.repaintHero) card.repaintHero();
+              }
+            } else if (entry) {
+              refreshScript(entry);
+            }
           })
           .catch(() => {});
       },
@@ -1433,6 +1470,11 @@
         // The card already shows the value; rebuilding the graph here would
         // take the focus away from the control being dragged.
         op({ op: "param", id: node.id, key: identifier, value }, false);
+
+        if (kind.id === "synth:script" && entry) {
+          clearTimeout(entry.scriptTimer);
+          entry.scriptTimer = setTimeout(() => refreshScript(entry), 150);
+        }
       },
       wrapControl: (control) => {
         const assignments = mods
@@ -1500,6 +1542,10 @@
       entry.pageName = ((kind.pages || [])[activePage] || {}).name || "";
       wireDrummerCard(entry);
       refreshDrummer(entry);
+    }
+
+    if (kind.id === "synth:script") {
+      refreshScript(entry);
     }
 
     entry.host.style.setProperty(

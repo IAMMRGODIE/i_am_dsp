@@ -128,13 +128,22 @@ pub struct ScriptFeed {
 
 impl ScriptFeed {
 	pub(crate) fn new() -> Arc<Self> {
+		// The default body is a real script, not just text: compiling it here
+		// gives the page a spectrum and the first voice something to play before
+		// anyone presses Apply.
+		let pending = RhaiScript::compile(SCRIPT_DEFAULT).ok();
+		let generation = u64::from(pending.is_some());
+		let script = pending.clone().map(Arc::new);
+
 		Arc::new(Self {
-			generation: AtomicU64::new(0),
+			generation: AtomicU64::new(generation),
 			preview: Mutex::new(ScriptPreview::default()),
 			eval_error: Mutex::new(None),
 			has_eval_error: AtomicBool::new(false),
 			state: Mutex::new(ScriptState {
 				source: SCRIPT_DEFAULT.to_string(),
+				script,
+				pending,
 				..ScriptState::default()
 			}),
 		})
@@ -288,6 +297,42 @@ impl ScriptFeed {
 	}
 }
 
+/// A handle to one Script node's feed, shared by the page and the voice.
+#[derive(Clone)]
+pub struct ScriptHandle(Arc<ScriptFeed>);
+
+impl ScriptHandle {
+	pub fn new() -> Self {
+		Self(ScriptFeed::new())
+	}
+
+	/// The page's view: source, error, applied edits and the spectrum.
+	pub fn state_json(&self) -> String {
+		self.0.state_json()
+	}
+
+	/// Compiles a posted body and queues it for the audio thread.
+	pub fn apply(&self, source: String) -> String {
+		self.0.apply(source)
+	}
+
+	/// The feed as the node's script source.
+	pub fn source(&self) -> Arc<dyn i_am_effects::ScriptSource> {
+		self.0.clone()
+	}
+
+	/// The source the feed is running.
+	pub fn source_text(&self) -> String {
+		self.0.source()
+	}
+}
+
+impl Default for ScriptHandle {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 /// Answers the page's script routes.
 pub(crate) fn script_route(
 	request: &ProtocolRequest<'_>,
@@ -419,15 +464,9 @@ pub struct ScriptWeb {
 }
 
 impl ScriptWeb {
-	/// The feed the page edits.
-	pub fn feed(&self) -> Arc<dyn i_am_effects::ScriptSource> {
-		self.feed.clone()
-	}
-}
-
-impl Default for ScriptWeb {
-	fn default() -> Self {
-		let feed = ScriptFeed::new();
+	/// Builds the script over a feed the page already holds.
+	pub fn with_handle(handle: ScriptHandle) -> Self {
+		let feed = handle.0.clone();
 		let build_feed = feed.clone();
 
 		Self {
@@ -438,6 +477,22 @@ impl Default for ScriptWeb {
 			scope: Arc::new(Scope::new()),
 			feed,
 		}
+	}
+
+	/// The feed the page edits.
+	pub fn feed(&self) -> Arc<dyn i_am_effects::ScriptSource> {
+		self.feed.clone()
+	}
+
+	/// The feed handle this instrument uses.
+	pub fn handle(&self) -> ScriptHandle {
+		ScriptHandle(self.feed.clone())
+	}
+}
+
+impl Default for ScriptWeb {
+	fn default() -> Self {
+		Self::with_handle(ScriptHandle::new())
 	}
 }
 
