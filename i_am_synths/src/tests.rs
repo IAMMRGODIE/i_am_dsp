@@ -552,6 +552,55 @@ fn a_sample_edit_reaches_a_held_sampler_note() {
 }
 
 #[test]
+fn a_table_edit_reaches_a_held_shapes_note() {
+	use i_am_dsp::prelude::{WAVE_FRAME_LEN, WaveBank, WaveSlot};
+	use std::sync::Mutex;
+
+	let slot = Arc::new(Mutex::new(WaveSlot::default()));
+	let mut plugin = ShapesWeb::with_slot(slot.clone());
+	Plugin::on_activate(&mut plugin, 48_000);
+
+	let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+		events: vec![NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 1.0,
+		}],
+		infos: TestContext::new().infos,
+	});
+	let mut peak = 0.0f32;
+
+	for _ in 0..2_000 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+		peak = peak.max(frame[0].abs());
+		context.clear_events();
+	}
+
+	assert!(peak > 1e-3, "the classic shapes were silent: {peak}");
+
+	slot.lock().expect("slot").bank = Some(WaveBank::new(None, vec![vec![0.0; WAVE_FRAME_LEN]]));
+
+	for _ in 0..4_000 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+	}
+
+	let mut after = 0.0f32;
+
+	for _ in 0..1_000 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+		after = after.max(frame[0].abs());
+	}
+
+	assert!(
+		after < peak * 0.1,
+		"the held shapes kept the old table: {after} vs {peak}"
+	);
+}
+
+#[test]
 fn the_script_face_shows_the_script_panel() {
 	let face = i_am_web_gui::face_json(&ScriptWeb::new(), &script_faceplate());
 
