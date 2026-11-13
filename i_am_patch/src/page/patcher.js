@@ -58,6 +58,10 @@
   // from nothing under the hand.
   const sourceHistories = new Map();
 
+  // How far each source's block history has been read. The server sends only
+  // the blocks after this, so a poll is a handful of values, not the whole ring.
+  const sourceCursors = new Map();
+
   function historyOf(node) {
     let history = sourceHistories.get(node);
 
@@ -1318,6 +1322,10 @@
       if (!patch.nodes.some((node) => node.id === id)) sourceHistories.delete(id);
     }
 
+    for (const id of sourceCursors.keys()) {
+      if (!patch.nodes.some((node) => node.id === id)) sourceCursors.delete(id);
+    }
+
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
     const world = el("g", {
@@ -1921,8 +1929,17 @@
   }
 
   async function pollLive() {
+    const started = performance.now();
+
     try {
-      const query = scopeNode === null ? "" : "?node=" + scopeNode;
+      const cursors = [];
+
+      for (const [node, block] of sourceCursors) cursors.push(node + ":" + block);
+
+      let query = "?since=" + cursors.join(",");
+
+      if (scopeNode !== null) query += "&node=" + scopeNode;
+
       const data = await (await fetch("/scopes" + query, { cache: "no-store" })).json();
 
       applySourceScopes(data);
@@ -1932,7 +1949,14 @@
       // The next tick tries again.
     }
 
-    liveTimer = setTimeout(pollLive, document.hidden ? HIDDEN_INTERVAL : LIVE_INTERVAL);
+    // Keep the cadence: the fetch's own time is not part of the interval, or
+    // every point would arrive a little later than the one before it.
+    const interval = document.hidden ? HIDDEN_INTERVAL : LIVE_INTERVAL;
+    const elapsed = performance.now() - started;
+
+    // A slow fetch or a heavy repaint is not a reason to start the next poll
+    // immediately; a short floor keeps the loop from running flat out.
+    liveTimer = setTimeout(pollLive, Math.max(4, interval - elapsed));
   }
 
   /// Draws the control sources' histories from one tick's payload.
@@ -1941,38 +1965,55 @@
     // replace the handlers the drag is using.
     if (editingPoints) return;
 
+    const blockFrames = (typeof data.block_frames === "number" && data.block_frames > 0)
+      ? data.block_frames
+      : 64;
+    const rate = (typeof data.rate === "number" && data.rate > 0) ? data.rate : 44100;
+    const blockMs = blockFrames / rate * 1000;
+
     for (const scope of data.scopes || []) {
-        const entry = cards[scope.node];
+      const entry = cards[scope.node];
 
-        if (!entry || !SOURCE_KINDS.includes(entry.kind ? entry.kind.id : "")) continue;
+      if (!entry || !SOURCE_KINDS.includes(entry.kind ? entry.kind.id : "")) continue;
 
-        entry.samples = scope.samples || [];
-        entry.phase = typeof scope.phase === "number" ? scope.phase : null;
-        entry.history = historyOf(scope.node);
+      entry.phase = typeof scope.phase === "number" ? scope.phase : null;
+      entry.history = historyOf(scope.node);
 
-        // The LFO editor's repaint clears the hero while dragging, which takes
-        // the live layer with it; put it back before drawing into it again.
-        if (entry.live && !entry.live.isConnected) {
-          const svg = entry.card.querySelector(".mcard-hero svg");
-          if (svg) svg.appendChild(entry.live);
+      // The LFO editor's repaint clears the hero while dragging, which takes
+      // the live layer with it; put it back before drawing into it again.
+      if (entry.live && !entry.live.isConnected) {
+        const svg = entry.card.querySelector(".mcard-hero svg");
+        if (svg) svg.appendChild(entry.live);
+      }
+
+      const blocks = scope.blocks || [];
+      const total = typeof scope.block === "number" ? scope.block : 0;
+
+      if (blocks.length) {
+        const cursor = sourceCursors.get(scope.node) || 0;
+        const first = total - blocks.length;
+
+        // A new scope, or a gap longer than the ring, starts a new picture: the
+        // old points do not belong on the same line.
+        if (total < cursor || first > cursor) entry.history.length = 0;
+
+        // One point per block, timed by the block's own index: the trace is
+        // drawn against audio time, so the poll's jitter never reaches the x
+        // axis. Three seconds of points keep a little more than the 2.4 s the
+        // card draws.
+        const keep = Math.ceil(3000 / blockMs);
+
+        for (let i = 0; i < blocks.length; i++) {
+          entry.history.push({ t: (first + i) * blockMs, v: blocks[i] });
         }
 
-        if (entry.samples !== entry.lastSamples) {
-          entry.lastSamples = entry.samples;
-
-          if (entry.samples.length) {
-            entry.lastValue = entry.samples[entry.samples.length - 1][0];
-            entry.history = entry.history || [];
-            entry.ticks = (entry.ticks || 0) + 1;
-
-            // One point per tick: a 20 ms trace, so a fast source reads as a
-            // curve rather than a staircase, over a window of about eight
-            // seconds. The array belongs to the node, not to the card.
-            entry.history.push(entry.lastValue);
-
-            if (entry.history.length > 400) entry.history.shift();
-          }
+        if (entry.history.length > keep) {
+          entry.history.splice(0, entry.history.length - keep);
         }
+
+        entry.lastValue = blocks[blocks.length - 1];
+        sourceCursors.set(scope.node, total);
+      }
 
       drawSourceLive(entry);
     }

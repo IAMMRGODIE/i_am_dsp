@@ -203,37 +203,41 @@
     }
   }
 
+  // How much of a time-carrying history the trace shows, in milliseconds. The
+  // page used to take the last 120 points, which made the same span as this
+  // only while every poll was exactly 20 ms apart.
+  var TRACE_WINDOW = 2400;
+
+  // A history point is a value, or {t, v} once the page records when the value
+  // arrived. A timed history is drawn against its own clock, so a slow poll
+  // makes a wider step instead of squeezing two samples into one pixel. The
+  // line is straight between samples: a spline would round the corners the
+  // samples have, and would overshoot when the intervals are uneven.
   function trace(svg, values, color, base, height) {
     if (!values || values.length < 2) return;
 
-    // The samples are twenty milliseconds apart and the sources are one-pole
-    // smoothed, so a curve through them reads truer than a polyline: straight
-    // segments turn a slow ramp into a staircase.
+    var timed = typeof values[0] === "object" && values[0] !== null;
+    var newest = timed ? values[values.length - 1].t : 0;
     var path = "";
     var at = function (index) {
       var i = Math.max(0, Math.min(values.length - 1, index));
+      var point = values[i];
+      var x = timed
+        ? 8 + (1 - (newest - point.t) / TRACE_WINDOW) * 284
+        : 8 + i / (values.length - 1) * 284;
 
       return {
-        x: 8 + i / (values.length - 1) * 284,
-        y: base - values[i] * height
+        x: Math.max(8, Math.min(292, x)),
+        y: base - (timed ? point.v : point) * height
       };
     };
     var first = at(0);
     path = "M " + first.x.toFixed(1) + " " + first.y.toFixed(2);
 
     for (var index = 0; index < values.length - 1; index++) {
-      var p0 = at(index - 1);
-      var p1 = at(index);
-      var p2 = at(index + 1);
-      var p3 = at(index + 2);
-      var c1x = p1.x + (p2.x - p0.x) / 6;
-      var c1y = p1.y + (p2.y - p0.y) / 6;
-      var c2x = p2.x - (p3.x - p1.x) / 6;
-      var c2y = p2.y - (p3.y - p1.y) / 6;
+      var next = at(index + 1);
 
-      path += " C " + c1x.toFixed(1) + " " + c1y.toFixed(2) + " " +
-        c2x.toFixed(1) + " " + c2y.toFixed(2) + " " +
-        p2.x.toFixed(1) + " " + p2.y.toFixed(2);
+      path += " L " + next.x.toFixed(1) + " " + next.y.toFixed(2);
     }
 
     svg.appendChild(node("path", {
@@ -276,7 +280,19 @@
       playhead(svg, (8 + phase * 284).toFixed(1),
         (32 - value * 22).toFixed(1), "#c8e04a", "#f4ffd0", dots);
     } else {
-      var history = (live.history[id] || []).slice(-120);
+      var history = live.history[id] || [];
+
+      if (history.length && history[0] && typeof history[0] === "object") {
+        // Timed points: keep only the part of the history inside the window,
+        // so an old point cannot land left of the card.
+        var newest = history[history.length - 1].t;
+        var start = 0;
+
+        while (start < history.length && history[start].t < newest - TRACE_WINDOW) start++;
+        history = history.slice(start);
+      } else {
+        history = history.slice(-120);
+      }
 
       if (kind === "envelope") trace(svg, history, "#35c77a", 58, 48);
       else if (kind === "random") trace(svg, history, "#ff9a3d", 32, 22);

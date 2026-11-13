@@ -476,6 +476,20 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				.split('&')
 				.find_map(|pair| pair.strip_prefix("node="))
 				.and_then(|node| node.parse::<u32>().ok());
+			let cursors: std::collections::BTreeMap<u32, u64> = query
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("since="))
+				.map(|value| {
+					value
+						.split(',')
+						.filter_map(|item| {
+							let (node, block) = item.split_once(':')?;
+
+							Some((node.parse().ok()?, block.parse().ok()?))
+						})
+						.collect()
+				})
+				.unwrap_or_default();
 			let mut scopes = Vec::new();
 
 			{
@@ -490,9 +504,13 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 					}
 
 					let (scope, _) = shared.tap_for(node.id.0);
+					let since = cursors.get(&node.id.0).copied().unwrap_or(0);
+					let (block, blocks) = scope.read_blocks_since(since, Scope::BLOCKS);
+
 					scopes.push(json!({
 						"node": node.id.0,
-						"samples": scope.read(64),
+						"blocks": blocks,
+						"block": block,
 						"phase": shared.phase_for(node.id.0),
 					}));
 				}
@@ -511,7 +529,13 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			(
 				"200 OK",
 				"application/json",
-				json!({ "rate": shared.rate, "scopes": scopes, "live": live }).to_string(),
+				json!({
+					"rate": shared.rate,
+					"block_frames": i_am_patch::block::BLOCK,
+					"scopes": scopes,
+					"live": live,
+				})
+				.to_string(),
 			)
 		}
 		("POST", "/op") => ("200 OK", "application/json", op(shared, body).to_string()),

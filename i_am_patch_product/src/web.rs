@@ -1,6 +1,9 @@
 //! The routes the patcher page owns: the catalog, the graph and the ops.
 
+use std::collections::BTreeMap;
+
 use i_am_patch::graph::{Graph, NodeId};
+use i_am_patch::scope::Scope;
 use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
 use serde_json::{Value, json};
 
@@ -180,6 +183,7 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 			// The card the page is watching rides along with the sources, so one
 			// request per tick feeds every live picture on the page.
 			let selected = query_value(request, "node").and_then(|node| node.parse::<u32>().ok());
+			let cursors = since_cursors(request);
 
 			// The page only needs the latest value of each source, so the graph is
 			// read for its ids and released; cloning it here ran a graph copy on
@@ -204,9 +208,13 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			for node in sources {
 				let (scope, _) = shared.taps_for(node);
+				let since = cursors.get(&node).copied().unwrap_or(0);
+				let (block, blocks) = scope.read_blocks_since(since, Scope::BLOCKS);
+
 				scopes.push(json!({
 					"node": node,
-					"samples": scope.read(64),
+					"blocks": blocks,
+					"block": block,
 					"phase": shared.phase_for(node),
 				}));
 			}
@@ -224,6 +232,7 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 			Some(ProtocolResponse::json(
 				json!({
 					"rate": shared.rate.load(Ordering::Relaxed),
+					"block_frames": i_am_patch::block::BLOCK,
 					"scopes": scopes,
 					"live": live,
 				})
@@ -406,6 +415,24 @@ fn query_value<'a>(request: &'a ProtocolRequest<'_>, key: &str) -> Option<&'a st
 
 		(name == key).then_some(value)
 	})
+}
+
+/// The block each source's history had reached at the page's last poll.
+fn since_cursors(request: &ProtocolRequest<'_>) -> BTreeMap<u32, u64> {
+	let mut cursors = BTreeMap::new();
+	let Some(value) = query_value(request, "since").map(i_am_web_gui::percent_decode) else {
+		return cursors;
+	};
+
+	for item in value.split(',') {
+		if let Some((node, block)) = item.split_once(':')
+			&& let (Ok(node), Ok(block)) = (node.parse::<u32>(), block.parse::<u64>())
+		{
+			cursors.insert(node, block);
+		}
+	}
+
+	cursors
 }
 
 /// The name a page sent with a file, decoded.
