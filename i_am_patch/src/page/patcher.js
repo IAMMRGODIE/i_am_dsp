@@ -53,6 +53,22 @@
   // card's hero, with the live trace and the playhead on top.
   const SOURCE_KINDS = ["lfo", "envelope", "random", "table", "pitch", "midi"];
 
+  // A source card's trace outlives the card. A rebuild happens on every
+  // parameter change, and a history kept on the entry would restart the picture
+  // from nothing under the hand.
+  const sourceHistories = new Map();
+
+  function historyOf(node) {
+    let history = sourceHistories.get(node);
+
+    if (!history) {
+      history = [];
+      sourceHistories.set(node, history);
+    }
+
+    return history;
+  }
+
   /// The mapping a MIDI source starts with: the note itself, unchanged.
   const MIDI_MAPPING = [
     { time: 0, value: 0, bend: 0 },
@@ -90,6 +106,7 @@
     } else if (kind === "midi") {
       // A mapping, not a value: the note goes in on the x axis and the control
       // value comes out on the y, like the rack's MIDI source.
+      if (dots) dots.textContent = "";
       svg.appendChild(rackNode("line", { x1: 8, y1: 60, x2: 292, y2: 60, stroke: "#333", "stroke-width": 1, "stroke-dasharray": "2 4" }));
       svg.appendChild(rackNode("line", { x1: 8, y1: 8, x2: 8, y2: 60, stroke: "#333", "stroke-width": 1, "stroke-dasharray": "2 4" }));
 
@@ -109,6 +126,22 @@
         "stroke-linecap": "round",
         "vector-effect": "non-scaling-stroke",
       }));
+
+      // The points are handles: they live in the HTML layer so the card's
+      // aspect cannot squash them, the way the LFO's own points do.
+      for (const point of curve) {
+        if (!dots) break;
+
+        const dot = document.createElement("div");
+        dot.className = "hero-pip";
+        dot.style.left = ((8 + point.time * 284) / 3).toFixed(2) + "%";
+        dot.style.top = ((60 - point.value * 52) / 0.7).toFixed(2) + "%";
+        dot.style.width = "7px";
+        dot.style.height = "7px";
+        dot.style.background = "#ffe1ea";
+        dot.style.border = "1.4px solid #ff6f91";
+        dots.appendChild(dot);
+      }
     } else {
       IAmCard.sources.drawPreview(svg, kind, {}, dots);
     }
@@ -1255,9 +1288,14 @@
   }
 
   function draw() {
-    // A context belongs to a node; one the graph no longer holds is dropped.
+    // A context and a history belong to a node; one the graph no longer holds
+    // is dropped.
     for (const id of cardContexts.keys()) {
       if (!patch.nodes.some((node) => node.id === id)) cardContexts.delete(id);
+    }
+
+    for (const id of sourceHistories.keys()) {
+      if (!patch.nodes.some((node) => node.id === id)) sourceHistories.delete(id);
     }
 
     while (svg.firstChild) svg.removeChild(svg.firstChild);
@@ -1843,7 +1881,7 @@
   // One tick for every live picture: the source cards' histories and the card
   // being watched. A picture read by the eye is enough at twenty a second, and
   // a hidden window does not need that many.
-  const LIVE_INTERVAL = 50;
+  const LIVE_INTERVAL = 20;
   const HIDDEN_INTERVAL = 150;
   let liveTimer = null;
 
@@ -1882,6 +1920,7 @@
 
         entry.samples = scope.samples || [];
         entry.phase = typeof scope.phase === "number" ? scope.phase : null;
+        entry.history = historyOf(scope.node);
 
         // The LFO editor's repaint clears the hero while dragging, which takes
         // the live layer with it; put it back before drawing into it again.
@@ -1898,12 +1937,12 @@
             entry.history = entry.history || [];
             entry.ticks = (entry.ticks || 0) + 1;
 
-            // One point per tick: a 50 ms trace, so a fast source reads as a
-            // curve rather than a staircase, over a window of about ten
-            // seconds.
+            // One point per tick: a 20 ms trace, so a fast source reads as a
+            // curve rather than a staircase, over a window of about eight
+            // seconds. The array belongs to the node, not to the card.
             entry.history.push(entry.lastValue);
 
-            if (entry.history.length > 200) entry.history.shift();
+            if (entry.history.length > 400) entry.history.shift();
           }
         }
 
