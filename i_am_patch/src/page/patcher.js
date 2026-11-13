@@ -190,6 +190,18 @@
       phases: { patch: typeof entry.phase === "number" ? entry.phase : 0 },
       values: { patch: typeof entry.lastValue === "number" ? entry.lastValue : 0 },
     }, "patch", false, entry.liveDots);
+
+    // A trace that sits at one level says nothing on its own: the number is
+    // what tells a held value from a flat line.
+    if (entry.liveDots && typeof entry.lastValue === "number") {
+      const label = document.createElement("div");
+      label.className = "hero-label";
+      label.style.left = "10px";
+      label.style.top = "auto";
+      label.style.bottom = "2px";
+      label.textContent = entry.lastValue.toFixed(2);
+      entry.liveDots.appendChild(label);
+    }
   }
 
   const CARD_HEROES = {
