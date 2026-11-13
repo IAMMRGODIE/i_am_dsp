@@ -1907,16 +1907,16 @@
 
     if (!card) return;
 
+    // A card that draws its own picture already shows the signal: a strip on top
+    // of the hero would cover the picture and say the same thing twice.
+    if (card.querySelector(".mcard-hero")) return;
 
-    const hero = card.querySelector(".mcard-hero");
-    const host = hero || card;
-
-    if (!scopeCanvas || !scopeCanvas.isConnected || scopeCanvas.parentElement !== host) {
+    if (!scopeCanvas || !scopeCanvas.isConnected || scopeCanvas.parentElement !== card) {
       scopeCanvas = document.createElement("canvas");
       scopeCanvas.className = "scope-canvas";
       scopeCanvas.width = 512;
-      scopeCanvas.height = hero ? 150 : 88;
-      host.appendChild(scopeCanvas);
+      scopeCanvas.height = 88;
+      card.appendChild(scopeCanvas);
     }
 
     const context = scopeCanvas.getContext("2d");
