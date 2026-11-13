@@ -86,7 +86,7 @@ mod strings;
 
 pub use additive::{AdditiveWeb, additive_faceplate};
 pub use canvas::{CanvasHandle, CanvasWeb, canvas_faceplate, canvas_shape};
-pub use drummer::{DrummerWeb, faceplate as drummer_faceplate};
+pub use drummer::{DrummerHandle, DrummerWeb, faceplate as drummer_faceplate};
 pub use fitted::{FittedWeb, faceplate as fitted_faceplate};
 pub use sampler::{
 	SamplerWeb, edit_slices, generate_slices, import_sample, sample_preview, sampler_faceplate,

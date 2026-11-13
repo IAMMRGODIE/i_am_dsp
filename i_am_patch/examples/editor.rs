@@ -530,6 +530,125 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				shared.slots.spectrum(node).set_json(body),
 			)
 		}
+		("GET", path) if path == "/click" || path.starts_with("/click?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.drummer(node).click_json(),
+			)
+		}
+		("POST", path) if path == "/click" || path.starts_with("/click?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.drummer(node).set_click(body_bytes),
+			)
+		}
+		("GET", path) if path == "/samples" || path.starts_with("/samples?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.drummer(node).samples_json(),
+			)
+		}
+		("POST", path) if path == "/samples" || path.starts_with("/samples?") => {
+			let query = path.split_once('?').map(|(_, query)| query).unwrap_or("");
+			let node = query
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("node="))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let slot = query
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("slot="))
+				.unwrap_or("");
+			let clear = query.split('&').any(|pair| pair == "clear=1");
+
+			(
+				"200 OK",
+				"application/json",
+				shared
+					.slots
+					.drummer(node)
+					.set_sample(body_bytes, slot, clear),
+			)
+		}
+		("GET", path) if path == "/pitch" || path.starts_with("/pitch?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.drummer(node).pitch_json(),
+			)
+		}
+		("POST", path) if path == "/pitch" || path.starts_with("/pitch?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.drummer(node).set_pitch(body_bytes),
+			)
+		}
+		("GET", path) if path == "/amp" || path.starts_with("/amp?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.drummer(node).amp_json(),
+			)
+		}
+		("POST", path) if path == "/amp" || path.starts_with("/amp?") => {
+			let query = path.split_once('?').map(|(_, query)| query).unwrap_or("");
+			let node = query
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("node="))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let drum = query
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("drum="))
+				.and_then(|value| value.parse::<usize>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.drummer(node).set_amp(body_bytes, drum),
+			)
+		}
 		("GET", path) if path == "/scope" || path.starts_with("/scope?") => {
 			let node = path
 				.split_once('?')

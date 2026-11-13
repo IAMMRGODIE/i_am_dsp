@@ -55,17 +55,147 @@ pub struct DrummerWeb {
 
 impl Default for DrummerWeb {
 	fn default() -> Self {
-		let curve = Arc::new(Mutex::new(DrumInstrument::default().pitch_curve.clone()));
+		Self::with_handle(DrummerHandle::new())
+	}
+}
+
+/// A handle to one Drummer node's click and sample slots, shared by the page
+/// and the voice. The pitch fall, the amp templates and the fitted preset stay
+/// with the node for now; the kit's click and its six slots are what its first
+/// two pages edit.
+#[derive(Clone)]
+pub struct DrummerHandle {
+	click: Arc<ClickSlot>,
+	samples: Arc<Samples>,
+	curve: Arc<Mutex<Curve>>,
+	amps: Arc<Mutex<[Curve; 6]>>,
+	snare: Arc<Mutex<SnareCurves>>,
+}
+
+impl DrummerHandle {
+	pub fn new() -> Self {
+		Self {
+			click: ClickSlot::new(),
+			samples: Samples::new(),
+			curve: Arc::new(Mutex::new(DrumInstrument::default().pitch_curve.clone())),
+			amps: Arc::new(Mutex::new(default_amp_templates())),
+			snare: Arc::new(Mutex::new(SnareCurves::default())),
+		}
+	}
+
+	/// The click, as the page draws it.
+	pub fn click_json(&self) -> String {
+		self.click.json()
+	}
+
+	/// Loads a click; answers the route.
+	pub fn set_click(&self, body: &[u8]) -> String {
+		match decode_click(body) {
+			Ok(data) => {
+				self.click.set(data);
+				"{\"ok\":true}".to_string()
+			}
+			Err(error) => format!("{{\"error\":\"{}\"}}", error.replace('"', "")),
+		}
+	}
+
+	/// The six slots, as the page draws them.
+	pub fn samples_json(&self) -> String {
+		self.samples.json()
+	}
+
+	/// Loads or clears one slot; answers the route.
+	pub fn set_sample(&self, body: &[u8], slot: &str, clear: bool) -> String {
+		let Some(drum) = slot_drum(slot) else {
+			return "{\"error\":\"slot\"}".to_string();
+		};
+
+		if clear {
+			self.samples.set(drum, None);
+			return "{\"ok\":true}".to_string();
+		}
+
+		match decode_click(body) {
+			Ok(data) => {
+				self.samples.set(drum, Some(data));
+				"{\"ok\":true}".to_string()
+			}
+			Err(error) => format!("{{\"error\":\"{}\"}}", error.replace('"', "")),
+		}
+	}
+
+	/// The kick's pitch fall, as the page draws it.
+	pub fn pitch_json(&self) -> String {
+		pitch_json(&self.curve)
+	}
+
+	/// Applies the pitch fall; answers the route.
+	pub fn set_pitch(&self, body: &[u8]) -> String {
+		let Some(text) = std::str::from_utf8(body).ok() else {
+			return "{\"error\":\"utf8\"}".to_string();
+		};
+		let Some(points) = parse_pitch(text) else {
+			return "{\"error\":\"points\"}".to_string();
+		};
+
+		if let Ok(mut shared) = self.curve.lock() {
+			*shared = points;
+		}
+
+		"{\"ok\":true}".to_string()
+	}
+
+	/// Every drum's amplitude envelope, and the snare's three.
+	pub fn amp_json(&self) -> String {
+		amp_json(&self.amps, &self.snare)
+	}
+
+	/// Applies one drum's amplitude envelope; answers the route.
+	pub fn set_amp(&self, body: &[u8], drum: usize) -> String {
+		let Some(text) = std::str::from_utf8(body).ok() else {
+			return "{\"error\":\"utf8\"}".to_string();
+		};
+		let Some(curve) = parse_amp(text) else {
+			return "{\"error\":\"points\"}".to_string();
+		};
+
+		if drum < 6 {
+			if let Ok(mut shared) = self.amps.lock() {
+				shared[drum] = curve;
+			}
+		} else if let Ok(mut shared) = self.snare.lock() {
+			match drum {
+				6 => shared.base = curve,
+				7 => shared.noise = curve,
+				8 => shared.pitch = curve,
+				_ => {}
+			}
+		}
+
+		"{\"ok\":true}".to_string()
+	}
+}
+
+impl Default for DrummerHandle {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
+impl DrummerWeb {
+	/// Builds the drummer over click and sample slots the page already holds.
+	pub fn with_handle(handle: DrummerHandle) -> Self {
+		let curve = handle.curve.clone();
 		let factory_curve = curve.clone();
-		let click = ClickSlot::new();
+		let click = handle.click.clone();
 		let factory_click = click.clone();
-		let samples = Samples::new();
+		let samples = handle.samples.clone();
 		let factory_samples = samples.clone();
 		let fit = FitSlot::new();
 		let factory_fit = fit.clone();
-		let amps = Arc::new(Mutex::new(default_amp_templates()));
+		let amps = handle.amps.clone();
 		let factory_amps = amps.clone();
-		let snare = Arc::new(Mutex::new(SnareCurves::default()));
+		let snare = handle.snare.clone();
 		let factory_snare = snare.clone();
 
 		Self {
@@ -88,6 +218,17 @@ impl Default for DrummerWeb {
 			snare,
 			bypass: Arc::new(AtomicBool::new(false)),
 			scope: Arc::new(Scope::new()),
+		}
+	}
+
+	/// The click and sample slots this instrument uses.
+	pub fn handle(&self) -> DrummerHandle {
+		DrummerHandle {
+			click: self.click.clone(),
+			samples: self.samples.clone(),
+			curve: self.curve.clone(),
+			amps: self.amps.clone(),
+			snare: self.snare.clone(),
 		}
 	}
 }
@@ -491,6 +632,18 @@ fn parse_pitch(text: &str) -> Option<Curve> {
 #[cfg(test)]
 mod route_tests {
 	use super::parse_pitch;
+
+	#[test]
+	fn a_drummer_handle_keeps_its_click_and_slots() {
+		let handle = super::DrummerHandle::new();
+
+		assert!(handle.click_json().contains("name"));
+		assert!(handle.samples_json().starts_with('['));
+		assert!(handle.pitch_json().contains("points"));
+		assert!(handle.amp_json().contains("curves"));
+		assert!(handle.set_click(b"not a wave").contains("error"));
+		assert!(handle.set_sample(b"", "kick", true).contains("ok"));
+	}
 
 	#[test]
 	fn a_ten_octave_point_survives_the_wire() {

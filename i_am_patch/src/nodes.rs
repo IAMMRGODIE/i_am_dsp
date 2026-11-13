@@ -152,7 +152,11 @@ pub fn make_with(
 					rate,
 				)),
 
-				"drummer" => Box::new(SynthNode::<DrummerWeb>::new(rate)),
+				"drummer" => Box::new(SynthNode::with_plugin(
+					DrummerWeb::with_handle(slots.drummer(node)),
+					rate,
+				)),
+
 				"fitted" => Box::new(SynthNode::with_plugin(
 					FittedWeb::with_slot(slots.fitted(node)),
 					rate,

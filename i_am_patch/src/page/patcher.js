@@ -949,6 +949,381 @@
     });
   }
 
+  /// The Drummer's click and six slots are the product's own state, so the
+  /// card asks for both and its buttons post back through the node.
+  function refreshDrummer(entry) {
+    if (!entry || entry.kind.id !== "synth:drummer") return;
+
+    Promise.all([
+      fetch("/click?node=" + entry.node.id, { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null),
+      fetch("/samples?node=" + entry.node.id, { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null),
+      fetch("/pitch?node=" + entry.node.id, { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null),
+      fetch("/amp?node=" + entry.node.id, { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null),
+    ]).then(([click, samples, pitch, amp]) => {
+      if (click) entry.context.click = click;
+      if (samples) entry.context.samples = samples;
+      if (pitch && pitch.points) entry.context.fall = pitch;
+      if (amp && amp.curves) entry.context.ampCurves = amp.curves;
+
+      if (entry.card.repaintHero) entry.card.repaintHero();
+    });
+  }
+
+  /// Where a hero's 520x160 picture sits after its meet scaling.
+  function drummerMap(hero) {
+    const svg = hero.querySelector("svg");
+
+    if (!svg) return null;
+
+    const rect = svg.getBoundingClientRect();
+
+    if (!rect.width || !rect.height) return null;
+
+    const scale = Math.min(rect.width / 520, rect.height / 160);
+
+    return {
+      scale,
+      left: rect.left + (rect.width - 520 * scale) / 2,
+      top: rect.top + (rect.height - 160 * scale) / 2,
+    };
+  }
+
+  /// The amp axis: a cymbal rings for ten seconds, the snare's pitch is short,
+  /// and every other kit piece gets at least one.
+  function drummerAmpSpan(points, drum) {
+    const last = points && points.length ? points[points.length - 1][0] : 1;
+
+    if (drum === 8) return Math.max(0.03, last * 1.1);
+    if (drum === 5) return Math.max(10, last * 1.1);
+
+    return Math.max(1, last * 1.1);
+  }
+
+  function drummerCurveBody(points) {
+    return points
+      .map((point) => point[0].toFixed(4) + ":" + point[1].toFixed(4) + ":" + (point[2] || 0).toFixed(3))
+      .join(";");
+  }
+
+  function clamp(value, low, high) {
+    return Math.min(high, Math.max(low, value));
+  }
+
+  /// A Drummer card loads a click, its slots and its curves through its own
+  /// node's routes. The buttons, rows and curve handles are one delegated
+  /// gesture on the hero, so every page the card can show is covered.
+  function wireDrummerCard(entry) {
+    if (entry.drummerWired) return;
+
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    if (!hero) return;
+
+    entry.drummerWired = true;
+
+    function finish() {
+      const drag = entry.drumDrag;
+
+      if (!drag) return;
+
+      entry.drumDrag = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+
+      const body = drummerCurveBody(drag.points);
+      const url = drag.isFall
+        ? "/pitch?node=" + entry.node.id
+        : "/amp?node=" + entry.node.id + "&drum=" + drag.drum;
+
+      fetch(url, { method: "POST", body })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((result) => {
+          if (result && result.error) showStatus(String(result.error));
+          refreshDrummer(entry);
+        })
+        .catch(() => {});
+    }
+
+    function onUp(event) {
+      finish();
+      event.preventDefault();
+    }
+
+    function onMove(event) {
+      const drag = entry.drumDrag;
+
+      if (!drag) return;
+
+      const map = drummerMap(drag.hero);
+
+      if (!map) return;
+
+      const x = (event.clientX - map.left) / map.scale;
+      const y = (event.clientY - map.top) / map.scale;
+      const points = drag.points;
+
+      if (drag.kind === "point" && drag.isFall) {
+        const time = clamp((x - 26) / 468, 0, 1) * 0.25;
+        const ratio = Math.pow(2, clamp((132 - y) / 112, 0, 1) * 10);
+        const lower = drag.index > 0 ? points[drag.index - 1][0] + 0.0005 : 0;
+        const upper = drag.index < points.length - 1 ? points[drag.index + 1][0] - 0.0005 : 0.25;
+
+        points[drag.index][0] = drag.index === 0 ? 0 : clamp(time, lower, Math.max(lower, upper));
+        points[drag.index][1] = ratio;
+      } else if (drag.kind === "point") {
+        const span = drummerAmpSpan(points, drag.drum);
+        const time = clamp((x - 26) / 468, 0, 1) * span;
+        const value = clamp((132 - y) / 112, 0, 1) * (drag.drum === 8 ? 10 : 1);
+        const lower = drag.index === 0 ? 0 : points[drag.index - 1][0] + 0.001;
+        const upper = drag.index === points.length - 1
+          ? span
+          : points[drag.index + 1][0] - 0.001;
+
+        points[drag.index][0] = clamp(time, lower, Math.max(lower, upper));
+        points[drag.index][1] = value;
+      } else {
+        const travel = (drag.startY - event.clientY) / Math.max(map.scale, 1e-6);
+
+        points[drag.index][2] = clamp(
+          drag.startBend + travel * 0.09 * drag.direction,
+          -10,
+          10,
+        );
+      }
+
+      entry.card.repaintHero();
+      event.preventDefault();
+    }
+
+    function pageCurve() {
+      const page = entry.pageName || "";
+      const isFall = page === "Kick" && (entry.context.kickMode || "pitch") !== "amp";
+      const drum = page === "Kick"
+        ? 0
+        : page === "Snare"
+          ? ({ base: 6, noise: 7, pitch: 8 }[entry.context.snareMode || "base"] ?? 6)
+          : ({ Hat: 2, Clap: 3, Tom: 4, Cymbal: 5 }[page] ?? -1);
+      const points = isFall
+        ? (entry.context.fall && entry.context.fall.points)
+        : (drum >= 0 && entry.context.ampCurves ? entry.context.ampCurves[drum] : null);
+
+      return { isFall, drum, points };
+    }
+
+    function pointOf(event, isFall, points, drum) {
+      const map = drummerMap(hero);
+
+      if (!map) return null;
+
+      const x = (event.clientX - map.left) / map.scale;
+      const y = (event.clientY - map.top) / map.scale;
+
+      if (isFall) {
+        return {
+          time: clamp((x - 26) / 468, 0, 1) * 0.25,
+          value: Math.pow(2, clamp((132 - y) / 112, 0, 1) * 10),
+        };
+      }
+
+      const span = drummerAmpSpan(points, drum);
+
+      return {
+        time: clamp((x - 26) / 468, 0, 1) * span,
+        value: clamp((132 - y) / 112, 0, 1) * (drum === 8 ? 10 : 1),
+      };
+    }
+
+    function postCurve(isFall, drum, points) {
+      const body = drummerCurveBody(points);
+      const url = isFall
+        ? "/pitch?node=" + entry.node.id
+        : "/amp?node=" + entry.node.id + "&drum=" + drum;
+
+      fetch(url, { method: "POST", body })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((result) => {
+          if (result && result.error) showStatus(String(result.error));
+          refreshDrummer(entry);
+        })
+        .catch(() => {});
+    }
+
+    hero.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+
+      const action = event.target.closest("[data-action]");
+      const load = event.target.closest("[data-load]");
+      const clear = event.target.closest("[data-clear]");
+      const kick = event.target.closest("[data-kick-mode]");
+      const snare = event.target.closest("[data-snare-mode]");
+
+      if (action && action.getAttribute("data-action") === "load") {
+        event.preventDefault();
+        pickSampleFile((file) => postDrummer(entry, "click", "", file));
+        return;
+      }
+
+      if (load) {
+        event.preventDefault();
+        const slot = load.getAttribute("data-load");
+
+        pickSampleFile((file) => postDrummer(entry, "samples", slot, file));
+        return;
+      }
+
+      if (clear) {
+        event.preventDefault();
+        const slot = clear.getAttribute("data-clear");
+
+        fetch("/samples?node=" + entry.node.id + "&slot=" + encodeURIComponent(slot) + "&clear=1", {
+          method: "POST",
+          body: "clear",
+        })
+          .then((response) => (response.ok ? response.json() : null))
+          .then(() => refreshDrummer(entry))
+          .catch(() => {});
+        return;
+      }
+
+      if (kick) {
+        entry.context.kickMode = kick.getAttribute("data-kick-mode");
+        event.preventDefault();
+        entry.card.repaintHero();
+        return;
+      }
+
+      if (snare) {
+        entry.context.snareMode = snare.getAttribute("data-snare-mode");
+        event.preventDefault();
+        entry.card.repaintHero();
+        return;
+      }
+
+      const page = entry.pageName || "";
+      const isFall = page === "Kick" && (entry.context.kickMode || "pitch") !== "amp";
+      const ampDrum = page === "Kick"
+        ? 0
+        : page === "Snare"
+          ? ({ base: 6, noise: 7, pitch: 8 }[entry.context.snareMode || "base"] ?? 6)
+          : ({ Hat: 2, Clap: 3, Tom: 4, Cymbal: 5 }[page] ?? -1);
+
+      if (!isFall && ampDrum < 0) return;
+
+      const point = event.target.closest(isFall ? "[data-point]" : "[data-amp-point]");
+      const bend = event.target.closest(isFall ? "[data-bend]" : "[data-amp-bend]");
+
+      if (!point && !bend) return;
+
+      const map = drummerMap(hero);
+
+      if (!map) return;
+
+      const points = isFall
+        ? (entry.context.fall && entry.context.fall.points)
+        : (entry.context.ampCurves && entry.context.ampCurves[ampDrum]);
+
+      if (!points) return;
+
+      const join = (point || bend).getAttribute(
+        isFall ? (point ? "data-point" : "data-bend") : (point ? "data-amp-point" : "data-amp-bend"),
+      );
+      const index = Number(join);
+
+      if (!Number.isFinite(index) || !points[index]) return;
+
+      entry.drumDrag = {
+        kind: point ? "point" : "bend",
+        isFall,
+        drum: ampDrum,
+        points,
+        index,
+        hero,
+        startY: event.clientY,
+        startBend: points[index][2] || 0,
+        direction: points[index + 1] && points[index + 1][1] > points[index][1] ? -1 : 1,
+      };
+
+      try {
+        hero.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // A synthetic pointer has nothing to capture.
+      }
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    hero.addEventListener("dblclick", (event) => {
+      const curve = pageCurve();
+
+      if (!curve.points || curve.points.length >= 10) return;
+      if (event.target.closest("[data-point],[data-bend],[data-amp-point],[data-amp-bend]")) return;
+
+      const position = pointOf(event, curve.isFall, curve.points, curve.drum);
+
+      if (!position) return;
+
+      curve.points.push([position.time, position.value, 0]);
+      curve.points.sort((a, b) => a[0] - b[0]);
+      entry.card.repaintHero();
+      postCurve(curve.isFall, curve.drum, curve.points);
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    hero.addEventListener("contextmenu", (event) => {
+      const curve = pageCurve();
+
+      if (!curve.points) return;
+
+      const target = event.target.closest(curve.isFall ? "[data-point]" : "[data-amp-point]");
+
+      if (!target) return;
+
+      const index = Number(target.getAttribute(curve.isFall ? "data-point" : "data-amp-point"));
+
+      if (!Number.isFinite(index) || curve.points.length <= 2) return;
+
+      curve.points.splice(index, 1);
+      entry.card.repaintHero();
+      postCurve(curve.isFall, curve.drum, curve.points);
+      event.preventDefault();
+      event.stopPropagation();
+    });
+  }
+
+  /// Posts one file to the click or a sample slot, then redraws the card.
+  function postDrummer(entry, route, slot, file) {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const query = "?node=" + entry.node.id + (slot ? "&slot=" + encodeURIComponent(slot) : "");
+
+      fetch("/" + route + query, { method: "POST", body: reader.result })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((result) => {
+          if (result && result.error) showStatus(String(result.error));
+          else showStatus("");
+          refreshDrummer(entry);
+        })
+        .catch(() => {});
+    };
+
+    reader.readAsArrayBuffer(file);
+  }
+
   /// Fetches what a node's slot now holds and repaints the card's picture.
   async function refreshImport(entry, path) {
     if (!entry || !entry.card || !entry.context) return;
@@ -1118,6 +1493,13 @@
       };
 
       refreshSpectrum(entry);
+    }
+
+    if (kind.id === "synth:drummer") {
+      entry.page = activePage;
+      entry.pageName = ((kind.pages || [])[activePage] || {}).name || "";
+      wireDrummerCard(entry);
+      refreshDrummer(entry);
     }
 
     entry.host.style.setProperty(

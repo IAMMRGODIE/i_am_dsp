@@ -58,6 +58,69 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			Some(ProtocolResponse::json(answer))
 		}
+		("GET", "/click") | ("POST", "/click") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let drummer = shared.slots.drummer(node);
+			let answer = if request.method == "POST" {
+				drummer.set_click(request.body)
+			} else {
+				drummer.click_json()
+			};
+
+			Some(ProtocolResponse::json(answer))
+		}
+		("GET", "/samples") | ("POST", "/samples") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let drummer = shared.slots.drummer(node);
+			let answer = if request.method == "POST" {
+				let query = request.query.unwrap_or("");
+				let slot = query
+					.split('&')
+					.find_map(|pair| pair.strip_prefix("slot="))
+					.unwrap_or("");
+				let clear = query.split('&').any(|pair| pair == "clear=1");
+
+				drummer.set_sample(request.body, slot, clear)
+			} else {
+				drummer.samples_json()
+			};
+
+			Some(ProtocolResponse::json(answer))
+		}
+		("GET", "/pitch") | ("POST", "/pitch") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let drummer = shared.slots.drummer(node);
+			let answer = if request.method == "POST" {
+				drummer.set_pitch(request.body)
+			} else {
+				drummer.pitch_json()
+			};
+
+			Some(ProtocolResponse::json(answer))
+		}
+		("GET", "/amp") | ("POST", "/amp") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let drummer = shared.slots.drummer(node);
+			let answer = if request.method == "POST" {
+				let drum = query_value(request, "drum")
+					.and_then(|value| value.parse::<usize>().ok())
+					.unwrap_or(0);
+
+				drummer.set_amp(request.body, drum)
+			} else {
+				drummer.amp_json()
+			};
+
+			Some(ProtocolResponse::json(answer))
+		}
 		("GET", "/script") | ("POST", "/script") => {
 			let node = request
 				.query
