@@ -448,11 +448,12 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   可读、可被 agent 编辑；JSON 是真相，文本是投影。
 - 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`、`/sample?node=N`；页面编辑 bump generation，
   音频线程在块边界重建引擎。
-- 文件导入走 `Slots`（按节点 id 的四种槽：拟合表、采样、波表、冲激响应）：图参数只有 f32，
-  序列化的东西进不了图，所以页面把文件 POST 到 `/sample?node=N`（Modal，拟合后放表 + 写
-  instrument/derive/transpose）、`/sampler?node=N`（Sampler）、`/waves?node=N`（Shapes）、
-  `/ir?node=N`（Convolver）。节点在**建的时候**就拿的是页面那个槽（`Slots::fitted/sample/waves/ir`），
-  所以导入下一块就生效，不需要重建；页面用同一路径 GET 回预览图来画卡片。
+- 页面状态走 `Slots`（按节点 id：拟合表、采样、波表、冲激响应、画布、频谱页、鼓手
+  click/samples/曲线、脚本）。图参数只有 f32，序列化的东西进不了图，所以页面 POST 到
+  `/sample?node=N`（Modal）、`/sampler?node=N`（Sampler）、`/waves?node=N`（Shapes）、
+  `/ir?node=N`（Convolver）、`/canvas?node=N`、`/spectrum?node=N`、
+  `/click?node=N`、`/samples?node=N`、`/pitch?node=N`、`/amp?node=N`、`/script?node=N`。
+  节点在**建的时候**就拿的是页面那个槽/句柄，所以编辑下一块就生效，不需要重建；页面用同一路径 GET 回状态。
 - 节点目录只有一份：`i_am_patch/src/catalog.rs` 的 `kinds_json()` 同时喂给编辑器 example 和
   产品的 `/catalog`；产品节点的 sections/pages/heroes/switches 从产品自己的元数据派生，
   所以产品页有的字段 patch 一定有。
@@ -464,6 +465,26 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   样式以 Multipass 的调制卡片为准；patch 只负责把节点数据喂进去。
   LFO 的点编辑也在同一份实现里：patch 直接在卡片 hero 上拖点/双击加点/右键删点，
   与 rack 的调制卡片是同一个编辑器。
+
+#### Voice 状态：参数、槽、feed
+
+一个音符会新建一份完整 `Engine`，所以“页面改了，voice 跟不跟”要分三类看：
+
+1. **参数**：走 `Poly::set_param` 的三处（外层、活 voices、`voice_graph` 模板）。这一类已经由
+   测试和 `patch: a fresh modulation starts at a musical depth` 一类工作覆盖。
+2. **槽**：页面和 voice 持有**同一个** `Arc<Mutex<...>>`/`TableSlot`。新 voice 建的时候拿到句柄，
+   已经在响的 voice 每个块读当前槽，因此天然同步；Sampler、Shapes、Fitted、Convolver、Drummer 的
+   click/samples/曲线属于这一类。
+3. **feed**：页面写整份图形/页/脚本，voice 自己缓存一份。它必须遵守 `i_am_synths/src/feed.rs` 的
+   `VoiceFeed` 契约：
+   - 新 voice 用 `current()`/`snapshot()` 出生，不能用工厂默认值；
+   - 活着的 voice 用 `generation()`/`changed()` 轮询，变了就重新加载；
+   - **不许用一次性 `pending`**：队列只能被一个 voice 取走，其余 voice 会停在旧状态。
+   Canvas、Spectrum、Script 目前都按 generation 广播；Canvas/Script 的一次性 `pending` 已删除。
+
+所以“序列化对象不能进 `ParamMap`”本身不是同步问题的根因；即使塞进去，每个 voice 仍是独立实例。
+真正要保证的是上面两条 voice 契约。每个 slot/feed 产品都应有两条测试：**改完，held voice 跟不跟**，
+以及**改完，新 voice 从新状态出生吗**。
 
 ### 6.4 `i_am_rack`（I Am Multipass）
 
