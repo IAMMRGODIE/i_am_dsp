@@ -211,7 +211,7 @@
     for (var index = 0; index < values.length; index++) {
       var x = 8 + index / (values.length - 1) * 284;
       var y = base - values[index] * height;
-      path += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+      path += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(2);
     }
 
     svg.appendChild(node("path", {

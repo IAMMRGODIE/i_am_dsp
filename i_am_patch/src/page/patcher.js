@@ -1329,10 +1329,18 @@
       const d = `M ${a.x} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${b.x} ${b.y}`;
       const index = patch.edges.indexOf(edge);
 
+      // A wire that crosses the voice boundary carries nothing: the group's
+      // audio only leaves through its own output, so the split drops the edge.
+      // Drawing it apart is what says so.
+      const voice = new Set(patch.voice || []);
+      const crossed = voice.has(edge.from[0]) !== voice.has(edge.to[0]);
+
       world.appendChild(el("path", { d, class: "wire-hit", "data-edge": index }));
       world.appendChild(el("path", {
         d,
-        class: "wire" + (selectedEdge === index ? " selected" : ""),
+        class: "wire" +
+          (crossed ? " crossed" : "") +
+          (selectedEdge === index ? " selected" : ""),
       }));
     }
 

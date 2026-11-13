@@ -39,6 +39,7 @@ header .spacer{flex:1}
 .port-label{fill:var(--text3);font-size:9px}
 .wire{fill:none;stroke:var(--wire);stroke-width:2;pointer-events:none}
 .wire.selected{stroke:var(--accent)}
+.wire.crossed{stroke:var(--text3);stroke-dasharray:2 4;opacity:.6}
 .mod{fill:none;stroke:var(--mod);stroke-width:1.4;stroke-dasharray:4 3;pointer-events:none}
 .wire-hit,.mod-hit{fill:none;stroke:transparent;stroke-width:12;cursor:pointer}
 .card-head{fill:var(--header)}
@@ -93,6 +94,7 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 .port-label{fill:var(--text3);font-size:9px}
 .wire{fill:none;stroke:var(--wire);stroke-width:2;pointer-events:none}
 .wire.selected{stroke:var(--accent)}
+.wire.crossed{stroke:var(--text3);stroke-dasharray:2 4;opacity:.6}
 .mod{fill:none;stroke:var(--mod);stroke-width:1.4;stroke-dasharray:4 3;pointer-events:none}
 .wire-hit,.mod-hit{fill:none;stroke:transparent;stroke-width:12;cursor:pointer}
 .card-head{fill:var(--header)}
