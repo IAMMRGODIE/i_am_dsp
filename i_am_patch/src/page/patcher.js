@@ -460,6 +460,25 @@
     reader.readAsArrayBuffer(file);
   }
 
+  /// The live state a card's heroes read, kept across the rebuilds of that card.
+  const cardContexts = new Map();
+
+  function contextOf(node) {
+    let context = cardContexts.get(node.id);
+
+    if (!context) {
+      context = {
+        rate: 48000,
+        scope: { input: null, output: null },
+        spectra: {},
+        eqSpectrum: {},
+      };
+      cardContexts.set(node.id, context);
+    }
+
+    return context;
+  }
+
   /// Where a press sits along a hero, as a share of it.
   function heroShare(hero, event) {
     const rect = hero.getBoundingClientRect();
@@ -705,14 +724,11 @@
       return entry.host;
     }
 
-    // The heroes that draw live data read it from here; a card that has none
-    // draws its own picture, which is what a card nobody watches looks like.
-    const context = {
-      rate: 48000,
-      scope: { input: null, output: null },
-      spectra: {},
-      eqSpectrum: {},
-    };
+    // The heroes that draw live data read it from here. The context outlives the
+    // card: a rebuild happens on every graph change, and a fresh context would
+    // flash the hero's fallback picture until the next poll filled the live one
+    // back in.
+    const context = contextOf(node);
     const importRoute = IMPORT_ROUTES[kind.id];
     const card = IAmCard.faceCard({
       face: kind,
@@ -1198,6 +1214,11 @@
   }
 
   function draw() {
+    // A context belongs to a node; one the graph no longer holds is dropped.
+    for (const id of cardContexts.keys()) {
+      if (!patch.nodes.some((node) => node.id === id)) cardContexts.delete(id);
+    }
+
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
     const world = el("g", {
@@ -1851,26 +1872,30 @@
       const response = await fetch(`/scope?node=${id}`, { cache: "no-store" });
       const data = await response.json();
       const samples = data.samples || [];
-      drawScope(id, samples);
 
       // A product card's hero draws both sides of the node, the way the product
       // page's does: the filter's spectrum sits on its response curve, with
       // what arrived at it behind what left it.
       const entry = cards[id];
 
-      if (!entry || !entry.context || !entry.card || samples.length < 2) return;
+      if (entry && entry.context && entry.card && samples.length > 1) {
+        const mono = (frames) => frames.map(([left, right]) => (left + right) * 0.5);
+        const arriving = mono(
+          (await (await fetch(`/scope?node=${id}&which=input`, { cache: "no-store" })).json()).samples || [],
+        );
 
-      const mono = (frames) => frames.map(([left, right]) => (left + right) * 0.5);
-      const arriving = mono(
-        (await (await fetch(`/scope?node=${id}&which=input`, { cache: "no-store" })).json()).samples || [],
-      );
+        // The rate the host runs at, so a spectrum lands on the right axis.
+        if (data.rate) entry.context.rate = data.rate;
 
-      // The rate the host runs at, so a spectrum lands on the right axis.
-      if (data.rate) entry.context.rate = data.rate;
+        entry.context.scope.input = arriving.length > 1 ? arriving : null;
+        entry.context.scope.output = mono(samples);
+        entry.card.repaintHero();
+      }
 
-      entry.context.scope.input = arriving.length > 1 ? arriving : null;
-      entry.context.scope.output = mono(samples);
-      entry.card.repaintHero();
+      // The strip is drawn last: repainting the hero replaces its markup, which
+      // takes the canvas with it, and drawing it first flashed the waveform on
+      // every poll.
+      drawScope(id, samples);
     } catch {
       // The page closed or the node went away; the next tick tries again.
     }
