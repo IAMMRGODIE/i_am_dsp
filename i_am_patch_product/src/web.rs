@@ -164,6 +164,10 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 		("GET", "/scopes") => {
 			use std::sync::atomic::Ordering;
 
+			// The card the page is watching rides along with the sources, so one
+			// request per tick feeds every live picture on the page.
+			let selected = query_value(request, "node").and_then(|node| node.parse::<u32>().ok());
+
 			// The page only needs the latest value of each source, so the graph is
 			// read for its ids and released; cloning it here ran a graph copy on
 			// every poll.
@@ -194,10 +198,21 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				}));
 			}
 
+			let live = selected.map(|node| {
+				let (output, input) = shared.taps_for(node);
+
+				json!({
+					"node": node,
+					"output": output.read(2048),
+					"input": input.read(2048),
+				})
+			});
+
 			Some(ProtocolResponse::json(
 				json!({
 					"rate": shared.rate.load(Ordering::Relaxed),
 					"scopes": scopes,
+					"live": live,
 				})
 				.to_string(),
 			))

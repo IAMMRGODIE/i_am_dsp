@@ -1773,25 +1773,18 @@
     if (!event.target.closest("#menu")) closeMenu();
   });
 
-  // The selected node's last output, drawn along the bottom of its card.
-  let scopeTimer = null;
+  // The card the page is watching. Its two sides ride along with the sources'
+  // rings in one request, so every live picture on the page is the same age.
   let scopeNode = null;
   let scopeCanvas = null;
 
   function stopScope() {
-    if (scopeTimer !== null) {
-      clearInterval(scopeTimer);
-      scopeTimer = null;
-    }
-
     scopeNode = null;
 
     if (scopeCanvas) {
       scopeCanvas.remove();
       scopeCanvas = null;
     }
-
-    fetch("/scope?node=0").catch(() => {});
   }
 
   function startScope(id) {
@@ -1804,30 +1797,44 @@
     if (node && CONTROL_KINDS.includes(node.kind)) return;
 
     scopeNode = id;
-    scopeTimer = setInterval(() => pollScope(id), 120);
-    pollScope(id);
   }
 
-  // The control sources' histories: the engine keeps a ring for each of them,
-  // and the page draws every one, whether it is selected or not.
-  let scopesTimer = null;
+  // One tick for every live picture: the source cards' histories and the card
+  // being watched. A picture read by the eye is enough at twenty a second, and
+  // a hidden window does not need that many.
+  const LIVE_INTERVAL = 50;
+  const HIDDEN_INTERVAL = 150;
+  let liveTimer = null;
 
   function startScopes() {
-    if (scopesTimer !== null) return;
+    if (liveTimer !== null) return;
 
-    scopesTimer = setInterval(pollScopes, 20);
-    pollScopes();
+    liveTimer = 0;
+    pollLive();
   }
 
-  async function pollScopes() {
+  async function pollLive() {
+    try {
+      const query = scopeNode === null ? "" : "?node=" + scopeNode;
+      const data = await (await fetch("/scopes" + query, { cache: "no-store" })).json();
+
+      applySourceScopes(data);
+
+      if (data.live) applyLiveScope(data.live, data.rate);
+    } catch {
+      // The next tick tries again.
+    }
+
+    liveTimer = setTimeout(pollLive, document.hidden ? HIDDEN_INTERVAL : LIVE_INTERVAL);
+  }
+
+  /// Draws the control sources' histories from one tick's payload.
+  function applySourceScopes(data) {
     // A point drag owns the card until it ends: redrawing the hero here would
     // replace the handlers the drag is using.
     if (editingPoints) return;
 
-    try {
-      const data = await (await fetch("/scopes", { cache: "no-store" })).json();
-
-      for (const scope of data.scopes || []) {
+    for (const scope of data.scopes || []) {
         const entry = cards[scope.node];
 
         if (!entry || !SOURCE_KINDS.includes(entry.kind ? entry.kind.id : "")) continue;
@@ -1860,45 +1867,36 @@
           }
         }
 
-        drawSourceLive(entry);
-      }
-    } catch {
-      // The next tick tries again.
+      drawSourceLive(entry);
     }
   }
 
-  async function pollScope(id) {
-    try {
-      const response = await fetch(`/scope?node=${id}`, { cache: "no-store" });
-      const data = await response.json();
-      const samples = data.samples || [];
+  /// Draws the card the page is watching from the same tick's payload.
+  function applyLiveScope(live, rate) {
+    const id = live.node;
+    const samples = live.output || [];
+    const arriving = live.input || [];
 
-      // A product card's hero draws both sides of the node, the way the product
-      // page's does: the filter's spectrum sits on its response curve, with
-      // what arrived at it behind what left it.
-      const entry = cards[id];
+    // A product card's hero draws both sides of the node, the way the product
+    // page's does: the filter's spectrum sits on its response curve, with
+    // what arrived at it behind what left it.
+    const entry = cards[id];
 
-      if (entry && entry.context && entry.card && samples.length > 1) {
-        const mono = (frames) => frames.map(([left, right]) => (left + right) * 0.5);
-        const arriving = mono(
-          (await (await fetch(`/scope?node=${id}&which=input`, { cache: "no-store" })).json()).samples || [],
-        );
+    if (entry && entry.context && entry.card && samples.length > 1) {
+      const mono = (frames) => frames.map(([left, right]) => (left + right) * 0.5);
 
-        // The rate the host runs at, so a spectrum lands on the right axis.
-        if (data.rate) entry.context.rate = data.rate;
+      // The rate the host runs at, so a spectrum lands on the right axis.
+      if (rate) entry.context.rate = rate;
 
-        entry.context.scope.input = arriving.length > 1 ? arriving : null;
-        entry.context.scope.output = mono(samples);
-        entry.card.repaintHero();
-      }
-
-      // The strip is drawn last: repainting the hero replaces its markup, which
-      // takes the canvas with it, and drawing it first flashed the waveform on
-      // every poll.
-      drawScope(id, samples);
-    } catch {
-      // The page closed or the node went away; the next tick tries again.
+      entry.context.scope.input = arriving.length > 1 ? mono(arriving) : null;
+      entry.context.scope.output = mono(samples);
+      entry.card.repaintHero();
     }
+
+    // The strip is drawn last: repainting the hero replaces its markup, which
+    // takes the canvas with it, and drawing it first flashed the waveform on
+    // every poll.
+    drawScope(id, samples);
   }
 
   function drawScope(id, samples) {

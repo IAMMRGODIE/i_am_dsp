@@ -461,30 +461,48 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				.to_string(),
 			)
 		}
-		("GET", "/scopes") => {
-			let graph = shared.graph.lock().expect("graph");
+		("GET", path) if path == "/scopes" || path.starts_with("/scopes?") => {
+			let query = path.split_once('?').map(|(_, query)| query).unwrap_or("");
+			let selected = query
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("node="))
+				.and_then(|node| node.parse::<u32>().ok());
 			let mut scopes = Vec::new();
 
-			for node in &graph.nodes {
-				if !matches!(
-					node.kind.id,
-					"lfo" | "envelope" | "random" | "table" | "pitch" | "midi"
-				) {
-					continue;
-				}
+			{
+				let graph = shared.graph.lock().expect("graph");
 
-				let (scope, _) = shared.tap_for(node.id.0);
-				scopes.push(json!({
-					"node": node.id.0,
-					"samples": scope.read(64),
-					"phase": shared.phase_for(node.id.0),
-				}));
+				for node in &graph.nodes {
+					if !matches!(
+						node.kind.id,
+						"lfo" | "envelope" | "random" | "table" | "pitch" | "midi"
+					) {
+						continue;
+					}
+
+					let (scope, _) = shared.tap_for(node.id.0);
+					scopes.push(json!({
+						"node": node.id.0,
+						"samples": scope.read(64),
+						"phase": shared.phase_for(node.id.0),
+					}));
+				}
 			}
+
+			let live = selected.map(|node| {
+				let (output, input) = shared.tap_for(node);
+
+				json!({
+					"node": node,
+					"output": output.read(2048),
+					"input": input.read(2048),
+				})
+			});
 
 			(
 				"200 OK",
 				"application/json",
-				json!({ "rate": shared.rate, "scopes": scopes }).to_string(),
+				json!({ "rate": shared.rate, "scopes": scopes, "live": live }).to_string(),
 			)
 		}
 		("POST", "/op") => ("200 OK", "application/json", op(shared, body).to_string()),
