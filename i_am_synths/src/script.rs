@@ -111,7 +111,6 @@ pub(crate) struct ScriptState {
 	/// The last script that compiled, kept so the page can draw its spectrum.
 	script: Option<Arc<RhaiScript>>,
 	applied: u64,
-	pending: Option<RhaiScript>,
 }
 
 /// The page's script and the audio thread's copy of it.
@@ -131,9 +130,8 @@ impl ScriptFeed {
 		// The default body is a real script, not just text: compiling it here
 		// gives the page a spectrum and the first voice something to play before
 		// anyone presses Apply.
-		let pending = RhaiScript::compile(SCRIPT_DEFAULT).ok();
-		let generation = u64::from(pending.is_some());
-		let script = pending.clone().map(Arc::new);
+		let script = RhaiScript::compile(SCRIPT_DEFAULT).ok().map(Arc::new);
+		let generation = u64::from(script.is_some());
 
 		Arc::new(Self {
 			generation: AtomicU64::new(generation),
@@ -143,29 +141,9 @@ impl ScriptFeed {
 			state: Mutex::new(ScriptState {
 				source: SCRIPT_DEFAULT.to_string(),
 				script,
-				pending,
 				..ScriptState::default()
 			}),
 		})
-	}
-
-	/// The script, if one was applied since `seen` was last updated.
-	pub(crate) fn take(&self, seen: &mut u64) -> Option<RhaiScript> {
-		let generation = self.generation.load(Ordering::Acquire);
-
-		if generation == *seen {
-			return None;
-		}
-
-		*seen = generation;
-		let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-		let script = state.pending.take();
-
-		if script.is_some() {
-			state.applied += 1;
-		}
-
-		script
 	}
 
 	/// Records the four knobs and the partial count the picture uses.
@@ -260,6 +238,16 @@ impl ScriptFeed {
 		)
 	}
 
+	/// The last script that compiled, for a voice born after an apply.
+	pub(crate) fn current_script(&self) -> Option<RhaiScript> {
+		self.state
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.script
+			.as_ref()
+			.map(|script| (**script).clone())
+	}
+
 	/// The source the feed is running.
 	pub fn source(&self) -> String {
 		self.state
@@ -280,8 +268,8 @@ impl ScriptFeed {
 					let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
 					state.source = source;
 					state.error = None;
-					state.script = Some(Arc::new(script.clone()));
-					state.pending = Some(script);
+					state.script = Some(Arc::new(script));
+					state.applied += 1;
 				}
 
 				self.generation.fetch_add(1, Ordering::Release);
@@ -364,11 +352,18 @@ impl ScriptedVoice {
 	fn new(rate: usize, feed: Arc<ScriptFeed>) -> Self {
 		feed.set_preview(|preview| preview.rate = rate);
 
-		let mut voice = Adsr::new(
-			AdditiveOsc::new(RhaiFreqGen::new(rate), 32),
-			EqualTemperament,
-			rate,
-		);
+		// A voice born after an apply starts from that script: the pending copy
+		// is for the voices that were already running when it arrived, and a new
+		// note must not fall back to the built-in one.
+		let generation = feed.generation.load(Ordering::Acquire);
+		let mut oscillator = AdditiveOsc::new(RhaiFreqGen::new(rate), 32);
+
+		if let Some(script) = feed.current_script() {
+			oscillator.freq_gen_mut().load_compiled(script);
+			oscillator.recaculate_ratio();
+		}
+
+		let mut voice = Adsr::new(oscillator, EqualTemperament, rate);
 
 		// The four knobs rebuild the wavetable through the script, so a move
 		// crossfades from the table it replaces instead of clicking.
@@ -377,7 +372,7 @@ impl ScriptedVoice {
 		Self {
 			voice,
 			feed,
-			generation: 0,
+			generation,
 		}
 	}
 }
@@ -426,10 +421,15 @@ impl Parameters for ScriptedVoice {
 
 impl Generator<2> for ScriptedVoice {
 	fn generate(&mut self, process_context: &mut Box<dyn ProcessContext>) -> [f32; 2] {
-		if let Some(script) = self.feed.take(&mut self.generation) {
+		let generation = self.feed.generation.load(Ordering::Acquire);
+
+		if generation != self.generation
+			&& let Some(script) = self.feed.current_script()
+		{
 			let oscillator = &mut self.voice.oscillator;
 			oscillator.freq_gen_mut().load_compiled(script);
 			oscillator.recaculate_ratio();
+			self.generation = generation;
 		}
 
 		let output = self.voice.generate(process_context);
@@ -604,5 +604,25 @@ impl i_am_effects::ScriptSource for ScriptFeed {
 
 	fn set_script_source(&self, source: String) {
 		let _ = self.apply(source);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_new_voice_starts_from_the_current_script() {
+		let feed = ScriptFeed::new();
+		let applied = feed.apply(
+			"let ratio = 2.0; let amplitude = 1.0; let damping = 0.0; let phase = 0.0;".to_string(),
+		);
+
+		assert!(applied.contains("\"ok\":true"), "{applied}");
+
+		let voice = ScriptedVoice::new(48_000, feed.clone());
+
+		assert_eq!(voice.generation, feed.generation.load(Ordering::Acquire));
+		assert!(feed.current_script().is_some());
 	}
 }

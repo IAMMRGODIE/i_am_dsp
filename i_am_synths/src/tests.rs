@@ -440,6 +440,56 @@ fn a_note_plays_through_the_spectrum_plugin() {
 }
 
 #[test]
+fn a_page_edit_reaches_a_held_spectrum_note() {
+	let handle = SpectrumHandle::new();
+	let mut plugin = SpectrumWeb::with_handle(handle.clone());
+	Plugin::on_activate(&mut plugin, 48_000);
+
+	let mut context: Box<dyn ProcessContext> = Box::new(TestContext {
+		events: vec![NoteEvent::NoteOn {
+			channel: 0,
+			note: 57,
+			velocity: 1.0,
+		}],
+		infos: TestContext::new().infos,
+	});
+	let mut peak = 0.0f32;
+
+	for _ in 0..2_000 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+		peak = peak.max(frame[0].abs());
+		context.clear_events();
+	}
+
+	assert!(peak > 1e-3, "the held note was silent: {peak}");
+
+	let silent = vec![SpectralFrame::new(vec![0.0; 512], vec![0.0; 512])];
+	let result = handle.set_json(&serde_json::to_string(&silent).expect("silent pages"));
+	assert!(result.contains("\"ok\":true"), "{result}");
+
+	// Let the renderer publish the new tables, then judge the tail rather than
+	// the first frames, which still belong to the old bank.
+	for _ in 0..4_000 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+	}
+
+	let mut after = 0.0f32;
+
+	for _ in 0..1_000 {
+		let mut frame = [0.0f32; 2];
+		Processor::process(&mut plugin, &mut frame, &[], &mut context);
+		after = after.max(frame[0].abs());
+	}
+
+	assert!(
+		after < peak * 0.1,
+		"the held note kept the old tables: {after} vs {peak}"
+	);
+}
+
+#[test]
 fn the_script_face_shows_the_script_panel() {
 	let face = i_am_web_gui::face_json(&ScriptWeb::new(), &script_faceplate());
 
@@ -504,12 +554,11 @@ fn the_script_routes_round_trip() {
 		String::from_utf8(script_route(&post, &feed).expect("the route").body).expect("utf-8");
 	assert!(body.contains("\"ok\":true"), "{body}");
 
-	let mut seen = 0;
 	assert!(
-		feed.take(&mut seen).is_some(),
-		"the audio thread should pick the script up"
+		feed.current_script().is_some(),
+		"every voice should see the script the page applied"
 	);
-	assert!(feed.take(&mut seen).is_none(), "and only once");
+	assert_eq!(feed.source(), source);
 }
 
 /// The body the Script page starts with has to run: a script that fails to
