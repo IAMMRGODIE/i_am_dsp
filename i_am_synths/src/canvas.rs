@@ -152,7 +152,6 @@ pub(crate) fn parse_canvas(text: &str) -> Result<Vec<StereoGenerator>, String> {
 pub(crate) struct CanvasState {
 	text: String,
 	error: Option<String>,
-	pending: Option<Vec<StereoGenerator>>,
 }
 
 /// The page's drawing and the audio thread's copy of it.
@@ -172,21 +171,6 @@ impl CanvasFeed {
 		})
 	}
 
-	pub(crate) fn take(&self, seen: &mut u64) -> Option<Vec<StereoGenerator>> {
-		let generation = self.generation.load(Ordering::Acquire);
-
-		if generation == *seen {
-			return None;
-		}
-
-		*seen = generation;
-		self.state
-			.lock()
-			.unwrap_or_else(|error| error.into_inner())
-			.pending
-			.take()
-	}
-
 	fn text(&self) -> String {
 		self.state
 			.lock()
@@ -197,12 +181,11 @@ impl CanvasFeed {
 
 	fn apply(&self, text: String) -> String {
 		match parse_canvas(&text) {
-			Ok(pages) => {
+			Ok(_pages) => {
 				{
 					let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
 					state.text = text;
 					state.error = None;
-					state.pending = Some(pages);
 				}
 
 				self.generation.fetch_add(1, Ordering::Release);
@@ -255,10 +238,26 @@ impl CanvasVoice {
 		multi.generators = parse_canvas(&feed.text()).unwrap_or_default();
 		multi.smooth_factor = 0.0;
 
+		let generation = feed.generation.load(Ordering::Acquire);
+
 		Self {
 			voice: Adsr::new(multi, EqualTemperament, rate),
 			feed,
-			generation: 0,
+			generation,
+		}
+	}
+
+	/// Applies the page's current drawing when the feed has moved since this
+	/// voice last looked. Every held voice polls the same generation, so an edit
+	/// does not belong to whichever voice happened to run first.
+	fn sync(&mut self) {
+		let generation = self.feed.generation.load(Ordering::Acquire);
+
+		if generation != self.generation
+			&& let Ok(pages) = parse_canvas(&self.feed.text())
+		{
+			self.voice.oscillator.generators = pages;
+			self.generation = generation;
 		}
 	}
 }
@@ -275,10 +274,7 @@ impl Parameters for CanvasVoice {
 
 impl Generator<2> for CanvasVoice {
 	fn generate(&mut self, process_context: &mut Box<dyn ProcessContext>) -> [f32; 2] {
-		if let Some(pages) = self.feed.take(&mut self.generation) {
-			self.voice.oscillator.generators = pages;
-		}
-
+		self.sync();
 		self.voice.generate(process_context)
 	}
 }
@@ -476,6 +472,20 @@ mod tests {
 		assert!(feed.apply(one_page).contains("\"ok\":true"));
 
 		let voice = CanvasVoice::new(48_000, feed);
+
+		assert_eq!(voice.voice.oscillator.generators.len(), 1);
+		assert_eq!(voice.voice.oscillator.generators[0].graph.len(), 4);
+	}
+
+	#[test]
+	fn a_held_voice_follows_the_page() {
+		let feed = CanvasFeed::new();
+		let mut voice = CanvasVoice::new(48_000, feed.clone());
+		let one_page = format!("1 {}", circle_tokens(0.5));
+
+		assert!(feed.apply(one_page).contains("\"ok\":true"));
+
+		voice.sync();
 
 		assert_eq!(voice.voice.oscillator.generators.len(), 1);
 		assert_eq!(voice.voice.oscillator.generators[0].graph.len(), 4);

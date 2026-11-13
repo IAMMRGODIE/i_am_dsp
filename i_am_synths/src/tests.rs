@@ -687,13 +687,6 @@ fn the_canvas_route_round_trips() {
 	let body =
 		String::from_utf8(canvas_route(&post, &feed).expect("the route").body).expect("utf-8");
 	assert!(body.contains("\"ok\":true"), "{body}");
-
-	let mut seen = 0;
-	assert!(
-		feed.take(&mut seen).is_some(),
-		"the audio thread should pick the drawing up"
-	);
-	assert!(feed.take(&mut seen).is_none(), "and only once");
 }
 
 #[test]
