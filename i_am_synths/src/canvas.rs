@@ -248,8 +248,11 @@ struct CanvasVoice {
 
 impl CanvasVoice {
 	fn new(rate: usize, feed: Arc<CanvasFeed>) -> Self {
+		// A voice born after a drag starts from the drawing the page last sent,
+		// not from the factory shape: the pending copy belongs to the voices that
+		// were already running when it arrived.
 		let mut multi = MultiStereoGenerators::new();
-		multi.generators = parse_canvas(&default_canvas_text()).unwrap_or_default();
+		multi.generators = parse_canvas(&feed.text()).unwrap_or_default();
 		multi.smooth_factor = 0.0;
 
 		Self {
@@ -464,6 +467,19 @@ impl Plugin for CanvasWeb {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_new_voice_starts_from_the_current_drawing() {
+		let feed = CanvasFeed::new();
+		let one_page = format!("1 {}", circle_tokens(0.5));
+
+		assert!(feed.apply(one_page).contains("\"ok\":true"));
+
+		let voice = CanvasVoice::new(48_000, feed);
+
+		assert_eq!(voice.voice.oscillator.generators.len(), 1);
+		assert_eq!(voice.voice.oscillator.generators[0].graph.len(), 4);
+	}
 
 	#[test]
 	fn a_canvas_handle_keeps_the_drawing_it_is_given() {
