@@ -472,9 +472,11 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 
 1. **参数**：走 `Poly::set_param` 的三处（外层、活 voices、`voice_graph` 模板）。这一类已经由
    测试和 `patch: a fresh modulation starts at a musical depth` 一类工作覆盖。
-2. **槽**：页面和 voice 持有**同一个** `Arc<Mutex<...>>`/`TableSlot`。新 voice 建的时候拿到句柄，
-   已经在响的 voice 每个块读当前槽，因此天然同步；Sampler、Shapes、Fitted、Convolver、Drummer 的
-   click/samples/曲线属于这一类。
+2. **槽**：页面和 voice 持有**同一个** `Arc<Mutex<...>>`/`TableSlot`。新 voice 建的时候拿到句柄；
+   已经响的 voice 分两种语义：
+   - **连续读取**（Sampler、Shapes、Convolver）：播放时读当前槽，held 也跟着变；
+   - **按音符快照**（Fitted、Drummer 的 click/samples）：一个音符用出生时的材料，held 保留它，改动只影响
+     下一个音符。这是采样类乐器的正常语义，不是不同步；新 voice 必须取当前快照。
 3. **feed**：页面写整份图形/页/脚本，voice 自己缓存一份。它必须遵守 `i_am_synths/src/feed.rs` 的
    `VoiceFeed` 契约：
    - 新 voice 用 `current()`/`snapshot()` 出生，不能用工厂默认值；
