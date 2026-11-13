@@ -2765,7 +2765,7 @@
     const wire = event.target.closest("[data-edge]");
     const mod = event.target.closest("[data-mod]");
 
-    if (event.target.closest(".mcard .knob, .mcard button, .mcard select, .mcard input, .mcard .mcard-select, .mcard-hero")) {
+    if (event.target.closest(".mcard .knob, .mcard button, .mcard select, .mcard input, .mcard textarea, .mcard .mcard-select, .mcard .mcard-script, .mcard-hero")) {
       return;
     }
 
