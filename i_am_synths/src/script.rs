@@ -14,7 +14,7 @@ use i_am_web_gui::{
 	Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, Switch, editor_with,
 };
 
-use super::{json_escape, play_synth};
+use super::{VoiceFeed, json_escape, play_synth};
 
 /// The scripted face's design size, in points.
 const SCRIPT_SIZE: (f32, f32) = (820.0, 420.0);
@@ -341,6 +341,12 @@ pub(crate) fn script_route(
 /// The scripted voice: the additive oscillator and the script it plays.
 type ScriptVoice = Adsr<AdditiveOsc<RhaiFreqGen, 64, 2>, EqualTemperament, 2>;
 
+impl VoiceFeed for ScriptFeed {
+	fn generation(&self) -> u64 {
+		self.generation.load(Ordering::Acquire)
+	}
+}
+
 /// The voice and the feed it takes new scripts from.
 struct ScriptedVoice {
 	voice: ScriptVoice,
@@ -352,10 +358,10 @@ impl ScriptedVoice {
 	fn new(rate: usize, feed: Arc<ScriptFeed>) -> Self {
 		feed.set_preview(|preview| preview.rate = rate);
 
-		// A voice born after an apply starts from that script: the pending copy
-		// is for the voices that were already running when it arrived, and a new
-		// note must not fall back to the built-in one.
-		let generation = feed.generation.load(Ordering::Acquire);
+		// A voice born after an apply starts from that script: every voice reads
+		// the current compiled one, so a new note cannot fall back to the
+		// built-in body.
+		let generation = feed.generation();
 		let mut oscillator = AdditiveOsc::new(RhaiFreqGen::new(rate), 32);
 
 		if let Some(script) = feed.current_script() {
@@ -421,15 +427,12 @@ impl Parameters for ScriptedVoice {
 
 impl Generator<2> for ScriptedVoice {
 	fn generate(&mut self, process_context: &mut Box<dyn ProcessContext>) -> [f32; 2] {
-		let generation = self.feed.generation.load(Ordering::Acquire);
-
-		if generation != self.generation
+		if self.feed.changed(&mut self.generation)
 			&& let Some(script) = self.feed.current_script()
 		{
 			let oscillator = &mut self.voice.oscillator;
 			oscillator.freq_gen_mut().load_compiled(script);
 			oscillator.recaculate_ratio();
-			self.generation = generation;
 		}
 
 		let output = self.voice.generate(process_context);

@@ -14,7 +14,7 @@ use i_am_web_gui::{
 	Faceplate, Page, ProtocolRequest, ProtocolResponse, Scope, Switch, editor_with,
 };
 
-use super::{json_escape, play_synth};
+use super::{VoiceFeed, json_escape, play_synth};
 
 /// The canvas face's design size, in points.
 const CANVAS_SIZE: (f32, f32) = (820.0, 420.0);
@@ -220,6 +220,12 @@ pub(crate) fn canvas_route(
 	None
 }
 
+impl VoiceFeed for CanvasFeed {
+	fn generation(&self) -> u64 {
+		self.generation.load(Ordering::Acquire)
+	}
+}
+
 /// The canvas voice: the drawn curves and the morph between them.
 type CanvasVoiceInner = Adsr<MultiStereoGenerators, EqualTemperament, 2>;
 
@@ -232,13 +238,13 @@ struct CanvasVoice {
 impl CanvasVoice {
 	fn new(rate: usize, feed: Arc<CanvasFeed>) -> Self {
 		// A voice born after a drag starts from the drawing the page last sent,
-		// not from the factory shape: the pending copy belongs to the voices that
-		// were already running when it arrived.
+		// not from the factory shape: every voice snapshots the same current
+		// state, so a new note cannot jump back to the first picture.
 		let mut multi = MultiStereoGenerators::new();
 		multi.generators = parse_canvas(&feed.text()).unwrap_or_default();
 		multi.smooth_factor = 0.0;
 
-		let generation = feed.generation.load(Ordering::Acquire);
+		let generation = feed.generation();
 
 		Self {
 			voice: Adsr::new(multi, EqualTemperament, rate),
@@ -251,13 +257,10 @@ impl CanvasVoice {
 	/// voice last looked. Every held voice polls the same generation, so an edit
 	/// does not belong to whichever voice happened to run first.
 	fn sync(&mut self) {
-		let generation = self.feed.generation.load(Ordering::Acquire);
-
-		if generation != self.generation
+		if self.feed.changed(&mut self.generation)
 			&& let Ok(pages) = parse_canvas(&self.feed.text())
 		{
 			self.voice.oscillator.generators = pages;
-			self.generation = generation;
 		}
 	}
 }

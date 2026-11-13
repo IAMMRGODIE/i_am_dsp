@@ -77,6 +77,7 @@ macro_rules! synth_product {
 mod additive;
 mod canvas;
 mod drummer;
+mod feed;
 mod fitted;
 mod sampler;
 mod script;
@@ -87,6 +88,7 @@ mod strings;
 pub use additive::{AdditiveWeb, additive_faceplate};
 pub use canvas::{CanvasHandle, CanvasWeb, canvas_faceplate, canvas_shape};
 pub use drummer::{DrummerHandle, DrummerWeb, faceplate as drummer_faceplate};
+pub use feed::VoiceFeed;
 pub use fitted::{FittedWeb, faceplate as fitted_faceplate};
 pub use sampler::{
 	SamplerWeb, edit_slices, generate_slices, import_sample, sample_preview, sampler_faceplate,
