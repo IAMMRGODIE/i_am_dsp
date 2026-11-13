@@ -2426,20 +2426,34 @@
   startScopes();
 
   load();
+
+  // The graph changes from outside the page too: the host restores its saved
+  // state, another client posts text, the fitting route writes parameters back.
+  // One small request says whether anything moved, and the graph itself is only
+  // read when it did.
+  let patchRevision = -1;
+
   setInterval(async () => {
     if (busy()) return;
 
-    const status = await fetch("/status");
+    try {
+      const state = await (await fetch("/state", { cache: "no-store" })).json();
 
-    if (status.ok) {
-      const body = await status.json();
-      serverError = body.error || "";
+      serverError = state.error || "";
       paintStatus();
-    }
 
-    const next = readPatch(await (await fetch("/patch")).json());
-    if (JSON.stringify(next) === JSON.stringify(patch)) return;
-    patch = next;
-    draw();
-  }, 1200);
+      if (state.revision === patchRevision) return;
+
+      patchRevision = state.revision;
+
+      const next = readPatch(await (await fetch("/patch", { cache: "no-store" })).json());
+
+      if (JSON.stringify(next) === JSON.stringify(patch)) return;
+
+      patch = next;
+      draw();
+    } catch {
+      // The next tick tries again.
+    }
+  }, 250);
 })();

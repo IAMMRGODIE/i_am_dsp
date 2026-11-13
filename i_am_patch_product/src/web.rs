@@ -127,6 +127,19 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				)),
 			}
 		}
+		// One small answer to "did anything change": the page polls this and only
+		// reads the whole graph when the revision moved.
+		("GET", "/state") => {
+			use std::sync::atomic::Ordering;
+
+			Some(ProtocolResponse::json(
+				json!({
+					"revision": shared.generation.load(Ordering::Relaxed),
+					"error": shared.error(),
+				})
+				.to_string(),
+			))
+		}
 		("GET", "/text") => Some(ProtocolResponse::json(json!(shared.text()).to_string())),
 		("POST", "/text") => {
 			let body = std::str::from_utf8(request.body).unwrap_or("");

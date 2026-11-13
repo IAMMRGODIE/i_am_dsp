@@ -410,6 +410,15 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			"application/json",
 			json!({ "error": shared.error.lock().expect("error").clone() }).to_string(),
 		),
+		("GET", "/state") => (
+			"200 OK",
+			"application/json",
+			json!({
+				"revision": shared.generation.load(Ordering::Relaxed),
+				"error": shared.error.lock().expect("error").clone(),
+			})
+			.to_string(),
+		),
 		("GET", "/text") => (
 			"200 OK",
 			"application/json",
