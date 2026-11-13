@@ -1528,7 +1528,39 @@
       }
     };
 
+    /// A card's action row can be painted under the SVG inside a scaled
+    /// foreignObject, so a real press lands on the picture. Match the press to
+    /// the buttons' own rectangles and hand it to the one it covers.
+    var actionAt = function (event) {
+      var buttons = el.querySelectorAll(".hero-action");
+
+      for (var i = 0; i < buttons.length; i++) {
+        var rect = buttons[i].getBoundingClientRect();
+
+        if (event.clientX >= rect.left && event.clientX <= rect.right &&
+            event.clientY >= rect.top && event.clientY <= rect.bottom) {
+          return buttons[i];
+        }
+      }
+
+      return null;
+    };
+
     svg.addEventListener("pointerdown", function (event) {
+      var button = actionAt(event);
+
+      if (button) {
+        button.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          pointerId: event.pointerId
+        }));
+        event.preventDefault();
+        return;
+      }
+
       event.preventDefault();
       el.dataset.busy = "1";
       drag = null;
