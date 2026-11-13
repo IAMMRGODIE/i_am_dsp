@@ -999,6 +999,23 @@
   }
 
   const kindOf = (id) => catalog.find((kind) => kind.id === id);
+
+  /// The depth a fresh modulation starts with, in the parameter's normalized
+  /// range. A logarithmic parameter gets about one octave; a linear one gets
+  /// half its travel, which is the unit the card's ring already works in.
+  function defaultDepth(kind, key) {
+    const meta = (kind.param_meta || []).find((item) => item.name === key);
+
+    if (!meta) return 0.5;
+
+    if (meta.log && meta.min > 0 && meta.max > meta.min) {
+      const span = Math.log(meta.max / meta.min);
+
+      if (span > 0.0001) return Math.min(0.5, Math.LN2 / span);
+    }
+
+    return 0.5;
+  }
   const nodeOf = (id) => patch.nodes.find((node) => node.id === id);
   const scaleOf = (id) => scales[id] ?? { x: 1, y: 1 };
 
@@ -2458,8 +2475,8 @@
       }
 
       if (id !== null && key) {
-        const fallback = kindOf(nodeOf(id).kind).params.find(([name]) => name === key)?.[1] ?? 1;
-        const depth = Math.max(0.1, Math.abs(fallback) * 0.5);
+        const depth = defaultDepth(kindOf(nodeOf(id).kind), key);
+
         op({ op: "modulate", from: [drag.id, drag.index], to: [id, key], depth });
       }
     } else if (drag.kind === "port") {
