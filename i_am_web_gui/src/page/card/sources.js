@@ -338,7 +338,8 @@
     }
 
     function paint() {
-      drawPreview(svg, "lfo", { points: holder.points }, options.dots);
+      if (options.paint) options.paint(holder.points);
+      else drawPreview(svg, "lfo", { points: holder.points }, options.dots);
     }
 
     var drag = null;
@@ -367,7 +368,8 @@
 
       if (point) {
         drag = { kind: "point", point: point };
-      } else {
+      } else if (options.bends !== false) {
+        // A straight mapping has no bend handles: only its points move.
         var bendPoint = bendAt(event);
 
         if (bendPoint) {

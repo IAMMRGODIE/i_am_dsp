@@ -53,6 +53,12 @@
   // card's hero, with the live trace and the playhead on top.
   const SOURCE_KINDS = ["lfo", "envelope", "random", "table", "pitch", "midi"];
 
+  /// The mapping a MIDI source starts with: the note itself, unchanged.
+  const MIDI_MAPPING = [
+    { time: 0, value: 0, bend: 0 },
+    { time: 1, value: 1, bend: 0 },
+  ];
+
   function rackNode(name, attrs) {
     const node = document.createElementNS(NS, name);
 
@@ -82,12 +88,21 @@
         morph: params.morph ?? 0,
       }, dots);
     } else if (kind === "midi") {
-      // A mapping, not a value: the note (or velocity) goes in on the x axis
-      // and the control value comes out on the y, like the product's page.
+      // A mapping, not a value: the note goes in on the x axis and the control
+      // value comes out on the y, like the rack's MIDI source.
       svg.appendChild(rackNode("line", { x1: 8, y1: 60, x2: 292, y2: 60, stroke: "#333", "stroke-width": 1, "stroke-dasharray": "2 4" }));
       svg.appendChild(rackNode("line", { x1: 8, y1: 8, x2: 8, y2: 60, stroke: "#333", "stroke-width": 1, "stroke-dasharray": "2 4" }));
+
+      const curve = points && points.length >= 2 ? points : MIDI_MAPPING;
+      let d = "";
+
+      for (const point of curve) {
+        d += (d ? " L " : "M ") + (8 + point.time * 284).toFixed(1) + " " +
+          (60 - point.value * 52).toFixed(1);
+      }
+
       svg.appendChild(rackNode("path", {
-        d: "M 8 60 L 292 8",
+        d,
         fill: "none",
         stroke: "#ff6f91",
         "stroke-width": 2,
@@ -112,17 +127,18 @@
     if (entry.liveDots) entry.liveDots.textContent = "";
 
     if (entry.kind.id === "midi") {
-      // The mapping's live dot: input equals output on the default curve.
+      // The mapping's live level: the value the node is sending right now. The
+      // note it came from is not in the tap, so the marker is a level rather
+      // than a point on the curve.
       const value = typeof entry.lastValue === "number" ? entry.lastValue : 0;
-      const x = 8 + value * 284;
       const y = 60 - value * 52;
 
-      layer.appendChild(rackNode("line", { x1: x.toFixed(1), y1: 60, x2: x.toFixed(1), y2: y.toFixed(1), stroke: "#ff6f91", "stroke-opacity": ".35", "stroke-width": 1 }));
+      layer.appendChild(rackNode("line", { x1: 8, y1: y.toFixed(1), x2: 292, y2: y.toFixed(1), stroke: "#ff6f91", "stroke-opacity": ".45", "stroke-width": 1, "stroke-dasharray": "3 4" }));
 
       if (entry.liveDots) {
         const dot = document.createElement("div");
         dot.className = "hero-pip";
-        dot.style.left = (x / 3).toFixed(2) + "%";
+        dot.style.left = (292 / 3).toFixed(2) + "%";
         dot.style.top = (y / 0.7).toFixed(2) + "%";
         dot.style.width = "7px";
         dot.style.height = "7px";
@@ -202,7 +218,9 @@
     // make the page disagree with the server on every poll.
     const points = pasted
       ? entry.node.points
-      : IAmCard.sources.preset(Math.round(params.shape ?? 0));
+      : entry.kind.id === "midi"
+        ? MIDI_MAPPING
+        : IAmCard.sources.preset(Math.round(params.shape ?? 0));
 
     svg.textContent = "";
     drawSourceStatic(svg, entry.node, entry.kind.id, dots, params, points);
@@ -211,6 +229,29 @@
       IAmCard.sources.editLfo(svg, { points: points.slice() }, {
         shape: params.shape,
         dots,
+        commit: (next) => {
+          op({
+            op: "set_points",
+            id: entry.node.id,
+            points: next.map((point) => [point.time, point.value, point.bend || 0]),
+          }, false);
+        },
+        onStart: () => { editingPoints = true; },
+        onEnd: () => { editingPoints = false; },
+      });
+    } else if (entry.kind.id === "midi") {
+      // The mapping is the node's curve: a point is a note and the value it
+      // sends, so dragging one is how the map is edited.
+      IAmCard.sources.editLfo(svg, { points: points.slice() }, {
+        bends: false,
+        dots,
+        paint: (next) => {
+          svg.textContent = "";
+          drawSourceStatic(svg, entry.node, "midi", dots, params, next);
+          entry.live = el("g", { class: "source-live" });
+          svg.appendChild(entry.live);
+          drawSourceLive(entry);
+        },
         commit: (next) => {
           op({
             op: "set_points",
@@ -1857,13 +1898,12 @@
             entry.history = entry.history || [];
             entry.ticks = (entry.ticks || 0) + 1;
 
-            // One point per four polls: a 20 ms playhead, and a window of about
-            // ten seconds, the way the rack's modulation cards read.
-            if (entry.ticks % 4 === 1) {
-              entry.history.push(entry.lastValue);
+            // One point per tick: a 50 ms trace, so a fast source reads as a
+            // curve rather than a staircase, over a window of about ten
+            // seconds.
+            entry.history.push(entry.lastValue);
 
-              if (entry.history.length > 120) entry.history.shift();
-            }
+            if (entry.history.length > 200) entry.history.shift();
           }
         }
 

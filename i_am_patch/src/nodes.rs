@@ -126,7 +126,7 @@ pub fn make_with(
 		"random" => Box::new(SourceNode::new(SourceKind::Random, rate, params, &[])),
 		"table" => Box::new(SourceNode::new(SourceKind::Table, rate, params, &[])),
 		"pitch" => Box::new(SourceNode::new(SourceKind::Pitch, rate, params, &[])),
-		"midi" => Box::new(SourceNode::new(SourceKind::Midi, rate, params, &[])),
+		"midi" => Box::new(SourceNode::new(SourceKind::Midi, rate, params, points)),
 		"envelope" => Box::new(SourceNode::new(SourceKind::Envelope, rate, params, &[])),
 		"delay" => Box::new(Delay::new()),
 		kind if kind.starts_with("synth:") => {
@@ -592,6 +592,17 @@ impl SourceNode {
 
 		for (name, value) in params {
 			node.set_param(name, *value);
+		}
+
+		// A curve pasted on a MIDI node is its note mapping: the note goes in on
+		// the x axis and the control value comes out on the y, the way the rack's
+		// MIDI source reads its own curve.
+		if kind == SourceKind::Midi && points.len() >= 2 {
+			node.settings.midi_note_curve = points
+				.iter()
+				.map(|point| (point.time.clamp(0.0, 1.0), point.value.clamp(0.0, 1.0)))
+				.collect();
+			node.dirty = true;
 		}
 
 		// Points pasted on the node override the preset shape, exactly as the
