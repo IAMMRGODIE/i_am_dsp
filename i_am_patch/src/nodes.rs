@@ -35,6 +35,11 @@ pub trait BlockNode: Send + Sync {
 		None
 	}
 
+	/// Where a MIDI source's input sits, 0..1, for its mapping picture.
+	fn midi_position(&self) -> Option<f32> {
+		None
+	}
+
 	/// The script this node runs, when its product has one. The page edits it
 	/// through the patch product's /script route.
 	fn script_source(&self) -> Option<std::sync::Arc<dyn i_am_effects::ScriptSource>> {
@@ -90,7 +95,7 @@ pub fn make(
 	params: &BTreeMap<&'static str, f32>,
 	points: &[crate::graph::Point],
 ) -> Option<Box<dyn BlockNode>> {
-	make_with(kind, 0, rate, params, points, &crate::Slots::default())
+	make_with(kind, 0, rate, params, points, &[], &crate::Slots::default())
 }
 
 /// Builds the node for a catalog kind over the slots the page already holds.
@@ -100,6 +105,7 @@ pub fn make_with(
 	rate: usize,
 	params: &BTreeMap<&'static str, f32>,
 	points: &[crate::graph::Point],
+	velocity_points: &[crate::graph::Point],
 	slots: &crate::Slots,
 ) -> Option<Box<dyn BlockNode>> {
 	let node: Box<dyn BlockNode> = match kind {
@@ -126,7 +132,11 @@ pub fn make_with(
 		"random" => Box::new(SourceNode::new(SourceKind::Random, rate, params, &[])),
 		"table" => Box::new(SourceNode::new(SourceKind::Table, rate, params, &[])),
 		"pitch" => Box::new(SourceNode::new(SourceKind::Pitch, rate, params, &[])),
-		"midi" => Box::new(SourceNode::new(SourceKind::Midi, rate, params, points)),
+		"midi" => {
+			let mut source = SourceNode::new(SourceKind::Midi, rate, params, points);
+			source.set_velocity_points(velocity_points);
+			Box::new(source)
+		}
 		"envelope" => Box::new(SourceNode::new(SourceKind::Envelope, rate, params, &[])),
 		"delay" => Box::new(Delay::new()),
 		kind if kind.starts_with("synth:") => {
@@ -596,12 +606,19 @@ impl SourceNode {
 
 		// A curve pasted on a MIDI node is its note mapping: the note goes in on
 		// the x axis and the control value comes out on the y, the way the rack's
-		// MIDI source reads its own curve.
+		// MIDI source reads its own curve. The points keep their bend, which the
+		// patch's curve evaluation applies.
 		if kind == SourceKind::Midi && points.len() >= 2 {
 			node.settings.midi_note_curve = points
 				.iter()
 				.map(|point| (point.time.clamp(0.0, 1.0), point.value.clamp(0.0, 1.0)))
 				.collect();
+			node.runtime.set_midi_note_points(
+				points
+					.iter()
+					.map(|point| (point.time, point.value, point.bend))
+					.collect(),
+			);
 			node.dirty = true;
 		}
 
@@ -619,6 +636,25 @@ impl SourceNode {
 		}
 
 		node
+	}
+
+	/// Sets the velocity mapping, which the page keeps apart from the note one.
+	fn set_velocity_points(&mut self, points: &[crate::graph::Point]) {
+		if self.kind != SourceKind::Midi || points.len() < 2 {
+			return;
+		}
+
+		self.settings.midi_velocity_curve = points
+			.iter()
+			.map(|point| (point.time.clamp(0.0, 1.0), point.value.clamp(0.0, 1.0)))
+			.collect();
+		self.runtime.set_midi_velocity_points(
+			points
+				.iter()
+				.map(|point| (point.time, point.value, point.bend))
+				.collect(),
+		);
+		self.dirty = true;
 	}
 }
 
@@ -833,6 +869,10 @@ impl BlockNode for SourceNode {
 	fn phase(&self) -> Option<f32> {
 		Some(self.runtime.phase())
 	}
+
+	fn midi_position(&self) -> Option<f32> {
+		self.runtime.midi_position()
+	}
 }
 
 /// A synth product: its notes come from the block's events, its audio out the
@@ -994,6 +1034,98 @@ mod source_tests {
 			Buffer::Control(value) => value,
 			_ => panic!("a control source writes a control buffer"),
 		}
+	}
+
+	#[test]
+	fn a_midi_source_says_where_its_input_sits() {
+		let rate = 48_000;
+		let mut node = SourceNode::new(SourceKind::Midi, rate, &BTreeMap::new(), &[]);
+		let mut context = block(rate);
+
+		context.events.push(NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 0.8,
+		});
+		run(&mut node, &mut context, 0.0);
+
+		assert!((node.midi_position().unwrap() - 60.0 / 127.0).abs() < 1e-6);
+
+		let mut params = BTreeMap::new();
+		params.insert("mode", 1.0);
+
+		let mut node = SourceNode::new(SourceKind::Midi, rate, &params, &[]);
+		let mut context = block(rate);
+
+		context.events.push(NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 0.8,
+		});
+		run(&mut node, &mut context, 0.0);
+
+		assert!((node.midi_position().unwrap() - 0.8).abs() < 1e-6);
+	}
+
+	#[test]
+	fn a_midi_note_bend_moves_the_output() {
+		let rate = 48_000;
+		let points = [
+			crate::graph::Point {
+				time: 0.0,
+				value: 0.0,
+				bend: 4.0,
+			},
+			crate::graph::Point {
+				time: 1.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+		];
+		let mut node = SourceNode::new(SourceKind::Midi, rate, &BTreeMap::new(), &points);
+		let mut context = block(rate);
+
+		context.events.push(NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 0.8,
+		});
+		let out = run(&mut node, &mut context, 0.0);
+
+		assert!(out > 0.0 && out < 60.0 / 127.0, "{out}");
+	}
+
+	#[test]
+	fn a_midi_velocity_bend_moves_the_output() {
+		let rate = 48_000;
+		let mut params = BTreeMap::new();
+		params.insert("mode", 1.0);
+
+		let points = [
+			crate::graph::Point {
+				time: 0.0,
+				value: 0.0,
+				bend: 4.0,
+			},
+			crate::graph::Point {
+				time: 1.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+		];
+		let mut node = SourceNode::new(SourceKind::Midi, rate, &params, &[]);
+
+		node.set_velocity_points(&points);
+
+		let mut context = block(rate);
+		context.events.push(NoteEvent::NoteOn {
+			channel: 0,
+			note: 60,
+			velocity: 0.8,
+		});
+		let out = run(&mut node, &mut context, 0.0);
+
+		assert!(out > 0.0 && out < 0.8, "{out}");
 	}
 
 	#[test]

@@ -65,6 +65,15 @@ pub fn to_text(graph: &Graph) -> String {
 				.collect();
 			let _ = writeln!(out, "points {} {}", node.id.0, spec.join(";"));
 		}
+
+		if !node.velocity_points.is_empty() {
+			let spec: Vec<String> = node
+				.velocity_points
+				.iter()
+				.map(|point| format!("{}:{}:{}", point.time, point.value, point.bend))
+				.collect();
+			let _ = writeln!(out, "velocity_points {} {}", node.id.0, spec.join(";"));
+		}
 	}
 
 	for link in &graph.modulations {
@@ -155,6 +164,7 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 					position: (x, y),
 					params,
 					points: Vec::new(),
+					velocity_points: Vec::new(),
 				});
 			}
 			"connect" => {
@@ -249,6 +259,25 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 
 				if !graph.set_points(NodeId(id), points) {
 					return Err(error(line, format!("no node {id}")));
+				}
+			}
+			"velocity_points" => {
+				let id = parse_id(words.next(), line)?;
+				let spec = words
+					.next()
+					.ok_or_else(|| error(line, "velocity_points needs a spec"))?;
+				let mut points = Vec::new();
+
+				for part in spec.split(';').filter(|part| !part.is_empty()) {
+					let mut fields = part.split(':');
+					let time = parse_f32(fields.next(), line)?;
+					let value = parse_f32(fields.next(), line)?;
+					let bend = parse_f32(fields.next(), line).unwrap_or(0.0);
+					points.push(crate::graph::Point { time, value, bend });
+				}
+
+				if !graph.set_velocity_points(NodeId(id), points) {
+					return Err(error(line, format!("no midi node {id}")));
 				}
 			}
 			"set" => {
@@ -383,6 +412,34 @@ mod tests {
 		}
 
 		assert!((back.get(graph.nodes[2].id).expect("gain").param("gain") - 0.5).abs() < 1e-6);
+	}
+
+	#[test]
+	fn a_velocity_curve_round_trips() {
+		let mut graph = Graph::new();
+		let midi = graph.add_node("midi", (0.0, 0.0)).expect("midi");
+
+		graph.set_velocity_points(
+			midi,
+			vec![
+				crate::graph::Point {
+					time: 0.0,
+					value: 0.0,
+					bend: 0.0,
+				},
+				crate::graph::Point {
+					time: 1.0,
+					value: 1.0,
+					bend: 0.2,
+				},
+			],
+		);
+
+		let back = from_text(&to_text(&graph)).expect("the text parses");
+		let node = back.get(midi).expect("the midi node");
+
+		assert_eq!(node.velocity_points.len(), 2);
+		assert!((node.velocity_points[1].bend - 0.2).abs() < 1e-6);
 	}
 
 	#[test]

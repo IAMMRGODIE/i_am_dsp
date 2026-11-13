@@ -605,8 +605,10 @@ pub struct NodeInstance {
 	pub position: (f32, f32),
 	/// The node's controls, keyed by the catalog's names.
 	pub params: BTreeMap<&'static str, f32>,
-	/// The points of an editable LFO, when the node is one.
+	/// The points of an editable LFO or a MIDI note mapping.
 	pub points: Vec<Point>,
+	/// The points of a MIDI velocity mapping.
+	pub velocity_points: Vec<Point>,
 }
 
 impl NodeInstance {
@@ -684,6 +686,7 @@ impl Graph {
 			position,
 			params,
 			points: Vec::new(),
+			velocity_points: Vec::new(),
 		});
 
 		Some(id)
@@ -739,13 +742,28 @@ impl Graph {
 		true
 	}
 
-	/// Replaces one node's LFO points.
+	/// Replaces one node's LFO points or MIDI note mapping.
 	pub fn set_points(&mut self, id: NodeId, points: Vec<Point>) -> bool {
 		let Some(node) = self.nodes.iter_mut().find(|node| node.id == id) else {
 			return false;
 		};
 
 		node.points = points;
+		true
+	}
+
+	/// Replaces one node's MIDI velocity mapping.
+	pub fn set_velocity_points(&mut self, id: NodeId, points: Vec<Point>) -> bool {
+		let Some(node) = self.nodes.iter_mut().find(|node| node.id == id) else {
+			return false;
+		};
+
+		if node.kind.id != "midi" {
+			return false;
+		}
+
+		node.velocity_points = points;
+
 		true
 	}
 
@@ -826,9 +844,13 @@ impl Graph {
 		node.kind = desc;
 		node.params = params;
 
-		// Only the LFO carries a pasted curve.
-		if desc.id != "lfo" {
+		// Only the LFO and the MIDI mapping carry a pasted curve.
+		if desc.id != "lfo" && desc.id != "midi" {
 			node.points.clear();
+		}
+
+		if desc.id != "midi" {
+			node.velocity_points.clear();
 		}
 
 		let survives = |old: &[PortDesc], new: &[PortDesc], index: usize| {

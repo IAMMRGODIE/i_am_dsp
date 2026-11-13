@@ -560,6 +560,7 @@ mod tests {
 			position: (0.0, 0.0),
 			params: std::collections::BTreeMap::new(),
 			points: Vec::new(),
+			velocity_points: Vec::new(),
 		});
 
 		assert_eq!(compile(&graph), Err(CompileError::DuplicateId(gain)));

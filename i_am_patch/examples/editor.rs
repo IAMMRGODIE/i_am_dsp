@@ -63,6 +63,7 @@ fn patch_json(graph: &Graph) -> Value {
 			"y": node.position.1,
 			"params": node.params.iter().map(|(key, value)| (key.to_string(), json!(value))).collect::<serde_json::Map<_, _>>(),
 			"points": node.points.iter().map(|point| json!([point.time, point.value, point.bend])).collect::<Vec<_>>(),
+			"velocity_points": node.velocity_points.iter().map(|point| json!([point.time, point.value, point.bend])).collect::<Vec<_>>(),
 		})).collect::<Vec<_>>(),
 		"voice": i_am_patch::compile::voice_group(graph)
 			.iter()
@@ -96,6 +97,7 @@ struct Shared {
 	rate: usize,
 	taps: Taps,
 	phases: Arc<Mutex<Vec<(u32, f32)>>>,
+	midi_inputs: Arc<Mutex<Vec<(u32, f32)>>>,
 	error: Arc<Mutex<Option<String>>>,
 	/// What the page handed the nodes; the demo graph has none.
 	slots: i_am_patch::Slots,
@@ -146,6 +148,27 @@ impl Shared {
 			.find(|(id, _)| *id == node)
 			.map(|(_, phase)| *phase)
 	}
+
+	fn set_midi_input(&self, node: u32, position: f32) {
+		let Ok(mut inputs) = self.midi_inputs.try_lock() else {
+			return;
+		};
+
+		if let Some(entry) = inputs.iter_mut().find(|(id, _)| *id == node) {
+			entry.1 = position;
+		} else {
+			inputs.push((node, position));
+		}
+	}
+
+	fn midi_input_for(&self, node: u32) -> Option<f32> {
+		self.midi_inputs
+			.lock()
+			.expect("midi inputs")
+			.iter()
+			.find(|(id, _)| *id == node)
+			.map(|(_, position)| *position)
+	}
 }
 
 fn main() {
@@ -155,6 +178,7 @@ fn main() {
 		rate: 48_000,
 		taps: Arc::new(Mutex::new(Vec::new())),
 		phases: Arc::new(Mutex::new(Vec::new())),
+		midi_inputs: Arc::new(Mutex::new(Vec::new())),
 		error: Arc::new(Mutex::new(None)),
 		slots: Default::default(),
 		edits: Arc::new(Mutex::new(Vec::new())),
@@ -288,6 +312,10 @@ fn spawn_audio(shared: Shared) {
 					if let Some(phase) = poly.control_phase(NodeId(*node)) {
 						shared.set_phase(*node, phase);
 					}
+
+					if let Some(position) = poly.midi_position(NodeId(*node)) {
+						shared.set_midi_input(*node, position);
+					}
 				}
 			} else if let Some(engine) = &mut engine {
 				engine.set_transport(
@@ -320,6 +348,13 @@ fn spawn_audio(shared: Shared) {
 						.and_then(|step| engine.control_phase(step))
 					{
 						shared.set_phase(*node, phase);
+					}
+
+					if let Some(position) = engine
+						.step_of(id)
+						.and_then(|step| engine.midi_position(step))
+					{
+						shared.set_midi_input(*node, position);
 					}
 				}
 			}
@@ -512,6 +547,7 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 						"blocks": blocks,
 						"block": block,
 						"phase": shared.phase_for(node.id.0),
+						"input": shared.midi_input_for(node.id.0),
 					}));
 				}
 			}
@@ -707,7 +743,13 @@ fn op_graph(shared: &Shared, value: &Value) -> Value {
 				}
 			}
 
-			json!({ "ok": graph.set_points(id, points) })
+			let ok = if value["curve"].as_str() == Some("velocity") {
+				graph.set_velocity_points(id, points)
+			} else {
+				graph.set_points(id, points)
+			};
+
+			json!({ "ok": ok })
 		}
 		"mod_mode" => {
 			let done = graph.set_modulation_mode(

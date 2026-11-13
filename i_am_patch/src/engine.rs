@@ -82,6 +82,7 @@ pub struct Engine {
 	controls: Vec<Vec<f32>>,
 	base: Vec<BTreeMap<&'static str, f32>>,
 	points: Vec<Vec<crate::graph::Point>>,
+	velocity_points: Vec<Vec<crate::graph::Point>>,
 	/// What the page handed the nodes: fitted tables, samples, responses.
 	slots: crate::Slots,
 	output_step: Option<usize>,
@@ -141,6 +142,7 @@ impl Engine {
 		let mut controls = Vec::with_capacity(plan.order.len());
 		let mut base = Vec::with_capacity(plan.order.len());
 		let mut points = Vec::with_capacity(plan.order.len());
+		let mut velocity_points = Vec::with_capacity(plan.order.len());
 		let mut output_step = None;
 
 		for (step, id) in plan.order.iter().enumerate() {
@@ -157,6 +159,7 @@ impl Engine {
 					rate,
 					&instance.params,
 					&instance.points,
+					&instance.velocity_points,
 					slots,
 				)
 				.ok_or_else(|| EngineError::UnknownKind(kind.id.to_string()))?,
@@ -174,6 +177,7 @@ impl Engine {
 			controls.push(vec![0.0; kind.outputs.len()]);
 			base.push(instance.params.clone());
 			points.push(instance.points.clone());
+			velocity_points.push(instance.velocity_points.clone());
 
 			let mut node_inputs = Vec::with_capacity(kind.inputs.len());
 			for port in kind.inputs {
@@ -264,6 +268,7 @@ impl Engine {
 			controls,
 			base,
 			points,
+			velocity_points,
 			slots: slots.clone(),
 			output_step,
 			latency,
@@ -325,6 +330,11 @@ impl Engine {
 	/// Where a source's cycle is, for the page's playhead.
 	pub fn control_phase(&self, step: usize) -> Option<f32> {
 		self.nodes.get(step).and_then(|node| node.phase())
+	}
+
+	/// Where a MIDI source's input sits, for its card's mapping point.
+	pub fn midi_position(&self, step: usize) -> Option<f32> {
+		self.nodes.get(step).and_then(|node| node.midi_position())
 	}
 
 	/// The step a node ended up on.
@@ -489,6 +499,7 @@ impl Engine {
 					self.rate,
 					&self.base[step],
 					&self.points[step],
+					&self.velocity_points[step],
 					&self.slots,
 				) {
 					self.nodes[step] = node;

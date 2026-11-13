@@ -37,6 +37,10 @@ pub(crate) struct SourceRuntime {
 	pitch_value: f32,
 	midi_note: f32,
 	midi_velocity: f32,
+	/// The patch's MIDI mappings, which carry a bend; the rack's settings
+	/// curves are flat pairs and leave these empty.
+	midi_note_points: Vec<(f32, f32, f32)>,
+	midi_velocity_points: Vec<(f32, f32, f32)>,
 }
 
 impl SourceRuntime {
@@ -68,6 +72,8 @@ impl SourceRuntime {
 			pitch_value: 0.0,
 			midi_note: 0.0,
 			midi_velocity: 0.0,
+			midi_note_points: Vec::new(),
+			midi_velocity_points: Vec::new(),
 		};
 
 		runtime.update_settings(kind, bypass, settings, rate);
@@ -226,19 +232,24 @@ impl SourceRuntime {
 			SourceKind::Pitch => self.pitch_value.clamp(0.0, 1.0),
 			SourceKind::Midi => {
 				if self.settings.midi_mode == 1 {
-					curve_value(
-						&self.settings.midi_velocity_curve,
-						self.midi_velocity.clamp(0.0, 1.0),
-					)
+					let x = self.midi_velocity.clamp(0.0, 1.0);
+
+					if self.midi_velocity_points.is_empty() {
+						curve_value(&self.settings.midi_velocity_curve, x)
+					} else {
+						curve_value_bend(&self.midi_velocity_points, x)
+					}
 				} else {
 					let note = self.midi_note
 						+ self.settings.midi_transpose as f32
 						+ self.settings.midi_fine / 100.0;
+					let x = (note / 127.0).clamp(0.0, 1.0);
 
-					curve_value(
-						&self.settings.midi_note_curve,
-						(note / 127.0).clamp(0.0, 1.0),
-					)
+					if self.midi_note_points.is_empty() {
+						curve_value(&self.settings.midi_note_curve, x)
+					} else {
+						curve_value_bend(&self.midi_note_points, x)
+					}
 				}
 			}
 		}
@@ -250,6 +261,35 @@ impl SourceRuntime {
 			SourceKind::Table => self.table_phase,
 			_ => 0.0,
 		}
+	}
+
+	/// Keeps the patch's note mapping, with its bends.
+	pub(crate) fn set_midi_note_points(&mut self, points: Vec<(f32, f32, f32)>) {
+		self.midi_note_points = points;
+	}
+
+	/// Keeps the patch's velocity mapping, with its bends.
+	pub(crate) fn set_midi_velocity_points(&mut self, points: Vec<(f32, f32, f32)>) {
+		self.midi_velocity_points = points;
+	}
+
+	/// Where a MIDI source's input sits, 0..1, for its mapping picture.
+	///
+	/// Note mode reports the transposed note over 127; velocity mode reports
+	/// the velocity itself. Every other source has no input to place.
+	pub(crate) fn midi_position(&self) -> Option<f32> {
+		if self.kind != SourceKind::Midi {
+			return None;
+		}
+
+		if self.settings.midi_mode == 1 {
+			return Some(self.midi_velocity.clamp(0.0, 1.0));
+		}
+
+		let note =
+			self.midi_note + self.settings.midi_transpose as f32 + self.settings.midi_fine / 100.0;
+
+		Some((note / 127.0).clamp(0.0, 1.0))
 	}
 }
 
@@ -365,6 +405,42 @@ fn curve_value(points: &[(f32, f32)], x: f32) -> f32 {
 	points.last().map_or(x, |point| point.1.clamp(0.0, 1.0))
 }
 
+/// Piecewise map through sorted x/y/bend points.
+fn curve_value_bend(points: &[(f32, f32, f32)], x: f32) -> f32 {
+	if points.is_empty() {
+		return x.clamp(0.0, 1.0);
+	}
+
+	let x = x.clamp(0.0, 1.0);
+
+	if x <= points[0].0 {
+		return points[0].1.clamp(0.0, 1.0);
+	}
+
+	for pair in points.windows(2) {
+		let (x0, y0, bend) = pair[0];
+		let (x1, y1, _) = pair[1];
+
+		if x <= x1 {
+			let span = (x1 - x0).max(1e-6);
+			let unit = ((x - x0) / span).clamp(0.0, 1.0);
+
+			return (y0 + (y1 - y0) * bend_unit(unit, bend)).clamp(0.0, 1.0);
+		}
+	}
+
+	points.last().map_or(x, |point| point.1.clamp(0.0, 1.0))
+}
+
+/// The curve's unit position inside one segment, bent toward either end.
+fn bend_unit(t: f32, bend: f32) -> f32 {
+	if bend.abs() < 1e-4 {
+		t
+	} else {
+		((t * bend).exp() - 1.0) / (bend.exp() - 1.0)
+	}
+}
+
 /// A source rate in hertz, optionally read as a musical period by [`SyncedTime`].
 fn source_rate(rate: f32, sync: bool, beats: f32, infos: &ProcessInfos) -> f32 {
 	SyncedTime { sync, beats }
@@ -384,4 +460,24 @@ fn editable_lfo(points: &[(f32, f32, f32)]) -> EditableLfo {
 	}
 
 	lfo
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_midi_bend_pulls_the_curve_between_its_points() {
+		let points = [(0.0, 0.0, 4.0), (1.0, 1.0, 0.0)];
+		let value = curve_value_bend(&points, 0.5);
+
+		assert!(value > 0.0 && value < 0.5, "{value}");
+	}
+
+	#[test]
+	fn a_flat_bend_is_the_straight_line() {
+		let points = [(0.0, 0.0, 0.0), (1.0, 1.0, 0.0)];
+
+		assert!((curve_value_bend(&points, 0.25) - 0.25).abs() < 1e-6);
+	}
 }

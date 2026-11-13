@@ -115,11 +115,24 @@
       svg.appendChild(rackNode("line", { x1: 8, y1: 8, x2: 8, y2: 60, stroke: "#333", "stroke-width": 1, "stroke-dasharray": "2 4" }));
 
       const curve = points && points.length >= 2 ? points : MIDI_MAPPING;
+      const bend = IAmCard.sources.bend;
       let d = "";
 
-      for (const point of curve) {
-        d += (d ? " L " : "M ") + (8 + point.time * 284).toFixed(1) + " " +
-          (60 - point.value * 52).toFixed(1);
+      // The segment bends toward its end value, so the picture and the engine
+      // read the same curve. A straight segment is just the same formula with
+      // a zero bend.
+      for (let index = 0; index < curve.length - 1; index++) {
+        const from = curve[index];
+        const to = curve[index + 1];
+
+        for (let step = 0; step <= 14; step++) {
+          const unit = step / 14;
+          const time = from.time + (to.time - from.time) * unit;
+          const value = from.value + (to.value - from.value) * bend(unit, from.bend || 0);
+
+          d += (d ? " L " : "M ") + (8 + time * 284).toFixed(1) + " " +
+            (60 - value * 52).toFixed(1);
+        }
       }
 
       svg.appendChild(rackNode("path", {
@@ -146,6 +159,27 @@
         dot.style.border = "1.4px solid #ff6f91";
         dots.appendChild(dot);
       }
+
+      // A hollow dot at each segment's middle is the bend handle; editLfo's
+      // bendAt finds it at the same place.
+      for (let index = 0; index < curve.length - 1; index++) {
+        if (!dots) break;
+
+        const from = curve[index];
+        const to = curve[index + 1];
+        const time = (from.time + to.time) / 2;
+        const value = from.value + (to.value - from.value) * bend(0.5, from.bend || 0);
+        const handle = document.createElement("div");
+
+        handle.className = "hero-pip";
+        handle.style.left = ((8 + time * 284) / 3).toFixed(2) + "%";
+        handle.style.top = ((60 - value * 52) / 0.7).toFixed(2) + "%";
+        handle.style.width = "5px";
+        handle.style.height = "5px";
+        handle.style.background = "transparent";
+        handle.style.border = "1.2px solid #ff9ab0";
+        dots.appendChild(handle);
+      }
     } else {
       IAmCard.sources.drawPreview(svg, kind, {}, dots);
     }
@@ -164,24 +198,51 @@
     if (entry.liveDots) entry.liveDots.textContent = "";
 
     if (entry.kind.id === "midi") {
-      // The mapping's live level: the value the node is sending right now. The
-      // note it came from is not in the tap, so the marker is a level rather
-      // than a point on the curve.
+      // The mapping is note or velocity -> value: the live mark is the point
+      // where the input the node is reading meets the value it sends. The
+      // crosshair ties that point back to both axes.
       const value = typeof entry.lastValue === "number" ? entry.lastValue : 0;
       const y = 60 - value * 52;
+      const input = typeof entry.input === "number" ? entry.input : null;
+      const x = input === null ? null : 8 + input * 284;
 
-      layer.appendChild(rackNode("line", { x1: 8, y1: y.toFixed(1), x2: 292, y2: y.toFixed(1), stroke: "#ff6f91", "stroke-opacity": ".45", "stroke-width": 1, "stroke-dasharray": "3 4" }));
+      if (x !== null) {
+        layer.appendChild(rackNode("line", { x1: x.toFixed(1), y1: 8, x2: x.toFixed(1), y2: 60, stroke: "#ff6f91", "stroke-opacity": ".22", "stroke-width": 1, "stroke-dasharray": "3 4" }));
+      }
+
+      layer.appendChild(rackNode("line", { x1: 8, y1: y.toFixed(1), x2: 292, y2: y.toFixed(1), stroke: "#ff6f91", "stroke-opacity": ".38", "stroke-width": 1, "stroke-dasharray": "3 4" }));
 
       if (entry.liveDots) {
         const dot = document.createElement("div");
         dot.className = "hero-pip";
-        dot.style.left = (292 / 3).toFixed(2) + "%";
+        dot.style.left = ((x === null ? 292 : x) / 3).toFixed(2) + "%";
         dot.style.top = (y / 0.7).toFixed(2) + "%";
         dot.style.width = "7px";
         dot.style.height = "7px";
-        dot.style.background = "#ffe1ea";
-        dot.style.border = "1.4px solid #ff6f91";
+        // The mapping's own points are light handles with a pink ring; the
+        // live point is solid so the two do not read as the same mark.
+        dot.style.background = "#ff6f91";
+        dot.style.border = "1.4px solid #1a1a1a";
         entry.liveDots.appendChild(dot);
+
+        // The level line is a bare height; the number makes it a value, as the
+        // other source cards' live label does.
+        if (typeof entry.lastValue === "number") {
+          const label = document.createElement("div");
+          label.className = "hero-label";
+          label.style.left = "10px";
+          label.style.top = "auto";
+          label.style.bottom = "2px";
+
+          // The mapping's input is a MIDI number (a note or a velocity), and
+          // the output is the value it sends; both in one readout.
+          const input = typeof entry.input === "number"
+            ? Math.round(entry.input * 127) + " · "
+            : "";
+
+          label.textContent = input + entry.lastValue.toFixed(2);
+          entry.liveDots.appendChild(label);
+        }
       }
 
       return;
@@ -261,12 +322,17 @@
     if (dots) dots.textContent = "";
 
     const params = Object.assign({}, (entry.node && entry.node.params) || {}, values || {});
-    const pasted = entry.node && entry.node.points && entry.node.points.length >= 2;
+    const midiMode = Math.round(params.mode ?? 0);
+    const velocity = entry.kind.id === "midi" && midiMode === 1;
+    const active = entry.kind.id === "midi"
+      ? ((entry.node && (velocity ? entry.node.velocity_points : entry.node.points)) || [])
+      : ((entry.node && entry.node.points) || []);
+    const pasted = active.length >= 2;
     // A pasted curve wins; otherwise the shape decides. The derived curve stays
     // local: writing it back into the node would outrank the shape for good and
     // make the page disagree with the server on every poll.
     const points = pasted
-      ? entry.node.points
+      ? active
       : entry.kind.id === "midi"
         ? MIDI_MAPPING
         : IAmCard.sources.preset(Math.round(params.shape ?? 0));
@@ -289,10 +355,10 @@
         onEnd: () => { editingPoints = false; },
       });
     } else if (entry.kind.id === "midi") {
-      // The mapping is the node's curve: a point is a note and the value it
-      // sends, so dragging one is how the map is edited.
+      // The mapping is the node's curve: a point is a note (or a velocity) and
+      // the value it sends, so dragging one is how the map is edited. The two
+      // modes keep separate point lists; the bend edits the segment after it.
       IAmCard.sources.editLfo(svg, { points: points.slice() }, {
-        bends: false,
         dots,
         paint: (next) => {
           svg.textContent = "";
@@ -305,6 +371,7 @@
           op({
             op: "set_points",
             id: entry.node.id,
+            curve: velocity ? "velocity" : "note",
             points: next.map((point) => [point.time, point.value, point.bend || 0]),
           }, false);
         },
@@ -314,6 +381,11 @@
     }
 
     // Last, so the editor's repaint of the points does not erase the playhead.
+    // A MIDI card's editor paints its own live layer while it draws the
+    // mapping; drop that one before adding the layer the poll updates, or the
+    // old level line stays frozen under the moving one.
+    for (const stale of svg.querySelectorAll(".source-live")) stale.remove();
+
     entry.live = el("g", { class: "source-live" });
     svg.appendChild(entry.live);
     drawSourceLive(entry);
@@ -1014,6 +1086,11 @@
           ? { time: point[0], value: point[1], bend: point[2] || 0 }
           : point
       ));
+      node.velocity_points = (node.velocity_points || []).map((point) => (
+        Array.isArray(point)
+          ? { time: point[0], value: point[1], bend: point[2] || 0 }
+          : point
+      ));
     }
 
     return patch;
@@ -1129,6 +1206,7 @@
           y: node.y,
           params: Object.entries(node.params || {}),
           points: (node.points || []).map((point) => [point.time, point.value, point.bend || 0]),
+          velocity_points: (node.velocity_points || []).map((point) => [point.time, point.value, point.bend || 0]),
         };
       }),
       edges: patch.edges
@@ -1178,7 +1256,11 @@
         }
 
         if (item.points.length) {
-          await op({ op: "set_points", id, points: item.points }, false);
+          await op({ op: "set_points", id, points: item.points, curve: "note" }, false);
+        }
+
+        if (item.velocity_points && item.velocity_points.length) {
+          await op({ op: "set_points", id, points: item.velocity_points, curve: "velocity" }, false);
         }
       }
 
@@ -1977,6 +2059,7 @@
       if (!entry || !SOURCE_KINDS.includes(entry.kind ? entry.kind.id : "")) continue;
 
       entry.phase = typeof scope.phase === "number" ? scope.phase : null;
+      entry.input = typeof scope.input === "number" ? scope.input : null;
       entry.history = historyOf(scope.node);
 
       // The LFO editor's repaint clears the hero while dragging, which takes

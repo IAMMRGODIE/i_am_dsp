@@ -24,6 +24,8 @@ pub struct PatcherShared {
 	pub taps: Mutex<Vec<Tap>>,
 	/// The phase each watched source is at, for the card's playhead.
 	pub phases: Mutex<Vec<(u32, f32)>>,
+	/// Where each watched MIDI source's input sits, for its mapping point.
+	pub midi_inputs: Mutex<Vec<(u32, f32)>>,
 	/// The last compile error, for the page's status bar.
 	pub error: Mutex<Option<String>>,
 	/// The scripts the running nodes own, by node id, for the page's editor.
@@ -56,6 +58,7 @@ impl Default for PatcherShared {
 			latency: AtomicUsize::new(0),
 			taps: Mutex::new(Vec::new()),
 			phases: Mutex::new(Vec::new()),
+			midi_inputs: Mutex::new(Vec::new()),
 			error: Mutex::new(None),
 			scripts: Default::default(),
 			slots: Default::default(),
@@ -133,6 +136,30 @@ impl PatcherShared {
 			.iter()
 			.find(|(id, _)| *id == node)
 			.map(|(_, phase)| *phase)
+	}
+
+	/// Records where a MIDI source's input sits.
+	pub fn set_midi_input(&self, node: u32, position: f32) {
+		// The audio thread must not wait for the page, like a phase.
+		let Ok(mut inputs) = self.midi_inputs.try_lock() else {
+			return;
+		};
+
+		if let Some(entry) = inputs.iter_mut().find(|(id, _)| *id == node) {
+			entry.1 = position;
+		} else {
+			inputs.push((node, position));
+		}
+	}
+
+	/// Where a MIDI source's input sits, if the page is watching it.
+	pub fn midi_input_for(&self, node: u32) -> Option<f32> {
+		self.midi_inputs
+			.lock()
+			.expect("the midi input lock")
+			.iter()
+			.find(|(id, _)| *id == node)
+			.map(|(_, position)| *position)
 	}
 
 	/// The watched nodes, copied into the output list without waiting.
@@ -448,6 +475,22 @@ impl Body {
 
 				if let Some(phase) = phase {
 					self.shared.set_phase(*node, phase);
+				}
+
+				let midi = self
+					.poly
+					.as_ref()
+					.and_then(|poly| poly.midi_position(id))
+					.or_else(|| {
+						self.engine.as_ref().and_then(|engine| {
+							engine
+								.step_of(id)
+								.and_then(|step| engine.midi_position(step))
+						})
+					});
+
+				if let Some(position) = midi {
+					self.shared.set_midi_input(*node, position);
 				}
 			}
 		}

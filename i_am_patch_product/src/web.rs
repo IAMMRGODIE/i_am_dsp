@@ -216,6 +216,7 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 					"blocks": blocks,
 					"block": block,
 					"phase": shared.phase_for(node),
+					"input": shared.midi_input_for(node),
 				}));
 			}
 
@@ -458,6 +459,7 @@ pub fn patch_json(graph: &Graph) -> String {
 			"y": node.position.1,
 			"params": node.params.iter().map(|(key, value)| (key.to_string(), json!(value))).collect::<serde_json::Map<_, _>>(),
 			"points": node.points.iter().map(|point| json!([point.time, point.value, point.bend])).collect::<Vec<_>>(),
+			"velocity_points": node.velocity_points.iter().map(|point| json!([point.time, point.value, point.bend])).collect::<Vec<_>>(),
 		})).collect::<Vec<_>>(),
 		"voice": i_am_patch::compile::voice_group(graph)
 			.iter()
@@ -554,7 +556,13 @@ fn op(shared: &PatcherShared, body: &str) -> Value {
 				}
 			}
 
-			json!({ "ok": graph.set_points(id, points) })
+			let ok = if value["curve"].as_str() == Some("velocity") {
+				graph.set_velocity_points(id, points)
+			} else {
+				graph.set_points(id, points)
+			};
+
+			json!({ "ok": ok })
 		}
 		"mod_mode" => {
 			let done = graph.set_modulation_mode(

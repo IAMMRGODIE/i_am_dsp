@@ -169,6 +169,7 @@ impl Poly {
 			position: (0.0, 0.0),
 			params: BTreeMap::new(),
 			points: Vec::new(),
+			velocity_points: Vec::new(),
 		});
 
 		for edge in &graph.edges {
@@ -256,6 +257,21 @@ impl Poly {
 						.engine
 						.step_of(id)
 						.and_then(|step| voice.engine.control_phase(step))
+				})
+			})
+	}
+
+	/// Where a MIDI source's input sits, for its card's mapping point.
+	pub fn midi_position(&self, id: NodeId) -> Option<f32> {
+		self.outer
+			.step_of(id)
+			.and_then(|step| self.outer.midi_position(step))
+			.or_else(|| {
+				self.voices.iter().rev().find_map(|voice| {
+					voice
+						.engine
+						.step_of(id)
+						.and_then(|step| voice.engine.midi_position(step))
 				})
 			})
 	}
