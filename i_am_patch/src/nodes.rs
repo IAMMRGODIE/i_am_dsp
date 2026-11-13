@@ -147,7 +147,11 @@ pub fn make_with(
 
 			match &kind[6..] {
 				"additive" => Box::new(SynthNode::<AdditiveWeb>::new(rate)),
-				"canvas" => Box::new(SynthNode::<CanvasWeb>::new(rate)),
+				"canvas" => Box::new(SynthNode::with_plugin(
+					CanvasWeb::with_handle(slots.canvas(node)),
+					rate,
+				)),
+
 				"drummer" => Box::new(SynthNode::<DrummerWeb>::new(rate)),
 				"fitted" => Box::new(SynthNode::with_plugin(
 					FittedWeb::with_slot(slots.fitted(node)),

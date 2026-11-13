@@ -742,7 +742,10 @@
       return choice;
     }
 
-    return makeKnob(spec, value, onEdit).el;
+    var knob = makeKnob(spec, value, onEdit);
+    knob.el.__set = knob.set;
+
+    return knob.el;
   }
 
   /// One control with its modulation ring: the assignments it shows and the

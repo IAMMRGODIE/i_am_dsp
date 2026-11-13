@@ -304,7 +304,49 @@ pub struct CanvasWeb {
 
 impl Default for CanvasWeb {
 	fn default() -> Self {
-		let feed = CanvasFeed::new();
+		Self::with_handle(CanvasHandle::new())
+	}
+}
+
+/// A handle to one Canvas node's drawing, shared by the page and the voice.
+///
+/// The drawing is not a parameter: it is a list of stereo curves the page edits
+/// and the voice reads, so the patch's card and the server need the same handle
+/// the instrument was built with.
+#[derive(Clone)]
+pub struct CanvasHandle(Arc<CanvasFeed>);
+
+impl CanvasHandle {
+	pub fn new() -> Self {
+		Self(CanvasFeed::new())
+	}
+
+	/// The drawing as the page stores it.
+	pub fn shape(&self) -> String {
+		self.0.text()
+	}
+
+	/// The route's GET answer.
+	pub fn shape_json(&self) -> String {
+		format!("{{\"shape\":\"{}\"}}", json_escape(&self.0.text()))
+	}
+
+	/// Applies the route's POST body, and answers it.
+	pub fn set_shape(&self, text: String) -> String {
+		self.0.apply(text)
+	}
+}
+
+impl Default for CanvasHandle {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
+impl CanvasWeb {
+	/// Builds the canvas over a drawing the page already holds.
+	pub fn with_handle(handle: CanvasHandle) -> Self {
+		let feed = handle.0.clone();
 		let build_feed = feed.clone();
 
 		Self {
@@ -316,9 +358,12 @@ impl Default for CanvasWeb {
 			feed,
 		}
 	}
-}
 
-impl CanvasWeb {
+	/// The drawing handle this instrument uses.
+	pub fn handle(&self) -> CanvasHandle {
+		CanvasHandle(self.feed.clone())
+	}
+
 	pub fn sample_rate(&self) -> usize {
 		self.processor.sample_rate()
 	}
@@ -413,5 +458,23 @@ impl Plugin for CanvasWeb {
 			move |request: &ProtocolRequest<'_>| canvas_route(request, &feed),
 			|_: &str| false,
 		)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_canvas_handle_keeps_the_drawing_it_is_given() {
+		let handle = CanvasHandle::new();
+		let shape = handle.shape();
+
+		assert!(handle.shape_json().contains("shape"));
+
+		let result = handle.set_shape(shape.clone());
+
+		assert!(result.contains("\"ok\":true"), "{result}");
+		assert_eq!(handle.shape(), shape);
 	}
 }

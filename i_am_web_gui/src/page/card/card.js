@@ -481,7 +481,10 @@
 
     function edited(id, value) {
       values[id] = value;
-      repaint();
+
+      if (typeof card.repaintHero === "function") card.repaintHero(values);
+      else repaint();
+
       applyVisibility();
 
       if (options.onEdit) options.onEdit(id, value);
@@ -579,7 +582,9 @@
 
     function setActive(id) {
       options.context.active = id;
-      repaint();
+
+      if (typeof card.repaintHero === "function") card.repaintHero(values);
+      else repaint();
     }
 
     sections.forEach(function (section) {
@@ -717,6 +722,23 @@
     applyVisibility();
     card.repaintHero = repaint;
     card.values = values;
+
+    /// Moves one control's value from the page, without calling the page back.
+    ///
+    /// A hero gesture updates the picture and its knob from what it already
+    /// posted, so the card must not send the same edit a second time.
+    card.setValue = function (id, value) {
+      values[id] = value;
+
+      bodies.forEach(function (entry) {
+        if (entry.id === id && entry.el.__set) entry.el.__set(value, false);
+      });
+
+      if (typeof card.repaintHero === "function") card.repaintHero(values);
+      else repaint();
+
+      applyVisibility();
+    };
 
     return card;
   }

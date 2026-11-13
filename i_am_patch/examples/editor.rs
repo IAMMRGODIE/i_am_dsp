@@ -478,6 +478,32 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				json!({ "error": error.to_string() }).to_string(),
 			),
 		},
+		("GET", path) if path == "/canvas" || path.starts_with("/canvas?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.canvas(node).shape_json(),
+			)
+		}
+		("POST", path) if path == "/canvas" || path.starts_with("/canvas?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.canvas(node).set_shape(body.to_string()),
+			)
+		}
 		("GET", path) if path == "/scope" || path.starts_with("/scope?") => {
 			let node = path
 				.split_once('?')

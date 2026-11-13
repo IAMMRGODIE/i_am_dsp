@@ -32,6 +32,19 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			Some(ProtocolResponse::json(json!({ "ok": true }).to_string()))
 		}
+		("GET", "/canvas") | ("POST", "/canvas") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let canvas = shared.slots.canvas(node);
+			let answer = if request.method == "POST" {
+				canvas.set_shape(String::from_utf8_lossy(request.body).to_string())
+			} else {
+				canvas.shape_json()
+			};
+
+			Some(ProtocolResponse::json(answer))
+		}
 		("GET", "/script") | ("POST", "/script") => {
 			let node = request
 				.query

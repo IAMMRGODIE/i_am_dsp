@@ -90,6 +90,9 @@ pub struct Slots {
 	irs: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, std::sync::Arc<i_am_effects::IrSlot>>>,
 	>,
+	canvases: std::sync::Arc<
+		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_synths::CanvasHandle>>,
+	>,
 }
 
 impl Slots {
@@ -133,6 +136,16 @@ impl Slots {
 	/// asked for.
 	pub fn ir(&self, node: u32) -> std::sync::Arc<i_am_effects::IrSlot> {
 		self.irs
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.entry(node)
+			.or_default()
+			.clone()
+	}
+
+	/// The Canvas drawing of one node, created the first time it is asked for.
+	pub fn canvas(&self, node: u32) -> i_am_synths::CanvasHandle {
+		self.canvases
 			.lock()
 			.unwrap_or_else(|error| error.into_inner())
 			.entry(node)

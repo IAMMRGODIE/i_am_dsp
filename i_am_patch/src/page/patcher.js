@@ -842,6 +842,60 @@
     draw();
   }
 
+  /// The Canvas node's drawing is not a parameter: the product keeps it, and
+  /// the card asks for it the way the product page does.
+  function refreshCanvas(entry) {
+    if (!entry || entry.kind.id !== "synth:canvas") return;
+
+    fetch("/canvas?node=" + entry.node.id, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((state) => {
+        if (!state || !state.shape) return;
+
+        const same = entry.context.canvas && entry.context.canvas.shape === state.shape;
+        entry.context.canvas = state;
+
+        if (same) wireCanvasCard(entry);
+        else if (entry.card.repaintHero) entry.card.repaintHero();
+      })
+      .catch(() => {});
+  }
+
+  /// A canvas hero on a patch card edits this node's drawing and morph, not a
+  /// page-wide canvas, so its writes carry the node id.
+  function wireCanvasCard(entry) {
+    if (!entry || entry.kind.id !== "synth:canvas" || !entry.context.canvas) return;
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    if (!hero) return;
+
+    IAmCard.wire(hero, "canvas", entry.node.params, {
+      canvas: entry.context.canvas,
+      set: (id, value) => {
+        entry.node.params[id] = value;
+        postParam(entry.node.id, id, value);
+
+        // The product page repaints through its dirty flag; a patch card has to
+        // move its own control and picture, or a page button would leave the old
+        // reading up.
+        requestAnimationFrame(() => {
+          if (!entry.host.isConnected) return;
+
+          if (entry.card.setValue) entry.card.setValue(id, value);
+          else if (entry.card.repaintHero) entry.card.repaintHero();
+        });
+      },
+      post: (text) => {
+        fetch("/canvas?node=" + entry.node.id, { method: "POST", body: text })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((result) => {
+            if (result && result.error) showStatus(result.error);
+          })
+          .catch(() => {});
+      },
+    });
+  }
+
   /// Fetches what a node's slot now holds and repaints the card's picture.
   async function refreshImport(entry, path) {
     if (!entry || !entry.card || !entry.context) return;
@@ -985,6 +1039,18 @@
     scale.appendChild(card);
     host.appendChild(scale);
     entry = { host, key, kindId: node.kind, context, card, node, kind, samples: null, phase: null };
+
+    if (kind.id === "synth:canvas") {
+      const repaint = card.repaintHero;
+
+      card.repaintHero = function (values) {
+        repaint(values);
+        wireCanvasCard(entry);
+      };
+
+      refreshCanvas(entry);
+    }
+
     cards[node.id] = entry;
 
     // A node that already holds a file shows it as soon as the card is built,

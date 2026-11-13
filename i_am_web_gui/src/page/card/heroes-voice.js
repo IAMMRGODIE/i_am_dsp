@@ -960,6 +960,13 @@
       var text = serializeCanvas(model);
       canvasState.shape = text;
 
+      // The product page owns one canvas, so its POST has no node. A patch card
+      // shares the page with many, and its state carries the route to use.
+      if (state && state.post) {
+        state.post(text);
+        return;
+      }
+
       fetch("/canvas", { method: "POST", body: text })
         .then(function (response) { return response.ok ? response.json() : null; })
         .then(function (result) {
@@ -970,7 +977,7 @@
 
     var refresh = function () {
       el.innerHTML = canvasHero(values, { canvas: canvasState });
-      wireCanvas(el, "canvas", values, canvasState);
+      wireCanvas(el, "canvas", values, state);
     };
 
     var select = function (page) {

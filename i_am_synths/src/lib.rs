@@ -85,7 +85,7 @@ mod spectrum;
 mod strings;
 
 pub use additive::{AdditiveWeb, additive_faceplate};
-pub use canvas::{CanvasWeb, canvas_faceplate, canvas_shape};
+pub use canvas::{CanvasHandle, CanvasWeb, canvas_faceplate, canvas_shape};
 pub use drummer::{DrummerWeb, faceplate as drummer_faceplate};
 pub use fitted::{FittedWeb, faceplate as fitted_faceplate};
 pub use sampler::{
