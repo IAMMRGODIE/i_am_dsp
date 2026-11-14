@@ -19,6 +19,7 @@ i_am_web_gui = { workspace = true }
 crossbeam-channel = "0.5.16"
 rhai = { version = "1.25.1", features = ["f32_float", "sync", "only_i32"] }
 serde = { version = "1.0.229", features = ["derive", "rc"] }
+serde_json = "1"
 
 # The Convolver opens its own file dialog, owned by the window the user clicked,
 # so the picker cannot end up behind the DAW (or look like it never opened).

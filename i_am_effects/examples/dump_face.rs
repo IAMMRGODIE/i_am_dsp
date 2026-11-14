@@ -17,11 +17,11 @@ use i_am_effects::{
 	COMPRESSOR_PAGES, COMPRESSOR_VISIBLE, ChorusWeb, CombWeb, CompressorWeb, ConvolverWeb,
 	CrusherWeb, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE, DelayWeb, DisperserWeb,
 	DistortionWeb, EqWeb, ExpanderWeb, FLANGER_HEADER, FLANGER_SWITCHES, FilterWeb, FlangerWeb,
-	FormantFilterWeb, GainWeb, GateWeb, IrReverbWeb, LimiterWeb, OTT_PAGES, OttWeb, PHASER_HEADER,
-	PHASER_SWITCHES, PITCH_VISIBLE, ParticleWiderWeb, PhaserWeb, PitchWeb, ResonatorWeb, ReverbWeb,
-	RouterWeb, SHIFTER_VISIBLE, SchroederWeb, ScriptDistortionWeb, ScriptMapperWeb, ShifterWeb,
-	SpectralRetuneWeb, StftVocoderWeb, TapeStopWeb, TransientWeb, UnstablizerWeb, VocoderWeb,
-	WidthWeb,
+	FormantFilterWeb, GainWeb, GateWeb, HistoryWeb, IrReverbWeb, LimiterWeb, OTT_PAGES, OttWeb,
+	PHASER_HEADER, PHASER_SWITCHES, PITCH_VISIBLE, ParticleWiderWeb, PhaserWeb, PitchWeb,
+	ResonatorWeb, ReverbWeb, RouterWeb, SHIFTER_VISIBLE, SchroederWeb, ScriptDistortionWeb,
+	ScriptMapperWeb, ShifterWeb, SpectralRetuneWeb, StftVocoderWeb, TapeStopWeb, TransientWeb,
+	UnstablizerWeb, VocoderWeb, WidthWeb,
 };
 use i_am_effects::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -448,6 +448,13 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		}
+		"history" => {
+			let plugin = HistoryWeb::new();
+			(
+				i_am_web_gui::face_json(&plugin, &i_am_effects::history_faceplate()),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
 		"crusher" => {
 			let plugin = CrusherWeb::new();
 			(
@@ -460,7 +467,7 @@ fn main() {
 		}
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, distortion, filter, comb, allpass, width, pitch, shifter, disperser, balance, compressor, reverb, schroeder, particle_wider, unstablizer, ir_reverb, chorus, flanger, phaser, delay or crusher"
+				"unknown product {other}; expected gain, distortion, filter, comb, allpass, width, pitch, shifter, disperser, balance, compressor, reverb, schroeder, particle_wider, unstablizer, ir_reverb, chorus, flanger, phaser, delay, crusher or history"
 			);
 			std::process::exit(2);
 		}

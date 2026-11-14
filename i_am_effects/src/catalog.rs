@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use i_am_dsp::prelude::{
 	AutoTune, Chorus, Crusher, Delay, Distortion, Effect, Expander, Flanger, FormantFilter, Gain,
-	Gate, Limiter, LrControl, Multimode, OttMeters, Parameter, ParametricEq, Phaser, Resonator,
-	SineWave, SpectralRetuneEffect, StereoController, StereoRouter, StftVocoderEffect,
-	TapeStopEffect, TransientShaper, VocoderEffect, VocoderMeters,
+	Gate, HistoryEffect, HistoryFeed, Limiter, LrControl, Multimode, OttMeters, Parameter,
+	ParametricEq, Phaser, Resonator, SineWave, SpectralRetuneEffect, StereoController,
+	StereoRouter, StftVocoderEffect, TapeStopEffect, TransientShaper, VocoderEffect, VocoderMeters,
 };
 
 use i_am_web_gui::Switch;
@@ -239,6 +239,7 @@ pub fn face(id: &str) -> Option<(f32, f32)> {
 		"schroeder" => Some(crate::SchroederWeb::size()),
 		"flanger" => Some(crate::FlangerWeb::size()),
 		"eq" => Some(crate::EqWeb::size()),
+		"history" => Some(crate::HistoryWeb::size()),
 		"tape_stop" => Some(crate::TapeStopWeb::size()),
 		"gate" => Some(crate::GateWeb::size()),
 		"expander" => Some(crate::ExpanderWeb::size()),
@@ -730,6 +731,19 @@ pub const CONVOLVER: ModuleDescriptor = ModuleDescriptor {
 	build_with_ir: Some(|rate, slot| Box::new(ConvolverEffect::new(rate, slot))),
 };
 
+/// The history time-remap product.
+pub const HISTORY: ModuleDescriptor = ModuleDescriptor {
+	id: "history",
+	name: "History",
+	accent: "#6ee7ff",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build: |rate| Box::new(HistoryEffect::with_feed(rate, HistoryFeed::new())),
+	build_with_ir: None,
+};
+
 /// The scripted distortion product.
 pub const SCRIPT_DISTORTION: ModuleDescriptor = ModuleDescriptor {
 	id: "script_distortion",
@@ -779,6 +793,7 @@ pub const MODULES: &[ModuleDescriptor] = &[
 	TRANSIENT,
 	FORMANT,
 	EQ,
+	HISTORY,
 	REVERB,
 	SCHROEDER,
 	PARTICLE_WIDER,

@@ -55,5 +55,6 @@ export_plugin!(
 	FormantFilterWeb,
 	TransientWeb,
 	RouterWeb,
-	EqWeb
+	EqWeb,
+	HistoryWeb
 );
