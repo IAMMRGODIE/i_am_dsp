@@ -156,6 +156,13 @@ pub struct HistoryEffect<const CHANNELS: usize = 2> {
 	#[id(display = "Mix")]
 	#[layout(group = "History", order = 3, widget = knob)]
 	pub mix: f32,
+	/// How long the read head takes to follow a new delay target.
+	#[range(min = 0.0, max = 100.0)]
+	#[unit(milliseconds)]
+	#[default(5.0)]
+	#[id(display = "Smooth")]
+	#[layout(group = "History", order = 4, widget = knob)]
+	pub smooth: f32,
 	#[skip]
 	feed: Arc<HistoryFeed>,
 	#[skip]
@@ -185,6 +192,7 @@ impl<const CHANNELS: usize> HistoryEffect<CHANNELS> {
 			history_time: 1000.0,
 			morph: 0.0,
 			mix: 1.0,
+			smooth: 5.0,
 			feed,
 			sample_rate: sample_rate as f32,
 			ring: core::array::from_fn(|_| RingBuffer::new(length)),
@@ -373,9 +381,14 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HistoryEffect<CHANNELS> {
 		let target = (1.0 - value as f64) * history;
 		let target = if target.is_finite() { target } else { 0.0 };
 		// A curve edit, a morph move or a host seek asks for a new read head at
-		// once. Slewing it over a few milliseconds turns that step into a short
-		// pitch slide instead of a click.
-		let coefficient = 1.0 - (-1.0 / (0.005 * self.sample_rate as f64)).exp();
+		// once. Slewing it over the chosen time turns that step into a short
+		// pitch slide instead of a click. Zero disables the slew.
+		let seconds = self.smooth.clamp(0.0, 100.0) as f64 / 1000.0;
+		let coefficient = if seconds <= 0.0 {
+			1.0
+		} else {
+			1.0 - (-1.0 / (seconds * self.sample_rate as f64)).exp()
+		};
 		if !self.delay_ready {
 			self.delay_ready = true;
 			self.smoothed_delay = target;
