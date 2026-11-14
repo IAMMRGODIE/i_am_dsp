@@ -119,6 +119,11 @@ impl Default for HistoryFeed {
 /// The curve resolution the effect carries.
 const TABLE: usize = 1024;
 
+/// The slowest the read head may move, in history samples per sample. A
+/// descending segment with slope -1 would hold the head still and repeat one
+/// sample forever; a tiny floor keeps it crawling forward instead.
+const MIN_READ_SPEED: f32 = 0.01;
+
 /// How long a history the ring keeps, in seconds. A beat length longer than this
 /// is clamped rather than growing the allocation without bound.
 const MAX_HISTORY_SECONDS: f32 = 8.0;
@@ -236,6 +241,18 @@ impl HistoryEffect {
 			let a = page_value(&pages[from].points, x);
 			let b = page_value(&pages[to].points, x);
 			self.table[index] = a + (b - a) * blend;
+		}
+
+		// A slope of -1 means the read head does not move. Clamp the descending
+		// table onto a floor just short of that, so the head always crawls
+		// forward instead of parking on one sample for the whole segment.
+		let step = 1.0 / (TABLE - 1) as f32;
+		let maximum_drop = (1.0 - MIN_READ_SPEED) * step;
+		for index in 1..TABLE {
+			let floor = self.table[index - 1] - maximum_drop;
+			if self.table[index] < floor {
+				self.table[index] = floor;
+			}
 		}
 	}
 
@@ -468,5 +485,32 @@ mod tests {
 			output[0].abs() < 1e-4,
 			"the first samples were still live: {output:?}"
 		);
+	}
+
+	#[test]
+	fn a_slope_of_minus_one_does_not_freeze() {
+		let feed = HistoryFeed::new();
+		feed.set_pages(vec![HistoryPage {
+			points: vec![
+				HistoryPoint {
+					time: 0.0,
+					value: 1.0,
+					bend: 0.0,
+				},
+				HistoryPoint {
+					time: 1.0,
+					value: 0.0,
+					bend: 0.0,
+				},
+			],
+		}]);
+		let mut effect = HistoryEffect::with_feed(48_000, feed);
+		effect.sync_table();
+
+		let step = 1.0 / (TABLE - 1) as f32;
+		let allowed = -(1.0 - MIN_READ_SPEED) * step - 1e-6;
+		for pair in effect.table.windows(2) {
+			assert!(pair[1] - pair[0] >= allowed, "read head stalls: {:?}", pair);
+		}
 	}
 }
