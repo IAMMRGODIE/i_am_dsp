@@ -76,6 +76,8 @@
   }
 
   function lfoPreview(svg, data, dots) {
+    var color = data.color || "#4c8dff";
+    var handleColor = data.color || "#8fb8ff";
     var points = (data.points || []).slice().sort(function (a, b) { return a.time - b.time; });
 
     if (points.length < 2) {
@@ -91,7 +93,7 @@
         }
 
         svg.appendChild(node("path", {
-          d: wave, fill: "none", stroke: "#4c8dff", "stroke-width": 2,
+          d: wave, fill: "none", stroke: color, "stroke-width": 2,
           "stroke-linecap": "round", "vector-effect": "non-scaling-stroke"
         }));
       }
@@ -117,7 +119,7 @@
     }
 
     svg.appendChild(node("path", {
-      d: path, fill: "none", stroke: "#4c8dff", "stroke-width": 2,
+      d: path, fill: "none", stroke: color, "stroke-width": 2,
       "stroke-linecap": "round", "vector-effect": "non-scaling-stroke"
     }));
 
@@ -126,14 +128,14 @@
       var y = 60 - item.value * 52;
 
       if (dots) {
-        pip(dots, x, y, 3.5, "#4c8dff", "#1a1a1a");
+        pip(dots, x, y, 3.5, color, "#1a1a1a");
         return;
       }
 
       var circle = node("circle", {
         cx: x.toFixed(1),
         cy: y.toFixed(1),
-        r: "3.5", fill: "#4c8dff", stroke: "#1a1a1a", "stroke-width": "1.5"
+        r: "3.5", fill: color, stroke: "#1a1a1a", "stroke-width": "1.5"
       });
       circle.style.pointerEvents = "none";
       svg.appendChild(circle);
@@ -148,14 +150,14 @@
       var by = 60 - bendValue * 52;
 
       if (dots) {
-        pip(dots, bx, by, 2.6, null, "#8fb8ff");
+        pip(dots, bx, by, 2.6, null, handleColor);
         continue;
       }
 
       var handle = node("circle", {
         cx: bx.toFixed(1),
         cy: by.toFixed(1),
-        r: "2.6", fill: "none", stroke: "#8fb8ff", "stroke-width": "1.4"
+        r: "2.6", fill: "none", stroke: handleColor, "stroke-width": "1.4"
       });
       handle.style.pointerEvents = "none";
       svg.appendChild(handle);

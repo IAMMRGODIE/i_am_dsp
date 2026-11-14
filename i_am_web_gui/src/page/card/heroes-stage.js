@@ -467,10 +467,11 @@
 
     var page = pages[selected];
     var holder = { points: page.points || page };
+    var accent = (getComputedStyle(el).getPropertyValue("--accent") || "#4c8dff").trim();
     var paint = function (points) {
       if (page.points) page.points = points;
       else pages[selected] = points;
-      IAmCard.sources.drawPreview(svg, "lfo", { points: points }, null);
+      IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent }, null);
     };
 
     var post = function () {
@@ -603,10 +604,12 @@
       }
     });
 
+    var accent = (getComputedStyle(el).getPropertyValue("--accent") || "#4c8dff").trim();
+
     IAmCard.sources.editLfo(svg, holder, {
       paint: function (points) {
         pages[selected] = points;
-        IAmCard.sources.drawPreview(svg, "lfo", { points: points }, null);
+        IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent }, null);
       },
       commit: post
     });

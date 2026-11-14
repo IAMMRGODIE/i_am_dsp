@@ -76,9 +76,15 @@ var canvasState = null;
   // The Spectrum product's drawn pages, fetched from its own route.
   var spectrumState = null;
   // The History product's curve pages.
-  var historyState = null;
+  var historyState = {
+    generation: 0,
+    pages: [{ points: [{ time: 0, value: 1, bend: 0 }, { time: 1, value: 1, bend: 0 }] }]
+  };
   // The Filter Table product's kernel frame.
-  var filterTableState = null;
+  var filterTableState = {
+    generation: 0,
+    pages: [[{ time: 0, value: 0, bend: 0 }, { time: 1, value: 1, bend: 0 }]]
+  };
 var wantsOtt = false;
 var ottState = null;
 var wantsVocoder = false;
