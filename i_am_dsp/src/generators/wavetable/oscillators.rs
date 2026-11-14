@@ -310,6 +310,22 @@ impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator
 	}
 }
 
+impl WaveTable for Box<dyn WaveTable + Send + Sync> {
+	fn sample(&self, t: f32, channel: usize) -> f32 {
+		self.as_ref().sample(t, channel)
+	}
+}
+
+impl Parameters for Box<dyn WaveTable + Send + Sync> {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		self.as_ref().get_parameters()
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: crate::prelude::SetValue) -> bool {
+		self.as_mut().set_parameter(identifier, value)
+	}
+}
+
 impl WaveTable for Box<dyn WaveTable> {
 	fn sample(&self, t: f32, channel: usize) -> f32 {
 		self.as_ref().sample(t, channel)

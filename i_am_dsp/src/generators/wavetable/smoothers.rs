@@ -35,57 +35,111 @@ pub struct WaveTableSmoother {
 	openfile_dialog: Option<egui_file::FileDialog>,
 }
 
-impl Parameters for Vec<Box<dyn WaveTable + Send + Sync>> {
+/// Sample a homogeneous slice of tables with one morph value. This is the
+/// shared body behind the type-erased smoother and the typed wrapper.
+fn sample_tables<T: WaveTable>(tables: &[T], smooth_factor: f32, t: f32, channel: usize) -> f32 {
+	let count = tables.len();
+
+	if count == 0 {
+		return 0.0;
+	} else if count == 1 {
+		return tables[0].sample(t, channel);
+	}
+
+	let last = count - 1;
+	let smooth = (smooth_factor * last as f32).clamp(0.0, last as f32);
+	let from = smooth.floor() as usize;
+	let from_sample = tables[from].sample(t, channel);
+	let fraction = smooth - from as f32;
+
+	// Sitting exactly on one table should not sample the next one.
+	if fraction <= f32::EPSILON || from == last {
+		return from_sample;
+	}
+
+	let to_sample = tables[from + 1].sample(t, channel);
+	from_sample + (to_sample - from_sample) * fraction
+}
+
+/// A smoother over one concrete table type.
+///
+/// The type-erased [`WaveTableSmoother`] exists for heterogeneous frames; when
+/// every frame is the same type this wrapper keeps that type in the signature
+/// and stores the tables without a trait object.
+pub struct TypedWaveTableSmoother<T: WaveTable> {
+	/// The tables to smooth between.
+	pub tables: Vec<T>,
+	/// 0 is the first table, 1 the last.
+	pub smooth_factor: f32,
+}
+
+impl<T: WaveTable> TypedWaveTableSmoother<T> {
+	/// A smoother over a concrete table slice.
+	pub fn new(tables: Vec<T>, smooth_factor: f32) -> Self {
+		Self {
+			tables,
+			smooth_factor,
+		}
+	}
+
+	/// The value at `t` in [0, 1].
+	pub fn sample(&self, t: f32, channel: usize) -> f32 {
+		sample_tables(&self.tables, self.smooth_factor, t, channel)
+	}
+}
+
+impl<T: WaveTable> Parameters for TypedWaveTableSmoother<T> {
 	fn get_parameters(&self) -> Vec<Parameter> {
-		let mut output = vec![];
-		for (i, table) in self.iter().enumerate() {
-			for mut param in table.get_parameters() {
-				param.identifier = format!("{}.{}", i, param.identifier);
-				output.push(param);
+		let mut output = vec![Parameter::new(
+			"smooth_factor",
+			crate::prelude::Value::Float {
+				value: self.smooth_factor,
+				range: 0.0..=1.0,
+				logarithmic: false,
+			},
+		)];
+
+		for (index, table) in self.tables.iter().enumerate() {
+			for mut parameter in table.get_parameters() {
+				parameter.identifier = format!("{}.{}", index, parameter.identifier);
+				output.push(parameter);
 			}
 		}
+
 		output
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: crate::prelude::SetValue) -> bool {
-		let mut parts = identifier.split(".").collect::<Vec<_>>();
-		let index = parts
-			.remove(0)
-			.parse::<usize>()
-			.expect("Invalid identifier");
-		let param_name = parts.join(".");
-		if let Some(table) = self.get_mut(index) {
-			table.set_parameter(&param_name, value)
-		} else {
-			false
+		if identifier == "smooth_factor" {
+			if let crate::prelude::SetValue::Float(value) = value {
+				self.smooth_factor = value;
+				return true;
+			}
+			return false;
 		}
+
+		let Some((index, parameter)) = identifier.split_once('.') else {
+			return false;
+		};
+		let Ok(index) = index.parse::<usize>() else {
+			return false;
+		};
+
+		self.tables
+			.get_mut(index)
+			.is_some_and(|table| table.set_parameter(parameter, value))
+	}
+}
+
+impl<T: WaveTable> WaveTable for TypedWaveTableSmoother<T> {
+	fn sample(&self, t: f32, channel: usize) -> f32 {
+		sample_tables(&self.tables, self.smooth_factor, t, channel)
 	}
 }
 
 impl WaveTable for WaveTableSmoother {
 	fn sample(&self, t: f32, channel: usize) -> f32 {
-		let count = self.tables.len();
-
-		if count == 0 {
-			return 0.0;
-		} else if count == 1 {
-			return self.tables[0].sample(t, channel);
-		}
-
-		let last = count - 1;
-		let smooth = (self.smooth_factor * last as f32).clamp(0.0, last as f32);
-		let from = smooth.floor() as usize;
-		let from_sample = self.tables[from].sample(t, channel);
-		let fraction = smooth - from as f32;
-
-		// The common case is a morph sitting exactly on one table: sampling the
-		// second table and throwing the result away would double the work.
-		if fraction <= f32::EPSILON || from == last {
-			return from_sample;
-		}
-
-		let to_sample = self.tables[from + 1].sample(t, channel);
-		from_sample + (to_sample - from_sample) * fraction
+		sample_tables(&self.tables, self.smooth_factor, t, channel)
 	}
 }
 
@@ -113,28 +167,7 @@ impl WaveTableSmoother {
 	///
 	/// Due to rust's limitation, we can't implement [`WaveTable`] for `WaveTableSmoother`.
 	pub fn sample(&self, t: f32, channel: usize) -> f32 {
-		let count = self.tables.len();
-
-		if count == 0 {
-			return 0.0;
-		} else if count == 1 {
-			return self.tables[0].sample(t, channel);
-		}
-
-		let last = count - 1;
-		let smooth = (self.smooth_factor * last as f32).clamp(0.0, last as f32);
-		let from = smooth.floor() as usize;
-		let from_sample = self.tables[from].sample(t, channel);
-		let fraction = smooth - from as f32;
-
-		// The common case is a morph sitting exactly on one table: sampling the
-		// second table and throwing the result away would double the work.
-		if fraction <= f32::EPSILON || from == last {
-			return from_sample;
-		}
-
-		let to_sample = self.tables[from + 1].sample(t, channel);
-		from_sample + (to_sample - from_sample) * fraction
+		sample_tables(&self.tables, self.smooth_factor, t, channel)
 	}
 
 	/// Create a new [`WaveTableSmoother`] from a vector of wave tables.
@@ -304,5 +337,18 @@ impl<const CHANNELS: usize> Oscillator<CHANNELS> for WaveTableSmoother {
 		}
 
 		output
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_typed_smoother_keeps_the_table_type() {
+		let smoother = TypedWaveTableSmoother::new(vec![vec![0.0, 0.0], vec![1.0, 1.0]], 0.5);
+
+		assert!((smoother.sample(0.0, 0) - 0.5).abs() < 1e-6);
+		assert!((smoother.sample(1.0, 0) - 0.5).abs() < 1e-6);
 	}
 }
