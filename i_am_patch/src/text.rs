@@ -117,13 +117,28 @@ pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 	}
 
 	for node in &graph.nodes {
-		if node.kind.id != "mod:history" {
-			continue;
+		match node.kind.id {
+			"mod:history" => {
+				let pages = slots.history(node.id.0).feed().pages();
+				let json = serde_json::to_string(&*pages).expect("the history pages serialize");
+				let _ = writeln!(out, "history {} {}", node.id.0, json);
+			}
+			"synth:canvas" => {
+				let shape = slots.canvas(node.id.0).shape();
+				let json = serde_json::to_string(&shape).expect("the canvas shape serializes");
+				let _ = writeln!(out, "canvas {} {}", node.id.0, json);
+			}
+			"synth:spectrum" => {
+				let state = slots.spectrum(node.id.0).state_json();
+				let _ = writeln!(out, "spectrum {} {}", node.id.0, state);
+			}
+			"synth:script" => {
+				let source = slots.script(node.id.0).source_text();
+				let json = serde_json::to_string(&source).expect("the script serializes");
+				let _ = writeln!(out, "script {} {}", node.id.0, json);
+			}
+			_ => {}
 		}
-
-		let pages = slots.history(node.id.0).feed().pages();
-		let json = serde_json::to_string(&*pages).expect("the history pages serialize");
-		let _ = writeln!(out, "history {} {}", node.id.0, json);
 	}
 
 	out
@@ -319,6 +334,28 @@ pub fn from_text_with_slots(text: &str, slots: &crate::Slots) -> Result<Graph, T
 				let pages: Vec<i_am_dsp::prelude::HistoryPage> = serde_json::from_str(&rest)
 					.map_err(|parse_error| error(line, parse_error.to_string()))?;
 				slots.history(id).feed().set_pages(pages);
+			}
+			"canvas" => {
+				let id = parse_id(words.next(), line)?;
+				let rest = words.collect::<Vec<_>>().join(" ");
+				let shape: String = serde_json::from_str(&rest)
+					.map_err(|parse_error| error(line, parse_error.to_string()))?;
+				slots.canvas(id).set_shape(shape);
+			}
+			"spectrum" => {
+				let id = parse_id(words.next(), line)?;
+				let rest = words.collect::<Vec<_>>().join(" ");
+				let value: serde_json::Value = serde_json::from_str(&rest)
+					.map_err(|parse_error| error(line, parse_error.to_string()))?;
+				let frames = value.get("frames").cloned().unwrap_or(value);
+				slots.spectrum(id).set_json(&frames.to_string());
+			}
+			"script" => {
+				let id = parse_id(words.next(), line)?;
+				let rest = words.collect::<Vec<_>>().join(" ");
+				let source: String = serde_json::from_str(&rest)
+					.map_err(|parse_error| error(line, parse_error.to_string()))?;
+				slots.script(id).apply(source);
 			}
 			other => return Err(error(line, format!("unknown statement {other}"))),
 		}
