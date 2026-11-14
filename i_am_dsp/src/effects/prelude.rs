@@ -11,6 +11,7 @@ pub use super::enveloper::*;
 pub use super::filter::*;
 pub use super::freq_shifter::*;
 pub use super::hilbert_transform::*;
+pub use super::history::*;
 pub use super::hybrid_reverb::*;
 pub use super::multimode::*;
 pub use super::particle_wider::*;

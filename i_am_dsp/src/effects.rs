@@ -16,6 +16,7 @@ pub mod filter;
 pub mod formant_filter;
 pub mod freq_shifter;
 pub mod hilbert_transform;
+pub mod history;
 pub mod hybrid_reverb;
 pub mod multimode;
 pub mod ott;
