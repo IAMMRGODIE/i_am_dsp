@@ -204,6 +204,11 @@ impl HistoryEffect {
 			.time
 			.seconds(infos, self.history_time)
 			.clamp(0.01, MAX_HISTORY_SECONDS);
+		let seconds = if seconds.is_finite() {
+			seconds
+		} else {
+			self.history_time.max(10.0) / 1000.0
+		};
 		(seconds as f64 * self.sample_rate as f64)
 			.min(self.ring[0].len() as f64 - 2.0)
 			.max(2.0)
@@ -235,17 +240,23 @@ impl HistoryEffect {
 	}
 
 	fn curve_at(&self, position: f64) -> f32 {
+		if !position.is_finite() {
+			return 1.0;
+		}
+
 		let x = position.rem_euclid(1.0) as f32;
 		let at = x * (TABLE - 1) as f32;
 		let index = at.floor() as usize;
 		let fraction = at - index as f32;
 		let first = self.table[index.min(TABLE - 1)];
 		let second = self.table[(index + 1).min(TABLE - 1)];
-		first + (second - first) * fraction
+		let value = first + (second - first) * fraction;
+		if value.is_finite() { value } else { 1.0 }
 	}
 
 	fn read(&self, channel: usize, delay: f64) -> f32 {
 		let length = self.ring[channel].len() as f64;
+		let delay = if delay.is_finite() { delay } else { 0.0 };
 		let position = (self.write as f64 - delay).rem_euclid(length);
 		let index = position.floor() as usize;
 		let next = (index + 1) % self.ring[channel].len();
@@ -343,7 +354,7 @@ impl Effect<2> for HistoryEffect {
 			self.ring[channel][self.write] = *sample;
 		}
 
-		if let Some(phase) = host_phase {
+		if let Some(phase) = host_phase.filter(|phase| phase.is_finite()) {
 			self.phase = phase;
 		} else {
 			self.phase = (self.phase + step).rem_euclid(1.0);
@@ -351,6 +362,7 @@ impl Effect<2> for HistoryEffect {
 
 		let value = self.curve_at(self.phase);
 		let target = (1.0 - value as f64) * history;
+		let target = if target.is_finite() { target } else { 0.0 };
 		// A curve edit, a morph move or a host seek asks for a new read head at
 		// once. Slewing it over a few milliseconds turns that step into a short
 		// pitch slide instead of a click.
