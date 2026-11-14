@@ -474,6 +474,24 @@
       });
   }
 
+  /// The Filter Table frame lives outside the parameter map, like the canvas.
+  function pollFilterTable() {
+    fetch("/filter-table", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state || !state.points) return;
+        if (document.querySelector(".hero[data-busy='1']")) return;
+        filterTableState = state;
+        markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollFilterTable, 1500);
+      });
+  }
+
   /// The OTT band meters, in dB of net gain: positive is attenuation, negative
   /// is the upward compressor's boost.
   function pollOtt() {

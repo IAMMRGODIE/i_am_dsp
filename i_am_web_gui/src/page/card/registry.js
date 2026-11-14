@@ -30,6 +30,7 @@
   registerHero("taps", tapsHero);
   registerHero("lfo", lfoHero);
   registerHero("history", historyHero);
+  registerHero("filtertable", filterTableHero);
   registerHero("phase", phaseHero);
   registerHero("balance", balanceHero);
   registerHero("waveform", waveformHero);

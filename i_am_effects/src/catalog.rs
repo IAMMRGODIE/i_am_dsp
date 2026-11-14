@@ -14,6 +14,8 @@ use i_am_dsp::prelude::{
 	StereoRouter, StftVocoderEffect, TapeStopEffect, TransientShaper, VocoderEffect, VocoderMeters,
 };
 
+use i_am_dsp::prelude::{FilterFrame, FilterTableEffect};
+
 use i_am_web_gui::Switch;
 
 use crate::allpass::AllpassEffect;
@@ -240,6 +242,7 @@ pub fn face(id: &str) -> Option<(f32, f32)> {
 		"flanger" => Some(crate::FlangerWeb::size()),
 		"eq" => Some(crate::EqWeb::size()),
 		"history" => Some(crate::HistoryWeb::size()),
+		"filter_table" => Some(crate::FilterTableWeb::size()),
 		"tape_stop" => Some(crate::TapeStopWeb::size()),
 		"gate" => Some(crate::GateWeb::size()),
 		"expander" => Some(crate::ExpanderWeb::size()),
@@ -731,6 +734,19 @@ pub const CONVOLVER: ModuleDescriptor = ModuleDescriptor {
 	build_with_ir: Some(|rate, slot| Box::new(ConvolverEffect::new(rate, slot))),
 };
 
+/// The Filter Table product.
+pub const FILTER_TABLE: ModuleDescriptor = ModuleDescriptor {
+	id: "filter_table",
+	name: "Filter Table",
+	accent: "#c8e04a",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build: |rate| Box::new(FilterTableEffect::with_frame(rate, FilterFrame::new())),
+	build_with_ir: None,
+};
+
 /// The history time-remap product.
 pub const HISTORY: ModuleDescriptor = ModuleDescriptor {
 	id: "history",
@@ -794,6 +810,7 @@ pub const MODULES: &[ModuleDescriptor] = &[
 	FORMANT,
 	EQ,
 	HISTORY,
+	FILTER_TABLE,
 	REVERB,
 	SCHROEDER,
 	PARTICLE_WIDER,

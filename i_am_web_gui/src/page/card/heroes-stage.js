@@ -515,3 +515,37 @@
 
     paint(holder.points);
   }
+
+  /// The frame a Filter Table uses as its convolution kernel.
+  function filterTableHero(values, context) {
+    var table = context && context.filterTable;
+    var points = (table && table.points) || [];
+
+    return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="none"></svg>' +
+      '<div class="hero-label" style="left:2%;top:2%">FILTER TABLE \u00b7 ' +
+        Math.round(valueOf(values, "cutoff", 1000)) + ' Hz</div>';
+  }
+
+  /// The frame editor, on the same 300x64 LFO canvas.
+  function wireFilterTable(el, kind, values, state) {
+    var table = state && state.filterTable;
+
+    if (kind !== "filtertable" || !table || !table.points) return;
+
+    var svg = el.querySelector("svg");
+    if (!svg) return;
+
+    var holder = { points: table.points };
+
+    IAmCard.sources.editLfo(svg, holder, {
+      paint: function (points) {
+        table.points = points;
+        IAmCard.sources.drawPreview(svg, "lfo", { points: points }, null);
+      },
+      commit: function (points) {
+        if (state.post) state.post(JSON.stringify(points));
+      }
+    });
+
+    IAmCard.sources.drawPreview(svg, "lfo", { points: holder.points }, null);
+  }

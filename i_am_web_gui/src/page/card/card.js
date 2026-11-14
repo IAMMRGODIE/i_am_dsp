@@ -777,6 +777,8 @@
         wireSpectrum(el, kind === "morph-spectrum" ? "spectrum" : kind, values, state);
       } else if (kind === "history") {
         wireHistory(el, kind, values, state);
+      } else if (kind === "filtertable") {
+        wireFilterTable(el, kind, values, state);
       }
     },
     modulate: modulate,

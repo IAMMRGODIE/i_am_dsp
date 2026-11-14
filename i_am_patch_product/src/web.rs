@@ -134,6 +134,19 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			Some(ProtocolResponse::json(answer))
 		}
+		("GET", "/filter-table") | ("POST", "/filter-table") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let table = shared.slots.filter_table(node);
+			let answer = if request.method == "POST" {
+				table.set_json(&String::from_utf8_lossy(request.body))
+			} else {
+				table.state_json()
+			};
+
+			Some(ProtocolResponse::json(answer))
+		}
 		("GET", "/history") | ("POST", "/history") => {
 			let node = query_value(request, "node")
 				.and_then(|value| value.parse::<u32>().ok())

@@ -1343,6 +1343,49 @@
       .catch(() => {});
   }
 
+  /// The Filter Table frame, fetched the same way the product page does.
+  function refreshFilterTable(entry) {
+    if (!entry || entry.kind.id !== "mod:filter_table") return;
+
+    fetch("/filter-table?node=" + entry.node.id, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((state) => {
+        if (!state || !state.points) return;
+
+        entry.context.filterTable = state;
+        if (entry.card.repaintHero) entry.card.repaintHero();
+      })
+      .catch(() => {});
+  }
+
+  /// A Filter Table hero edits this node's frame.
+  function wireFilterTableCard(entry) {
+    if (!entry || entry.kind.id !== "mod:filter_table" || !entry.context.filterTable) return;
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    if (!hero) return;
+
+    IAmCard.wire(hero, "filtertable", entry.node.params, {
+      filterTable: entry.context.filterTable,
+      set: (id, value) => {
+        entry.node.params[id] = value;
+        postParam(entry.node.id, id, value);
+
+        requestAnimationFrame(() => {
+          if (!entry.host.isConnected) return;
+
+          if (entry.card.setValue) entry.card.setValue(id, value);
+          else if (entry.card.repaintHero) entry.card.repaintHero();
+        });
+      },
+      post: (body) => {
+        fetch("/filter-table?node=" + entry.node.id, { method: "POST", body })
+          .then((response) => (response.ok ? response.json() : null))
+          .catch(() => {});
+      },
+    });
+  }
+
   /// The History pages are the product's state, so the card asks its node for
   /// them the way the product's own page does.
   function refreshHistory(entry) {
@@ -1604,6 +1647,17 @@
       };
 
       refreshHistory(entry);
+    }
+
+    if (kind.id === "mod:filter_table") {
+      const repaint = card.repaintHero;
+
+      card.repaintHero = function (values) {
+        repaint(values);
+        wireFilterTableCard(entry);
+      };
+
+      refreshFilterTable(entry);
     }
 
     entry.host.style.setProperty(

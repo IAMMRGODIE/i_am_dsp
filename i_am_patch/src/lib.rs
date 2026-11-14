@@ -99,6 +99,9 @@ pub struct Slots {
 	drummers: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_synths::DrummerHandle>>,
 	>,
+	filter_tables: std::sync::Arc<
+		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_effects::FilterTableHandle>>,
+	>,
 	histories: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_effects::HistoryHandle>>,
 	>,
@@ -182,6 +185,16 @@ impl Slots {
 			.or_default()
 			.clone()
 	}
+	/// The Filter Table frame of one node, created the first time it is asked for.
+	pub fn filter_table(&self, node: u32) -> i_am_effects::FilterTableHandle {
+		self.filter_tables
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.entry(node)
+			.or_default()
+			.clone()
+	}
+
 	/// The History pages of one node, created the first time it is asked for.
 	pub fn history(&self, node: u32) -> i_am_effects::HistoryHandle {
 		self.histories

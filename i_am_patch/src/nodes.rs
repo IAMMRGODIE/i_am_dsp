@@ -199,6 +199,12 @@ pub fn make_with(
 
 					Box::new(ProductNode::with_script(effect, worker))
 				}
+				"filter_table" => {
+					let handle = slots.filter_table(node);
+					Box::new(ProductNode::new(Box::new(
+						i_am_dsp::prelude::FilterTableEffect::with_frame(rate, handle.frame()),
+					)))
+				}
 				"history" => {
 					let handle = slots.history(node);
 					Box::new(ProductNode::new(Box::new(

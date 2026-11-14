@@ -56,5 +56,6 @@ export_plugin!(
 	TransientWeb,
 	RouterWeb,
 	EqWeb,
-	HistoryWeb
+	HistoryWeb,
+	FilterTableWeb
 );

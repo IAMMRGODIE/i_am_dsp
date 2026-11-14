@@ -77,6 +77,8 @@ var canvasState = null;
   var spectrumState = null;
   // The History product's curve pages.
   var historyState = null;
+  // The Filter Table product's kernel frame.
+  var filterTableState = null;
 var wantsOtt = false;
 var ottState = null;
 var wantsVocoder = false;

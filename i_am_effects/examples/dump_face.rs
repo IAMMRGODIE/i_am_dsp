@@ -16,9 +16,9 @@ use i_am_effects::{
 	AUTOTUNE_VISIBLE, AllpassWeb, AutoTuneWeb, BalanceWeb, CHORUS_HEADER, CHORUS_SWITCHES,
 	COMPRESSOR_PAGES, COMPRESSOR_VISIBLE, ChorusWeb, CombWeb, CompressorWeb, ConvolverWeb,
 	CrusherWeb, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE, DelayWeb, DisperserWeb,
-	DistortionWeb, EqWeb, ExpanderWeb, FLANGER_HEADER, FLANGER_SWITCHES, FilterWeb, FlangerWeb,
-	FormantFilterWeb, GainWeb, GateWeb, HistoryWeb, IrReverbWeb, LimiterWeb, OTT_PAGES, OttWeb,
-	PHASER_HEADER, PHASER_SWITCHES, PITCH_VISIBLE, ParticleWiderWeb, PhaserWeb, PitchWeb,
+	DistortionWeb, EqWeb, ExpanderWeb, FLANGER_HEADER, FLANGER_SWITCHES, FilterTableWeb, FilterWeb,
+	FlangerWeb, FormantFilterWeb, GainWeb, GateWeb, HistoryWeb, IrReverbWeb, LimiterWeb, OTT_PAGES,
+	OttWeb, PHASER_HEADER, PHASER_SWITCHES, PITCH_VISIBLE, ParticleWiderWeb, PhaserWeb, PitchWeb,
 	ResonatorWeb, ReverbWeb, RouterWeb, SHIFTER_VISIBLE, SchroederWeb, ScriptDistortionWeb,
 	ScriptMapperWeb, ShifterWeb, SpectralRetuneWeb, StftVocoderWeb, TapeStopWeb, TransientWeb,
 	UnstablizerWeb, VocoderWeb, WidthWeb,
@@ -448,6 +448,13 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		}
+		"filter_table" => {
+			let plugin = FilterTableWeb::new();
+			(
+				i_am_web_gui::face_json(&plugin, &i_am_effects::filter_table_faceplate()),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
 		"history" => {
 			let plugin = HistoryWeb::new();
 			(
@@ -467,7 +474,7 @@ fn main() {
 		}
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, distortion, filter, comb, allpass, width, pitch, shifter, disperser, balance, compressor, reverb, schroeder, particle_wider, unstablizer, ir_reverb, chorus, flanger, phaser, delay, crusher or history"
+				"unknown product {other}; expected gain, distortion, filter, comb, allpass, width, pitch, shifter, disperser, balance, compressor, reverb, schroeder, particle_wider, unstablizer, ir_reverb, chorus, flanger, phaser, delay, crusher, history or filter_table"
 			);
 			std::process::exit(2);
 		}
