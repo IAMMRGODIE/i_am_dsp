@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use i_am_dsp_derive::Parameters;
 
 use crate::prelude::SyncedTime;
+use crate::tools::interpolate::cubic_interpolate;
 use crate::{Effect, ProcessContext, ProcessInfos};
 
 /// One breakpoint of a history page.
@@ -130,7 +131,7 @@ const MAX_HISTORY_SECONDS: f32 = 8.0;
 
 /// A time remap over a ring of recent input.
 #[derive(Parameters)]
-pub struct HistoryEffect {
+pub struct HistoryEffect<const CHANNELS: usize = 2> {
 	/// The length of the history window, in beats or its own milliseconds.
 	#[sub_param]
 	#[id(display = "History")]
@@ -160,7 +161,7 @@ pub struct HistoryEffect {
 	#[skip]
 	sample_rate: f32,
 	#[skip]
-	ring: [Vec<f32>; 2],
+	ring: [Vec<f32>; CHANNELS],
 	#[skip]
 	write: usize,
 	#[skip]
@@ -177,7 +178,7 @@ pub struct HistoryEffect {
 	delay_ready: bool,
 }
 
-impl HistoryEffect {
+impl<const CHANNELS: usize> HistoryEffect<CHANNELS> {
 	/// A history effect over a feed the page owns.
 	pub fn with_feed(sample_rate: usize, feed: Arc<HistoryFeed>) -> Self {
 		let length = ((sample_rate as f32 * MAX_HISTORY_SECONDS).ceil() as usize + 2).max(3);
@@ -286,12 +287,25 @@ impl HistoryEffect {
 		let length = self.ring[channel].len() as f64;
 		let delay = if delay.is_finite() { delay } else { 0.0 };
 		let position = (self.write as f64 - delay).rem_euclid(length);
+		let length = self.ring[channel].len();
 		let index = position.floor() as usize;
-		let next = (index + 1) % self.ring[channel].len();
+		let before = if index == 0 { length - 1 } else { index - 1 };
+		let next = (index + 1) % length;
+		let after = (index + 2) % length;
 		let fraction = (position - index as f64) as f32;
-		let first = self.ring[channel][index];
-		let second = self.ring[channel][next];
-		first + (second - first) * fraction
+
+		// The same cubic the wavetable sampler uses, here around the ring so a
+		// fractional delay read does not get the straight-line edge of a linear
+		// interpolator. All four taps wrap, because the history is circular.
+		cubic_interpolate(
+			fraction,
+			[
+				self.ring[channel][before],
+				self.ring[channel][index],
+				self.ring[channel][next],
+				self.ring[channel][after],
+			],
+		)
 	}
 }
 
@@ -330,15 +344,15 @@ fn page_value_sorted(sorted: &[HistoryPoint], x: f32) -> f32 {
 	sorted.last().map(|point| point.value).unwrap_or(1.0)
 }
 
-impl Effect<2> for HistoryEffect {
+impl<const CHANNELS: usize> Effect<CHANNELS> for HistoryEffect<CHANNELS> {
 	fn delay(&self) -> usize {
 		0
 	}
 
 	fn process(
 		&mut self,
-		samples: &mut [f32; 2],
-		_other: &[&[f32; 2]],
+		samples: &mut [f32; CHANNELS],
+		_other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn ProcessContext>,
 	) {
 		let infos = process_context.infos().clone();
@@ -493,6 +507,7 @@ mod tests {
 	}
 
 	#[test]
+	#[allow(clippy::field_reassign_with_default)]
 	fn a_flat_curve_tracks_the_input_for_a_long_run() {
 		let feed = HistoryFeed::new();
 		let mut effect = HistoryEffect::with_feed(48_000, feed);
@@ -515,5 +530,21 @@ mod tests {
 				frame[0]
 			);
 		}
+	}
+
+	#[test]
+	fn the_history_works_in_mono() {
+		let feed = HistoryFeed::new();
+		let mut effect: HistoryEffect<1> = HistoryEffect::with_feed(48_000, feed);
+		effect.mix = 1.0;
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext(ProcessInfos {
+			sample_rate: 48_000,
+			..ProcessInfos::default()
+		}));
+		let mut frame = [0.25f32];
+
+		effect.process(&mut frame, &[], &mut context);
+
+		assert!((frame[0] - 0.25).abs() < 1e-4);
 	}
 }
