@@ -137,10 +137,27 @@
 
       if (band < 0) return null;
 
-      ctx.set("band", band);
-      return { band: band };
+      // Selecting the band rewrites the card's controls and repaints the hero;
+      // doing that on the press would move the picture out from under the
+      // pointer. Keep selection for the release and only start moving after a
+      // real drag, so a click stays a click.
+      return {
+        band: band,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false
+      };
     },
     move: function (ctx, drag, event) {
+      if (!drag.moved) {
+        if (Math.abs(event.clientX - drag.startX) +
+            Math.abs(event.clientY - drag.startY) < 3) {
+          return;
+        }
+
+        drag.moved = true;
+      }
+
       var hero = event.currentTarget;
       var svg = hero.querySelector("svg");
 
@@ -159,6 +176,9 @@
       // Only the bell and shelf bands have a gain; a high/low pass has none.
       if (type <= 2) ctx.set("b" + (drag.band + 1) + "_gain", 24 - v * 48);
       event.preventDefault();
+    },
+    up: function (ctx, drag) {
+      ctx.set("band", drag.band);
     },
     wheel: function (ctx, event) {
       var band = eqBandAt(event);
