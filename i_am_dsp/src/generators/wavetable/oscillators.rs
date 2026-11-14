@@ -2,7 +2,7 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::prelude::{Parameter, Parameters, bend};
+use crate::prelude::{Parameter, Parameters, bend, page_position};
 
 use super::{Oscillator, TableOsc, WaveTable};
 
@@ -54,15 +54,19 @@ impl<const CHANNELS: usize> OscillatorSmoother<CHANNELS> {
 		} else if self.oscillators.len() == 1 {
 			return self.oscillators[0].play_at(1.0, t, phase);
 		}
-		let smooth = self.smooth_factor * (self.oscillators.len() as f32 - 1.0);
-		let (from, to) = (smooth.floor() as usize, smooth.ceil() as usize);
+
+		let (from, to, fraction) = page_position(self.smooth_factor, self.oscillators.len());
 		let from_sample = self.oscillators[from].play_at(1.0, t, phase);
+
+		if fraction <= f32::EPSILON || from == to {
+			return from_sample;
+		}
+
 		let to_sample = self.oscillators[to].play_at(1.0, t, phase);
-		let smooth = smooth % 1.0;
 		let mut output = [0.0; CHANNELS];
 
 		for i in 0..CHANNELS {
-			output[i] = from_sample[i] + (to_sample[i] - from_sample[i]) * smooth;
+			output[i] = from_sample[i] + (to_sample[i] - from_sample[i]) * fraction;
 		}
 
 		output

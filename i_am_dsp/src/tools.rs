@@ -5,6 +5,7 @@ pub mod beat_clock;
 pub mod bpm_syncer;
 pub(crate) mod interpolate;
 pub(crate) mod matrix;
+pub mod page;
 pub mod pcm_data;
 pub mod pitch;
 pub mod ring_buffer;

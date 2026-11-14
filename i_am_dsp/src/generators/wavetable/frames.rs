@@ -510,17 +510,7 @@ impl WaveFramesOsc {
 
 	/// The frame pair the morph sits between, and how far into it.
 	fn frames_in_play(&self, bank: &WaveBank) -> (usize, usize, f32) {
-		let count = bank.len();
-
-		if count <= 1 {
-			return (0, 0, 0.0);
-		}
-
-		let position = self.smooth_factor.clamp(0.0, 1.0) * (count - 1) as f32;
-		let from = position.floor() as usize;
-		let to = (from + 1).min(count - 1);
-
-		(from, to, position - from as f32)
+		crate::prelude::page_position(self.smooth_factor, bank.len())
 	}
 }
 

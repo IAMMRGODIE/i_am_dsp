@@ -9,6 +9,7 @@ use rustfft::FftPlanner;
 use rustfft::num_complex::Complex;
 use wide::f32x4;
 
+use crate::prelude::page_position;
 use crate::{Effect, ProcessContext};
 
 /// One breakpoint of the frame the page draws. The DSP reads a dense frame
@@ -330,11 +331,7 @@ impl FilterTableEffect {
 	fn build_target(&self, snapshot: &FrameData, rate: f32) -> [f32; TAPS] {
 		let mut raw = [0.0f32; TAPS];
 		let pages = &snapshot.pages;
-		let last = pages.len().saturating_sub(1);
-		let position = self.morph.clamp(0.0, 1.0) * last as f32;
-		let from = position.floor() as usize;
-		let to = (from + 1).min(last);
-		let blend = position - from as f32;
+		let (from, to, blend) = page_position(self.morph, pages.len());
 		let mut first = [0.0f32; FRAME];
 		let mut second = [0.0f32; FRAME];
 

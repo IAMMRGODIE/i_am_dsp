@@ -2,7 +2,7 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::prelude::{Parameter, Parameters};
+use crate::prelude::{Parameter, Parameters, page_position};
 
 use super::{Oscillator, WaveTable};
 
@@ -38,26 +38,21 @@ pub struct WaveTableSmoother {
 /// Sample a homogeneous slice of tables with one morph value. This is the
 /// shared body behind the type-erased smoother and the typed wrapper.
 fn sample_tables<T: WaveTable>(tables: &[T], smooth_factor: f32, t: f32, channel: usize) -> f32 {
-	let count = tables.len();
-
-	if count == 0 {
+	if tables.is_empty() {
 		return 0.0;
-	} else if count == 1 {
+	} else if tables.len() == 1 {
 		return tables[0].sample(t, channel);
 	}
 
-	let last = count - 1;
-	let smooth = (smooth_factor * last as f32).clamp(0.0, last as f32);
-	let from = smooth.floor() as usize;
+	let (from, to, fraction) = page_position(smooth_factor, tables.len());
 	let from_sample = tables[from].sample(t, channel);
-	let fraction = smooth - from as f32;
 
 	// Sitting exactly on one table should not sample the next one.
-	if fraction <= f32::EPSILON || from == last {
+	if fraction <= f32::EPSILON || from == to {
 		return from_sample;
 	}
 
-	let to_sample = tables[from + 1].sample(t, channel);
+	let to_sample = tables[to].sample(t, channel);
 	from_sample + (to_sample - from_sample) * fraction
 }
 

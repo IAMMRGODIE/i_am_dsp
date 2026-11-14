@@ -8,6 +8,8 @@ const DEFAULT_CACHE_LENGTH: usize = 1024;
 
 use i_am_dsp_derive::Parameters;
 
+use crate::prelude::page_position;
+
 use crate::prelude::{Oscillator, WaveTable};
 
 /// A simple stereo generator that can be used in oscillator musics.
@@ -450,15 +452,12 @@ impl Oscillator<2> for MultiStereoGenerators {
 			return [0.0; 2];
 		}
 
-		let current_page = self.smooth_factor * (self.generators.len() - 1) as f32;
-		let t = current_page.fract();
-		let current_page = current_page.floor() as usize;
+		let (current_page, next_page, t) = page_position(self.smooth_factor, self.generators.len());
 
-		if current_page == self.generators.len() - 1 || t == 0.0 {
+		if t <= f32::EPSILON || current_page == next_page {
 			return self.generators[current_page].play_at(frequency, time, phase);
 		}
 
-		let next_page = current_page + 1;
 		let prev = self.generators[current_page].play_at(frequency, time, phase);
 		let next = self.generators[next_page].play_at(frequency, time, phase);
 

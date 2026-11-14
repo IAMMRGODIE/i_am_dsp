@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use i_am_dsp_derive::Parameters;
 
-use crate::prelude::SyncedTime;
+use crate::prelude::{SyncedTime, page_position};
 use crate::tools::ring_buffer::RingBuffer;
 use crate::{Effect, ProcessContext, ProcessInfos};
 
@@ -238,11 +238,7 @@ impl<const CHANNELS: usize> HistoryEffect<CHANNELS> {
 
 		self.seen_pages = generation;
 		self.seen_morph = morph;
-		let last = pages.len().saturating_sub(1);
-		let position = morph.clamp(0.0, 1.0) * last as f32;
-		let from = position.floor() as usize;
-		let to = (from + 1).min(last);
-		let blend = position - from as f32;
+		let (from, to, blend) = page_position(morph, pages.len());
 
 		let mut first = pages[from].points.clone();
 		let mut second = pages[to].points.clone();
