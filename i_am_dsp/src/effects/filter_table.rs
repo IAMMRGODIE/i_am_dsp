@@ -127,9 +127,9 @@ impl Default for FilterFrame {
 }
 
 fn default_points() -> Vec<FilterPoint> {
-	(0..=32)
+	(0..=64)
 		.map(|index| {
-			let time = index as f32 / 32.0;
+			let time = index as f32 / 64.0;
 			FilterPoint {
 				time,
 				value: time,

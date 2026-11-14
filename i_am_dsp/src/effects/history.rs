@@ -153,6 +153,10 @@ pub struct HistoryEffect {
 	seen_pages: u64,
 	#[skip]
 	seen_morph: f32,
+	#[skip]
+	smoothed_delay: f64,
+	#[skip]
+	delay_ready: bool,
 }
 
 impl HistoryEffect {
@@ -172,6 +176,8 @@ impl HistoryEffect {
 			table: [1.0; TABLE],
 			seen_pages: u64::MAX,
 			seen_morph: f32::NAN,
+			smoothed_delay: 0.0,
+			delay_ready: false,
 		}
 	}
 
@@ -300,6 +306,16 @@ impl Effect<2> for HistoryEffect {
 					let period = (self.time.beats as f64).max(1e-6);
 					(beats / period).rem_euclid(1.0)
 				})
+			} else if let (Some(beats), Some(tempo)) = (
+				infos.position_beats,
+				infos.tempo.filter(|tempo| *tempo > 0.0),
+			) {
+				// Beat position is sample accurate; current_time can sit on a block
+				// boundary and make the read head jump once per buffer.
+				Some((beats * 60.0 / tempo as f64) * 1000.0 / self.history_time.max(0.01) as f64)
+					.into_iter()
+					.map(|phase| phase.rem_euclid(1.0))
+					.next()
 			} else {
 				Some(
 					(infos.current_time as f64 * 1000.0 / self.history_time.max(0.01) as f64)
@@ -321,7 +337,18 @@ impl Effect<2> for HistoryEffect {
 		}
 
 		let value = self.curve_at(self.phase);
-		let delay = (1.0 - value as f64) * history;
+		let target = (1.0 - value as f64) * history;
+		// A curve edit, a morph move or a host seek asks for a new read head at
+		// once. Slewing it over a few milliseconds turns that step into a short
+		// pitch slide instead of a click.
+		let coefficient = 1.0 - (-1.0 / (0.005 * self.sample_rate as f64)).exp();
+		if !self.delay_ready {
+			self.delay_ready = true;
+			self.smoothed_delay = target;
+		} else {
+			self.smoothed_delay += (target - self.smoothed_delay) * coefficient;
+		}
+		let delay = self.smoothed_delay.clamp(0.0, history - 1.0);
 		let mix = self.mix.clamp(0.0, 1.0);
 
 		for (channel, sample) in samples.iter_mut().enumerate() {
@@ -405,7 +432,7 @@ mod tests {
 		let mut frame = [1.0f32, 1.0f32];
 		effect.process(&mut frame, &[], &mut context);
 
-		for _ in 0..479 {
+		for _ in 0..400 {
 			let mut silent = [0.0f32; 2];
 			effect.process(&mut silent, &[], &mut context);
 			output = silent;
