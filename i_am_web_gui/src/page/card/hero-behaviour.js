@@ -79,6 +79,12 @@
       drag = null;
     });
 
+    hero.addEventListener("wheel", function (event) {
+      if (!behaviour.wheel) return;
+
+      behaviour.wheel(context, event);
+    }, { passive: false });
+
     hero.addEventListener("click", function (event) {
       var button = event.target.closest(".hero-action");
       var action = button && button.getAttribute("data-action");
@@ -117,6 +123,65 @@
     ctx.set(id, ctx.value(id) > 0.5 ? 0 : 1);
     ctx.commit([id]);
   }
+
+  /// One EQ band, from the element under the press.
+  function eqBandAt(event) {
+    var node = event.target.closest && event.target.closest("[data-eq-band]");
+
+    return node ? Number(node.getAttribute("data-eq-band")) : -1;
+  }
+
+  registerHeroBehaviour("eq", {
+    down: function (ctx, event) {
+      var band = eqBandAt(event);
+
+      if (band < 0) return null;
+
+      ctx.set("band", band);
+      return { band: band };
+    },
+    move: function (ctx, drag, event) {
+      var hero = event.currentTarget;
+      var svg = hero.querySelector("svg");
+
+      if (!svg) return;
+
+      var rect = svg.getBoundingClientRect();
+
+      if (!rect.width || !rect.height) return;
+
+      var u = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      var v = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+      var type = Math.round(ctx.value("b" + (drag.band + 1) + "_type") || 0);
+
+      ctx.set("b" + (drag.band + 1) + "_freq", 20 * Math.pow(1000, u));
+
+      // Only the bell and shelf bands have a gain; a high/low pass has none.
+      if (type <= 2) ctx.set("b" + (drag.band + 1) + "_gain", 24 - v * 48);
+      event.preventDefault();
+    },
+    wheel: function (ctx, event) {
+      var band = eqBandAt(event);
+
+      if (band < 0) return;
+
+      event.preventDefault();
+      ctx.set("band", band);
+
+      var q = ctx.value("b" + (band + 1) + "_q") || 1;
+
+      ctx.set("b" + (band + 1) + "_q", q * (event.deltaY < 0 ? 1.12 : 0.89));
+    },
+    double: function (ctx, event) {
+      var band = eqBandAt(event);
+
+      if (band < 0) return;
+
+      ctx.set("band", band);
+      ctx.set("b" + (band + 1) + "_gain", 0);
+      event.preventDefault();
+    }
+  });
 
   registerHeroBehaviour("sampler", {
     actions: {
