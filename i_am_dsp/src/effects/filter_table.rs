@@ -356,6 +356,17 @@ impl FilterTableEffect {
 			*sample -= mean;
 		}
 
+		// A quiet frame must not make a quiet filter: normalise its peak before
+		// the spectral work, then normalise the kernel's energy below.
+		let peak = dense
+			.iter()
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+		if peak > 1e-6 {
+			for sample in &mut dense {
+				*sample /= peak;
+			}
+		}
+
 		// The frame's twenty-fourth harmonic sits at 24 * rate / FRAME; scaling
 		// the read position by this ratio puts it on the cutoff.
 		let ratio = self.cutoff * FRAME as f32 / (24.0 * rate);
