@@ -75,6 +75,8 @@ var fallState = null;
 var canvasState = null;
   // The Spectrum product's drawn pages, fetched from its own route.
   var spectrumState = null;
+  // The History product's curve pages.
+  var historyState = null;
 var wantsOtt = false;
 var ottState = null;
 var wantsVocoder = false;

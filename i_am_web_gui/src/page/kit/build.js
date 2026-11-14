@@ -775,6 +775,7 @@
     poll();
     pollCanvas();
     pollSpectrum();
+    pollHistory();
     if (wantsScope) pollScope();
   }
 

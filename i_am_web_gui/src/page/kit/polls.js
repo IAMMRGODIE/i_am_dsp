@@ -455,6 +455,25 @@
       });
   }
 
+  /// The History product's pages, like the Spectrum's: its own route, not a
+  /// parameter.
+  function pollHistory() {
+    fetch("/history", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state || !state.pages) return;
+        if (document.querySelector(".hero[data-busy='1']")) return;
+        historyState = state;
+        markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollHistory, 1500);
+      });
+  }
+
   /// The OTT band meters, in dB of net gain: positive is attenuation, negative
   /// is the upward compressor's boost.
   function pollOtt() {

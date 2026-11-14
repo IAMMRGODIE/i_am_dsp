@@ -24,14 +24,18 @@
         rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,
         ott: ottState, vocoder: vocoderState, eqSpectrum: eqSpectrum,
-        autotune: autotuneState, canvas: canvasState, spectrum: spectrumState,
+        autotune: autotuneState, canvas: canvasState, spectrum: spectrumState, history: historyState,
         waves: wavesState, waveMode: waveMode, sample: sampleState, sampleView: sampleView, script: scriptState, click: clickState, samples: samplesState, ampCurves: ampCurves, kickMode: kickMode, snareMode: snareMode
       });
       if (content) {
         hero.el.innerHTML = content;
         if (IAmCard.wire) {
           IAmCard.wire(hero.el, hero.kind, values, {
-            canvas: canvasState, spectrum: spectrumState, set: setControl
+            canvas: canvasState, spectrum: spectrumState, history: historyState,
+            set: setControl,
+            post: function (body) {
+              fetch("/history", { method: "POST", body: body }).catch(function () {});
+            }
           });
         }
       }

@@ -758,6 +758,8 @@
       if (kind === "canvas") wireCanvas(el, kind, values, state);
       else if (kind === "spectrum" || kind === "morph-spectrum") {
         wireSpectrum(el, kind === "morph-spectrum" ? "spectrum" : kind, values, state);
+      } else if (kind === "history") {
+        wireHistory(el, kind, values, state);
       }
     },
     modulate: modulate,

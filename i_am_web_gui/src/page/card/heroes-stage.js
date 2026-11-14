@@ -408,3 +408,110 @@
       '<div class="hero-label" style="left:2%;top:2%">ALLOWED NOTES</div>' +
       '<div class="hero-badge">' + Math.round(strength * 100) + '%</div>';
   }
+
+  /// The history time map: one page at a time, with the same 300x64 editor the
+  /// LFO uses.
+  function historySelected(values, pages) {
+    var last = Math.max(pages.length - 1, 0);
+    var morph = clamp(valueOf(values, "morph", 0), 0, 1);
+
+    return Math.min(Math.max(Math.round(morph * last), 0), last);
+  }
+
+  function historyHero(values, context) {
+    var history = context && context.history;
+    var pages = (history && history.pages) || [{ points: [] }];
+    var selected = historySelected(values, pages);
+
+    return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="none"></svg>' +
+      '<div class="hero-actions">' +
+        '<button type="button" class="hero-action" data-action="history-prev">‹</button>' +
+        '<button type="button" class="hero-action" data-action="history-next">›</button>' +
+        '<button type="button" class="hero-action" data-action="history-add">+ PAGE</button>' +
+        '<button type="button" class="hero-action" data-action="history-remove">- PAGE</button>' +
+      '</div>' +
+      '<div class="hero-label" style="left:2%;top:2%">HISTORY · PAGE ' +
+        (selected + 1) + ' / ' + pages.length + '</div>';
+  }
+
+  /// The page editor: editLfo moves the points of one page; the page buttons
+  /// move the morph and add or remove whole pages.
+  function wireHistory(el, kind, values, state) {
+    var history = state && state.history;
+
+    if (kind !== "history" || !history || !history.pages || !history.pages.length) return;
+
+    var pages = history.pages;
+    var selected = historySelected(values, pages);
+    var svg = el.querySelector("svg");
+
+    if (!svg) return;
+
+    var holder = { points: pages[selected].points };
+    var paint = function (points) {
+      pages[selected].points = points;
+      IAmCard.sources.drawPreview(svg, "lfo", { points: points }, null);
+    };
+
+    var post = function () {
+      if (state.post) state.post(JSON.stringify(pages));
+    };
+
+    // The action row can sit under the SVG inside a scaled foreignObject, so a
+    // press that misses the button is matched to its rectangle here.
+    svg.addEventListener("pointerdown", function (event) {
+      var buttons = el.querySelectorAll(".hero-action");
+
+      for (var index = 0; index < buttons.length; index++) {
+        var rect = buttons[index].getBoundingClientRect();
+
+        if (event.clientX >= rect.left && event.clientX <= rect.right &&
+            event.clientY >= rect.top && event.clientY <= rect.bottom) {
+          buttons[index].dispatchEvent(new PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            pointerId: event.pointerId,
+          }));
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
+    });
+
+    IAmCard.sources.editLfo(svg, holder, {
+      paint: paint,
+      commit: post,
+      dots: true,
+    });
+
+    el.onpointerdown = function (event) {
+      var button = event.target.closest && event.target.closest("[data-action]");
+
+      if (!button) return;
+
+      var action = button.getAttribute("data-action");
+      var last = pages.length - 1;
+
+      if (action === "history-prev") {
+        state.set("morph", last > 0 ? Math.max(selected - 1, 0) / last : 0);
+      } else if (action === "history-next") {
+        state.set("morph", last > 0 ? Math.min(selected + 1, last) / last : 0);
+      } else if (action === "history-add") {
+        var copy = { points: pages[selected].points.map(function (point) { return Object.assign({}, point); }) };
+        pages.splice(selected + 1, 0, copy);
+        post();
+        state.set("morph", (selected + 1) / Math.max(pages.length - 1, 1));
+      } else if (action === "history-remove" && pages.length > 1) {
+        pages.splice(selected, 1);
+        post();
+        state.set("morph", Math.min(selected, pages.length - 1) / Math.max(pages.length - 1, 1));
+      }
+
+      event.preventDefault();
+    };
+
+    paint(holder.points);
+  }
