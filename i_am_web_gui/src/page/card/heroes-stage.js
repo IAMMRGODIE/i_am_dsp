@@ -421,12 +421,24 @@
   function historyPath(points) {
     if (!points || !points.length) return '';
 
+    var sorted = points.slice().sort(function (a, b) { return a.time - b.time; });
     var path = "";
-    points.forEach(function (point, index) {
-      var x = 8 + Math.max(0, Math.min(1, point.time)) * 284;
-      var y = 60 - Math.max(0, Math.min(1, point.value)) * 52;
-      path += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
-    });
+    var samples = 12;
+
+    for (var index = 0; index < sorted.length - 1; index++) {
+      var left = sorted[index];
+      var right = sorted[index + 1];
+
+      for (var step = 0; step <= samples; step++) {
+        var unit = step / samples;
+        var eased = unit * unit * (3 - 2 * unit);
+        var time = left.time + (right.time - left.time) * unit;
+        var value = left.value + (right.value - left.value) * eased;
+        var x = 8 + Math.max(0, Math.min(1, time)) * 284;
+        var y = 60 - Math.max(0, Math.min(1, value)) * 52;
+        path += (path ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+      }
+    }
 
     return path;
   }
@@ -471,7 +483,7 @@
     var paint = function (points) {
       if (page.points) page.points = points;
       else pages[selected] = points;
-      IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent }, null);
+      IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent, smooth: true }, null);
     };
 
     var post = function () {
