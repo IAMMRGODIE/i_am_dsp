@@ -462,3 +462,59 @@ fn a_preset_keeps_the_script_source() {
 		"the preset did not restore the script: {json}"
 	);
 }
+
+/// A History module owns its pages, and the route the card uses writes them
+/// into both the feed and the rack state.
+#[test]
+fn a_history_module_keeps_its_pages() {
+	use i_am_dsp::prelude::{HistoryPage, HistoryPoint};
+
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(42, ModuleKind::History));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+	process_with(&mut rack, [0.0, 0.0], Vec::new());
+
+	let pages = vec![HistoryPage {
+		points: vec![
+			HistoryPoint {
+				time: 0.0,
+				value: 0.0,
+				bend: 0.0,
+			},
+			HistoryPoint {
+				time: 1.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+		],
+	}];
+	let body = serde_json::to_string(&pages).expect("pages");
+	let request = i_am_web_gui::ProtocolRequest {
+		method: "POST",
+		path: "/module-history",
+		query: Some("id=42"),
+		body: body.as_bytes(),
+	};
+
+	assert!(
+		crate::web::route(&request, &rack.shared).is_some(),
+		"the history route refused the pages"
+	);
+
+	let handle = rack.shared.existing_history(42).expect("the history slot");
+	assert_eq!(handle.feed().pages()[0].points[0].value, 0.0);
+	assert!(
+		rack.shared
+			.lock()
+			.module_mut(42)
+			.expect("module")
+			.history
+			.is_some(),
+		"the pages were not saved in the rack state"
+	);
+}
