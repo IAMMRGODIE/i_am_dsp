@@ -175,6 +175,10 @@ node tools/preview/preview.mjs patch          # patcher 的实时编辑器
   `heroLabel(x, y, text, style)` 放到 HTML 层，圆点用 `.hero-pip`（只显示）或 `.hero-dot`（可拖），
   空状态用 `.hero-empty`。坐标换成百分比：`left = x/5.2%`、`top = y/1.6%`。
   改 hero 时在 `tools/preview` 的 `compare` 里对一下，卡片和产品页的标签形状要一致。
+- **产品页的 hero SVG 默认不吃指针**：`kit.css` 里 `.hero svg{pointer-events:none}` 是给纯展示图用的；
+  任何可编辑 hero（`editLfo` / 拖点 / 拖 bend）必须在同一处按 `data-hero` 打开
+  `pointer-events:auto`，否则曲线能画、鼠标完全没反应。只在 `card.css` 的卡片里测过不算数，
+  产品页和卡片是两套 CSS；改完两边都要实际拖一次。
 - **live edit 要改到"下一个 voice 的模板"**：`Poly` 把声部组拷成 `voice_graph`，每个音符用它新建引擎。
   只改 `outer` 和活着的 voices，下一个音符就会带着旧参数出生（听起来是参数跳回去了），而任何结构操作
   触发的重建又会把它"修好"——非常像前端的同步问题。改参数/调制深度时照 `Poly::set_param` 的三处一起改。
