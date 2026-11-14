@@ -538,6 +538,8 @@
       meter: module.meter,
       ir: module.ir,
       script: module.script,
+      history: module.history,
+      filterTable: module.filter_table,
       card: null,
       context: cardAudio,
       fetching: false
@@ -559,6 +561,13 @@
       note: !!module.note,
       ir: !!module.ir,
       script: !!module.script,
+      history: !!module.history,
+      filterTable: !!module.filter_table,
+      filterTableState: function () { return entry.context.filterTable; },
+      filterTableSet: function (id, value) { queue(module.id + "." + id, value); },
+      filterTablePost: function (body) {
+        fetch("/module-filter-table?id=" + module.id, { method: "POST", body: body }).catch(function () {});
+      },
       pickIr: function () { pickImpulse(entry); },
       loadScript: function () { loadScript(entry, true); },
       applyScript: function (source) { applyScript(entry, source); },

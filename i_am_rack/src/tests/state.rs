@@ -94,7 +94,7 @@ fn the_rack_route_lists_bands_and_modules() {
 	assert_eq!(modules[0]["hero"], "spectrum");
 
 	let kinds = json["kinds"].as_array().expect("kinds");
-	assert_eq!(kinds.len(), 39);
+	assert_eq!(kinds.len(), 40);
 
 	let names = kinds
 		.iter()

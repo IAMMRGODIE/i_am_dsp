@@ -96,11 +96,13 @@ pub enum ModuleKind {
 	ScriptMapper,
 	/// The History time-remap product.
 	History,
+	/// The Filter Table wavetable filter.
+	FilterTable,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 39] = [
+	pub const ALL: [Self; 40] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
@@ -140,6 +142,7 @@ impl ModuleKind {
 		Self::ScriptDistortion,
 		Self::ScriptMapper,
 		Self::History,
+		Self::FilterTable,
 	];
 
 	/// The catalog id this kind stores in its state.
@@ -184,6 +187,7 @@ impl ModuleKind {
 			Self::ScriptDistortion => "script_distortion",
 			Self::ScriptMapper => "script_mapper",
 			Self::History => "history",
+			Self::FilterTable => "filter_table",
 		}
 	}
 
@@ -329,7 +333,8 @@ pub fn group(kind: ModuleKind) -> &'static str {
 		| ModuleKind::Router
 		| ModuleKind::ScriptDistortion
 		| ModuleKind::ScriptMapper
-		| ModuleKind::History => "Utility",
+		| ModuleKind::History
+		| ModuleKind::FilterTable => "Utility",
 	}
 }
 
@@ -356,11 +361,21 @@ pub(crate) fn build(
 	ir: Option<Arc<i_am_effects::IrSlot>>,
 	script: Option<Arc<crate::script::ScriptSlot>>,
 	history: Option<i_am_effects::HistoryHandle>,
+	filter_table: Option<i_am_effects::FilterTableHandle>,
 ) -> Box<dyn Effect<2>> {
 	if kind == ModuleKind::History {
 		return Box::new(i_am_dsp::prelude::HistoryEffect::with_feed(
 			sample_rate,
 			history.expect("the history kind needs its pages").feed(),
+		));
+	}
+
+	if kind == ModuleKind::FilterTable {
+		return Box::new(i_am_dsp::prelude::FilterTableEffect::with_frame(
+			sample_rate,
+			filter_table
+				.expect("the filter table kind needs its frame")
+				.frame(),
 		));
 	}
 

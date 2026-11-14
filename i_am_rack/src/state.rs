@@ -186,6 +186,9 @@ pub struct ModuleState {
 	/// The History pages a History module holds, so a preset keeps them.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub history: Option<Vec<i_am_dsp::prelude::HistoryPage>>,
+	/// The Filter Table pages a Filter Table module holds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub filter_pages: Option<Vec<Vec<i_am_dsp::prelude::FilterPoint>>>,
 }
 
 impl ModuleState {
@@ -200,6 +203,7 @@ impl ModuleState {
 			ir: None,
 			script: None,
 			history: None,
+			filter_pages: None,
 		}
 	}
 }

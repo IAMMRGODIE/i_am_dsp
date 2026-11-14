@@ -518,3 +518,59 @@ fn a_history_module_keeps_its_pages() {
 		"the pages were not saved in the rack state"
 	);
 }
+
+/// A Filter Table module keeps its pages through the route and the preset.
+#[test]
+fn a_filter_table_module_keeps_its_pages() {
+	use i_am_dsp::prelude::FilterPoint;
+
+	let mut rack = Rack::default();
+	rack.on_activate(48_000);
+
+	{
+		let mut state = rack.shared.lock();
+		state.bands[0].slots[0] = Some(ModuleState::new(42, ModuleKind::FilterTable));
+	}
+	rack.shared.dirty.store(true, Ordering::Release);
+	process_with(&mut rack, [0.0, 0.0], Vec::new());
+
+	let pages = vec![vec![
+		FilterPoint {
+			time: 0.0,
+			value: 0.0,
+			bend: 0.0,
+		},
+		FilterPoint {
+			time: 1.0,
+			value: 1.0,
+			bend: 0.0,
+		},
+	]];
+	let body = serde_json::to_string(&pages).expect("pages");
+	let request = i_am_web_gui::ProtocolRequest {
+		method: "POST",
+		path: "/module-filter-table",
+		query: Some("id=42"),
+		body: body.as_bytes(),
+	};
+
+	assert!(
+		crate::web::route(&request, &rack.shared).is_some(),
+		"the filter table route refused the pages"
+	);
+
+	let handle = rack
+		.shared
+		.existing_filter_table(42)
+		.expect("the filter table slot");
+	assert_eq!(handle.frame().pages().len(), 1);
+	assert!(
+		rack.shared
+			.lock()
+			.module_mut(42)
+			.expect("module")
+			.filter_pages
+			.is_some(),
+		"the pages were not saved in the rack state"
+	);
+}

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use i_am_dsp::prelude::{ParamMap, SetValue};
-use i_am_effects::{HistoryHandle, IrSlot};
+use i_am_effects::{FilterTableHandle, HistoryHandle, IrSlot};
 
 use crate::script::ScriptSlot;
 use i_am_web_gui::{Channels, Control, Scope};
@@ -216,6 +216,8 @@ pub(crate) struct RackShared {
 	pub scripts: Mutex<HashMap<u32, Arc<ScriptSlot>>>,
 	/// One History page handle per module id, for the History card.
 	pub histories: Mutex<HashMap<u32, HistoryHandle>>,
+	/// One Filter Table frame handle per module id.
+	pub filter_tables: Mutex<HashMap<u32, FilterTableHandle>>,
 }
 
 impl RackShared {
@@ -263,6 +265,26 @@ impl RackShared {
 	/// The script worker of a module, when the engine has already built one.
 	pub fn existing_script(&self, id: u32) -> Option<Arc<ScriptSlot>> {
 		self.scripts
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.get(&id)
+			.cloned()
+	}
+
+	/// The Filter Table frame of a module, created the first time the engine or
+	/// a page asks.
+	pub fn filter_table(&self, id: u32) -> FilterTableHandle {
+		self.filter_tables
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.entry(id)
+			.or_default()
+			.clone()
+	}
+
+	/// The Filter Table frame of a module, when the engine has already built one.
+	pub fn existing_filter_table(&self, id: u32) -> Option<FilterTableHandle> {
+		self.filter_tables
 			.lock()
 			.unwrap_or_else(|poisoned| poisoned.into_inner())
 			.get(&id)

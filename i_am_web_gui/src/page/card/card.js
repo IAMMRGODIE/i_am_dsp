@@ -359,6 +359,23 @@
     // does: the page keeps the card and calls this on every scope frame.
     card.repaintHero = paintHero;
 
+    if (options.hero && options.filterTable) {
+      var wireFilterTableState = function () {
+        IAmCard.wire(heroElement, "filtertable", values, {
+          filterTable: options.filterTableState(),
+          set: options.filterTableSet,
+          post: options.filterTablePost
+        });
+      };
+      var repaintWithFilterTable = card.repaintHero;
+
+      card.repaintHero = function (current) {
+        repaintWithFilterTable(current);
+        wireFilterTableState();
+      };
+      wireFilterTableState();
+    }
+
     if (options.hero && options.history) {
       var wireHistoryState = function () {
         IAmCard.wire(heroElement, "history", values, {

@@ -130,6 +130,23 @@
       .catch(function () {});
   }
 
+  /// The Filter Table pages a module holds.
+  function fetchFilterTable(entry) {
+    fetch("/module-filter-table?id=" + entry.id, { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        if (!value || !value.pages) return;
+
+        var changed = JSON.stringify(entry.context.filterTable) !== JSON.stringify(value);
+        entry.context.filterTable = value;
+
+        if (changed) repaint(entry);
+      })
+      .catch(function () {});
+  }
+
   /// The source a scripted module runs, for its editor. The poll only refreshes
   /// the error line, so it cannot overwrite what a person is typing.
   function loadScript(entry, force) {
@@ -180,6 +197,9 @@
     if (!document.hidden) {
       liveCards.forEach(function (entry) {
         if (entry.ir) fetchIr(entry);
+        if (entry.history) fetchHistory(entry);
+        if (entry.filterTable) fetchFilterTable(entry);
+        if (entry.filterTable) fetchFilterTable(entry);
         if (entry.script) {
           fetchCurve(entry);
           loadScript(entry, false);

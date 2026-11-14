@@ -93,9 +93,12 @@ struct Module {
 	meters: Option<Arc<ModuleMeters>>,
 	/// The History pages this module's card edits.
 	history: Option<i_am_effects::HistoryHandle>,
+	/// The Filter Table frame this module's card edits.
+	filter_table: Option<i_am_effects::FilterTableHandle>,
 }
 
 impl Module {
+	#[allow(clippy::too_many_arguments)]
 	fn new(
 		state: &ModuleState,
 		sample_rate: usize,
@@ -104,8 +107,16 @@ impl Module {
 		ir: Option<Arc<i_am_effects::IrSlot>>,
 		script: Option<Arc<crate::script::ScriptSlot>>,
 		history: Option<i_am_effects::HistoryHandle>,
+		filter_table: Option<i_am_effects::FilterTableHandle>,
 	) -> Self {
-		let effect = module::build(state.kind, sample_rate, ir.clone(), script, history.clone());
+		let effect = module::build(
+			state.kind,
+			sample_rate,
+			ir.clone(),
+			script,
+			history.clone(),
+			filter_table.clone(),
+		);
 
 		if let (Some(saved), Some(slot)) = (&state.ir, &ir) {
 			let saved = saved.resampled(sample_rate);
@@ -117,6 +128,10 @@ impl Module {
 		}
 		if let (Some(saved), Some(slot)) = (&state.history, &history) {
 			slot.feed().set_pages(saved.clone());
+		}
+
+		if let (Some(saved), Some(slot)) = (&state.filter_pages, &filter_table) {
+			slot.frame().set_pages(saved.clone());
 		}
 
 		let mut paramed = Paramed::new(ModuleEffect(effect));
@@ -148,12 +163,17 @@ impl Module {
 			notes: module::shows_notes(state.kind),
 			meters,
 			history: history.clone(),
+			filter_table: filter_table.clone(),
 		}
 	}
 
 	fn update(&mut self, state: &ModuleState) {
 		if let (Some(saved), Some(history)) = (&state.history, &self.history) {
 			history.feed().set_pages(saved.clone());
+		}
+
+		if let (Some(saved), Some(filter_table)) = (&state.filter_pages, &self.filter_table) {
+			filter_table.frame().set_pages(saved.clone());
 		}
 
 		self.bypass = state.bypass;
@@ -322,6 +342,17 @@ impl Scopes {
 		})
 	}
 
+	fn filter_table(&self, id: u32, kind: ModuleKind) -> Option<i_am_effects::FilterTableHandle> {
+		if kind != ModuleKind::FilterTable {
+			return None;
+		}
+
+		Some(match &self.shared {
+			Some(shared) => shared.filter_table(id),
+			None => i_am_effects::FilterTableHandle::new(),
+		})
+	}
+
 	fn history(&self, id: u32, kind: ModuleKind) -> Option<i_am_effects::HistoryHandle> {
 		if kind != ModuleKind::History {
 			return None;
@@ -374,6 +405,7 @@ fn apply_lane(lane: &mut Lane, band: &crate::state::BandState, rate: usize, scop
 						scopes.ir(edited.id, edited.kind),
 						scopes.script(edited.id, edited.kind),
 						scopes.history(edited.id, edited.kind),
+						scopes.filter_table(edited.id, edited.kind),
 					));
 				} else if let Some(module) = &mut lane.slots[slot] {
 					module.update(edited);

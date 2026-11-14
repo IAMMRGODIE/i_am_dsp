@@ -58,6 +58,8 @@ pub(crate) fn route(
 		("GET", "/module-bands") => module_bands(request, shared),
 		("GET", "/module-ir") => module_ir(request, shared),
 		("POST", "/module-ir") => module_ir(request, shared),
+		("GET", "/module-filter-table") => module_filter_table(request, shared),
+		("POST", "/module-filter-table") => module_filter_table(request, shared),
 		("GET", "/module-history") => module_history(request, shared),
 		("POST", "/module-history") => module_history(request, shared),
 		("GET", "/module-script") => module_script(request, shared),
@@ -78,6 +80,6 @@ use self::commands::command;
 pub(crate) use self::json::rack_json;
 use self::json::{modulation_json, state_json};
 use self::modules::{
-	module_bands, module_curve, module_document, module_history, module_ir, module_note,
-	module_script,
+	module_bands, module_curve, module_document, module_filter_table, module_history, module_ir,
+	module_note, module_script,
 };

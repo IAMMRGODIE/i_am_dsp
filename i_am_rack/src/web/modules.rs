@@ -220,3 +220,31 @@ pub(super) fn module_history(
 		_ => None,
 	}
 }
+
+/// The Filter Table pages a module holds. The preset keeps a copy in the state.
+pub(super) fn module_filter_table(
+	request: &i_am_web_gui::ProtocolRequest<'_>,
+	shared: &RackShared,
+) -> Option<i_am_web_gui::ProtocolResponse> {
+	let id = module_id(request)?;
+	let handle = shared.existing_filter_table(id)?;
+
+	match request.method {
+		"GET" => Some(i_am_web_gui::ProtocolResponse::json(handle.state_json())),
+		"POST" => {
+			let body = String::from_utf8_lossy(request.body).to_string();
+			let answer = handle.set_json(&body);
+
+			if answer.contains("\"ok\":true")
+				&& let Ok(pages) =
+					serde_json::from_str::<Vec<Vec<i_am_dsp::prelude::FilterPoint>>>(&body)
+				&& let Some(module) = shared.lock().module_mut(id)
+			{
+				module.filter_pages = Some(pages);
+			}
+
+			Some(i_am_web_gui::ProtocolResponse::json(answer))
+		}
+		_ => None,
+	}
+}
