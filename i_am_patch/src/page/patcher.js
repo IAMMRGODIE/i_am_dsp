@@ -1431,6 +1431,29 @@
           .catch(() => {});
       },
     });
+
+    if (!entry.historyTimer) {
+      entry.historyTimer = setInterval(() => {
+        fetch("/history?node=" + entry.node.id, { cache: "no-store" })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((state) => {
+            if (!state || !state.pages) return;
+
+            entry.context.history.phase = state.phase;
+            const line = entry.card.querySelector(".history-playhead");
+            if (line && typeof state.phase === "number") {
+              line.style.left = (state.phase * 100).toFixed(2) + "%";
+            }
+
+            if (state.generation !== entry.context.history.generation &&
+                hero.dataset.busy !== "1") {
+              entry.context.history = state;
+              if (entry.card.repaintHero) entry.card.repaintHero();
+            }
+          })
+          .catch(() => {});
+      }, 100);
+    }
   }
 
   /// Fetches what a node's slot now holds and repaints the card's picture.

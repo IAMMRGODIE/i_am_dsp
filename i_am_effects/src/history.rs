@@ -28,8 +28,9 @@ impl HistoryHandle {
 	/// The route's GET answer.
 	pub fn state_json(&self) -> String {
 		format!(
-			"{{\"generation\":{},\"pages\":{}}}",
+			"{{\"generation\":{},\"phase\":{},\"pages\":{}}}",
 			self.0.generation(),
+			self.0.phase(),
 			serde_json::to_string(&*self.0.pages()).expect("the pages serialize")
 		)
 	}

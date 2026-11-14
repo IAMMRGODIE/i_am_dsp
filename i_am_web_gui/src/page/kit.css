@@ -236,6 +236,10 @@ body.preview #app{
 .hero[data-hero="impulse"]{cursor:pointer;user-select:none}
 /* Labels sit outside the SVG: the hero is stretched to the window, and text
    inside an SVG with preserveAspectRatio="none" would stretch with it. */
+.hero .history-playhead{
+  position:absolute; top:0; bottom:0; width:1px; z-index:1;
+  background:rgba(190,190,190,.55); pointer-events:none;
+}
 .hero-label{
   position:absolute; left:calc(14px * var(--scale)); z-index:1;
   max-width:calc(100% - calc(28px * var(--scale)));

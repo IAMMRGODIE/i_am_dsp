@@ -2,7 +2,7 @@
 //! playback position in the history window, the x axis is where the current
 //! moment sits inside that window.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp_derive::Parameters;
@@ -58,6 +58,7 @@ impl Default for HistoryPage {
 pub struct HistoryFeed {
 	generation: AtomicU64,
 	pages: Mutex<Arc<Vec<HistoryPage>>>,
+	phase: AtomicU32,
 }
 
 impl HistoryFeed {
@@ -66,6 +67,7 @@ impl HistoryFeed {
 		Arc::new(Self {
 			generation: AtomicU64::new(0),
 			pages: Mutex::new(Arc::new(vec![HistoryPage::flat()])),
+			phase: AtomicU32::new(0),
 		})
 	}
 
@@ -88,6 +90,16 @@ impl HistoryFeed {
 		self.generation.fetch_add(1, Ordering::Release);
 	}
 
+	/// The current read position, as a 0..1 phase, for the page's playhead.
+	pub fn phase(&self) -> f32 {
+		f32::from_bits(self.phase.load(Ordering::Relaxed))
+	}
+
+	/// Stores the read position for the page; the audio thread writes this.
+	pub fn set_phase(&self, phase: f32) {
+		self.phase.store(phase.to_bits(), Ordering::Relaxed);
+	}
+
 	/// Moves whenever the pages change.
 	pub fn generation(&self) -> u64 {
 		self.generation.load(Ordering::Acquire)
@@ -99,6 +111,7 @@ impl Default for HistoryFeed {
 		Self {
 			generation: AtomicU64::new(0),
 			pages: Mutex::new(Arc::new(vec![HistoryPage::flat()])),
+			phase: AtomicU32::new(0),
 		}
 	}
 }
@@ -348,6 +361,7 @@ impl Effect<2> for HistoryEffect {
 		} else {
 			self.smoothed_delay += (target - self.smoothed_delay) * coefficient;
 		}
+		self.feed.set_phase(self.phase as f32);
 		let delay = self.smoothed_delay.clamp(0.0, history - 1.0);
 		let mix = self.mix.clamp(0.0, 1.0);
 

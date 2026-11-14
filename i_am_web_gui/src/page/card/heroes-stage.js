@@ -449,6 +449,7 @@
     var selected = historySelected(values, pages);
     var points = (pages[selected] && pages[selected].points) || pages[selected] || [];
     var path = historyPath(points);
+    var phase = history && typeof history.phase === "number" ? history.phase : 0;
 
     return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="xMidYMid meet">' +
       '<line x1="8" y1="60" x2="292" y2="60" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
@@ -460,6 +461,7 @@
         '<button type="button" class="hero-action" data-action="history-add">+ PAGE</button>' +
         '<button type="button" class="hero-action" data-action="history-remove">- PAGE</button>' +
       '</div>' +
+      '<div class="history-playhead" style="left:' + (phase * 100).toFixed(2) + '%"></div>' +
       '<div class="hero-label" style="left:2%;top:2%">HISTORY · PAGE ' +
         (selected + 1) + ' / ' + pages.length + '</div>';
   }

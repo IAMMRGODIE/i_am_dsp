@@ -458,19 +458,32 @@
   /// The History product's pages, like the Spectrum's: its own route, not a
   /// parameter.
   function pollHistory() {
+    if (!document.querySelector(".hero[data-hero='history']")) {
+      setTimeout(pollHistory, 500);
+      return;
+    }
+
     fetch("/history", { cache: "no-store" })
       .then(function (response) {
         return response.ok ? response.json() : null;
       })
       .then(function (state) {
         if (!state || !state.pages) return;
-        if (document.querySelector(".hero[data-busy='1']")) return;
+
+        var changed = !historyState ||
+          JSON.stringify(historyState.pages) !== JSON.stringify(state.pages);
         historyState = state;
-        markDirty();
+
+        var line = document.querySelector(".hero .history-playhead");
+        if (line && typeof state.phase === "number") {
+          line.style.left = (state.phase * 100).toFixed(2) + "%";
+        }
+
+        if (changed && !document.querySelector(".hero[data-busy='1']")) markDirty();
       })
       .catch(function () {})
       .then(function () {
-        setTimeout(pollHistory, 1500);
+        setTimeout(pollHistory, 100);
       });
   }
 
