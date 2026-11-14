@@ -418,12 +418,30 @@
     return Math.min(Math.max(Math.round(morph * last), 0), last);
   }
 
+  function historyPath(points) {
+    if (!points || !points.length) return '';
+
+    var path = "";
+    points.forEach(function (point, index) {
+      var x = 8 + Math.max(0, Math.min(1, point.time)) * 284;
+      var y = 60 - Math.max(0, Math.min(1, point.value)) * 52;
+      path += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    });
+
+    return path;
+  }
+
   function historyHero(values, context) {
     var history = context && context.history;
     var pages = (history && history.pages) || [{ points: [] }];
     var selected = historySelected(values, pages);
+    var points = (pages[selected] && pages[selected].points) || pages[selected] || [];
+    var path = historyPath(points);
 
-    return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="none"></svg>' +
+    return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="xMidYMid meet">' +
+      '<line x1="8" y1="60" x2="292" y2="60" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
+      (path ? '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' : '') +
+      '</svg>' +
       '<div class="hero-actions">' +
         '<button type="button" class="hero-action" data-action="history-prev">‹</button>' +
         '<button type="button" class="hero-action" data-action="history-next">›</button>' +
@@ -447,9 +465,11 @@
 
     if (!svg) return;
 
-    var holder = { points: pages[selected] };
+    var page = pages[selected];
+    var holder = { points: page.points || page };
     var paint = function (points) {
-      pages[selected] = points;
+      if (page.points) page.points = points;
+      else pages[selected] = points;
       IAmCard.sources.drawPreview(svg, "lfo", { points: points }, null);
     };
 
@@ -500,7 +520,7 @@
       } else if (action === "history-next") {
         state.set("morph", last > 0 ? Math.min(selected + 1, last) / last : 0);
       } else if (action === "history-add") {
-        var copy = { points: pages[selected].points.map(function (point) { return Object.assign({}, point); }) };
+        var copy = { points: (page.points || page).map(function (point) { return Object.assign({}, point); }) };
         pages.splice(selected + 1, 0, copy);
         post();
         state.set("morph", (selected + 1) / Math.max(pages.length - 1, 1));
@@ -528,8 +548,13 @@
     var table = context && context.filterTable;
     var pages = (table && table.pages) || [[]];
     var selected = filterTablePage(values, pages);
+    var points = pages[selected] || [];
+    var path = historyPath(points);
 
-    return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="none"></svg>' +
+    return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="xMidYMid meet">' +
+      '<line x1="8" y1="60" x2="292" y2="60" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
+      (path ? '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' : '') +
+      '</svg>' +
       '<div class="hero-actions">' +
         '<button type="button" class="hero-action" data-action="filter-prev">\u2039</button>' +
         '<button type="button" class="hero-action" data-action="filter-next">\u203a</button>' +
