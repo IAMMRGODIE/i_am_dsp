@@ -103,13 +103,14 @@
 
     var path = "M " + (8 + points[0].time * 284).toFixed(1) + " " +
       (60 - points[0].value * 52).toFixed(1);
+    var segments = data.segments || 14;
 
     for (var i = 1; i < points.length; i++) {
       var previous = points[i - 1];
       var point = points[i];
 
-      for (var step = 1; step <= 14; step++) {
-        var unit = step / 14;
+      for (var step = 1; step <= segments; step++) {
+        var unit = step / segments;
         var time = previous.time + (point.time - previous.time) * unit;
         var between = previous.value +
           (point.value - previous.value) * bend(unit, previous.bend);

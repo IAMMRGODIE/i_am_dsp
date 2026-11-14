@@ -423,7 +423,7 @@
 
     var sorted = points.slice().sort(function (a, b) { return a.time - b.time; });
     var path = "";
-    var samples = 12;
+    var samples = 36;
 
     for (var index = 0; index < sorted.length - 1; index++) {
       var left = sorted[index];
@@ -483,7 +483,7 @@
     var paint = function (points) {
       if (page.points) page.points = points;
       else pages[selected] = points;
-      IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent }, null);
+      IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent, segments: 36 }, null);
     };
 
     var post = function () {
@@ -623,7 +623,7 @@
     IAmCard.sources.editLfo(svg, holder, {
       paint: function (points) {
         pages[selected] = points;
-        IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent }, null);
+        IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent, segments: 36 }, null);
       },
       commit: post,
       onStart: function () { el.dataset.busy = "1"; },
@@ -655,6 +655,6 @@
       event.preventDefault();
     };
 
-    IAmCard.sources.drawPreview(svg, "lfo", { points: holder.points, color: accent }, null);
+    IAmCard.sources.drawPreview(svg, "lfo", { points: holder.points, color: accent, segments: 36 }, null);
   }
 
