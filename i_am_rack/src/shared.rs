@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use i_am_dsp::prelude::{ParamMap, SetValue};
-use i_am_effects::IrSlot;
+use i_am_effects::{HistoryHandle, IrSlot};
 
 use crate::script::ScriptSlot;
 use i_am_web_gui::{Channels, Control, Scope};
@@ -214,6 +214,8 @@ pub(crate) struct RackShared {
 	pub ir: Mutex<HashMap<u32, Arc<IrSlot>>>,
 	/// One script worker per module id, for the scripted cards.
 	pub scripts: Mutex<HashMap<u32, Arc<ScriptSlot>>>,
+	/// One History page handle per module id, for the History card.
+	pub histories: Mutex<HashMap<u32, HistoryHandle>>,
 }
 
 impl RackShared {
@@ -261,6 +263,26 @@ impl RackShared {
 	/// The script worker of a module, when the engine has already built one.
 	pub fn existing_script(&self, id: u32) -> Option<Arc<ScriptSlot>> {
 		self.scripts
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.get(&id)
+			.cloned()
+	}
+
+	/// The History pages of a module, created the first time the engine or a
+	/// page asks.
+	pub fn history(&self, id: u32) -> HistoryHandle {
+		self.histories
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
+			.entry(id)
+			.or_default()
+			.clone()
+	}
+
+	/// The History pages of a module, when the engine has already built one.
+	pub fn existing_history(&self, id: u32) -> Option<HistoryHandle> {
+		self.histories
 			.lock()
 			.unwrap_or_else(|poisoned| poisoned.into_inner())
 			.get(&id)

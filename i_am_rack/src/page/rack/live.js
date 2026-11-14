@@ -113,6 +113,23 @@
       .catch(function () {});
   }
 
+  /// The History pages a module holds, with their page count and morph.
+  function fetchHistory(entry) {
+    fetch("/module-history?id=" + entry.id, { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        if (!value || !value.pages) return;
+
+        var changed = JSON.stringify(entry.context.history) !== JSON.stringify(value);
+        entry.context.history = value;
+
+        if (changed) repaint(entry);
+      })
+      .catch(function () {});
+  }
+
   /// The source a scripted module runs, for its editor. The poll only refreshes
   /// the error line, so it cannot overwrite what a person is typing.
   function loadScript(entry, force) {

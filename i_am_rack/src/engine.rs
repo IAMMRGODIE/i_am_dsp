@@ -91,6 +91,8 @@ struct Module {
 	notes: bool,
 	/// Where this module's band meter goes, when its card draws one.
 	meters: Option<Arc<ModuleMeters>>,
+	/// The History pages this module's card edits.
+	history: Option<i_am_effects::HistoryHandle>,
 }
 
 impl Module {
@@ -101,8 +103,9 @@ impl Module {
 		meters: Option<Arc<ModuleMeters>>,
 		ir: Option<Arc<i_am_effects::IrSlot>>,
 		script: Option<Arc<crate::script::ScriptSlot>>,
+		history: Option<i_am_effects::HistoryHandle>,
 	) -> Self {
-		let effect = module::build(state.kind, sample_rate, ir.clone(), script);
+		let effect = module::build(state.kind, sample_rate, ir.clone(), script, history.clone());
 
 		if let (Some(saved), Some(slot)) = (&state.ir, &ir) {
 			let saved = saved.resampled(sample_rate);
@@ -112,6 +115,10 @@ impl Module {
 				slot.set(Arc::new(saved));
 			}
 		}
+		if let (Some(saved), Some(slot)) = (&state.history, &history) {
+			slot.feed().set_pages(saved.clone());
+		}
+
 		let mut paramed = Paramed::new(ModuleEffect(effect));
 		let map = paramed.param_map();
 
@@ -140,10 +147,15 @@ impl Module {
 			scope,
 			notes: module::shows_notes(state.kind),
 			meters,
+			history: history.clone(),
 		}
 	}
 
 	fn update(&mut self, state: &ModuleState) {
+		if let (Some(saved), Some(history)) = (&state.history, &self.history) {
+			history.feed().set_pages(saved.clone());
+		}
+
 		self.bypass = state.bypass;
 		self.base = state.params.clone();
 		// Rewrite the map at the next control tick, which also clears the
@@ -310,6 +322,17 @@ impl Scopes {
 		})
 	}
 
+	fn history(&self, id: u32, kind: ModuleKind) -> Option<i_am_effects::HistoryHandle> {
+		if kind != ModuleKind::History {
+			return None;
+		}
+
+		Some(match &self.shared {
+			Some(shared) => shared.history(id),
+			None => i_am_effects::HistoryHandle::new(),
+		})
+	}
+
 	fn meters(&self, id: u32, kind: ModuleKind) -> Option<Arc<ModuleMeters>> {
 		module::meter(kind)?;
 
@@ -350,6 +373,7 @@ fn apply_lane(lane: &mut Lane, band: &crate::state::BandState, rate: usize, scop
 						scopes.meters(edited.id, edited.kind),
 						scopes.ir(edited.id, edited.kind),
 						scopes.script(edited.id, edited.kind),
+						scopes.history(edited.id, edited.kind),
 					));
 				} else if let Some(module) = &mut lane.slots[slot] {
 					module.update(edited);

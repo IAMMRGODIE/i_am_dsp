@@ -94,11 +94,13 @@ pub enum ModuleKind {
 	ScriptDistortion,
 	/// A frequency mapper whose table is a script.
 	ScriptMapper,
+	/// The History time-remap product.
+	History,
 }
 
 impl ModuleKind {
 	/// Every kind the rack knows, in menu order.
-	pub const ALL: [Self; 38] = [
+	pub const ALL: [Self; 39] = [
 		Self::Filter,
 		Self::Distortion,
 		Self::Compressor,
@@ -137,6 +139,7 @@ impl ModuleKind {
 		Self::Convolver,
 		Self::ScriptDistortion,
 		Self::ScriptMapper,
+		Self::History,
 	];
 
 	/// The catalog id this kind stores in its state.
@@ -180,6 +183,7 @@ impl ModuleKind {
 			Self::Convolver => "convolver",
 			Self::ScriptDistortion => "script_distortion",
 			Self::ScriptMapper => "script_mapper",
+			Self::History => "history",
 		}
 	}
 
@@ -324,7 +328,8 @@ pub fn group(kind: ModuleKind) -> &'static str {
 		| ModuleKind::Width
 		| ModuleKind::Router
 		| ModuleKind::ScriptDistortion
-		| ModuleKind::ScriptMapper => "Utility",
+		| ModuleKind::ScriptMapper
+		| ModuleKind::History => "Utility",
 	}
 }
 
@@ -350,7 +355,15 @@ pub(crate) fn build(
 	sample_rate: usize,
 	ir: Option<Arc<i_am_effects::IrSlot>>,
 	script: Option<Arc<crate::script::ScriptSlot>>,
+	history: Option<i_am_effects::HistoryHandle>,
 ) -> Box<dyn Effect<2>> {
+	if kind == ModuleKind::History {
+		return Box::new(i_am_dsp::prelude::HistoryEffect::with_feed(
+			sample_rate,
+			history.expect("the history kind needs its pages").feed(),
+		));
+	}
+
 	let descriptor = kind.descriptor();
 
 	if let Some(build) = descriptor.build_with_ir {

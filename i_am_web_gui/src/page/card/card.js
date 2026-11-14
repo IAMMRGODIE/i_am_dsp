@@ -359,6 +359,23 @@
     // does: the page keeps the card and calls this on every scope frame.
     card.repaintHero = paintHero;
 
+    if (options.hero && options.history) {
+      var wireHistoryState = function () {
+        IAmCard.wire(heroElement, "history", values, {
+          history: options.historyState(),
+          set: options.historySet,
+          post: options.historyPost
+        });
+      };
+      var repaintWithHistory = card.repaintHero;
+
+      card.repaintHero = function (current) {
+        repaintWithHistory(current);
+        wireHistoryState();
+      };
+      wireHistoryState();
+    }
+
     /// Moves one control's value without telling the page.
     ///
     /// A gesture that is still running shows its own state and posts once it

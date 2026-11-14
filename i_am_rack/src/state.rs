@@ -183,6 +183,9 @@ pub struct ModuleState {
 	/// for every kind that does not run one.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub script: Option<String>,
+	/// The History pages a History module holds, so a preset keeps them.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub history: Option<Vec<i_am_dsp::prelude::HistoryPage>>,
 }
 
 impl ModuleState {
@@ -196,6 +199,7 @@ impl ModuleState {
 			params: module::default_params(kind),
 			ir: None,
 			script: None,
+			history: None,
 		}
 	}
 }

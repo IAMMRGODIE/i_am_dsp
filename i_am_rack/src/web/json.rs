@@ -298,6 +298,7 @@ pub(super) fn module_json(
 		"meter": crate::module::meter(module.kind),
 		"ir": crate::module::needs_ir(module.kind),
 		"script": crate::module::needs_script(module.kind),
+		"history": module.kind == crate::module::ModuleKind::History,
 		"scope": match crate::module::audio_scope(module.kind) {
 			i_am_web_gui::Channels::None => serde_json::Value::Null,
 			i_am_web_gui::Channels::Mono => "mono".into(),
