@@ -205,6 +205,26 @@ pub struct FilterTableEffect {
 	#[skip]
 	inverse: Arc<dyn rustfft::Fft<f32>>,
 	#[skip]
+	low_kernel_rev: [f32; TAPS],
+	#[skip]
+	low_previous_rev: [f32; TAPS],
+	#[skip]
+	low_next_rev: [f32; TAPS],
+	#[skip]
+	low_history: [Vec<f32>; 2],
+	#[skip]
+	low_write: usize,
+	#[skip]
+	low_count: usize,
+	#[skip]
+	low_sum: [f32; 2],
+	#[skip]
+	low_out: [f32; 2],
+	#[skip]
+	low_initialized: bool,
+	#[skip]
+	seen_factor: usize,
+	#[skip]
 	dry: [Vec<f32>; 2],
 	#[skip]
 	dry_write: usize,
@@ -251,7 +271,17 @@ impl FilterTableEffect {
 				let mut planner = FftPlanner::<f32>::new();
 				planner.plan_fft_inverse(TAPS)
 			},
-			dry: core::array::from_fn(|_| vec![0.0; TAPS / 2 + 1]),
+			low_kernel_rev: [0.0; TAPS],
+			low_previous_rev: [0.0; TAPS],
+			low_next_rev: [0.0; TAPS],
+			low_history: core::array::from_fn(|_| vec![0.0; TAPS * 2]),
+			low_write: 0,
+			low_count: 0,
+			low_sum: [0.0; 2],
+			low_out: [0.0; 2],
+			low_initialized: false,
+			seen_factor: 0,
+			dry: core::array::from_fn(|_| vec![0.0; TAPS / 2 * 8 + 1]),
 			dry_write: 0,
 			history: core::array::from_fn(|_| vec![0.0; TAPS * 2]),
 			write: 0,
@@ -270,14 +300,19 @@ impl FilterTableEffect {
 		self.frame.clone()
 	}
 
-	fn rebuild(&mut self) {
-		let snapshot = self.frame.snapshot();
-		self.seen_generation = snapshot.generation;
-		self.seen_cutoff = self.cutoff;
-		self.seen_resonance = self.resonance;
-		self.seen_phase = self.phase;
-		self.seen_morph = self.morph;
+	fn factor(&self) -> usize {
+		if self.cutoff < 120.0 {
+			8
+		} else if self.cutoff < 240.0 {
+			4
+		} else if self.cutoff < 480.0 {
+			2
+		} else {
+			1
+		}
+	}
 
+	fn build_target(&self, snapshot: &FrameData, rate: f32) -> [f32; TAPS] {
 		let mut raw = [0.0f32; TAPS];
 		let pages = &snapshot.pages;
 		let last = pages.len().saturating_sub(1);
@@ -308,7 +343,7 @@ impl FilterTableEffect {
 
 		// The frame's twenty-fourth harmonic sits at 24 * rate / FRAME; scaling
 		// the read position by this ratio puts it on the cutoff.
-		let ratio = self.cutoff * FRAME as f32 / (24.0 * self.sample_rate);
+		let ratio = self.cutoff * FRAME as f32 / (24.0 * rate);
 		let peak = self.resonance.clamp(0.0, 1.0);
 
 		for (index, kernel) in raw.iter_mut().enumerate() {
@@ -320,41 +355,71 @@ impl FilterTableEffect {
 			let mut value = first + (second - first) * fraction;
 			let window = 0.5 - 0.5 * (std::f32::consts::TAU * index as f32 / TAPS as f32).cos();
 			value *= window;
-			value *= 1.0
-				+ peak
-					* (std::f32::consts::TAU * self.cutoff * index as f32 / self.sample_rate).cos();
+			value *= 1.0 + peak * (std::f32::consts::TAU * self.cutoff * index as f32 / rate).cos();
 			*kernel = value;
 		}
 
 		normalize(&mut raw);
 
-		let target = match self.phase {
+		match self.phase {
 			1 => self.linear(&raw),
 			2 => self.minimum(&raw),
 			_ => raw,
-		};
+		}
+	}
 
-		if !self.initialized {
-			self.initialized = true;
-			self.previous = target;
+	fn rebuild(&mut self) {
+		let snapshot = self.frame.snapshot();
+		self.seen_generation = snapshot.generation;
+		self.seen_cutoff = self.cutoff;
+		self.seen_resonance = self.resonance;
+		self.seen_phase = self.phase;
+		self.seen_morph = self.morph;
+		self.seen_factor = self.factor();
+
+		if self.seen_factor == 1 {
+			let target = self.build_target(&snapshot, self.sample_rate);
+
+			if !self.initialized {
+				self.initialized = true;
+				self.previous = target;
+				self.kernel = target;
+				self.next = target;
+				self.blend = 1.0;
+			} else {
+				self.previous = self.kernel;
+				self.previous_rev = self.kernel_rev;
+				self.next = target;
+				self.blend = 0.0;
+			}
+
 			self.kernel = target;
-			self.next = target;
-			self.blend = 1.0;
+			for index in 0..TAPS {
+				self.kernel_rev[index] = target[TAPS - 1 - index];
+			}
+			self.next_rev = self.kernel_rev;
 		} else {
-			self.previous = self.kernel;
-			self.previous_rev = self.kernel_rev;
-			self.next = target;
-			self.blend = 0.0;
-		}
+			let rate = self.sample_rate / self.seen_factor as f32;
+			let target = self.build_target(&snapshot, rate);
 
-		self.kernel = target;
-		for index in 0..TAPS {
-			self.kernel_rev[index] = target[TAPS - 1 - index];
-		}
-		self.next_rev = self.kernel_rev;
+			if !self.low_initialized {
+				self.low_initialized = true;
+				self.low_previous_rev = reverse(&target);
+				self.low_kernel_rev = self.low_previous_rev;
+				self.low_next_rev = self.low_previous_rev;
+				self.blend = 1.0;
+			} else {
+				self.low_previous_rev = self.low_kernel_rev;
+				self.low_next_rev = reverse(&target);
+				self.blend = 0.0;
+			}
 
-		if self.previous == self.kernel {
-			self.previous_rev = self.kernel_rev;
+			self.low_kernel_rev = self.low_next_rev;
+			self.low_history = core::array::from_fn(|_| vec![0.0; TAPS * 2]);
+			self.low_write = 0;
+			self.low_count = 0;
+			self.low_sum = [0.0; 2];
+			self.low_out = [0.0; 2];
 		}
 	}
 
@@ -428,6 +493,14 @@ fn dot(history: &[f32], kernel: &[f32; TAPS]) -> f32 {
 	sum.reduce_add()
 }
 
+fn reverse(kernel: &[f32; TAPS]) -> [f32; TAPS] {
+	let mut out = [0.0; TAPS];
+	for index in 0..TAPS {
+		out[index] = kernel[TAPS - 1 - index];
+	}
+	out
+}
+
 fn normalize(kernel: &mut [f32; TAPS]) {
 	let energy = kernel.iter().map(|value| value * value).sum::<f32>().sqrt();
 	if energy > 1e-6 {
@@ -470,7 +543,12 @@ fn sample_frame(points: &[FilterPoint], x: f32) -> f32 {
 
 impl Effect<2> for FilterTableEffect {
 	fn delay(&self) -> usize {
-		if self.phase == 1 { TAPS / 2 } else { 0 }
+		let factor = self.factor();
+		if self.phase == 1 {
+			TAPS / 2 * factor
+		} else {
+			0
+		}
 	}
 
 	fn process(
@@ -484,12 +562,13 @@ impl Effect<2> for FilterTableEffect {
 			|| self.resonance != self.seen_resonance
 			|| self.phase != self.seen_phase
 			|| self.morph != self.seen_morph
+			|| self.factor() != self.seen_factor
 		{
 			self.rebuild();
 		}
 
 		let latency = self.delay();
-		let dry_length = TAPS / 2 + 1;
+		let dry_length = TAPS / 2 * 8 + 1;
 
 		let mut dry = [0.0f32; 2];
 		for (channel, sample) in samples.iter().enumerate() {
@@ -499,35 +578,81 @@ impl Effect<2> for FilterTableEffect {
 			} else {
 				self.dry[channel][(self.dry_write + dry_length - latency) % dry_length]
 			};
-			self.history[channel][self.write] = *sample;
-			self.history[channel][self.write + TAPS] = *sample;
 		}
-
-		let mut wet = [0.0f32; 2];
-		let blend = self.blend;
-		let start = (self.write + 1) % TAPS;
-
-		for (channel, wet_sample) in wet.iter_mut().enumerate() {
-			let history = &self.history[channel][start..start + TAPS];
-
-			if blend >= 1.0 {
-				*wet_sample = dot(history, &self.kernel_rev);
-			} else {
-				let old = dot(history, &self.previous_rev);
-				let next = dot(history, &self.next_rev);
-				*wet_sample = old + (next - old) * blend;
-			}
-		}
-
-		self.blend = (blend + 1.0 / 128.0).min(1.0);
 		self.dry_write = (self.dry_write + 1) % dry_length;
 
 		let mix = self.mix.clamp(0.0, 1.0);
-		for (channel, sample) in samples.iter_mut().enumerate() {
-			*sample = dry[channel] * (1.0 - mix) + wet[channel] * mix;
+		let factor = self.factor();
+
+		if factor == 1 {
+			for (channel, sample) in samples.iter().enumerate() {
+				self.history[channel][self.write] = *sample;
+				self.history[channel][self.write + TAPS] = *sample;
+			}
+
+			let mut wet = [0.0f32; 2];
+			let blend = self.blend;
+			let start = (self.write + 1) % TAPS;
+
+			for (channel, wet_sample) in wet.iter_mut().enumerate() {
+				let history = &self.history[channel][start..start + TAPS];
+
+				if blend >= 1.0 {
+					*wet_sample = dot(history, &self.kernel_rev);
+				} else {
+					let old = dot(history, &self.previous_rev);
+					let next = dot(history, &self.next_rev);
+					*wet_sample = old + (next - old) * blend;
+				}
+			}
+
+			self.blend = (blend + 1.0 / 128.0).min(1.0);
+
+			for (channel, sample) in samples.iter_mut().enumerate() {
+				*sample = dry[channel] * (1.0 - mix) + wet[channel] * mix;
+			}
+
+			self.write = (self.write + 1) % TAPS;
+			return;
 		}
 
-		self.write = (self.write + 1) % TAPS;
+		for (channel, sample) in samples.iter().enumerate() {
+			self.low_sum[channel] += *sample;
+		}
+		self.low_count += 1;
+
+		if self.low_count >= factor {
+			let divisor = factor as f32;
+			let decimated = [self.low_sum[0] / divisor, self.low_sum[1] / divisor];
+
+			for (channel, sample) in decimated.iter().enumerate() {
+				self.low_history[channel][self.low_write] = *sample;
+				self.low_history[channel][self.low_write + TAPS] = *sample;
+			}
+
+			let blend = self.blend;
+			let start = (self.low_write + 1) % TAPS;
+
+			for channel in 0..2 {
+				let history = &self.low_history[channel][start..start + TAPS];
+				self.low_out[channel] = if blend >= 1.0 {
+					dot(history, &self.low_kernel_rev)
+				} else {
+					let old = dot(history, &self.low_previous_rev);
+					let next = dot(history, &self.low_next_rev);
+					old + (next - old) * blend
+				};
+			}
+
+			self.blend = (blend + 1.0 / 128.0).min(1.0);
+			self.low_write = (self.low_write + 1) % TAPS;
+			self.low_count = 0;
+			self.low_sum = [0.0; 2];
+		}
+
+		for (channel, sample) in samples.iter_mut().enumerate() {
+			*sample = dry[channel] * (1.0 - mix) + self.low_out[channel] * mix;
+		}
 	}
 }
 
@@ -722,5 +847,26 @@ mod tests {
 		let second = effect.kernel;
 
 		assert_ne!(first, second);
+	}
+
+	#[test]
+	fn a_low_cutoff_runs_the_decimated_path() {
+		let frame = FilterFrame::new();
+		let mut effect = FilterTableEffect::with_frame(48_000, frame);
+		effect.cutoff = 60.0;
+		effect.phase = 1;
+		effect.rebuild();
+		assert_eq!(effect.factor(), 8);
+		assert_eq!(effect.delay(), TAPS / 2 * 8);
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext(ProcessInfos {
+			sample_rate: 48_000,
+			..ProcessInfos::default()
+		}));
+
+		for index in 0..10_000 {
+			let mut sample = [(index as f32 * 0.01).sin(), 0.0];
+			effect.process(&mut sample, &[], &mut context);
+			assert!(sample[0].is_finite());
+		}
 	}
 }

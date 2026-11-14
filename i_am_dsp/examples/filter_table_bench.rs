@@ -103,4 +103,18 @@ fn main() {
 		"  crossfade block: {:.1} us / 128 samples",
 		start.elapsed().as_secs_f64() / 100.0 * 1e6
 	);
+
+	// The low cutoff path decimates by eight.
+	effect.cutoff = 80.0;
+	effect.process(&mut block, &[], &mut context);
+	let start = Instant::now();
+	for _ in 0..100_000 {
+		effect.process(&mut block, &[], &mut context);
+	}
+	let low_seconds = start.elapsed().as_secs_f64();
+	println!(
+		"  low cutoff:    {:.2} ns/sample ({:.0}x realtime, decimated)",
+		low_seconds / 100_000.0 * 1e9,
+		1.0 / (low_seconds / (100_000.0 / RATE as f64))
+	);
 }
