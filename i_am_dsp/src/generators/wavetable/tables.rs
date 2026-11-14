@@ -128,6 +128,38 @@ impl WaveTable for &[Complex<f32>] {
 	}
 }
 
+impl RingBuffer<f32> {
+	/// Sample at a fractional ring index, where 0 is the oldest sample and
+	/// `capacity - 1` the newest; the index wraps, so a delay read can cross the
+	/// end of the buffer without a branch at the seam.
+	pub fn sample_at(&self, position: f64) -> f32 {
+		let capacity = self.capacity();
+		if capacity == 0 {
+			return 0.0;
+		} else if capacity == 1 {
+			return self[0];
+		}
+
+		let position = position.rem_euclid(capacity as f64);
+		let index = position.floor() as isize;
+		let fraction = (position - index as f64) as f32;
+
+		if fraction == 0.0 {
+			self[index]
+		} else {
+			cubic_interpolate(
+				fraction,
+				[
+					self[index - 1],
+					self[index],
+					self[index + 1],
+					self[index + 2],
+				],
+			)
+		}
+	}
+}
+
 impl WaveTable for RingBuffer<f32> {
 	fn sample(&self, t: f32, _: usize) -> f32 {
 		if self.capacity() == 0 {

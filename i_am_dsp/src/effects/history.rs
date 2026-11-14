@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use i_am_dsp_derive::Parameters;
 
 use crate::prelude::SyncedTime;
-use crate::tools::interpolate::cubic_interpolate;
+use crate::tools::ring_buffer::RingBuffer;
 use crate::{Effect, ProcessContext, ProcessInfos};
 
 /// One breakpoint of a history page.
@@ -161,9 +161,7 @@ pub struct HistoryEffect<const CHANNELS: usize = 2> {
 	#[skip]
 	sample_rate: f32,
 	#[skip]
-	ring: [Vec<f32>; CHANNELS],
-	#[skip]
-	write: usize,
+	ring: [RingBuffer<f32>; CHANNELS],
 	#[skip]
 	phase: f64,
 	#[skip]
@@ -189,8 +187,7 @@ impl<const CHANNELS: usize> HistoryEffect<CHANNELS> {
 			mix: 1.0,
 			feed,
 			sample_rate: sample_rate as f32,
-			ring: core::array::from_fn(|_| vec![0.0; length]),
-			write: 0,
+			ring: core::array::from_fn(|_| RingBuffer::new(length)),
 			phase: 0.0,
 			table: [1.0; TABLE],
 			seen_pages: u64::MAX,
@@ -216,7 +213,7 @@ impl<const CHANNELS: usize> HistoryEffect<CHANNELS> {
 			self.history_time.max(10.0) / 1000.0
 		};
 		(seconds as f64 * self.sample_rate as f64)
-			.min(self.ring[0].len() as f64 - 2.0)
+			.min(self.ring[0].capacity() as f64 - 2.0)
 			.max(2.0)
 	}
 
@@ -284,28 +281,9 @@ impl<const CHANNELS: usize> HistoryEffect<CHANNELS> {
 	}
 
 	fn read(&self, channel: usize, delay: f64) -> f32 {
-		let length = self.ring[channel].len() as f64;
 		let delay = if delay.is_finite() { delay } else { 0.0 };
-		let position = (self.write as f64 - delay).rem_euclid(length);
-		let length = self.ring[channel].len();
-		let index = position.floor() as usize;
-		let before = if index == 0 { length - 1 } else { index - 1 };
-		let next = (index + 1) % length;
-		let after = (index + 2) % length;
-		let fraction = (position - index as f64) as f32;
-
-		// The same cubic the wavetable sampler uses, here around the ring so a
-		// fractional delay read does not get the straight-line edge of a linear
-		// interpolator. All four taps wrap, because the history is circular.
-		cubic_interpolate(
-			fraction,
-			[
-				self.ring[channel][before],
-				self.ring[channel][index],
-				self.ring[channel][next],
-				self.ring[channel][after],
-			],
-		)
+		let newest = self.ring[channel].capacity() as f64 - 1.0;
+		self.ring[channel].sample_at(newest - delay)
 	}
 }
 
@@ -358,7 +336,6 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HistoryEffect<CHANNELS> {
 		let infos = process_context.infos().clone();
 		self.sync_table();
 		let history = self.history_samples(&infos);
-		let length = self.ring[0].len();
 		let step = 1.0 / history;
 		let host_phase = if infos.playing {
 			if self.time.is_synced(&infos) {
@@ -387,7 +364,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HistoryEffect<CHANNELS> {
 		};
 
 		for (channel, sample) in samples.iter().enumerate() {
-			self.ring[channel][self.write] = *sample;
+			self.ring[channel].push(*sample);
 		}
 
 		if let Some(phase) = host_phase.filter(|phase| phase.is_finite()) {
@@ -417,8 +394,6 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for HistoryEffect<CHANNELS> {
 			let wet = self.read(channel, delay);
 			*sample = *sample * (1.0 - mix) + wet * mix;
 		}
-
-		self.write = (self.write + 1) % length;
 	}
 }
 
