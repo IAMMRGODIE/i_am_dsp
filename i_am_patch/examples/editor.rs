@@ -462,7 +462,7 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			))
 			.to_string(),
 		),
-		("POST", "/text") => match i_am_patch::text::from_text(body) {
+		("POST", "/text") => match i_am_patch::text::from_text_with_slots(body, &shared.slots) {
 			Ok(graph) => {
 				*shared.graph.lock().expect("graph") = graph;
 				shared.generation.fetch_add(1, Ordering::Relaxed);

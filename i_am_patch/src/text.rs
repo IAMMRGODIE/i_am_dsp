@@ -35,6 +35,11 @@ impl std::error::Error for TextError {}
 
 /// Writes the graph as text, one statement per line.
 pub fn to_text(graph: &Graph) -> String {
+	to_text_with_slots(graph, &crate::Slots::default())
+}
+
+/// Writes the graph and the History pages the page owns as one text document.
+pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 	let mut out = String::from("# i_am_patch\n");
 
 	for node in &graph.nodes {
@@ -111,11 +116,26 @@ pub fn to_text(graph: &Graph) -> String {
 		);
 	}
 
+	for node in &graph.nodes {
+		if node.kind.id != "mod:history" {
+			continue;
+		}
+
+		let pages = slots.history(node.id.0).feed().pages();
+		let json = serde_json::to_string(&*pages).expect("the history pages serialize");
+		let _ = writeln!(out, "history {} {}", node.id.0, json);
+	}
+
 	out
 }
 
 /// Reads the text form into a graph.
 pub fn from_text(text: &str) -> Result<Graph, TextError> {
+	from_text_with_slots(text, &crate::Slots::default())
+}
+
+/// Reads the graph and applies the History pages to the slots the caller owns.
+pub fn from_text_with_slots(text: &str, slots: &crate::Slots) -> Result<Graph, TextError> {
 	let mut graph = Graph::new();
 
 	for (index, raw) in text.lines().enumerate() {
@@ -292,6 +312,13 @@ pub fn from_text(text: &str) -> Result<Graph, TextError> {
 				if !graph.set_param(NodeId(id), key, parse_f32(Some(value), line)?) {
 					return Err(error(line, format!("node {id} has no parameter {key}")));
 				}
+			}
+			"history" => {
+				let id = parse_id(words.next(), line)?;
+				let rest = words.collect::<Vec<_>>().join(" ");
+				let pages: Vec<i_am_dsp::prelude::HistoryPage> = serde_json::from_str(&rest)
+					.map_err(|parse_error| error(line, parse_error.to_string()))?;
+				slots.history(id).feed().set_pages(pages);
 			}
 			other => return Err(error(line, format!("unknown statement {other}"))),
 		}
@@ -523,5 +550,41 @@ mod tests {
 	fn a_comment_and_a_blank_line_are_ignored() {
 		let graph = from_text("# a patch\n\nnode 0 mod:gain 0 0\n").expect("parses");
 		assert_eq!(graph.nodes.len(), 1);
+	}
+
+	#[test]
+	fn history_pages_travel_with_the_text() {
+		use i_am_dsp::prelude::{HistoryPage, HistoryPoint};
+
+		let mut graph = Graph::new();
+		let id = graph.add_node("mod:history", (0.0, 0.0)).expect("history");
+		let slots = crate::Slots::default();
+		slots.history(id.0).feed().set_pages(vec![HistoryPage {
+			points: vec![
+				HistoryPoint {
+					time: 0.0,
+					value: 0.0,
+					bend: 0.0,
+				},
+				HistoryPoint {
+					time: 1.0,
+					value: 1.0,
+					bend: 0.0,
+				},
+			],
+		}]);
+
+		let text = to_text_with_slots(&graph, &slots);
+		assert!(text.contains("history "), "{text}");
+
+		let restored = crate::Slots::default();
+		let back = from_text_with_slots(&text, &restored).expect("the text parses");
+
+		assert_eq!(back.nodes.len(), 1);
+		assert_eq!(restored.history(id.0).feed().pages().len(), 1);
+		assert_eq!(
+			restored.history(id.0).feed().pages()[0].points[0].value,
+			0.0
+		);
 	}
 }

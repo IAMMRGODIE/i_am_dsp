@@ -81,12 +81,15 @@ impl PatcherShared {
 
 	/// The graph as the line patch text, which is what the host state saves.
 	pub fn text(&self) -> String {
-		i_am_patch::text::to_text(&self.graph.lock().expect("the graph lock"))
+		i_am_patch::text::to_text_with_slots(
+			&self.graph.lock().expect("the graph lock"),
+			&self.slots,
+		)
 	}
 
 	/// Replaces the graph from text; false when the text does not parse.
 	pub fn set_text(&self, text: &str) -> bool {
-		let Ok(graph) = i_am_patch::text::from_text(text) else {
+		let Ok(graph) = i_am_patch::text::from_text_with_slots(text, &self.slots) else {
 			return false;
 		};
 
