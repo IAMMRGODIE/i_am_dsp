@@ -28,23 +28,29 @@ impl FilterTableHandle {
 	/// The route's GET answer.
 	pub fn state_json(&self) -> String {
 		format!(
-			"{{\"generation\":{},\"points\":{}}}",
+			"{{\"generation\":{},\"pages\":{}}}",
 			self.0.generation(),
-			serde_json::to_string(&*self.0.points()).expect("the points serialize")
+			serde_json::to_string(&self.0.pages()).expect("the pages serialize")
 		)
 	}
 
 	/// Applies the route's POST body.
 	pub fn set_json(&self, body: &str) -> String {
-		match serde_json::from_str::<Vec<FilterPoint>>(body) {
-			Ok(points) => {
-				self.0.set_points(points);
+		match serde_json::from_str::<Vec<Vec<FilterPoint>>>(body) {
+			Ok(pages) => {
+				self.0.set_pages(pages);
 				"{\"ok\":true}".to_string()
 			}
-			Err(error) => format!(
-				"{{\"ok\":false,\"error\":\"{}\"}}",
-				error.to_string().replace('"', "")
-			),
+			Err(_) => match serde_json::from_str::<Vec<FilterPoint>>(body) {
+				Ok(points) => {
+					self.0.set_points(points);
+					"{\"ok\":true}".to_string()
+				}
+				Err(error) => format!(
+					"{{\"ok\":false,\"error\":\"{}\"}}",
+					error.to_string().replace('"', "")
+				),
+			},
 		}
 	}
 
@@ -120,17 +126,17 @@ impl FilterTableWeb {
 impl Parameters for FilterTableWeb {
 	fn get_parameters(&self) -> Vec<Parameter> {
 		let mut parameters = self.processor.parameters();
-		let points = to_binary(&*self.handle.frame().points()).expect("the points serialize");
-		parameters.push(Parameter::new("filter_points", Value::Serialized(points)));
+		let pages = to_binary(&self.handle.frame().pages()).expect("the pages serialize");
+		parameters.push(Parameter::new("filter_pages", Value::Serialized(pages)));
 		parameters
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
-		if identifier == "filter_points"
+		if identifier == "filter_pages"
 			&& let SetValue::Serialized(bytes) = value
 		{
-			if let Ok(points) = from_binary::<Vec<FilterPoint>>(bytes) {
-				self.handle.frame().set_points(points);
+			if let Ok(pages) = from_binary::<Vec<Vec<FilterPoint>>>(bytes) {
+				self.handle.frame().set_pages(pages);
 				return true;
 			}
 
@@ -222,24 +228,38 @@ mod tests {
 	#[test]
 	fn points_survive_the_state() {
 		let handle = FilterTableHandle::new();
-		handle.frame().set_points(vec![
-			FilterPoint {
-				time: 0.0,
-				value: 0.25,
-				bend: 0.0,
-			},
-			FilterPoint {
-				time: 1.0,
-				value: 0.75,
-				bend: 0.0,
-			},
+		handle.frame().set_pages(vec![
+			vec![
+				FilterPoint {
+					time: 0.0,
+					value: 0.25,
+					bend: 0.0,
+				},
+				FilterPoint {
+					time: 1.0,
+					value: 0.75,
+					bend: 0.0,
+				},
+			],
+			vec![
+				FilterPoint {
+					time: 0.0,
+					value: 0.75,
+					bend: 0.0,
+				},
+				FilterPoint {
+					time: 1.0,
+					value: 0.25,
+					bend: 0.0,
+				},
+			],
 		]);
 
 		let source = FilterTableWeb::with_handle(handle);
 		let value = source
 			.get_parameters()
 			.into_iter()
-			.find(|parameter| parameter.identifier == "filter_points")
+			.find(|parameter| parameter.identifier == "filter_pages")
 			.expect("the archived points")
 			.value
 			.clone();
@@ -248,7 +268,7 @@ mod tests {
 			panic!("the points are not serialized");
 		};
 
-		assert!(restored.set_parameter("filter_points", SetValue::Serialized(bytes)));
-		assert_eq!(restored.handle().frame().points().len(), 2);
+		assert!(restored.set_parameter("filter_pages", SetValue::Serialized(bytes)));
+		assert_eq!(restored.handle().frame().pages().len(), 2);
 	}
 }

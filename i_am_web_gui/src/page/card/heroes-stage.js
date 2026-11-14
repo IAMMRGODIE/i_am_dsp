@@ -447,9 +447,9 @@
 
     if (!svg) return;
 
-    var holder = { points: pages[selected].points };
+    var holder = { points: pages[selected] };
     var paint = function (points) {
-      pages[selected].points = points;
+      pages[selected] = points;
       IAmCard.sources.drawPreview(svg, "lfo", { points: points }, null);
     };
 
@@ -517,35 +517,100 @@
   }
 
   /// The frame a Filter Table uses as its convolution kernel.
-  function filterTableHero(values, context) {
-    var table = context && context.filterTable;
-    var points = (table && table.points) || [];
+  function filterTablePage(values, pages) {
+    var last = Math.max(pages.length - 1, 0);
+    var morph = clamp(valueOf(values, "morph", 0), 0, 1);
 
-    return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="none"></svg>' +
-      '<div class="hero-label" style="left:2%;top:2%">FILTER TABLE \u00b7 ' +
-        Math.round(valueOf(values, "cutoff", 1000)) + ' Hz</div>';
+    return Math.min(Math.max(Math.round(morph * last), 0), last);
   }
 
-  /// The frame editor, on the same 300x64 LFO canvas.
+  function filterTableHero(values, context) {
+    var table = context && context.filterTable;
+    var pages = (table && table.pages) || [[]];
+    var selected = filterTablePage(values, pages);
+
+    return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="none"></svg>' +
+      '<div class="hero-actions">' +
+        '<button type="button" class="hero-action" data-action="filter-prev">\u2039</button>' +
+        '<button type="button" class="hero-action" data-action="filter-next">\u203a</button>' +
+        '<button type="button" class="hero-action" data-action="filter-add">+ PAGE</button>' +
+        '<button type="button" class="hero-action" data-action="filter-remove">- PAGE</button>' +
+      '</div>' +
+      '<div class="hero-label" style="left:2%;top:2%">FILTER TABLE \u00b7 PAGE ' +
+        (selected + 1) + ' / ' + pages.length + '</div>';
+  }
+
+  /// The page editor, on the same 300x64 LFO canvas.
   function wireFilterTable(el, kind, values, state) {
     var table = state && state.filterTable;
 
-    if (kind !== "filtertable" || !table || !table.points) return;
+    if (kind !== "filtertable" || !table || !table.pages) return;
 
     var svg = el.querySelector("svg");
     if (!svg) return;
 
-    var holder = { points: table.points };
+    var pages = table.pages;
+    var selected = filterTablePage(values, pages);
+    var holder = { points: pages[selected] };
 
-    IAmCard.sources.editLfo(svg, holder, {
-      paint: function (points) {
-        table.points = points;
-        IAmCard.sources.drawPreview(svg, "lfo", { points: points }, null);
-      },
-      commit: function (points) {
-        if (state.post) state.post(JSON.stringify(points));
+    var post = function () {
+      if (state.post) state.post(JSON.stringify(pages));
+    };
+
+    svg.addEventListener("pointerdown", function (event) {
+      var buttons = el.querySelectorAll(".hero-action");
+
+      for (var index = 0; index < buttons.length; index++) {
+        var rect = buttons[index].getBoundingClientRect();
+
+        if (event.clientX >= rect.left && event.clientX <= rect.right &&
+            event.clientY >= rect.top && event.clientY <= rect.bottom) {
+          buttons[index].dispatchEvent(new PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            pointerId: event.pointerId,
+          }));
+          event.preventDefault();
+          return;
+        }
       }
     });
 
+    IAmCard.sources.editLfo(svg, holder, {
+      paint: function (points) {
+        pages[selected] = points;
+        IAmCard.sources.drawPreview(svg, "lfo", { points: points }, null);
+      },
+      commit: post
+    });
+
+    el.onpointerdown = function (event) {
+      var button = event.target.closest && event.target.closest("[data-action]");
+
+      if (!button) return;
+
+      var action = button.getAttribute("data-action");
+      var last = pages.length - 1;
+
+      if (action === "filter-prev") {
+        state.set("morph", last > 0 ? Math.max(selected - 1, 0) / last : 0);
+      } else if (action === "filter-next") {
+        state.set("morph", last > 0 ? Math.min(selected + 1, last) / last : 0);
+      } else if (action === "filter-add") {
+        pages.splice(selected + 1, 0, pages[selected].map(function (point) { return Object.assign({}, point); }));
+        post();
+        state.set("morph", (selected + 1) / Math.max(pages.length - 1, 1));
+      } else if (action === "filter-remove" && pages.length > 1) {
+        pages.splice(selected, 1);
+        post();
+        state.set("morph", Math.min(selected, pages.length - 1) / Math.max(pages.length - 1, 1));
+      }
+
+      event.preventDefault();
+    };
+
     IAmCard.sources.drawPreview(svg, "lfo", { points: holder.points }, null);
   }
+

@@ -481,7 +481,7 @@
         return response.ok ? response.json() : null;
       })
       .then(function (state) {
-        if (!state || !state.points) return;
+        if (!state || !state.pages) return;
         if (document.querySelector(".hero[data-busy='1']")) return;
         filterTableState = state;
         markDirty();

@@ -1350,7 +1350,7 @@
     fetch("/filter-table?node=" + entry.node.id, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
       .then((state) => {
-        if (!state || !state.points) return;
+        if (!state || !state.pages) return;
 
         entry.context.filterTable = state;
         if (entry.card.repaintHero) entry.card.repaintHero();

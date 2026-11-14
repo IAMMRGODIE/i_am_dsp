@@ -124,8 +124,8 @@ pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 				let _ = writeln!(out, "history {} {}", node.id.0, json);
 			}
 			"mod:filter_table" => {
-				let points = slots.filter_table(node.id.0).frame().points();
-				let json = serde_json::to_string(&*points).expect("the filter points serialize");
+				let pages = slots.filter_table(node.id.0).frame().pages();
+				let json = serde_json::to_string(&pages).expect("the filter pages serialize");
 				let _ = writeln!(out, "filter_table {} {}", node.id.0, json);
 			}
 			"synth:canvas" => {
@@ -343,9 +343,10 @@ pub fn from_text_with_slots(text: &str, slots: &crate::Slots) -> Result<Graph, T
 			"filter_table" => {
 				let id = parse_id(words.next(), line)?;
 				let rest = words.collect::<Vec<_>>().join(" ");
-				let points: Vec<i_am_dsp::prelude::FilterPoint> = serde_json::from_str(&rest)
-					.map_err(|parse_error| error(line, parse_error.to_string()))?;
-				slots.filter_table(id).frame().set_points(points);
+				let pages: Vec<Vec<i_am_dsp::prelude::FilterPoint>> =
+					serde_json::from_str(&rest)
+						.map_err(|parse_error| error(line, parse_error.to_string()))?;
+				slots.filter_table(id).frame().set_pages(pages);
 			}
 			"canvas" => {
 				let id = parse_id(words.next(), line)?;

@@ -24,7 +24,7 @@ pub struct FilterPoint {
 	pub bend: f32,
 }
 
-/// The frame the page edits, shared with the effect. A writer swaps a whole
+/// The frames the page edits, shared with the effect. A writer swaps a whole
 /// snapshot; the audio thread loads it with one atomic and never locks or
 /// copies the points.
 pub struct FilterFrame {
@@ -33,26 +33,24 @@ pub struct FilterFrame {
 
 struct FrameData {
 	generation: u64,
-	points: Vec<FilterPoint>,
+	pages: Vec<Vec<FilterPoint>>,
 }
 
 impl FilterFrame {
 	/// A saw-like default with enough harmonics for the cutoff mapping to
 	/// mean something.
 	pub fn new() -> Arc<Self> {
-		let data = Arc::new(FrameData {
-			generation: 0,
-			points: default_points(),
-		});
-
-		Arc::new(Self {
-			current: std::sync::atomic::AtomicPtr::new(Arc::into_raw(data) as *mut FrameData),
-		})
+		Arc::new(Self::default())
 	}
 
-	/// The current points, for a page or a state save.
+	/// The first page, for a caller that only knows about one frame.
 	pub fn points(&self) -> Vec<FilterPoint> {
-		self.snapshot().points.clone()
+		self.pages().first().cloned().unwrap_or_default()
+	}
+
+	/// Every page, for the card and the state save.
+	pub fn pages(&self) -> Vec<Vec<FilterPoint>> {
+		self.snapshot().pages.clone()
 	}
 
 	/// A shared snapshot. The audio thread reads this once per rebuild.
@@ -67,25 +65,36 @@ impl FilterFrame {
 		}
 	}
 
-	/// Moves whenever the points change.
+	/// Moves whenever the pages change.
 	pub fn generation(&self) -> u64 {
 		self.snapshot().generation
 	}
 
-	/// Replaces the points; the swap is safe for the audio thread to read.
+	/// Replaces one page and keeps the rest.
 	pub fn set_points(&self, points: Vec<FilterPoint>) {
-		let mut points = if points.len() < 2 {
-			default_points()
-		} else {
-			points
-		};
-		points.sort_by(|left, right| {
-			left.time
-				.partial_cmp(&right.time)
-				.unwrap_or(core::cmp::Ordering::Equal)
-		});
+		self.set_pages(vec![points]);
+	}
+
+	/// Replaces all pages; the swap is safe for the audio thread to read.
+	pub fn set_pages(&self, mut pages: Vec<Vec<FilterPoint>>) {
+		if pages.is_empty() {
+			pages.push(default_points());
+		}
+
+		for page in &mut pages {
+			if page.len() < 2 {
+				*page = default_points();
+			}
+
+			page.sort_by(|left, right| {
+				left.time
+					.partial_cmp(&right.time)
+					.unwrap_or(core::cmp::Ordering::Equal)
+			});
+		}
+
 		let generation = self.snapshot().generation + 1;
-		let data = Arc::new(FrameData { generation, points });
+		let data = Arc::new(FrameData { generation, pages });
 		let pointer = Arc::into_raw(data) as *mut FrameData;
 		let old = self.current.swap(pointer, Ordering::AcqRel);
 		// SAFETY: the pointer was created by `Arc::into_raw` in this struct.
@@ -109,7 +118,7 @@ impl Default for FilterFrame {
 	fn default() -> Self {
 		let data = Arc::new(FrameData {
 			generation: 0,
-			points: default_points(),
+			pages: vec![default_points()],
 		});
 		Self {
 			current: std::sync::atomic::AtomicPtr::new(Arc::into_raw(data) as *mut FrameData),
@@ -165,6 +174,12 @@ pub struct FilterTableEffect {
 	#[id(display = "Phase")]
 	#[layout(group = "Filter", order = 3, widget = choice)]
 	pub phase: i32,
+	/// The page the frame plays, interpolated between neighbours.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Morph")]
+	#[layout(group = "Filter", order = 4, widget = knob)]
+	pub morph: f32,
 	#[skip]
 	frame: Arc<FilterFrame>,
 	#[skip]
@@ -205,6 +220,8 @@ pub struct FilterTableEffect {
 	seen_resonance: f32,
 	#[skip]
 	seen_phase: i32,
+	#[skip]
+	seen_morph: f32,
 }
 
 impl FilterTableEffect {
@@ -215,6 +232,7 @@ impl FilterTableEffect {
 			resonance: 0.25,
 			mix: 1.0,
 			phase: 0,
+			morph: 0.0,
 			frame,
 			sample_rate: sample_rate as f32,
 			kernel: [0.0; TAPS],
@@ -241,6 +259,7 @@ impl FilterTableEffect {
 			seen_cutoff: f32::NAN,
 			seen_resonance: f32::NAN,
 			seen_phase: i32::MIN,
+			seen_morph: f32::NAN,
 		};
 		effect.rebuild();
 		effect
@@ -257,14 +276,27 @@ impl FilterTableEffect {
 		self.seen_cutoff = self.cutoff;
 		self.seen_resonance = self.resonance;
 		self.seen_phase = self.phase;
+		self.seen_morph = self.morph;
 
 		let mut raw = [0.0f32; TAPS];
-		let points = &snapshot.points;
-		let mut dense = [0.0f32; FRAME];
+		let pages = &snapshot.pages;
+		let last = pages.len().saturating_sub(1);
+		let position = self.morph.clamp(0.0, 1.0) * last as f32;
+		let from = position.floor() as usize;
+		let to = (from + 1).min(last);
+		let blend = position - from as f32;
+		let mut first = [0.0f32; FRAME];
+		let mut second = [0.0f32; FRAME];
 
-		for (index, sample) in dense.iter_mut().enumerate() {
+		for index in 0..FRAME {
 			let time = index as f32 / FRAME as f32;
-			*sample = sample_frame(points, time) * 2.0 - 1.0;
+			first[index] = sample_frame(&pages[from], time) * 2.0 - 1.0;
+			second[index] = sample_frame(&pages[to], time) * 2.0 - 1.0;
+		}
+
+		let mut dense = [0.0f32; FRAME];
+		for index in 0..FRAME {
+			dense[index] = first[index] + (second[index] - first[index]) * blend;
 		}
 
 		// A saw has a DC step at the wrap; removing it keeps the kernel from
@@ -451,6 +483,7 @@ impl Effect<2> for FilterTableEffect {
 			|| self.cutoff != self.seen_cutoff
 			|| self.resonance != self.seen_resonance
 			|| self.phase != self.seen_phase
+			|| self.morph != self.seen_morph
 		{
 			self.rebuild();
 		}
@@ -649,5 +682,45 @@ mod tests {
 
 		assert!((second[0] - 1.0).abs() < 1e-5, "{second:?}");
 		assert!((second[1] - 1.0).abs() < 1e-5, "{second:?}");
+	}
+
+	#[test]
+	fn morph_moves_between_pages() {
+		let frame = FilterFrame::new();
+		frame.set_pages(vec![
+			vec![
+				FilterPoint {
+					time: 0.0,
+					value: 0.0,
+					bend: 0.0,
+				},
+				FilterPoint {
+					time: 1.0,
+					value: 1.0,
+					bend: 0.0,
+				},
+			],
+			vec![
+				FilterPoint {
+					time: 0.0,
+					value: 1.0,
+					bend: 0.0,
+				},
+				FilterPoint {
+					time: 1.0,
+					value: 0.0,
+					bend: 0.0,
+				},
+			],
+		]);
+		let mut effect = FilterTableEffect::with_frame(48_000, frame);
+		effect.morph = 0.0;
+		effect.rebuild();
+		let first = effect.kernel;
+		effect.morph = 1.0;
+		effect.rebuild();
+		let second = effect.kernel;
+
+		assert_ne!(first, second);
 	}
 }
