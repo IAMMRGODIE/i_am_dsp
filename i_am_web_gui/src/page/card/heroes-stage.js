@@ -506,6 +506,8 @@
       paint: paint,
       commit: post,
       dots: true,
+      onStart: function () { el.dataset.busy = "1"; },
+      onEnd: function () { delete el.dataset.busy; },
     });
 
     el.onpointerdown = function (event) {
@@ -611,7 +613,9 @@
         pages[selected] = points;
         IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent }, null);
       },
-      commit: post
+      commit: post,
+      onStart: function () { el.dataset.busy = "1"; },
+      onEnd: function () { delete el.dataset.busy; },
     });
 
     el.onpointerdown = function (event) {
