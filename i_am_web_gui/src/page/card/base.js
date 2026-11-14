@@ -208,6 +208,19 @@
     return typeof value === "number" ? value : fallback;
   }
 
+  /// The page a 0..1 morph points at. Shared by every page stack: the wavetable
+  /// cards, the product kit and the patcher.
+  function pageIndex(morph, count) {
+    if (!(count > 1)) return 0;
+
+    var value = typeof morph === "number" && isFinite(morph) ? morph : 0;
+    value = Math.min(Math.max(value, 0), 1);
+    return Math.min(Math.max(Math.round(value * (count - 1)), 0), count - 1);
+  }
+
+  window.IAmPage = window.IAmPage || {};
+  window.IAmPage.index = pageIndex;
+
   function heroSvg(inner) {
     return '<svg class="mcard-graph" viewBox="0 0 520 160" preserveAspectRatio="none">' +
       inner +

@@ -846,7 +846,7 @@
     var from = Math.floor(position);
     var to = Math.min(from + 1, model.pages.length - 1);
     var blend = position - from;
-    var selected = Math.min(Math.max(Math.round(position), 0), model.pages.length - 1);
+    var selected = IAmPage.index(morph, model.pages.length);
     var paths = "";
 
     model.pages.forEach(function (page, index) {
@@ -901,9 +901,7 @@
 
     var selected = function () {
       var morph = Math.max(0, Math.min(1, valueOf(values, "oscillator.smooth_factor", 0)));
-      var last = model.pages.length - 1;
-
-      return Math.min(Math.max(Math.round(morph * last), 0), last);
+      return IAmPage.index(morph, model.pages.length);
     };
 
     var setMorph = function (value) {
@@ -1334,7 +1332,7 @@
     var from = Math.floor(position);
     var to = Math.min(from + 1, frames.length - 1);
     var blend = position - from;
-    var selected = Math.min(Math.max(Math.round(position), 0), frames.length - 1);
+    var selected = IAmPage.index(position / Math.max(frames.length - 1, 1), frames.length);
     var frame = frames[selected];
 
     var cache = spectrumWaveCache;
@@ -1405,10 +1403,7 @@
 
     var frames = spectrum.frames;
     var morph = clamp(valueOf(values, "oscillator.morph", 0), 0, 1);
-    var selected = Math.min(
-      Math.max(Math.round(morph * (frames.length - 1)), 0),
-      frames.length - 1
-    );
+    var selected = IAmPage.index(morph, frames.length);
     var frame = frames[selected];
     var drag = null;
 

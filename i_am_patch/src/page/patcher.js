@@ -752,13 +752,7 @@
         if (card && card.repaintHero) card.repaintHero();
       },
       frame: (step) => stepFrame(node, step),
-      frameIndex: () => {
-        const count = frames();
-
-        if (count <= 1) return 0;
-
-        return Math.round((node.params["oscillator.smooth_factor"] ?? 0) * (count - 1));
-      },
+      frameIndex: () => IAmPage.index(node.params["oscillator.smooth_factor"] ?? 0, frames()),
       cycleMode: () => {
         const entry = entryOf();
 

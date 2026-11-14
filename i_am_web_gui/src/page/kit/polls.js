@@ -296,7 +296,7 @@
     var control = controls["oscillator.smooth_factor"];
     var morph = control ? Math.min(Math.max(control.value, 0), 1) : 0;
 
-    return count > 1 ? Math.round(morph * (count - 1)) : 0;
+    return IAmPage.index(morph, count);
   }
 
   /// Moves the morph to a whole frame, which is how a frame is picked.

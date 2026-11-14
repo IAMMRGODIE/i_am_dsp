@@ -412,10 +412,7 @@
   /// The history time map: one page at a time, with the same 300x64 editor the
   /// LFO uses.
   function historySelected(values, pages) {
-    var last = Math.max(pages.length - 1, 0);
-    var morph = clamp(valueOf(values, "morph", 0), 0, 1);
-
-    return Math.min(Math.max(Math.round(morph * last), 0), last);
+    return IAmPage.index(valueOf(values, "morph", 0), pages.length);
   }
 
   function historyPath(points) {
@@ -555,10 +552,7 @@
 
   /// The frame a Filter Table uses as its convolution kernel.
   function filterTablePage(values, pages) {
-    var last = Math.max(pages.length - 1, 0);
-    var morph = clamp(valueOf(values, "morph", 0), 0, 1);
-
-    return Math.min(Math.max(Math.round(morph * last), 0), last);
+    return IAmPage.index(valueOf(values, "morph", 0), pages.length);
   }
 
   function filterTableHero(values, context) {
