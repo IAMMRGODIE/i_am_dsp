@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use i_am_dsp_derive::Parameters;
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex;
+use wide::f32x4;
 
 use crate::{Effect, ProcessContext};
 
@@ -131,7 +132,13 @@ pub struct FilterTableEffect {
 	#[skip]
 	kernel: [f32; TAPS],
 	#[skip]
+	kernel_rev: [f32; TAPS],
+	#[skip]
 	previous: [f32; TAPS],
+	#[skip]
+	previous_rev: [f32; TAPS],
+	#[skip]
+	next_rev: [f32; TAPS],
 	#[skip]
 	next: [f32; TAPS],
 	#[skip]
@@ -171,7 +178,10 @@ impl FilterTableEffect {
 			frame,
 			sample_rate: sample_rate as f32,
 			kernel: [0.0; TAPS],
+			kernel_rev: [0.0; TAPS],
 			previous: [0.0; TAPS],
+			previous_rev: [0.0; TAPS],
+			next_rev: [0.0; TAPS],
 			next: [0.0; TAPS],
 			blend: 1.0,
 			initialized: false,
@@ -185,7 +195,7 @@ impl FilterTableEffect {
 			},
 			dry: core::array::from_fn(|_| vec![0.0; TAPS / 2 + 1]),
 			dry_write: 0,
-			history: core::array::from_fn(|_| vec![0.0; TAPS]),
+			history: core::array::from_fn(|_| vec![0.0; TAPS * 2]),
 			write: 0,
 			seen_generation: u64::MAX,
 			seen_cutoff: f32::NAN,
@@ -264,9 +274,19 @@ impl FilterTableEffect {
 			self.blend = 1.0;
 		} else {
 			self.previous = self.kernel;
+			self.previous_rev = self.kernel_rev;
 			self.next = target;
-			self.kernel = target;
 			self.blend = 0.0;
+		}
+
+		self.kernel = target;
+		for index in 0..TAPS {
+			self.kernel_rev[index] = target[TAPS - 1 - index];
+		}
+		self.next_rev = self.kernel_rev;
+
+		if self.previous == self.kernel {
+			self.previous_rev = self.kernel_rev;
 		}
 	}
 
@@ -328,6 +348,16 @@ impl FilterTableEffect {
 		normalize(&mut out);
 		out
 	}
+}
+
+fn dot(history: &[f32], kernel: &[f32; TAPS]) -> f32 {
+	let mut sum = f32x4::ZERO;
+
+	for index in (0..TAPS).step_by(4) {
+		sum += f32x4::from(&history[index..index + 4]) * f32x4::from(&kernel[index..index + 4]);
+	}
+
+	sum.reduce_add()
 }
 
 fn normalize(kernel: &mut [f32; TAPS]) {
@@ -401,38 +431,21 @@ impl Effect<2> for FilterTableEffect {
 				self.dry[channel][(self.dry_write + dry_length - latency) % dry_length]
 			};
 			self.history[channel][self.write] = *sample;
+			self.history[channel][self.write + TAPS] = *sample;
 		}
 
 		let mut wet = [0.0f32; 2];
 		let blend = self.blend;
+		let start = (self.write + 1) % TAPS;
 
 		for (channel, wet_sample) in wet.iter_mut().enumerate() {
-			let mut position = self.write;
+			let history = &self.history[channel][start..start + TAPS];
 
 			if blend >= 1.0 {
-				for index in 0..TAPS {
-					*wet_sample += self.history[channel][position] * self.kernel[index];
-					position = if position == 0 {
-						TAPS - 1
-					} else {
-						position - 1
-					};
-				}
+				*wet_sample = dot(history, &self.kernel_rev);
 			} else {
-				let mut old = 0.0f32;
-				let mut next = 0.0f32;
-
-				for index in 0..TAPS {
-					let sample = self.history[channel][position];
-					old += sample * self.previous[index];
-					next += sample * self.next[index];
-					position = if position == 0 {
-						TAPS - 1
-					} else {
-						position - 1
-					};
-				}
-
+				let old = dot(history, &self.previous_rev);
+				let next = dot(history, &self.next_rev);
 				*wet_sample = old + (next - old) * blend;
 			}
 		}
@@ -568,5 +581,37 @@ mod tests {
 			front > back,
 			"energy is not front-loaded: {front} vs {back}"
 		);
+	}
+
+	#[test]
+	fn a_one_sample_kernel_delays_by_one() {
+		let frame = FilterFrame::new();
+		let mut effect = FilterTableEffect::with_frame(48_000, frame);
+		effect.mix = 1.0;
+		effect.blend = 1.0;
+		effect.kernel = [0.0; TAPS];
+		effect.kernel[1] = 1.0;
+		effect.kernel_rev = [0.0; TAPS];
+		effect.kernel_rev[TAPS - 2] = 1.0;
+		effect.previous = effect.kernel;
+		effect.previous_rev = effect.kernel_rev;
+		effect.next = effect.kernel;
+		effect.next_rev = effect.kernel_rev;
+		effect.seen_generation = effect.frame.generation();
+		effect.seen_cutoff = effect.cutoff;
+		effect.seen_resonance = effect.resonance;
+		effect.seen_phase = effect.phase;
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext(ProcessInfos {
+			sample_rate: 48_000,
+			..ProcessInfos::default()
+		}));
+		let mut first = [1.0f32, 1.0f32];
+		let mut second = [0.0f32; 2];
+
+		effect.process(&mut first, &[], &mut context);
+		effect.process(&mut second, &[], &mut context);
+
+		assert!((second[0] - 1.0).abs() < 1e-5, "{second:?}");
+		assert!((second[1] - 1.0).abs() < 1e-5, "{second:?}");
 	}
 }
