@@ -221,6 +221,16 @@ pub struct FilterTableEffect {
 	#[skip]
 	low_out: [f32; 2],
 	#[skip]
+	low_previous_out: [f32; 2],
+	#[skip]
+	low_interp: f32,
+	#[skip]
+	low_lp: [[f32; 2]; 2],
+	#[skip]
+	low_alpha: f32,
+	#[skip]
+	fade: f32,
+	#[skip]
 	low_initialized: bool,
 	#[skip]
 	seen_factor: usize,
@@ -279,6 +289,11 @@ impl FilterTableEffect {
 			low_count: 0,
 			low_sum: [0.0; 2],
 			low_out: [0.0; 2],
+			low_previous_out: [0.0; 2],
+			low_interp: 0.0,
+			low_lp: [[0.0; 2]; 2],
+			low_alpha: 0.0,
+			fade: 1.0,
 			low_initialized: false,
 			seen_factor: 0,
 			dry: core::array::from_fn(|_| vec![0.0; TAPS / 2 * 8 + 1]),
@@ -375,7 +390,11 @@ impl FilterTableEffect {
 		self.seen_resonance = self.resonance;
 		self.seen_phase = self.phase;
 		self.seen_morph = self.morph;
-		self.seen_factor = self.factor();
+		let factor = self.factor();
+		if factor != self.seen_factor && self.initialized {
+			self.fade = 0.0;
+		}
+		self.seen_factor = factor;
 
 		if self.seen_factor == 1 {
 			let target = self.build_target(&snapshot, self.sample_rate);
@@ -420,6 +439,13 @@ impl FilterTableEffect {
 			self.low_count = 0;
 			self.low_sum = [0.0; 2];
 			self.low_out = [0.0; 2];
+			self.low_previous_out = [0.0; 2];
+			self.low_interp = 0.0;
+			self.low_lp = [[0.0; 2]; 2];
+			self.low_alpha = 1.0
+				- (-std::f32::consts::TAU * 0.45 * self.sample_rate
+					/ (self.sample_rate * self.seen_factor as f32))
+					.exp();
 		}
 	}
 
@@ -608,22 +634,26 @@ impl Effect<2> for FilterTableEffect {
 
 			self.blend = (blend + 1.0 / 128.0).min(1.0);
 
+			let fade = self.fade;
 			for (channel, sample) in samples.iter_mut().enumerate() {
-				*sample = dry[channel] * (1.0 - mix) + wet[channel] * mix;
+				*sample = dry[channel] * (1.0 - mix) + wet[channel] * fade * mix;
 			}
 
+			self.fade = (fade + 1.0 / 128.0).min(1.0);
 			self.write = (self.write + 1) % TAPS;
 			return;
 		}
 
 		for (channel, sample) in samples.iter().enumerate() {
-			self.low_sum[channel] += *sample;
+			self.low_lp[0][channel] += self.low_alpha * (*sample - self.low_lp[0][channel]);
+			self.low_lp[1][channel] +=
+				self.low_alpha * (self.low_lp[0][channel] - self.low_lp[1][channel]);
+			self.low_sum[channel] = self.low_lp[1][channel];
 		}
 		self.low_count += 1;
 
 		if self.low_count >= factor {
-			let divisor = factor as f32;
-			let decimated = [self.low_sum[0] / divisor, self.low_sum[1] / divisor];
+			let decimated = self.low_sum;
 
 			for (channel, sample) in decimated.iter().enumerate() {
 				self.low_history[channel][self.low_write] = *sample;
@@ -633,6 +663,7 @@ impl Effect<2> for FilterTableEffect {
 			let blend = self.blend;
 			let start = (self.low_write + 1) % TAPS;
 
+			self.low_previous_out = self.low_out;
 			for channel in 0..2 {
 				let history = &self.low_history[channel][start..start + TAPS];
 				self.low_out[channel] = if blend >= 1.0 {
@@ -643,6 +674,7 @@ impl Effect<2> for FilterTableEffect {
 					old + (next - old) * blend
 				};
 			}
+			self.low_interp = 0.0;
 
 			self.blend = (blend + 1.0 / 128.0).min(1.0);
 			self.low_write = (self.low_write + 1) % TAPS;
@@ -650,9 +682,14 @@ impl Effect<2> for FilterTableEffect {
 			self.low_sum = [0.0; 2];
 		}
 
+		self.low_interp = (self.low_interp + 1.0 / factor as f32).min(1.0);
+		let fade = self.fade;
 		for (channel, sample) in samples.iter_mut().enumerate() {
-			*sample = dry[channel] * (1.0 - mix) + self.low_out[channel] * mix;
+			let wet = self.low_previous_out[channel]
+				+ (self.low_out[channel] - self.low_previous_out[channel]) * self.low_interp;
+			*sample = dry[channel] * (1.0 - mix) + wet * fade * mix;
 		}
+		self.fade = (fade + 1.0 / 128.0).min(1.0);
 	}
 }
 

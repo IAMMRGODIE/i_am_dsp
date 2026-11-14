@@ -117,4 +117,24 @@ fn main() {
 		low_seconds / 100_000.0 * 1e9,
 		1.0 / (low_seconds / (100_000.0 / RATE as f64))
 	);
+
+	// Eight voices in one process, the way a polyphonic instrument would run
+	// them. Each voice has its own frame and filter state.
+	let mut voices: Vec<FilterTableEffect> = (0..8)
+		.map(|_| FilterTableEffect::with_frame(RATE, FilterFrame::new()))
+		.collect();
+	let samples = 200_000;
+	let start = Instant::now();
+	for _ in 0..samples {
+		for voice in &mut voices {
+			voice.process(&mut block, &[], &mut context);
+		}
+	}
+	let voice_seconds = start.elapsed().as_secs_f64();
+	let voice_realtime = voice_seconds / (samples as f64 / RATE as f64);
+	println!(
+		"  eight voices:  {:.2} ns/sample/voice, {:.1}% CPU",
+		voice_seconds / samples as f64 * 1e9,
+		voice_realtime * 100.0
+	);
 }
