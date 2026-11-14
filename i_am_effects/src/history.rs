@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use i_am_dsp::prelude::{ParamMap, Parameter, Parameters, SetValue};
+use i_am_dsp::prelude::{ParamMap, Parameter, Parameters, SetValue, Value, from_binary, to_binary};
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
 use i_am_plugin::{Descriptor, Plugin, WindowOptions};
@@ -129,10 +129,27 @@ impl HistoryWeb {
 
 impl Parameters for HistoryWeb {
 	fn get_parameters(&self) -> Vec<Parameter> {
-		self.processor.parameters()
+		let mut parameters = self.processor.parameters();
+		// The pages are not a parameter the page can write through ParamMap, but
+		// the host saves them with the rest of the state: this is the archive copy.
+		let pages = to_binary(&*self.handle.feed().pages()).expect("the pages serialize");
+		parameters.push(Parameter::new("history_pages", Value::Serialized(pages)));
+
+		parameters
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		if identifier == "history_pages"
+			&& let SetValue::Serialized(bytes) = value
+		{
+			if let Ok(pages) = from_binary::<Vec<HistoryPage>>(bytes) {
+				self.handle.feed().set_pages(pages);
+				return true;
+			}
+
+			return false;
+		}
+
 		self.processor.set_parameter(identifier, value)
 	}
 }
@@ -209,6 +226,7 @@ impl Plugin for HistoryWeb {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use i_am_dsp::prelude::HistoryPoint;
 
 	#[test]
 	fn pages_round_trip_the_route() {
@@ -228,5 +246,46 @@ mod tests {
 
 		let result = handle.set_json(&serde_json::to_string(&pages).expect("pages"));
 		assert!(result.contains("\"ok\":true"), "{result}");
+	}
+
+	#[test]
+	fn pages_survive_the_state() {
+		let handle = HistoryHandle::new();
+		handle.feed().set_pages(vec![
+			HistoryPage::flat(),
+			HistoryPage {
+				points: vec![
+					HistoryPoint {
+						time: 0.0,
+						value: 0.0,
+						bend: 0.0,
+					},
+					HistoryPoint {
+						time: 1.0,
+						value: 0.0,
+						bend: 0.0,
+					},
+				],
+			},
+		]);
+
+		let source = HistoryWeb::with_handle(handle);
+		let value = source
+			.get_parameters()
+			.into_iter()
+			.find(|parameter| parameter.identifier == "history_pages")
+			.expect("the archived pages")
+			.value
+			.clone();
+		let mut restored = HistoryWeb::new();
+
+		assert!(restored.set_parameter(
+			"history_pages",
+			SetValue::Serialized(match value {
+				Value::Serialized(bytes) => bytes,
+				_ => panic!("the pages are not serialized"),
+			})
+		));
+		assert_eq!(restored.handle().feed().pages().len(), 2);
 	}
 }
