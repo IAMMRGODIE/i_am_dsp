@@ -199,6 +199,12 @@ pub fn make_with(
 
 					Box::new(ProductNode::with_script(effect, worker))
 				}
+				"history" => {
+					let handle = slots.history(node);
+					Box::new(ProductNode::new(Box::new(
+						i_am_dsp::prelude::HistoryEffect::with_feed(rate, handle.feed()),
+					)))
+				}
 				"script_distortion" => {
 					let worker = i_am_effects::distortion_worker();
 					let effect =

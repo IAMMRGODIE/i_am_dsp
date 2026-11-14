@@ -99,6 +99,9 @@ pub struct Slots {
 	drummers: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_synths::DrummerHandle>>,
 	>,
+	histories: std::sync::Arc<
+		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_effects::HistoryHandle>>,
+	>,
 	scripts: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_synths::ScriptHandle>>,
 	>,
@@ -179,6 +182,16 @@ impl Slots {
 			.or_default()
 			.clone()
 	}
+	/// The History pages of one node, created the first time it is asked for.
+	pub fn history(&self, node: u32) -> i_am_effects::HistoryHandle {
+		self.histories
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.entry(node)
+			.or_default()
+			.clone()
+	}
+
 	/// The script feed of one node, created the first time it is asked for.
 	pub fn script(&self, node: u32) -> i_am_synths::ScriptHandle {
 		self.scripts

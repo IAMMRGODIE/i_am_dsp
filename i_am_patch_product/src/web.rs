@@ -134,6 +134,19 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			Some(ProtocolResponse::json(answer))
 		}
+		("GET", "/history") | ("POST", "/history") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let history = shared.slots.history(node);
+			let answer = if request.method == "POST" {
+				history.set_json(&String::from_utf8_lossy(request.body))
+			} else {
+				history.state_json()
+			};
+
+			Some(ProtocolResponse::json(answer))
+		}
 		("GET", "/sampler") | ("POST", "/sampler") => Some(ProtocolResponse::json(
 			sampler_route(request, shared).to_string(),
 		)),

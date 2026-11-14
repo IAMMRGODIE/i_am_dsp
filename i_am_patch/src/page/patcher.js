@@ -1343,6 +1343,53 @@
       .catch(() => {});
   }
 
+  /// The History pages are the product's state, so the card asks its node for
+  /// them the way the product's own page does.
+  function refreshHistory(entry) {
+    if (!entry || entry.kind.id !== "mod:history") return;
+
+    fetch("/history?node=" + entry.node.id, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((state) => {
+        if (!state || !state.pages) return;
+
+        entry.context.history = state;
+        if (entry.card.repaintHero) entry.card.repaintHero();
+      })
+      .catch(() => {});
+  }
+
+  /// A history hero edits this node's pages, not a page-wide history.
+  function wireHistoryCard(entry) {
+    if (!entry || entry.kind.id !== "mod:history" || !entry.context.history) return;
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    if (!hero) return;
+
+    IAmCard.wire(hero, "history", entry.node.params, {
+      history: entry.context.history,
+      set: (id, value) => {
+        entry.node.params[id] = value;
+        postParam(entry.node.id, id, value);
+
+        requestAnimationFrame(() => {
+          if (!entry.host.isConnected) return;
+
+          if (entry.card.setValue) entry.card.setValue(id, value);
+          else if (entry.card.repaintHero) entry.card.repaintHero();
+        });
+      },
+      post: (body) => {
+        fetch("/history?node=" + entry.node.id, { method: "POST", body })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((result) => {
+            if (result && result.error) showStatus(result.error);
+          })
+          .catch(() => {});
+      },
+    });
+  }
+
   /// Fetches what a node's slot now holds and repaints the card's picture.
   async function refreshImport(entry, path) {
     if (!entry || !entry.card || !entry.context) return;
@@ -1546,6 +1593,17 @@
 
     if (kind.id === "synth:script") {
       refreshScript(entry);
+    }
+
+    if (kind.id === "mod:history") {
+      const repaint = card.repaintHero;
+
+      card.repaintHero = function (values) {
+        repaint(values);
+        wireHistoryCard(entry);
+      };
+
+      refreshHistory(entry);
     }
 
     entry.host.style.setProperty(
