@@ -555,12 +555,85 @@
     return IAmPage.index(valueOf(values, "morph", 0), pages.length);
   }
 
+  /// The continuous kernel value at `x` in [0, 1].
+  function filterCurve(points, x) {
+    var sorted = points.slice().sort(function (a, b) { return a.time - b.time; });
+
+    if (sorted.length < 2) return 0.5;
+    if (x <= sorted[0].time) return sorted[0].value;
+
+    for (var i = 1; i < sorted.length; i++) {
+      var left = sorted[i - 1];
+      var right = sorted[i];
+
+      if (x <= right.time) {
+        var span = Math.max(right.time - left.time, 1e-6);
+        var unit = Math.max(0, Math.min(1, (x - left.time) / span));
+        return left.value + (right.value - left.value) * IAmCard.sources.bend(unit, left.bend);
+      }
+    }
+
+    return sorted[sorted.length - 1].value;
+  }
+
+  /// A rough magnitude response of the frame, drawn as the default view.
+  function filterResponsePath(points, cutoff) {
+    var size = 256;
+    var frame = [];
+    var mean = 0;
+
+    for (var index = 0; index < size; index++) {
+      var value = filterCurve(points, index / (size - 1)) * 2 - 1;
+      frame.push(value);
+      mean += value;
+    }
+
+    mean /= size;
+    for (var i = 0; i < size; i++) frame[i] -= mean;
+
+    var cutoff = Math.max(cutoff, 20);
+    var bins = 64;
+    var magnitude = [];
+    var peak = 1e-9;
+
+    for (var band = 0; band < bins; band++) {
+      var frequency = 20 * Math.pow(1000, band / (bins - 1));
+      var harmonic = frequency * 24 / cutoff;
+      var omega = Math.PI * 2 * harmonic / size;
+      var real = 0;
+      var imaginary = 0;
+
+      for (var sample = 0; sample < size; sample++) {
+        real += frame[sample] * Math.cos(omega * sample);
+        imaginary -= frame[sample] * Math.sin(omega * sample);
+      }
+
+      var value = Math.sqrt(real * real + imaginary * imaginary);
+      magnitude.push(value);
+      peak = Math.max(peak, value);
+    }
+
+    var path = "";
+
+    for (var index = 0; index < bins; index++) {
+      var db = 20 * Math.log10(Math.max(magnitude[index] / peak, 1e-4));
+      var y = 60 - Math.max(0, Math.min(1, (db + 48) / 48)) * 52;
+      var x = 8 + index / (bins - 1) * 284;
+      path += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    return path;
+  }
+
   function filterTableHero(values, context) {
     var table = context && context.filterTable;
     var pages = (table && table.pages) || [[]];
     var selected = filterTablePage(values, pages);
     var points = pages[selected] || [];
-    var path = historyPath(points);
+    var view = table && table.view === "time" ? "time" : "freq";
+    var path = view === "freq"
+      ? filterResponsePath(points, valueOf(values, "cutoff", 1000))
+      : historyPath(points);
 
     return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="xMidYMid meet">' +
       '<line x1="8" y1="60" x2="292" y2="60" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
@@ -571,9 +644,12 @@
         '<button type="button" class="hero-action" data-action="filter-next">\u203a</button>' +
         '<button type="button" class="hero-action" data-action="filter-add">+ PAGE</button>' +
         '<button type="button" class="hero-action" data-action="filter-remove">- PAGE</button>' +
+        '<button type="button" class="hero-action" data-action="filter-view">' +
+          (view === "freq" ? "TIME" : "FREQ") + '</button>' +
       '</div>' +
       '<div class="hero-label" style="left:2%;top:2%">FILTER TABLE \u00b7 PAGE ' +
-        (selected + 1) + ' / ' + pages.length + '</div>';
+        (selected + 1) + ' / ' + pages.length +
+        (view === "freq" ? ' \u00b7 FREQ' : ' \u00b7 TIME') + '</div>';
   }
 
   /// The page editor, on the same 300x64 LFO canvas.
@@ -587,10 +663,80 @@
 
     var pages = table.pages;
     var selected = filterTablePage(values, pages);
-    var holder = { points: pages[selected] };
+    var view = table.view === "time" ? "time" : "freq";
+    var accent = (getComputedStyle(el).getPropertyValue("--accent") || "#4c8dff").trim();
+    var attached = false;
 
     var post = function () {
       if (state.post) state.post(JSON.stringify(pages));
+    };
+
+    var paint = function (points) {
+      pages[selected] = points;
+      IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent, segments: 36 }, null);
+    };
+
+    // A simple SVG redraw for the response path: drawPreview is the time view.
+    var drawFrequency = function () {
+      svg.textContent = "";
+      var path = filterResponsePath(pages[selected], valueOf(values, "cutoff", 1000));
+      var line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", "8"); line.setAttribute("y1", "60");
+      line.setAttribute("x2", "292"); line.setAttribute("y2", "60");
+      line.setAttribute("stroke", "#333"); line.setAttribute("stroke-dasharray", "2 4");
+      svg.appendChild(line);
+      var curve = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      curve.setAttribute("d", path); curve.setAttribute("fill", "none");
+      curve.setAttribute("stroke", accent); curve.setAttribute("stroke-width", "2");
+      curve.setAttribute("vector-effect", "non-scaling-stroke");
+      svg.appendChild(curve);
+    };
+
+    var drawTime = function () {
+      IAmCard.sources.drawPreview(svg, "lfo", {
+        points: pages[selected],
+        color: accent,
+        segments: 36,
+      }, null);
+    };
+
+    var redraw = function () {
+      if (view === "freq") drawFrequency();
+      else drawTime();
+    };
+
+    var attachEditor = function () {
+      if (attached || view !== "time") return;
+      attached = true;
+      IAmCard.sources.editLfo(svg, { points: pages[selected] }, {
+        paint: paint,
+        commit: post,
+        onStart: function () { el.dataset.busy = "1"; },
+        onEnd: function () { delete el.dataset.busy; },
+      });
+    };
+
+    var detachEditor = function () {
+      if (!attached) return;
+      attached = false;
+      svg.onpointerdown = null;
+      svg.ondblclick = null;
+      svg.oncontextmenu = null;
+    };
+
+    var setView = function (next) {
+      view = next === "time" ? "time" : "freq";
+      table.view = view;
+      detachEditor();
+      if (view === "time") attachEditor();
+      redraw();
+      var label = el.querySelector(".hero-label");
+      if (label) {
+        label.textContent = "FILTER TABLE \u00b7 PAGE " + (selected + 1) + " / " +
+          pages.length + (view === "freq" ? " \u00b7 FREQ" : " \u00b7 TIME");
+      }
+      var button = el.querySelector('[data-action="filter-view"]');
+      if (button) button.textContent = view === "freq" ? "TIME" : "FREQ";
     };
 
     svg.addEventListener("pointerdown", function (event) {
@@ -614,18 +760,6 @@
       }
     });
 
-    var accent = (getComputedStyle(el).getPropertyValue("--accent") || "#4c8dff").trim();
-
-    IAmCard.sources.editLfo(svg, holder, {
-      paint: function (points) {
-        pages[selected] = points;
-        IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent, segments: 36 }, null);
-      },
-      commit: post,
-      onStart: function () { el.dataset.busy = "1"; },
-      onEnd: function () { delete el.dataset.busy; },
-    });
-
     el.onpointerdown = function (event) {
       var button = event.target.closest && event.target.closest("[data-action]");
 
@@ -634,7 +768,9 @@
       var action = button.getAttribute("data-action");
       var last = pages.length - 1;
 
-      if (action === "filter-prev") {
+      if (action === "filter-view") {
+        setView(view === "freq" ? "time" : "freq");
+      } else if (action === "filter-prev") {
         state.set("morph", last > 0 ? Math.max(selected - 1, 0) / last : 0);
       } else if (action === "filter-next") {
         state.set("morph", last > 0 ? Math.min(selected + 1, last) / last : 0);
@@ -651,6 +787,8 @@
       event.preventDefault();
     };
 
-    IAmCard.sources.drawPreview(svg, "lfo", { points: holder.points, color: accent, segments: 36 }, null);
+    redraw();
+    if (view === "time") attachEditor();
   }
+
 

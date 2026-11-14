@@ -1346,6 +1346,7 @@
       .then((state) => {
         if (!state || !state.pages) return;
 
+        state.view = entry.context.filterTable && entry.context.filterTable.view;
         entry.context.filterTable = state;
         if (entry.card.repaintHero) entry.card.repaintHero();
       })

@@ -518,6 +518,7 @@
       .then(function (state) {
         if (!state || !state.pages) return;
         if (document.querySelector(".hero[data-busy='1']")) return;
+        state.view = filterTableState && filterTableState.view;
         filterTableState = state;
         markDirty();
       })
