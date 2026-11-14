@@ -431,9 +431,9 @@
 
       for (var step = 0; step <= samples; step++) {
         var unit = step / samples;
-        var eased = unit * unit * (3 - 2 * unit);
         var time = left.time + (right.time - left.time) * unit;
-        var value = left.value + (right.value - left.value) * eased;
+        var value = left.value + (right.value - left.value) *
+          IAmCard.sources.bend(unit, left.bend);
         var x = 8 + Math.max(0, Math.min(1, time)) * 284;
         var y = 60 - Math.max(0, Math.min(1, value)) * 52;
         path += (path ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
@@ -483,7 +483,7 @@
     var paint = function (points) {
       if (page.points) page.points = points;
       else pages[selected] = points;
-      IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent, smooth: true }, null);
+      IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent }, null);
     };
 
     var post = function () {
@@ -655,6 +655,6 @@
       event.preventDefault();
     };
 
-    IAmCard.sources.drawPreview(svg, "lfo", { points: holder.points }, null);
+    IAmCard.sources.drawPreview(svg, "lfo", { points: holder.points, color: accent }, null);
   }
 

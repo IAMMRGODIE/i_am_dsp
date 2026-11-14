@@ -111,11 +111,8 @@
       for (var step = 1; step <= 14; step++) {
         var unit = step / 14;
         var time = previous.time + (point.time - previous.time) * unit;
-        var shaped = data.smooth
-          ? unit * unit * (3 - 2 * unit)
-          : bend(unit, previous.bend);
         var between = previous.value +
-          (point.value - previous.value) * shaped;
+          (point.value - previous.value) * bend(unit, previous.bend);
         path += " L " + (8 + time * 284).toFixed(1) + " " +
           (60 - between * 52).toFixed(1);
       }
