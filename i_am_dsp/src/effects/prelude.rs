@@ -9,6 +9,7 @@ pub use super::disperser::*;
 pub use super::distortion::*;
 pub use super::enveloper::*;
 pub use super::filter::*;
+pub use super::filter_table::*;
 pub use super::freq_shifter::*;
 pub use super::hilbert_transform::*;
 pub use super::history::*;

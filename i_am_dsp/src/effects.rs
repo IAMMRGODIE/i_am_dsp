@@ -13,6 +13,7 @@ pub mod dynamics;
 pub mod enveloper;
 pub mod eq;
 pub mod filter;
+pub mod filter_table;
 pub mod formant_filter;
 pub mod freq_shifter;
 pub mod hilbert_transform;
