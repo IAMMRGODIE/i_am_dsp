@@ -1,8 +1,8 @@
 //! A wavetable used as a filter: one frame becomes a short FIR kernel, and the
 //! cutoff moves the frame's twenty-fourth harmonic.
 
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use i_am_dsp_derive::Parameters;
 use rustfft::FftPlanner;
@@ -24,55 +24,95 @@ pub struct FilterPoint {
 	pub bend: f32,
 }
 
-/// The frame the page edits, shared with the effect.
+/// The frame the page edits, shared with the effect. A writer swaps a whole
+/// snapshot; the audio thread loads it with one atomic and never locks or
+/// copies the points.
 pub struct FilterFrame {
-	generation: AtomicU64,
-	points: Mutex<Arc<Vec<FilterPoint>>>,
+	current: std::sync::atomic::AtomicPtr<FrameData>,
+}
+
+struct FrameData {
+	generation: u64,
+	points: Vec<FilterPoint>,
 }
 
 impl FilterFrame {
 	/// A saw-like default with enough harmonics for the cutoff mapping to
 	/// mean something.
 	pub fn new() -> Arc<Self> {
+		let data = Arc::new(FrameData {
+			generation: 0,
+			points: default_points(),
+		});
+
 		Arc::new(Self {
-			generation: AtomicU64::new(0),
-			points: Mutex::new(Arc::new(default_points())),
+			current: std::sync::atomic::AtomicPtr::new(Arc::into_raw(data) as *mut FrameData),
 		})
 	}
 
-	/// The points the page edits.
-	pub fn points(&self) -> Arc<Vec<FilterPoint>> {
-		self.points
-			.lock()
-			.unwrap_or_else(|error| error.into_inner())
-			.clone()
+	/// The current points, for a page or a state save.
+	pub fn points(&self) -> Vec<FilterPoint> {
+		self.snapshot().points.clone()
 	}
 
-	/// Replaces the points and moves the generation.
-	pub fn set_points(&self, points: Vec<FilterPoint>) {
-		let points = if points.len() < 2 {
-			default_points()
-		} else {
-			points
-		};
-		*self
-			.points
-			.lock()
-			.unwrap_or_else(|error| error.into_inner()) = Arc::new(points);
-		self.generation.fetch_add(1, Ordering::Release);
+	/// A shared snapshot. The audio thread reads this once per rebuild.
+	fn snapshot(&self) -> Arc<FrameData> {
+		let pointer = self.current.load(Ordering::Acquire);
+		// SAFETY: every pointer stored in `current` came from `Arc::into_raw`,
+		// and the writer only drops its own reference after the swap. Taking a
+		// new strong count here keeps the data alive while we read it.
+		unsafe {
+			Arc::increment_strong_count(pointer);
+			Arc::from_raw(pointer)
+		}
 	}
 
 	/// Moves whenever the points change.
 	pub fn generation(&self) -> u64 {
-		self.generation.load(Ordering::Acquire)
+		self.snapshot().generation
+	}
+
+	/// Replaces the points; the swap is safe for the audio thread to read.
+	pub fn set_points(&self, points: Vec<FilterPoint>) {
+		let mut points = if points.len() < 2 {
+			default_points()
+		} else {
+			points
+		};
+		points.sort_by(|left, right| {
+			left.time
+				.partial_cmp(&right.time)
+				.unwrap_or(core::cmp::Ordering::Equal)
+		});
+		let generation = self.snapshot().generation + 1;
+		let data = Arc::new(FrameData { generation, points });
+		let pointer = Arc::into_raw(data) as *mut FrameData;
+		let old = self.current.swap(pointer, Ordering::AcqRel);
+		// SAFETY: the pointer was created by `Arc::into_raw` in this struct.
+		unsafe {
+			drop(Arc::from_raw(old));
+		}
+	}
+}
+
+impl Drop for FilterFrame {
+	fn drop(&mut self) {
+		let pointer = *self.current.get_mut();
+		// SAFETY: the pointer was created by `Arc::into_raw` in this struct.
+		unsafe {
+			drop(Arc::from_raw(pointer));
+		}
 	}
 }
 
 impl Default for FilterFrame {
 	fn default() -> Self {
+		let data = Arc::new(FrameData {
+			generation: 0,
+			points: default_points(),
+		});
 		Self {
-			generation: AtomicU64::new(0),
-			points: Mutex::new(Arc::new(default_points())),
+			current: std::sync::atomic::AtomicPtr::new(Arc::into_raw(data) as *mut FrameData),
 		}
 	}
 }
@@ -212,23 +252,19 @@ impl FilterTableEffect {
 	}
 
 	fn rebuild(&mut self) {
-		self.seen_generation = self.frame.generation();
+		let snapshot = self.frame.snapshot();
+		self.seen_generation = snapshot.generation;
 		self.seen_cutoff = self.cutoff;
 		self.seen_resonance = self.resonance;
 		self.seen_phase = self.phase;
 
 		let mut raw = [0.0f32; TAPS];
-		let mut points = self.frame.points().to_vec();
-		points.sort_by(|left, right| {
-			left.time
-				.partial_cmp(&right.time)
-				.unwrap_or(core::cmp::Ordering::Equal)
-		});
+		let points = &snapshot.points;
 		let mut dense = [0.0f32; FRAME];
 
 		for (index, sample) in dense.iter_mut().enumerate() {
 			let time = index as f32 / FRAME as f32;
-			*sample = sample_frame(&points, time) * 2.0 - 1.0;
+			*sample = sample_frame(points, time) * 2.0 - 1.0;
 		}
 
 		// A saw has a DC step at the wrap; removing it keeps the kernel from
