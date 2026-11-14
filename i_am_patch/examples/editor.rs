@@ -675,6 +675,19 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				shared.slots.filter_table(node).set_json(body),
 			)
 		}
+		("GET", path) if path == "/history-phase" || path.starts_with("/history-phase?") => {
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.history(node).phase_json(),
+			)
+		}
 		("GET", path) if path == "/history" || path.starts_with("/history?") => {
 			let node = path
 				.split_once('?')

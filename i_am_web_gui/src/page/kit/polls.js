@@ -487,6 +487,28 @@
       });
   }
 
+  /// The playhead is one number; poll it quickly without re-reading all pages.
+  function pollHistoryPhase() {
+    if (!document.querySelector(".hero[data-hero='history']")) {
+      setTimeout(pollHistoryPhase, 250);
+      return;
+    }
+
+    fetch("/history-phase", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state || typeof state.phase !== "number") return;
+        var line = document.querySelector(".hero .history-playhead");
+        if (line) line.style.left = (state.phase * 100).toFixed(2) + "%";
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollHistoryPhase, 50);
+      });
+  }
+
   /// The Filter Table frame lives outside the parameter map, like the canvas.
   function pollFilterTable() {
     fetch("/filter-table", { cache: "no-store" })

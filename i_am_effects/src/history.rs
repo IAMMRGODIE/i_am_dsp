@@ -35,6 +35,11 @@ impl HistoryHandle {
 		)
 	}
 
+	/// The lightweight playhead value, for the 50 ms poll.
+	pub fn phase_json(&self) -> String {
+		format!("{{\"phase\":{}}}", self.0.phase())
+	}
+
 	/// Applies the route's POST body.
 	pub fn set_json(&self, body: &str) -> String {
 		match serde_json::from_str::<Vec<HistoryPage>>(body) {
@@ -64,6 +69,10 @@ fn history_route(
 	request: &ProtocolRequest<'_>,
 	handle: &HistoryHandle,
 ) -> Option<ProtocolResponse> {
+	if request.path == "/history-phase" {
+		return Some(ProtocolResponse::json(handle.phase_json()));
+	}
+
 	if request.path != "/history" {
 		return None;
 	}

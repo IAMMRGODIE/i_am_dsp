@@ -147,6 +147,15 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			Some(ProtocolResponse::json(answer))
 		}
+		("GET", "/history-phase") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			Some(ProtocolResponse::json(
+				shared.slots.history(node).phase_json(),
+			))
+		}
 		("GET", "/history") | ("POST", "/history") => {
 			let node = query_value(request, "node")
 				.and_then(|value| value.parse::<u32>().ok())

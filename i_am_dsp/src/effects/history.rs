@@ -79,6 +79,11 @@ impl HistoryFeed {
 			.clone()
 	}
 
+	/// A snapshot for the audio thread: never waits for the page's lock.
+	pub fn try_pages(&self) -> Option<Arc<Vec<HistoryPage>>> {
+		self.pages.try_lock().ok().map(|pages| pages.clone())
+	}
+
 	/// Replaces the pages and moves the generation.
 	pub fn set_pages(&self, pages: Vec<HistoryPage>) {
 		let pages = if pages.is_empty() {
@@ -118,11 +123,6 @@ impl Default for HistoryFeed {
 
 /// The curve resolution the effect carries.
 const TABLE: usize = 1024;
-
-/// The slowest the read head may move, in history samples per sample. A
-/// descending segment with slope -1 would hold the head still and repeat one
-/// sample forever; a tiny floor keeps it crawling forward instead.
-const MIN_READ_SPEED: f32 = 0.01;
 
 /// How long a history the ring keeps, in seconds. A beat length longer than this
 /// is clamped rather than growing the allocation without bound.
@@ -221,38 +221,49 @@ impl HistoryEffect {
 
 	fn sync_table(&mut self) {
 		let generation = self.feed.generation();
+		let morph = if self.morph.is_finite() {
+			self.morph
+		} else {
+			0.0
+		};
 
-		if generation == self.seen_pages && self.morph == self.seen_morph {
+		if generation == self.seen_pages
+			&& self.seen_morph.is_finite()
+			&& (morph - self.seen_morph).abs() < 0.001
+		{
 			return;
 		}
 
-		self.seen_pages = generation;
-		self.seen_morph = self.morph;
+		let Some(pages) = self.feed.try_pages() else {
+			return;
+		};
 
-		let pages = self.feed.pages();
+		self.seen_pages = generation;
+		self.seen_morph = morph;
 		let last = pages.len().saturating_sub(1);
-		let position = self.morph.clamp(0.0, 1.0) * last as f32;
+		let position = morph.clamp(0.0, 1.0) * last as f32;
 		let from = position.floor() as usize;
 		let to = (from + 1).min(last);
 		let blend = position - from as f32;
 
+		let mut first = pages[from].points.clone();
+		let mut second = pages[to].points.clone();
+		first.sort_by(|a, b| {
+			a.time
+				.partial_cmp(&b.time)
+				.unwrap_or(core::cmp::Ordering::Equal)
+		});
+		second.sort_by(|a, b| {
+			a.time
+				.partial_cmp(&b.time)
+				.unwrap_or(core::cmp::Ordering::Equal)
+		});
+
 		for index in 0..TABLE {
 			let x = index as f32 / (TABLE - 1) as f32;
-			let a = page_value(&pages[from].points, x);
-			let b = page_value(&pages[to].points, x);
+			let a = page_value_sorted(&first, x);
+			let b = page_value_sorted(&second, x);
 			self.table[index] = a + (b - a) * blend;
-		}
-
-		// A slope of -1 means the read head does not move. Clamp the descending
-		// table onto a floor just short of that, so the head always crawls
-		// forward instead of parking on one sample for the whole segment.
-		let step = 1.0 / (TABLE - 1) as f32;
-		let maximum_drop = (1.0 - MIN_READ_SPEED) * step;
-		for index in 1..TABLE {
-			let floor = self.table[index - 1] - maximum_drop;
-			if self.table[index] < floor {
-				self.table[index] = floor;
-			}
 		}
 	}
 
@@ -285,17 +296,11 @@ impl HistoryEffect {
 }
 
 /// The value of one page at `x`, with the page's segment bends.
-fn page_value(points: &[HistoryPoint], x: f32) -> f32 {
-	if points.len() < 2 {
+fn page_value_sorted(sorted: &[HistoryPoint], x: f32) -> f32 {
+	if sorted.len() < 2 {
 		return 1.0;
 	}
 
-	let mut sorted: Vec<HistoryPoint> = points.to_vec();
-	sorted.sort_by(|a, b| {
-		a.time
-			.partial_cmp(&b.time)
-			.unwrap_or(core::cmp::Ordering::Equal)
-	});
 	let x = x.clamp(0.0, 1.0);
 
 	if x <= sorted[0].time {
@@ -488,29 +493,27 @@ mod tests {
 	}
 
 	#[test]
-	fn a_slope_of_minus_one_does_not_freeze() {
+	fn a_flat_curve_tracks_the_input_for_a_long_run() {
 		let feed = HistoryFeed::new();
-		feed.set_pages(vec![HistoryPage {
-			points: vec![
-				HistoryPoint {
-					time: 0.0,
-					value: 1.0,
-					bend: 0.0,
-				},
-				HistoryPoint {
-					time: 1.0,
-					value: 0.0,
-					bend: 0.0,
-				},
-			],
-		}]);
 		let mut effect = HistoryEffect::with_feed(48_000, feed);
-		effect.sync_table();
+		effect.time = SyncedTime::synced(4.0);
+		effect.mix = 1.0;
+		let mut infos = ProcessInfos::default();
+		infos.sample_rate = 48_000;
+		infos.playing = true;
+		infos.tempo = Some(120.0);
+		let mut context: Box<dyn ProcessContext> = Box::new(TestContext(infos));
 
-		let step = 1.0 / (TABLE - 1) as f32;
-		let allowed = -(1.0 - MIN_READ_SPEED) * step - 1e-6;
-		for pair in effect.table.windows(2) {
-			assert!(pair[1] - pair[0] >= allowed, "read head stalls: {:?}", pair);
+		for index in 0..1_000_000 {
+			let phase = index as f32 / 48_000.0;
+			let input = (phase * 440.0 * std::f32::consts::TAU).sin() * 0.5;
+			let mut frame = [input, input];
+			effect.process(&mut frame, &[], &mut context);
+			assert!(
+				(frame[0] - input).abs() < 1e-4,
+				"flat curve changed the signal at {index}: {input} -> {}",
+				frame[0]
+			);
 		}
 	}
 }
