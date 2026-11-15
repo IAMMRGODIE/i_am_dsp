@@ -1350,6 +1350,7 @@
         state.windowSamples = entry.context.filterTable && entry.context.filterTable.windowSamples;
         state.frozen = entry.context.filterTable && entry.context.filterTable.frozen;
         state.importMode = entry.context.filterTable && entry.context.filterTable.importMode;
+        state.sliceMode = entry.context.filterTable && entry.context.filterTable.sliceMode;
         entry.context.filterTable = state;
         if (entry.card.repaintHero) entry.card.repaintHero();
       })
@@ -1381,9 +1382,9 @@
           .then((response) => (response.ok ? response.json() : null))
           .catch(() => {});
       },
-      import: (body, window, page, mode) =>
+      import: (body, window, page, mode, slice) =>
         fetch(
-          "/filter-table/import?node=" + entry.node.id + "&window=" + window + "&page=" + page + "&mode=" + mode,
+          "/filter-table/import?node=" + entry.node.id + "&window=" + window + "&page=" + page + "&mode=" + mode + "&slice=" + slice,
           { method: "POST", body }
         ).then((response) => (response.ok ? response.json() : null)),
       edit: (action, page) =>

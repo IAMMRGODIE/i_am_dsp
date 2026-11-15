@@ -62,8 +62,16 @@ impl FilterTableHandle {
 	/// per-frame length; the file is cut into as many frames as it fills.
 	///
 	/// `mode` is `time` for the waveform itself or `freq` to take only its
-	/// magnitude and turn that into a zero-phase kernel.
-	pub fn import_wav(&self, bytes: &[u8], window: usize, page: usize, mode: &str) -> String {
+	/// magnitude and turn that into a zero-phase kernel. `slice` is `auto`,
+	/// `fixed`, `pitch` or `single`, the same choices the Shapes importer gives.
+	pub fn import_wav(
+		&self,
+		bytes: &[u8],
+		window: usize,
+		page: usize,
+		mode: &str,
+		slice: &str,
+	) -> String {
 		let Ok(sample) = i_am_dsp::prelude::decode_click(bytes) else {
 			return "{\"error\":\"decode\"}".to_string();
 		};
@@ -73,26 +81,26 @@ impl FilterTableHandle {
 			return "{\"error\":\"empty\"}".to_string();
 		}
 
-		let total = sample.pcm.len();
+		let slices = slice_frames(&sample.pcm, window, slice);
+		if slices.is_empty() {
+			return "{\"error\":\"empty\"}".to_string();
+		}
+
 		// A long recording would otherwise make thousands of pages; keep the
 		// table at a size a person can morph through.
 		const MAX_FRAMES: usize = 256;
-		let chunks = total.div_ceil(window);
-		let step = if chunks > MAX_FRAMES {
-			chunks.div_ceil(MAX_FRAMES)
+		let step = if slices.len() > MAX_FRAMES {
+			slices.len().div_ceil(MAX_FRAMES)
 		} else {
 			1
 		};
 		let mut pages = Vec::new();
 
-		for index in (0..chunks).step_by(step) {
-			let start = index * window;
-			let end = (start + window).min(total);
-			let frame = &sample.pcm[start..end];
+		for frame in slices.iter().step_by(step) {
 			let signal = if mode == "freq" {
 				i_am_dsp::prelude::magnitude_kernel(frame, 1024)
 			} else {
-				frame.to_vec()
+				frame.clone()
 			};
 
 			pages.push(points_from_signal(&signal, 256));
@@ -111,7 +119,7 @@ impl FilterTableHandle {
 		self.state_json()
 	}
 
-	/// Applies a Shapes-style page edit: reverse, invert, dc or normalize.
+	/// Applies a Shapes-style page edit: reverse, invert or dc.
 	pub fn edit_page(&self, action: &str, page: usize) -> String {
 		let mut pages = self.0.pages();
 		if pages.is_empty() {
@@ -146,17 +154,6 @@ impl FilterTableHandle {
 					point.value = (point.value - mean).clamp(0.0, 1.0);
 				}
 			}
-			"normalize" => {
-				let peak = points
-					.iter()
-					.map(|point| (point.value - 0.5).abs())
-					.fold(0.0f32, f32::max);
-				if peak > 1e-6 {
-					for point in points.iter_mut() {
-						point.value = (0.5f32 + (point.value - 0.5) / peak).clamp(0.0, 1.0);
-					}
-				}
-			}
 			_ => {}
 		}
 
@@ -170,6 +167,67 @@ impl Default for FilterTableHandle {
 	fn default() -> Self {
 		Self::new()
 	}
+}
+
+/// Cuts a sample into frames. Auto follows the Shapes rules: a short file is
+/// one cycle, a whole number of windows is fixed, and anything else that has a
+/// stable pitch is cut at its cycle.
+fn slice_frames(samples: &[f32], window: usize, slice: &str) -> Vec<Vec<f32>> {
+	let window = window.max(1);
+	let cycle = detect_cycle(samples);
+
+	let raw: Vec<&[f32]> = match slice {
+		"single" => vec![samples],
+		"pitch" => samples.chunks(cycle.unwrap_or(window)).collect(),
+		"fixed" => samples.chunks(window).collect(),
+		_ => {
+			if samples.len() < window + window / 2 {
+				vec![samples]
+			} else if samples.len().is_multiple_of(window) {
+				samples.chunks(window).collect()
+			} else if let Some(cycle) = cycle {
+				samples.chunks(cycle).collect()
+			} else {
+				samples.chunks(window).collect()
+			}
+		}
+	};
+
+	raw.into_iter().map(|frame| frame.to_vec()).collect()
+}
+
+/// The first strong period in a sample, in samples.
+fn detect_cycle(samples: &[f32]) -> Option<usize> {
+	let max_lag = (samples.len() / 2).min(4096);
+
+	if max_lag < 16 {
+		return None;
+	}
+
+	let span = samples.len().min(4096);
+	let mut best = 0.0f32;
+	let mut best_lag = 0;
+
+	for lag in 16..=max_lag {
+		let mut dot = 0.0f32;
+		let mut left = 0.0f32;
+		let mut right = 0.0f32;
+
+		for index in 0..span.saturating_sub(lag) {
+			dot += samples[index] * samples[index + lag];
+			left += samples[index] * samples[index];
+			right += samples[index + lag] * samples[index + lag];
+		}
+
+		let score = dot / (left.sqrt() * right.sqrt() + 1e-9);
+
+		if score > best {
+			best = score;
+			best_lag = lag;
+		}
+	}
+
+	(best > 0.5 && best_lag > 0).then_some(best_lag)
 }
 
 fn sort_points(points: &mut [FilterPoint]) {
@@ -230,12 +288,14 @@ fn filter_route(
 		let window = value("window").unwrap_or(2048);
 		let page = value("page").unwrap_or(0);
 		let mode = text("mode").unwrap_or("time");
+		let slice = text("slice").unwrap_or("auto");
 
 		return Some(ProtocolResponse::json(handle.import_wav(
 			request.body,
 			window,
 			page,
 			mode,
+			slice,
 		)));
 	}
 
@@ -486,7 +546,7 @@ mod tests {
 		}
 
 		let handle = FilterTableHandle::new();
-		let answer = handle.import_wav(&wav(&[0, 16_000, -16_000, 8_000]), 4, 0, "time");
+		let answer = handle.import_wav(&wav(&[0, 16_000, -16_000, 8_000]), 4, 0, "time", "fixed");
 
 		assert!(answer.contains("\"pages\""), "{answer}");
 		assert_eq!(handle.frame().pages()[0].len(), 256);
@@ -527,7 +587,7 @@ mod tests {
 
 		let handle = FilterTableHandle::new();
 		let samples = [0i16, 8_000, 16_000, 8_000, -8_000, -16_000, -8_000, 0];
-		let answer = handle.import_wav(&wav(&samples), 4, 0, "time");
+		let answer = handle.import_wav(&wav(&samples), 4, 0, "time", "fixed");
 
 		assert!(answer.contains("\"pages\""), "{answer}");
 		assert_eq!(handle.frame().pages().len(), 2);

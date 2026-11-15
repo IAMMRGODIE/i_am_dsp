@@ -776,10 +776,11 @@
       '<div class="hero-actions" style="bottom:20px">' +
         '<button type="button" class="hero-action" data-action="filter-mode">' +
           (table && table.importMode === "freq" ? "IMP FREQ" : "IMP TIME") + '</button>' +
-        '<button type="button" class="hero-action" data-action="filter-rev">REV</button>' +
-        '<button type="button" class="hero-action" data-action="filter-inv">INV</button>' +
-        '<button type="button" class="hero-action" data-action="filter-dc">DC</button>' +
-        '<button type="button" class="hero-action" data-action="filter-norm">NORM</button>' +
+        '<button type="button" class="hero-action" data-action="filter-slice">SLICE ' +
+          String(table && table.sliceMode || "auto").toUpperCase() + '</button>' +
+        '<button type="button" class="hero-action" data-action="filter-rev">REVERSE</button>' +
+        '<button type="button" class="hero-action" data-action="filter-inv">INVERT</button>' +
+        '<button type="button" class="hero-action" data-action="filter-dc">REMOVE DC</button>' +
         '<button type="button" class="hero-action" data-action="filter-freeze">' +
           (table && table.frozen ? "FROZEN" : "FREEZE") + '</button>' +
       '</div>' +
@@ -952,7 +953,7 @@
 
       file.arrayBuffer().then(function (body) {
         if (!state.import) throw new Error("no import route");
-        return state.import(body, windowSamples, selected, table.importMode || "time");
+        return state.import(body, windowSamples, selected, table.importMode || "time", table.sliceMode || "auto");
       }).then(replacePages).catch(function (error) {
         var label = el.querySelector(".hero-label");
         if (label) label.textContent = "FILTER TABLE \u00b7 IMPORT FAILED";
@@ -1032,7 +1033,12 @@
       } else if (action === "filter-mode") {
         table.importMode = table.importMode === "freq" ? "time" : "freq";
         button.textContent = table.importMode === "freq" ? "IMP FREQ" : "IMP TIME";
-      } else if (action === "filter-rev" || action === "filter-inv" || action === "filter-dc" || action === "filter-norm") {
+      } else if (action === "filter-slice") {
+        var modes = ["auto", "fixed", "pitch", "single"];
+        var next = (modes.indexOf(table.sliceMode) + 1) % modes.length;
+        table.sliceMode = modes[next];
+        button.textContent = "SLICE " + table.sliceMode.toUpperCase();
+      } else if (action === "filter-rev" || action === "filter-inv" || action === "filter-dc") {
         var edit = action.replace("filter-", "");
         if (!frozen && state.edit) state.edit(edit, selected).then(replacePages);
       } else if (action === "filter-import") {

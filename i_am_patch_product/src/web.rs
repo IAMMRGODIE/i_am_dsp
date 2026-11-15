@@ -145,12 +145,13 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				.and_then(|value| value.parse::<usize>().ok())
 				.unwrap_or(0);
 			let mode = query_value(request, "mode").unwrap_or("time");
+			let slice = query_value(request, "slice").unwrap_or("auto");
 
 			Some(ProtocolResponse::json(
 				shared
 					.slots
 					.filter_table(node)
-					.import_wav(request.body, window, page, mode),
+					.import_wav(request.body, window, page, mode, slice),
 			))
 		}
 		("POST", "/filter-table/edit") => {

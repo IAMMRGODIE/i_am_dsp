@@ -522,6 +522,7 @@
         state.windowSamples = filterTableState && filterTableState.windowSamples;
         state.frozen = filterTableState && filterTableState.frozen;
         state.importMode = filterTableState && filterTableState.importMode;
+        state.sliceMode = filterTableState && filterTableState.sliceMode;
         filterTableState = state;
         markDirty();
       })
