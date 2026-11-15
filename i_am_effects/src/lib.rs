@@ -38,6 +38,7 @@ pub use script::ScriptSource;
 mod script_distortion;
 mod script_mapper;
 mod shifter;
+mod spectral_dynamics;
 mod stft_vocoder;
 mod unstablizer;
 mod vocoder;
@@ -63,6 +64,10 @@ pub use script_distortion::{
 pub use script_mapper::{MapperTable, ScriptMapperEffect, ScriptMapperWeb, mapper_worker};
 pub use shifter::SHIFTER_VISIBLE;
 use shifter::ShifterEffect;
+pub use spectral_dynamics::{
+	SPECTRAL_DYNAMICS_PAGES, SpectralDynamicsHandle, SpectralDynamicsWeb,
+	faceplate as spectral_dynamics_faceplate,
+};
 pub use stft_vocoder::StftVocoderWeb;
 use unstablizer::UnstablizerEffect;
 pub use vocoder::VocoderWeb;

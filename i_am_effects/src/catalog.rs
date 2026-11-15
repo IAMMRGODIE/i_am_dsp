@@ -30,6 +30,7 @@ use crate::schroeder::SchroederEffect;
 use crate::script_distortion::{ScriptDistortionEffect, distortion_worker};
 use crate::script_mapper::{ScriptMapperEffect, mapper_worker};
 use crate::shifter::ShifterEffect;
+use crate::spectral_dynamics::spectral_dynamics;
 use crate::unstablizer::UnstablizerEffect;
 use crate::{PITCH_VISIBLE, PitchEffect, ReverbEffect};
 
@@ -252,6 +253,7 @@ pub fn face(id: &str) -> Option<(f32, f32)> {
 		"router" => Some(crate::RouterWeb::size()),
 		"autotune" => Some(crate::AutoTuneWeb::size()),
 		"spectral_retune" => Some(crate::SpectralRetuneWeb::size()),
+		"spectral_dynamics" => Some(crate::SpectralDynamicsWeb::size()),
 		"resonator" => Some(crate::ResonatorWeb::size()),
 		"unstablizer" => Some(crate::UnstablizerWeb::size()),
 		"ir_reverb" => Some(crate::IrReverbWeb::size()),
@@ -682,6 +684,19 @@ pub const IR_REVERB: ModuleDescriptor = ModuleDescriptor {
 	build: ir_reverb,
 };
 
+/// The spectral dynamics product.
+pub const SPECTRAL_DYNAMICS: ModuleDescriptor = ModuleDescriptor {
+	id: "spectral_dynamics",
+	name: "Spectral Dynamics",
+	accent: "#8fd44a",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build_with_ir: None,
+	build: spectral_dynamics,
+};
+
 /// The STFT vocoder product.
 pub const STFT_VOCODER: ModuleDescriptor = ModuleDescriptor {
 	id: "stft_vocoder",
@@ -818,6 +833,7 @@ pub const MODULES: &[ModuleDescriptor] = &[
 	SHIFTER,
 	AUTOTUNE,
 	SPECTRAL_RETUNE,
+	SPECTRAL_DYNAMICS,
 	RESONATOR,
 	UNSTABLIZER,
 	IR_REVERB,

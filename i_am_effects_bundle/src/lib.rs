@@ -57,5 +57,6 @@ export_plugin!(
 	RouterWeb,
 	EqWeb,
 	HistoryWeb,
-	FilterTableWeb
+	FilterTableWeb,
+	SpectralDynamicsWeb
 );

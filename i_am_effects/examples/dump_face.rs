@@ -20,8 +20,8 @@ use i_am_effects::{
 	FlangerWeb, FormantFilterWeb, GainWeb, GateWeb, HistoryWeb, IrReverbWeb, LimiterWeb, OTT_PAGES,
 	OttWeb, PHASER_HEADER, PHASER_SWITCHES, PITCH_VISIBLE, ParticleWiderWeb, PhaserWeb, PitchWeb,
 	ResonatorWeb, ReverbWeb, RouterWeb, SHIFTER_VISIBLE, SchroederWeb, ScriptDistortionWeb,
-	ScriptMapperWeb, ShifterWeb, SpectralRetuneWeb, StftVocoderWeb, TapeStopWeb, TransientWeb,
-	UnstablizerWeb, VocoderWeb, WidthWeb,
+	ScriptMapperWeb, ShifterWeb, SpectralDynamicsWeb, SpectralRetuneWeb, StftVocoderWeb,
+	TapeStopWeb, TransientWeb, UnstablizerWeb, VocoderWeb, WidthWeb,
 };
 use i_am_effects::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -455,6 +455,13 @@ fn main() {
 				i_am_web_gui::state_json(&plugin),
 			)
 		}
+		"spectral_dynamics" => {
+			let plugin = SpectralDynamicsWeb::new();
+			(
+				i_am_web_gui::face_json(&plugin, &i_am_effects::spectral_dynamics_faceplate()),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
 		"history" => {
 			let plugin = HistoryWeb::new();
 			(
@@ -474,7 +481,7 @@ fn main() {
 		}
 		other => {
 			eprintln!(
-				"unknown product {other}; expected gain, distortion, filter, comb, allpass, width, pitch, shifter, disperser, balance, compressor, reverb, schroeder, particle_wider, unstablizer, ir_reverb, chorus, flanger, phaser, delay, crusher, history or filter_table"
+				"unknown product {other}; expected gain, distortion, filter, comb, allpass, width, pitch, shifter, disperser, balance, compressor, reverb, schroeder, particle_wider, unstablizer, ir_reverb, chorus, flanger, phaser, delay, crusher, history, filter_table or spectral_dynamics"
 			);
 			std::process::exit(2);
 		}
