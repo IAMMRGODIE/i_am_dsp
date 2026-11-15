@@ -2,14 +2,14 @@
 //! cutoff moves the frame's twenty-fourth harmonic.
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 use i_am_dsp_derive::Parameters;
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex;
 use wide::f32x4;
 
-use crate::prelude::page_position;
+use crate::prelude::{page_position, segment_bend};
+use crate::tools::curve_pages::{CurvePages, PageSnapshot};
 use crate::{Effect, ProcessContext};
 
 /// One breakpoint of the frame the page draws. The DSP reads a dense frame
@@ -29,12 +29,7 @@ pub struct FilterPoint {
 /// snapshot; the audio thread loads it with one atomic and never locks or
 /// copies the points.
 pub struct FilterFrame {
-	current: std::sync::atomic::AtomicPtr<FrameData>,
-}
-
-struct FrameData {
-	generation: u64,
-	pages: Vec<Vec<FilterPoint>>,
+	pages: CurvePages<FilterPoint>,
 }
 
 impl FilterFrame {
@@ -51,27 +46,20 @@ impl FilterFrame {
 
 	/// Every page, for the card and the state save.
 	pub fn pages(&self) -> Vec<Vec<FilterPoint>> {
-		self.snapshot().pages.clone()
+		self.pages.pages()
 	}
 
 	/// A shared snapshot. The audio thread reads this once per rebuild.
-	fn snapshot(&self) -> Arc<FrameData> {
-		let pointer = self.current.load(Ordering::Acquire);
-		// SAFETY: every pointer stored in `current` came from `Arc::into_raw`,
-		// and the writer only drops its own reference after the swap. Taking a
-		// new strong count here keeps the data alive while we read it.
-		unsafe {
-			Arc::increment_strong_count(pointer);
-			Arc::from_raw(pointer)
-		}
+	fn snapshot(&self) -> Arc<PageSnapshot<FilterPoint>> {
+		self.pages.snapshot()
 	}
 
 	/// Moves whenever the pages change.
 	pub fn generation(&self) -> u64 {
-		self.snapshot().generation
+		self.pages.generation()
 	}
 
-	/// Replaces one page and keeps the rest.
+	/// Replaces the only page.
 	pub fn set_points(&self, points: Vec<FilterPoint>) {
 		self.set_pages(vec![points]);
 	}
@@ -105,35 +93,14 @@ impl FilterFrame {
 			});
 		}
 
-		let generation = self.snapshot().generation + 1;
-		let data = Arc::new(FrameData { generation, pages });
-		let pointer = Arc::into_raw(data) as *mut FrameData;
-		let old = self.current.swap(pointer, Ordering::AcqRel);
-		// SAFETY: the pointer was created by `Arc::into_raw` in this struct.
-		unsafe {
-			drop(Arc::from_raw(old));
-		}
-	}
-}
-
-impl Drop for FilterFrame {
-	fn drop(&mut self) {
-		let pointer = *self.current.get_mut();
-		// SAFETY: the pointer was created by `Arc::into_raw` in this struct.
-		unsafe {
-			drop(Arc::from_raw(pointer));
-		}
+		self.pages.replace(pages);
 	}
 }
 
 impl Default for FilterFrame {
 	fn default() -> Self {
-		let data = Arc::new(FrameData {
-			generation: 0,
-			pages: vec![default_points()],
-		});
 		Self {
-			current: std::sync::atomic::AtomicPtr::new(Arc::into_raw(data) as *mut FrameData),
+			pages: CurvePages::new(default_points()),
 		}
 	}
 }
@@ -342,9 +309,9 @@ impl FilterTableEffect {
 		}
 	}
 
-	fn build_target(&self, snapshot: &FrameData, rate: f32) -> [f32; TAPS] {
+	fn build_target(&self, snapshot: &PageSnapshot<FilterPoint>, rate: f32) -> [f32; TAPS] {
 		let mut raw = [0.0f32; TAPS];
-		let pages = &snapshot.pages;
+		let pages = snapshot.pages();
 		let (from, to, blend) = page_position(self.morph, pages.len());
 		let mut first = [0.0f32; FRAME];
 		let mut second = [0.0f32; FRAME];
@@ -407,7 +374,7 @@ impl FilterTableEffect {
 
 	fn rebuild(&mut self) {
 		let snapshot = self.frame.snapshot();
-		self.seen_generation = snapshot.generation;
+		self.seen_generation = snapshot.generation();
 		self.seen_cutoff = self.cutoff;
 		self.seen_resonance = self.resonance;
 		self.seen_phase = self.phase;
@@ -590,12 +557,8 @@ fn sample_frame(points: &[FilterPoint], x: f32) -> f32 {
 		}
 		let span = (right.time - left.time).max(1e-6);
 		let unit = ((x - left.time) / span).clamp(0.0, 1.0);
-		let bend = left.bend;
-		let shaped = if bend.abs() < 1e-4 {
-			unit
-		} else {
-			((unit * bend).exp() - 1.0) / (bend.exp() - 1.0)
-		};
+		let shaped = segment_bend(unit, left.bend);
+
 		return left.value + (right.value - left.value) * shaped;
 	}
 

@@ -6,7 +6,10 @@ use crate::tools::ring_buffer::RingBuffer;
 use crate::{
 	Effect, ProcessContext,
 	prelude::Enveloper,
-	tools::{audio_io_chooser::AudioIoChooser, smoother::DoubleTimeConstant},
+	tools::{
+		audio_io_chooser::AudioIoChooser, gain_computer::compressor_gain_db,
+		smoother::DoubleTimeConstant,
+	},
 };
 
 #[cfg(feature = "real_time_demo")]
@@ -120,15 +123,7 @@ impl<Envelope: Enveloper<CHANNELS> + Send + Sync, const CHANNELS: usize> Effect<
 				.sqrt()
 				.max(1e-6)
 				.log10();
-		let envelop_db_compressed = if envelop_db < self.threshold {
-			envelop_db
-		} else if self.ratio.is_infinite() {
-			self.threshold
-		} else {
-			(envelop_db - self.threshold) / self.ratio + self.threshold
-		};
-
-		let target_db = envelop_db_compressed - envelop_db;
+		let target_db = compressor_gain_db(envelop_db, self.threshold, self.ratio);
 
 		self.smoother.input_value(&[target_db]);
 		self.gain_factor = self.smoother.get_smoothed_result()[0];

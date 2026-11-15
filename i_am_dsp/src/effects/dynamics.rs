@@ -8,17 +8,8 @@
 
 use i_am_dsp_derive::Parameters;
 
+use crate::tools::gain_computer::{db_to_linear, expander_gain_db, limiter_gain_db, linear_to_db};
 use crate::{Effect, ProcessContext};
-
-/// Linear amplitude for a level in dB.
-fn db_to_linear(db: f32) -> f32 {
-	10.0_f32.powf(db / 20.0)
-}
-
-/// Level in dB for a linear amplitude, with a floor instead of -infinity.
-fn linear_to_db(value: f32) -> f32 {
-	20.0 * value.max(1e-9).log10()
-}
 
 /// The one-pole coefficient that reaches about 63 % of a step in the given time.
 fn coefficient(milliseconds: f32, sample_rate: f32) -> f32 {
@@ -294,13 +285,12 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Expander<CHANNELS> {
 		let release = coefficient(5.0, self.sample_rate);
 		self.detector = follow(self.detector, peak(frame), release);
 		let level_db = linear_to_db(self.detector);
-		let reduction = if level_db < self.threshold {
-			(self.threshold - level_db) * (self.ratio.max(1.0) - 1.0)
-		} else {
-			0.0
-		};
-		let reduction = reduction.min(self.range).max(0.0);
-		let target = db_to_linear(-reduction);
+		let target = db_to_linear(expander_gain_db(
+			level_db,
+			self.threshold,
+			self.ratio,
+			self.range,
+		));
 		let attack = coefficient(self.attack, self.sample_rate);
 		let release = coefficient(self.release, self.sample_rate);
 		self.gain = ballistics(self.gain, target, attack, release);
@@ -543,11 +533,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Limiter<CHANNELS> {
 		}
 
 		let level_db = linear_to_db(self.detector);
-		let needed = if level_db > self.ceiling {
-			db_to_linear(self.ceiling - level_db)
-		} else {
-			1.0
-		};
+		let needed = db_to_linear(limiter_gain_db(level_db, self.ceiling));
 
 		// Attack is instant and the detector is a lookahead ahead of the audio, so
 		// the gain is already down when the peak arrives. Only the return is slow.

@@ -805,11 +805,8 @@ impl<
 }
 
 pub(crate) fn bend(t: f32, bend: f32) -> f32 {
-	if bend == 0.0 {
-		t
-	} else {
-		((t * bend).exp() - 1.0) / (bend.exp() - 1.0)
-	}
+	// One copy of the maths, in the same place a page editor reads it from.
+	crate::tools::page::segment_bend(t, bend)
 }
 #[cfg(test)]
 mod tests {

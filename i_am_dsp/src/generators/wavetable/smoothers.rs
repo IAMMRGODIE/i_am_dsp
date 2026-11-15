@@ -3,6 +3,7 @@
 use i_am_dsp_derive::Parameters;
 
 use crate::prelude::{Parameter, Parameters, page_position};
+use crate::tools::page::blend;
 
 use super::{Oscillator, WaveTable};
 
@@ -53,7 +54,7 @@ fn sample_tables<T: WaveTable>(tables: &[T], smooth_factor: f32, t: f32, channel
 	}
 
 	let to_sample = tables[to].sample(t, channel);
-	from_sample + (to_sample - from_sample) * fraction
+	blend(from_sample, to_sample, fraction)
 }
 
 /// A smoother over one concrete table type.

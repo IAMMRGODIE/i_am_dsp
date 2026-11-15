@@ -434,11 +434,7 @@ fn curve_value_bend(points: &[(f32, f32, f32)], x: f32) -> f32 {
 
 /// The curve's unit position inside one segment, bent toward either end.
 fn bend_unit(t: f32, bend: f32) -> f32 {
-	if bend.abs() < 1e-4 {
-		t
-	} else {
-		((t * bend).exp() - 1.0) / (bend.exp() - 1.0)
-	}
+	i_am_dsp::prelude::segment_bend(t, bend)
 }
 
 /// A source rate in hertz, optionally read as a musical period by [`SyncedTime`].

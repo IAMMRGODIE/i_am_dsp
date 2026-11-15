@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use i_am_dsp_derive::Parameters;
 
-use crate::prelude::{SyncedTime, page_position};
+use crate::prelude::{SyncedTime, page_position, segment_bend};
 use crate::tools::ring_buffer::RingBuffer;
 use crate::{Effect, ProcessContext, ProcessInfos};
 
@@ -313,12 +313,7 @@ fn page_value_sorted(sorted: &[HistoryPoint], x: f32) -> f32 {
 
 		let span = (right.time - left.time).max(1e-6);
 		let unit = ((x - left.time) / span).clamp(0.0, 1.0);
-		let bend = left.bend;
-		let shaped = if bend.abs() < 1e-4 {
-			unit
-		} else {
-			((unit * bend).exp() - 1.0) / (bend.exp() - 1.0)
-		};
+		let shaped = segment_bend(unit, left.bend);
 
 		return left.value + (right.value - left.value) * shaped;
 	}
