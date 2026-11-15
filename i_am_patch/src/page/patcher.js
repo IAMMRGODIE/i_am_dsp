@@ -1387,6 +1387,12 @@
           "/filter-table/import?node=" + entry.node.id + "&window=" + window + "&page=" + page + "&mode=" + mode + "&slice=" + slice,
           { method: "POST", body }
         ).then((response) => (response.ok ? response.json() : null)),
+      importProgress: () =>
+        fetch("/filter-table/import/progress?node=" + entry.node.id, { cache: "no-store" })
+          .then((response) => (response.ok ? response.json() : null)),
+      reload: () =>
+        fetch("/filter-table?node=" + entry.node.id, { cache: "no-store" })
+          .then((response) => (response.ok ? response.json() : null)),
       edit: (action, page) =>
         fetch(
           "/filter-table/edit?node=" + entry.node.id + "&action=" + action + "&page=" + page,

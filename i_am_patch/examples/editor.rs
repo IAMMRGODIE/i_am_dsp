@@ -649,6 +649,22 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				shared.slots.drummer(node).set_amp(body_bytes, drum),
 			)
 		}
+		("GET", path)
+			if path == "/filter-table/import/progress"
+				|| path.starts_with("/filter-table/import/progress?") =>
+		{
+			let node = path
+				.split_once('?')
+				.and_then(|(_, query)| query.split('&').find_map(|pair| pair.strip_prefix("node=")))
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.filter_table(node).progress(),
+			)
+		}
 		("POST", path)
 			if path == "/filter-table/import" || path.starts_with("/filter-table/import?") =>
 		{
@@ -674,10 +690,13 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			(
 				"200 OK",
 				"application/json",
-				shared
-					.slots
-					.filter_table(node)
-					.import_wav(body_bytes, window, page, mode, slice),
+				shared.slots.filter_table(node).start_import(
+					body_bytes.to_vec(),
+					window,
+					page,
+					mode.to_string(),
+					slice.to_string(),
+				),
 			)
 		}
 		("POST", path)

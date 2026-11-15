@@ -784,6 +784,7 @@
         '<button type="button" class="hero-action" data-action="filter-freeze">' +
           (table && table.frozen ? "FROZEN" : "FREEZE") + '</button>' +
       '</div>' +
+      '<div data-role="filter-progress" style="position:absolute;left:2%;bottom:36px;font:9px/1.2 var(--mono);color:var(--text2);display:none"></div>' +
       '<div class="hero-label" style="left:2%;top:2%">FILTER TABLE \u00b7 PAGE ' +
         (selected + 1) + ' / ' + pages.length +
         (view === "freq" ? ' \u00b7 FREQ' : ' \u00b7 TIME') + '</div>';
@@ -946,17 +947,63 @@
       attachEditor();
     };
 
+    var progressEl = el.querySelector('[data-role="filter-progress"]');
+    var importing = false;
+
+    var showProgress = function (text) {
+      if (!progressEl) return;
+      progressEl.textContent = text;
+      progressEl.style.display = "block";
+    };
+
+    var hideProgress = function () {
+      if (progressEl) progressEl.style.display = "none";
+    };
+
     var importBuffer = function (file) {
-      if (!file || frozen) return;
+      if (!file || frozen || importing) return;
 
       var windowSamples = Math.max(1, parseInt(table.windowSamples, 10) || 2048);
+      importing = true;
 
       file.arrayBuffer().then(function (body) {
         if (!state.import) throw new Error("no import route");
         return state.import(body, windowSamples, selected, table.importMode || "time", table.sliceMode || "auto");
-      }).then(replacePages).catch(function (error) {
-        var label = el.querySelector(".hero-label");
-        if (label) label.textContent = "FILTER TABLE \u00b7 IMPORT FAILED";
+      }).then(function (progress) {
+        var watch = function (value) {
+          if (!value) throw new Error("no progress");
+          if (value.error) throw new Error(value.error);
+
+          if (value.active) {
+            var percent = value.total ? Math.round(value.done / value.total * 100) : 0;
+            showProgress(value.stage === "decode" ? "IMPORT \u00b7 DECODING" :
+              "IMPORT \u00b7 " + percent + "%");
+            setTimeout(function () {
+              state.importProgress().then(watch).catch(function (error) { fail(error); });
+            }, 140);
+            return;
+          }
+
+          importing = false;
+          showProgress("IMPORT \u00b7 DONE");
+          state.reload().then(function (result) {
+            replacePages(result);
+            setTimeout(hideProgress, 450);
+          }).catch(function (error) { fail(error); });
+        };
+
+        var fail = function (error) {
+          importing = false;
+          showProgress("IMPORT \u00b7 FAILED");
+          setTimeout(hideProgress, 900);
+          console.warn(error);
+        };
+
+        watch(progress);
+      }).catch(function (error) {
+        importing = false;
+        showProgress("IMPORT \u00b7 FAILED");
+        setTimeout(hideProgress, 900);
         console.warn(error);
       });
     };

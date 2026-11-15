@@ -45,6 +45,14 @@
                 return response.ok ? response.json() : null;
               });
             },
+            importProgress: function () {
+              return fetch("/filter-table/import/progress", { cache: "no-store" })
+                .then(function (response) { return response.ok ? response.json() : null; });
+            },
+            reload: function () {
+              return fetch("/filter-table", { cache: "no-store" })
+                .then(function (response) { return response.ok ? response.json() : null; });
+            },
             edit: function (action, page) {
               return fetch("/filter-table/edit?action=" + action + "&page=" + page, {
                 method: "POST"

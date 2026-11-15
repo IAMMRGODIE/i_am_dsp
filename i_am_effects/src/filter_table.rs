@@ -1,7 +1,7 @@
 //! The Filter Table product: a wavetable frame used as a convolution kernel.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
 	FilterFrame, FilterPoint, FilterTableEffect, ParamMap, Parameter, Parameters, SetValue, Value,
@@ -16,13 +16,41 @@ const SIZE: (f32, f32) = (760.0, 420.0);
 const TITLE: &str = "I Am Filter Table";
 const ACCENT: &str = "#c8e04a";
 
+#[derive(Default)]
+struct ImportProgress {
+	active: bool,
+	done: usize,
+	total: usize,
+	stage: String,
+	error: Option<String>,
+}
+
 /// A handle to one Filter Table frame, shared by the page and the effect.
 #[derive(Clone)]
-pub struct FilterTableHandle(Arc<FilterFrame>);
+pub struct FilterTableHandle(Arc<FilterFrame>, Arc<Mutex<ImportProgress>>);
 
 impl FilterTableHandle {
 	pub fn new() -> Self {
-		Self(FilterFrame::new())
+		Self(
+			FilterFrame::new(),
+			Arc::new(Mutex::new(ImportProgress::default())),
+		)
+	}
+
+	fn progress_json(&self) -> String {
+		let progress = self.1.lock().unwrap_or_else(|error| error.into_inner());
+		format!(
+			"{{\"active\":{},\"done\":{},\"total\":{},\"stage\":\"{}\",\"error\":{}}}",
+			progress.active,
+			progress.done,
+			progress.total,
+			progress.stage.replace('"', ""),
+			progress
+				.error
+				.as_ref()
+				.map(|error| format!("\"{}\"", error.replace('"', "")))
+				.unwrap_or_else(|| "null".to_string())
+		)
 	}
 
 	/// The route's GET answer.
@@ -58,12 +86,60 @@ impl FilterTableHandle {
 		self.0.clone()
 	}
 
-	/// Decodes a WAV into the table. `window` is in source samples and also the
-	/// per-frame length; the file is cut into as many frames as it fills.
+	/// Starts a WAV import on a worker thread and returns its progress.
+	pub fn start_import(
+		&self,
+		bytes: Vec<u8>,
+		window: usize,
+		page: usize,
+		mode: String,
+		slice: String,
+	) -> String {
+		{
+			let mut progress = self.1.lock().unwrap_or_else(|error| error.into_inner());
+			if progress.active {
+				return self.progress_json();
+			}
+			progress.active = true;
+			progress.done = 0;
+			progress.total = 0;
+			progress.stage = "decode".to_string();
+			progress.error = None;
+		}
+
+		let frame = self.0.clone();
+		let progress = self.1.clone();
+
+		std::thread::spawn(move || {
+			let result = import_pages(&frame, &bytes, window, page, &mode, &slice, Some(&progress));
+
+			let mut progress = progress.lock().unwrap_or_else(|error| error.into_inner());
+			progress.active = false;
+
+			match result {
+				Ok(()) => {
+					progress.stage = "done".to_string();
+					progress.error = None;
+				}
+				Err(error) => {
+					progress.stage = "error".to_string();
+					progress.error = Some(error);
+				}
+			}
+		});
+
+		self.progress_json()
+	}
+
+	pub fn progress(&self) -> String {
+		self.progress_json()
+	}
+
+	/// Decodes a WAV into the table synchronously.
 	///
-	/// `mode` is `time` for the waveform itself or `freq` to take only its
-	/// magnitude and turn that into a zero-phase kernel. `slice` is `auto`,
-	/// `fixed`, `pitch` or `single`, the same choices the Shapes importer gives.
+	/// window is in source samples and also the per-frame length; the file is
+	/// cut into as many frames as it fills. mode is time or freq, and slice is
+	/// auto, fixed, pitch or single.
 	pub fn import_wav(
 		&self,
 		bytes: &[u8],
@@ -72,53 +148,11 @@ impl FilterTableHandle {
 		mode: &str,
 		slice: &str,
 	) -> String {
-		let Ok(sample) = i_am_dsp::prelude::decode_click(bytes) else {
-			return "{\"error\":\"decode\"}".to_string();
-		};
-
-		let window = window.max(1);
-		if sample.pcm.is_empty() {
-			return "{\"error\":\"empty\"}".to_string();
+		match import_pages(&self.0, bytes, window, page, mode, slice, None) {
+			Ok(()) => self.state_json(),
+			Err(error) => format!("{{\"error\":\"{}\"}}", error.replace('"', "")),
 		}
-
-		let slices = slice_frames(&sample.pcm, window, slice);
-		if slices.is_empty() {
-			return "{\"error\":\"empty\"}".to_string();
-		}
-
-		// A long recording would otherwise make thousands of pages; keep the
-		// table at a size a person can morph through.
-		const MAX_FRAMES: usize = 256;
-		let step = if slices.len() > MAX_FRAMES {
-			slices.len().div_ceil(MAX_FRAMES)
-		} else {
-			1
-		};
-		let mut pages = Vec::new();
-
-		for frame in slices.iter().step_by(step) {
-			let signal = if mode == "freq" {
-				i_am_dsp::prelude::magnitude_kernel(frame, 1024)
-			} else {
-				frame.clone()
-			};
-
-			pages.push(points_from_signal(&signal, 256));
-		}
-
-		if pages.is_empty() {
-			return "{\"error\":\"empty\"}".to_string();
-		}
-
-		if pages.len() == 1 {
-			self.0.set_page(page, pages.remove(0));
-		} else {
-			self.0.set_pages(pages);
-		}
-
-		self.state_json()
 	}
-
 	/// Applies a Shapes-style page edit: reverse, invert or dc.
 	pub fn edit_page(&self, action: &str, page: usize) -> String {
 		let mut pages = self.0.pages();
@@ -167,6 +201,71 @@ impl Default for FilterTableHandle {
 	fn default() -> Self {
 		Self::new()
 	}
+}
+
+fn import_pages(
+	frame: &Arc<FilterFrame>,
+	bytes: &[u8],
+	window: usize,
+	page: usize,
+	mode: &str,
+	slice: &str,
+	progress: Option<&Arc<Mutex<ImportProgress>>>,
+) -> Result<(), String> {
+	let sample = i_am_dsp::prelude::decode_click(bytes).map_err(|error| error.to_string())?;
+	let window = window.max(1);
+
+	if sample.pcm.is_empty() {
+		return Err("the file holds no samples".to_string());
+	}
+
+	let slices = slice_frames(&sample.pcm, window, slice);
+	if slices.is_empty() {
+		return Err("the file holds no frames".to_string());
+	}
+
+	const MAX_FRAMES: usize = 256;
+	let step = if slices.len() > MAX_FRAMES {
+		slices.len().div_ceil(MAX_FRAMES)
+	} else {
+		1
+	};
+	let total = slices.iter().step_by(step).count();
+
+	if let Some(progress) = progress {
+		let mut progress = progress.lock().unwrap_or_else(|error| error.into_inner());
+		progress.stage = "render".to_string();
+		progress.total = total;
+	}
+
+	let mut pages = Vec::with_capacity(total);
+
+	for (index, frame) in slices.iter().step_by(step).enumerate() {
+		let signal = if mode == "freq" {
+			i_am_dsp::prelude::magnitude_kernel(frame, 1024)
+		} else {
+			frame.clone()
+		};
+
+		pages.push(points_from_signal(&signal, 256));
+
+		if let Some(progress) = progress {
+			let mut progress = progress.lock().unwrap_or_else(|error| error.into_inner());
+			progress.done = index + 1;
+		}
+	}
+
+	if pages.is_empty() {
+		return Err("the file holds no frames".to_string());
+	}
+
+	if pages.len() == 1 {
+		frame.set_page(page, pages.remove(0));
+	} else {
+		frame.set_pages(pages);
+	}
+
+	Ok(())
 }
 
 /// Cuts a sample into frames. Auto follows the Shapes rules: a short file is
@@ -265,6 +364,10 @@ fn filter_route(
 	request: &ProtocolRequest<'_>,
 	handle: &FilterTableHandle,
 ) -> Option<ProtocolResponse> {
+	if request.path == "/filter-table/import/progress" {
+		return Some(ProtocolResponse::json(handle.progress()));
+	}
+
 	if request.path == "/filter-table/import" {
 		if request.method != "POST" {
 			return Some(ProtocolResponse::json("{\"error\":\"method\"}"));
@@ -290,12 +393,12 @@ fn filter_route(
 		let mode = text("mode").unwrap_or("time");
 		let slice = text("slice").unwrap_or("auto");
 
-		return Some(ProtocolResponse::json(handle.import_wav(
-			request.body,
+		return Some(ProtocolResponse::json(handle.start_import(
+			request.body.to_vec(),
 			window,
 			page,
-			mode,
-			slice,
+			mode.to_string(),
+			slice.to_string(),
 		)));
 	}
 
@@ -592,5 +695,58 @@ mod tests {
 		assert!(answer.contains("\"pages\""), "{answer}");
 		assert_eq!(handle.frame().pages().len(), 2);
 		assert_eq!(handle.frame().pages()[0].len(), 256);
+	}
+
+	#[test]
+	fn the_import_reports_progress() {
+		fn wav(samples: &[i16]) -> Vec<u8> {
+			let data_len = (samples.len() * 2) as u32;
+			let mut bytes = Vec::new();
+			bytes.extend_from_slice(b"RIFF");
+			bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+			bytes.extend_from_slice(b"WAVEfmt ");
+			bytes.extend_from_slice(&16u32.to_le_bytes());
+			bytes.extend_from_slice(&1u16.to_le_bytes());
+			bytes.extend_from_slice(&1u16.to_le_bytes());
+			bytes.extend_from_slice(&48_000u32.to_le_bytes());
+			bytes.extend_from_slice(&96_000u32.to_le_bytes());
+			bytes.extend_from_slice(&2u16.to_le_bytes());
+			bytes.extend_from_slice(&16u16.to_le_bytes());
+			bytes.extend_from_slice(b"data");
+			bytes.extend_from_slice(&data_len.to_le_bytes());
+			for sample in samples {
+				bytes.extend_from_slice(&sample.to_le_bytes());
+			}
+			bytes
+		}
+
+		let handle = FilterTableHandle::new();
+		let samples: Vec<i16> = (0..4096).map(|index| (index % 64) as i16 * 256).collect();
+		let first = handle.start_import(
+			wav(&samples),
+			256,
+			0,
+			"time".to_string(),
+			"fixed".to_string(),
+		);
+		assert!(
+			serde_json::from_str::<serde_json::Value>(&first).is_ok(),
+			"{first}"
+		);
+
+		for _ in 0..100 {
+			let progress = handle.progress();
+			let value: serde_json::Value = serde_json::from_str(&progress).expect("progress json");
+
+			if value["active"] == false {
+				assert!(value["error"].is_null(), "{progress}");
+				assert_eq!(handle.frame().pages().len(), 16);
+				return;
+			}
+
+			std::thread::sleep(std::time::Duration::from_millis(10));
+		}
+
+		panic!("the import did not finish");
 	}
 }

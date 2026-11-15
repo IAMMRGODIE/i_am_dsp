@@ -134,6 +134,15 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			Some(ProtocolResponse::json(answer))
 		}
+		("GET", "/filter-table/import/progress") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+
+			Some(ProtocolResponse::json(
+				shared.slots.filter_table(node).progress(),
+			))
+		}
 		("POST", "/filter-table/import") => {
 			let node = query_value(request, "node")
 				.and_then(|value| value.parse::<u32>().ok())
@@ -148,10 +157,13 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 			let slice = query_value(request, "slice").unwrap_or("auto");
 
 			Some(ProtocolResponse::json(
-				shared
-					.slots
-					.filter_table(node)
-					.import_wav(request.body, window, page, mode, slice),
+				shared.slots.filter_table(node).start_import(
+					request.body.to_vec(),
+					window,
+					page,
+					mode.to_string(),
+					slice.to_string(),
+				),
 			))
 		}
 		("POST", "/filter-table/edit") => {
