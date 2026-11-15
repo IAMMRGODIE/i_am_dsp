@@ -1349,6 +1349,7 @@
         state.view = entry.context.filterTable && entry.context.filterTable.view;
         state.windowSamples = entry.context.filterTable && entry.context.filterTable.windowSamples;
         state.frozen = entry.context.filterTable && entry.context.filterTable.frozen;
+        state.importMode = entry.context.filterTable && entry.context.filterTable.importMode;
         entry.context.filterTable = state;
         if (entry.card.repaintHero) entry.card.repaintHero();
       })

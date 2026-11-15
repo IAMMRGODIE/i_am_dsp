@@ -521,6 +521,7 @@
         state.view = filterTableState && filterTableState.view;
         state.windowSamples = filterTableState && filterTableState.windowSamples;
         state.frozen = filterTableState && filterTableState.frozen;
+        state.importMode = filterTableState && filterTableState.importMode;
         filterTableState = state;
         markDirty();
       })
