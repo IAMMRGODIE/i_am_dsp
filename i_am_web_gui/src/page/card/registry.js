@@ -31,6 +31,8 @@
   registerHero("lfo", lfoHero);
   registerHero("history", historyHero);
   registerHero("filtertable", filterTableHero);
+  registerHero("spectraldynamics-curve", spectralDynamicsCurveHero);
+  registerHero("spectraldynamics-spectrum", spectralDynamicsSpectrumHero);
   registerHero("phase", phaseHero);
   registerHero("balance", balanceHero);
   registerHero("waveform", waveformHero);

@@ -9,6 +9,29 @@
     return values;
   }
 
+  /// The hero kinds whose picture is drawn from the scope.
+  var SCOPE_HEROES = [
+    "spectrum", "spectra", "waveform", "unison", "transfer",
+    "compressor", "gate", "expander", "limiter", "eq", "spectraldynamics-spectrum"
+  ];
+
+  /// Whether a picture that reads the scope is on screen.
+  ///
+  /// A scope frame is only worth repainting the whole face for when one of these
+  /// is visible: a live hero on another tab would otherwise rebuild every
+  /// control twenty times a second and swallow their clicks.
+  function scopeHeroVisible() {
+    var list = document.querySelectorAll(".hero[data-hero]");
+
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].clientWidth > 0 && SCOPE_HEROES.indexOf(list[i].getAttribute("data-hero")) >= 0) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   function updateHeroes() {
     if (!window.IAmCard || !IAmCard.hero) return;
 
@@ -25,13 +48,19 @@
         meter: meter, envHistory: envHistory, envWindow: envWindow,
         ott: ottState, vocoder: vocoderState, eqSpectrum: eqSpectrum,
         autotune: autotuneState, canvas: canvasState, spectrum: spectrumState, history: historyState, filterTable: filterTableState,
-        waves: wavesState, waveMode: waveMode, sample: sampleState, sampleView: sampleView, script: scriptState, click: clickState, samples: samplesState, ampCurves: ampCurves, kickMode: kickMode, snareMode: snareMode
+        waves: wavesState, waveMode: waveMode, sample: sampleState, sampleView: sampleView, script: scriptState, click: clickState, samples: samplesState, ampCurves: ampCurves, kickMode: kickMode, snareMode: snareMode,
+        spectralDynamics: spectralDynamicsState, sdCurve: spectralDynamicsCurve
       });
       if (content) {
-        hero.el.innerHTML = content;
+        // A live hero elsewhere on the face repaints every scope frame; when
+        // this hero's markup is the same, leaving the nodes alone is what keeps
+        // its buttons and its editor under the pointer.
+        if (hero.el.innerHTML !== content) hero.el.innerHTML = content;
         if (IAmCard.wire) {
           IAmCard.wire(hero.el, hero.kind, values, {
             canvas: canvasState, spectrum: spectrumState, history: historyState, filterTable: filterTableState,
+            spectralDynamics: spectralDynamicsState, sdCurve: spectralDynamicsCurve,
+            repaint: markDirty,
             set: setControl,
             post: function (body) {
               var path = hero.kind === "filtertable" ? "/filter-table" : "/history";

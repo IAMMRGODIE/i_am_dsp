@@ -20,7 +20,9 @@
           scope.sidechain = data.subarray(third * 2);
           seedEnvelope(scope.input, scope.output);
           pushEnvelope(scope.input, scope.output);
-          markDirty();
+
+          // Only a picture that reads the scope needs the face repainted.
+          if (scopeHeroVisible()) markDirty();
         }
       })
       .catch(function () {})
@@ -529,6 +531,42 @@
       .catch(function () {})
       .then(function () {
         setTimeout(pollFilterTable, 1500);
+      });
+  }
+
+  /// The Spectral Dynamics pages, which live outside the parameter map.
+  function pollSpectralDynamics() {
+    fetch("/spectral-dynamics", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (state) {
+        if (!state || !state.threshold) return;
+        if (document.querySelector(".hero[data-busy='1']")) return;
+
+        var toPoints = function (pages) {
+          return (pages || []).map(function (page) {
+            return page.map(function (point) {
+              return { time: point[0], value: point[1], bend: point[2] || 0 };
+            });
+          });
+        };
+
+        var next = {
+          threshold: toPoints(state.threshold),
+          ratio: toPoints(state.ratio)
+        };
+
+        // A repaint replaces the hero's canvas, which kills a double click that
+        // straddles it; only repaint when the pages really moved.
+        if (JSON.stringify(next) === JSON.stringify(spectralDynamicsState)) return;
+
+        spectralDynamicsState = next;
+        markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollSpectralDynamics, 1200);
       });
   }
 

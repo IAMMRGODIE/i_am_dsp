@@ -797,6 +797,8 @@
         wireHistory(el, kind, values, state);
       } else if (kind === "filtertable") {
         wireFilterTable(el, kind, values, state);
+      } else if (kind === "spectraldynamics-curve") {
+        wireSpectralCurve(el, state, values);
       }
     },
     modulate: modulate,

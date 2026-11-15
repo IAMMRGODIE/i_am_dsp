@@ -80,6 +80,10 @@ var canvasState = null;
     generation: 0,
     pages: [{ points: [{ time: 0, value: 1, bend: 0 }, { time: 1, value: 1, bend: 0 }] }]
   };
+  // The Spectral Dynamics product's threshold and ratio pages, and which of the
+  // two the one curve hero is showing.
+  var spectralDynamicsState = { threshold: [], ratio: [] };
+  var spectralDynamicsCurve = { view: "threshold" };
   // The Filter Table product's kernel frame.
   var filterTableState = {
     generation: 0,

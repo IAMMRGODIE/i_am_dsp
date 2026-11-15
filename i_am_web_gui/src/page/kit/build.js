@@ -657,7 +657,8 @@
       return hero.kind === "waveform" || hero.kind === "unison" || hero.kind === "transfer" ||
         hero.kind === "spectrum" || hero.kind === "spectra" ||
         hero.kind === "compressor" || hero.kind === "gate" ||
-        hero.kind === "expander" || hero.kind === "limiter" || hero.kind === "eq";
+        hero.kind === "expander" || hero.kind === "limiter" || hero.kind === "eq" ||
+        hero.kind === "spectraldynamics-spectrum";
     });
     wantsMeter = heroes.some(function (hero) {
       return hero.kind === "compressor" || hero.kind === "gate" ||
@@ -778,6 +779,9 @@
     pollHistory();
     pollHistoryPhase();
     pollFilterTable();
+    if (heroes.some(function (hero) {
+      return hero.kind === "spectraldynamics-curve";
+    })) pollSpectralDynamics();
     if (wantsScope) pollScope();
   }
 

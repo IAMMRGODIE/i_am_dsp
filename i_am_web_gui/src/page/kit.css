@@ -226,6 +226,7 @@ body.preview #app{
 .hero[data-hero="canvas"] svg,
 .hero[data-hero="history"] svg,
 .hero[data-hero="filtertable"] svg,
+.hero[data-hero="spectraldynamics-curve"] svg,
 .hero[data-hero="spectrum"] svg,
 .hero[data-hero="morph-spectrum"] svg{pointer-events:auto}
 /* The curve editor drags its points and rings, so it needs the pointer too. */
