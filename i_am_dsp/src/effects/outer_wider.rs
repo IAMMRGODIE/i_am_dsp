@@ -39,7 +39,7 @@ pub struct OuterWider {
 	pub side: f32,
 
 	/// How far the synthesized side is detuned from the mid.
-	#[range(min = 0.0, max = 20.0)]
+	#[range(min = -20.0, max = 20.0)]
 	#[unit(hertz)]
 	#[default(1.5)]
 	#[id(display = "Shift")]
@@ -90,15 +90,7 @@ pub struct OuterWider {
 	#[skip]
 	disperser: Disperser<1>,
 	#[skip]
-	seen_shift: f32,
-	#[skip]
-	seen_disperse: f32,
-	#[skip]
 	seen_low_cut: f32,
-	#[skip]
-	seen_cutoff: f32,
-	#[skip]
-	seen_bandwidth: f32,
 }
 
 impl OuterWider {
@@ -123,11 +115,7 @@ impl OuterWider {
 			lows,
 			shifter: IIRFreqShifter::new(sample_rate, 1.5),
 			disperser,
-			seen_shift: 1.5,
-			seen_disperse: 0.4,
 			seen_low_cut: 150.0,
-			seen_cutoff: 1_000.0,
-			seen_bandwidth: 1_600.0,
 		}
 	}
 
@@ -137,29 +125,11 @@ impl OuterWider {
 	}
 
 	/// Pushes the controls into the stage that owns each of them.
+	///
+	/// The shifter and the disperser notice a moved input themselves when they
+	/// run, and both setters skip a rebuild that would change nothing, so this
+	/// only has to handle the low cut: the biquad has no such check of its own.
 	fn sync(&mut self) {
-		if self.shift != self.seen_shift {
-			self.shifter.set_shift_freq(self.shift);
-			self.seen_shift = self.shift;
-		}
-
-		if self.disperse != self.seen_disperse {
-			self.disperser
-				.set_biquad_count(Self::sections(self.disperse));
-			self.disperser
-				.set_filter_parameters(self.cutoff, self.bandwidth);
-			self.seen_disperse = self.disperse;
-			self.seen_cutoff = self.cutoff;
-			self.seen_bandwidth = self.bandwidth;
-		}
-
-		if self.cutoff != self.seen_cutoff || self.bandwidth != self.seen_bandwidth {
-			self.disperser
-				.set_filter_parameters(self.cutoff, self.bandwidth);
-			self.seen_cutoff = self.cutoff;
-			self.seen_bandwidth = self.bandwidth;
-		}
-
 		if self.low_cut != self.seen_low_cut {
 			self.lows.set_to_highpass(self.low_cut, 0.707);
 			self.seen_low_cut = self.low_cut;
@@ -180,6 +150,14 @@ impl Effect<2> for OuterWider {
 		context: &mut Box<dyn ProcessContext>,
 	) {
 		self.sync();
+
+		// Both of these settle against what they were last built from, so the
+		// call costs a comparison unless the control moved.
+		self.shifter.set_shift_freq(self.shift);
+		self.disperser
+			.set_biquad_count(Self::sections(self.disperse));
+		self.disperser
+			.set_filter_parameters(self.cutoff, self.bandwidth);
 
 		let mid = (samples[0] + samples[1]) * 0.5;
 		let side = (samples[0] - samples[1]) * 0.5;
@@ -204,11 +182,7 @@ impl Effect<2> for OuterWider {
 			.set_biquad_count(Self::sections(self.disperse));
 		self.disperser
 			.set_filter_parameters(self.cutoff, self.bandwidth);
-		self.seen_shift = self.shift;
-		self.seen_disperse = self.disperse;
 		self.seen_low_cut = self.low_cut;
-		self.seen_cutoff = self.cutoff;
-		self.seen_bandwidth = self.bandwidth;
 	}
 }
 
