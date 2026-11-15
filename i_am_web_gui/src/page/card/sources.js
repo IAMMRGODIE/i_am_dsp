@@ -306,14 +306,56 @@
     }
   }
 
-  // Editing the LFO on the card itself: drag a point or its bend ring,
-  // double-click to add one, right-click to remove one. The rack's modulation
-  // card and the patch page's LFO card share this editor.
-  function editLfo(svg, holder, options) {
+  // The shared curve editor: pointer hit-testing, bend rings, add/remove and
+  // gesture capture. The axis and the point constraints are supplied by the
+  // caller, so an LFO, an envelope and a pitch curve share one editor.
+  function attachCurveEditor(svg, holder, options) {
     options = options || {};
 
+    var plot = options.plot || {};
+    var left = typeof plot.left === "number" ? plot.left : 8;
+    var right = typeof plot.right === "number" ? plot.right : 292;
+    var top = typeof plot.top === "number" ? plot.top : 8;
+    var base = typeof plot.base === "number" ? plot.base : 60;
+    var width = right - left;
+    var height = base - top;
+    var minPoints = typeof options.minPoints === "number" ? options.minPoints : 2;
+    var bends = options.bends !== false;
+    var hit = options.hit || 9;
+    var bendHit = options.bendHit || 8;
+    var bendScale = typeof options.bendScale === "number" ? options.bendScale : 20;
+    var bendLimit = typeof options.bendLimit === "number" ? options.bendLimit : 10;
+
     if (!holder.points || holder.points.length < 2) {
-      holder.points = preset(typeof options.shape === "number" ? Math.round(options.shape) : 0);
+      holder.points = options.defaultPoints
+        ? options.defaultPoints()
+        : preset(typeof options.shape === "number" ? Math.round(options.shape) : 0);
+    }
+
+    function toPoint(unit) {
+      if (options.fromLocal) return options.fromLocal(unit);
+      return {
+        time: Math.max(0, Math.min(1, (unit.x - left) / width)),
+        value: Math.max(0, Math.min(1, (base - unit.y) / height)),
+      };
+    }
+
+    function pointPosition(point) {
+      if (options.pointPosition) return options.pointPosition(point);
+      return { x: left + point.time * width, y: base - point.value * height };
+    }
+
+    function bendPosition(point, next) {
+      if (options.bendPosition) return options.bendPosition(point, next);
+      var time = (point.time + next.time) / 2;
+      var value = point.value + (next.value - point.value) * bend(0.5, point.bend);
+      return { x: left + time * width, y: base - value * height };
+    }
+
+    function sortPoints(points) {
+      if (options.sort) options.sort(points);
+      else points.sort(function (a, b) { return a.time - b.time; });
+      return points;
     }
 
     function eventPoint(event) {
@@ -334,24 +376,20 @@
         y = (event.clientY - rect.top) / rect.height * 64;
       }
 
-      return {
-        x: x,
-        y: y,
-        time: Math.max(0, Math.min(1, (x - 8) / 284)),
-        value: Math.max(0, Math.min(1, (60 - y) / 52))
-      };
+      var point = toPoint({ x: x, y: y });
+      point.x = x;
+      point.y = y;
+      return point;
     }
 
     function pointAt(event) {
       var position = eventPoint(event);
 
       for (var i = 0; i < holder.points.length; i++) {
-        var point = holder.points[i];
-        var x = 8 + point.time * 284;
-        var y = 60 - point.value * 52;
+        var at = pointPosition(holder.points[i]);
 
-        if (Math.abs(x - position.x) < 9 && Math.abs(y - position.y) < 9) {
-          return point;
+        if (Math.abs(at.x - position.x) < hit && Math.abs(at.y - position.y) < hit) {
+          return holder.points[i];
         }
       }
 
@@ -359,21 +397,16 @@
     }
 
     function bendAt(event) {
+      if (!bends) return null;
+
       var position = eventPoint(event);
-      var points = holder.points.slice().sort(function (a, b) {
-        return a.time - b.time;
-      });
+      var points = sortPoints(holder.points.slice());
 
       for (var i = 0; i < points.length - 1; i++) {
-        var point = points[i];
-        var next = points[i + 1];
-        var time = (point.time + next.time) / 2;
-        var value = point.value + (next.value - point.value) * bend(0.5, point.bend);
-        var x = 8 + time * 284;
-        var y = 60 - value * 52;
+        var at = bendPosition(points[i], points[i + 1]);
 
-        if (Math.abs(x - position.x) < 8 && Math.abs(y - position.y) < 8) {
-          return point;
+        if (Math.abs(at.x - position.x) < bendHit && Math.abs(at.y - position.y) < bendHit) {
+          return points[i];
         }
       }
 
@@ -392,7 +425,7 @@
     }
 
     function removePoint(point) {
-      if (holder.points.length <= 2) return;
+      if (holder.points.length <= minPoints) return;
 
       var index = holder.points.indexOf(point);
       if (index >= 0) holder.points.splice(index, 1);
@@ -403,22 +436,17 @@
     svg.onpointerdown = function (event) {
       if (event.button !== 0) return;
 
-      // The card sits in the patch canvas: a drag on a point is not a canvas
-      // gesture, even if the canvas ever sees the event.
-      event.stopPropagation();
+      if (options.stopPropagation !== false) event.stopPropagation();
 
       var point = pointAt(event);
 
       if (point) {
         drag = { kind: "point", point: point };
-      } else if (options.bends !== false) {
-        // A straight mapping has no bend handles: only its points move.
+      } else if (bends) {
         var bendPoint = bendAt(event);
 
         if (bendPoint) {
-          var sorted = holder.points.slice().sort(function (a, b) {
-            return a.time - b.time;
-          });
+          var sorted = sortPoints(holder.points.slice());
           var index = sorted.indexOf(bendPoint);
           var next = sorted[index + 1];
           var position = eventPoint(event);
@@ -441,8 +469,6 @@
         // A synthetic or already-lost pointer has nothing to capture.
       }
 
-      // The window owns the gesture: a capture can be refused inside a
-      // foreignObject, and a lost pointerup would leave the points uncommitted.
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", finish);
       window.addEventListener("pointercancel", finish);
@@ -458,13 +484,16 @@
       var position = eventPoint(event);
 
       if (drag.kind === "point") {
-        drag.point.time = position.time;
-        drag.point.value = position.value;
-        holder.points.sort(function (a, b) { return a.time - b.time; });
+        if (options.movePoint) options.movePoint(drag.point, position);
+        else {
+          drag.point.time = position.time;
+          drag.point.value = position.value;
+        }
+        sortPoints(holder.points);
       } else {
         var delta = position.value - drag.startValue;
-        drag.point.bend = Math.max(-10, Math.min(10,
-          drag.startBend + delta * 20 * drag.direction));
+        drag.point.bend = Math.max(-bendLimit, Math.min(bendLimit,
+          drag.startBend + delta * bendScale * drag.direction));
       }
 
       paint();
@@ -483,32 +512,40 @@
     }
 
     svg.ondblclick = function (event) {
-      // Adding is deliberate: a single click starts a drag on a point or a
-      // bend ring, while an empty double-click appends a new point.
       if (pointAt(event)) return;
 
       var position = eventPoint(event);
-      if (position.x < 8 || position.x > 292 || position.y < 8 || position.y > 60) return;
-      holder.points.push({ time: position.time, value: position.value, bend: 0 });
-      holder.points.sort(function (a, b) { return a.time - b.time; });
+      if (position.x < left || position.x > right || position.y < top || position.y > base) return;
+
+      if (options.addPoint) options.addPoint(position, holder.points);
+      else holder.points.push({ time: position.time, value: position.value, bend: 0 });
+
+      sortPoints(holder.points);
       paint();
       commit();
       event.preventDefault();
     };
+
     svg.oncontextmenu = function (event) {
       var point = pointAt(event);
 
       if (!point) return;
+      if (options.removePoint && options.removePoint(point, holder.points) === false) return;
 
-      // The card sits on a canvas with a menu of its own: taking a point off
-      // must not also open that menu.
       event.preventDefault();
       event.stopPropagation();
       removePoint(point);
     };
 
     paint();
+    return { paint: paint, pointAt: pointAt, eventPoint: eventPoint };
   }
+
+  // The 0..1 LFO editor used by the cards, the patch page and the rack.
+  function editLfo(svg, holder, options) {
+    return attachCurveEditor(svg, holder, options);
+  }
+
   window.IAmCard = window.IAmCard || {};
   window.IAmCard.sources = {
     shape: shape,
@@ -517,6 +554,7 @@
     bend: bend,
     drawPreview: drawPreview,
     editLfo: editLfo,
+    curveEditor: attachCurveEditor,
     drawLive: drawLive
   };
 })();
