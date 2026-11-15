@@ -1347,6 +1347,7 @@
         if (!state || !state.pages) return;
 
         state.view = entry.context.filterTable && entry.context.filterTable.view;
+        state.windowMs = entry.context.filterTable && entry.context.filterTable.windowMs;
         entry.context.filterTable = state;
         if (entry.card.repaintHero) entry.card.repaintHero();
       })

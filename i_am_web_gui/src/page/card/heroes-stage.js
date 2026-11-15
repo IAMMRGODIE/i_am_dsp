@@ -576,9 +576,12 @@
     return sorted[sorted.length - 1].value;
   }
 
-  /// A rough magnitude response of the frame, drawn as the default view.
-  function filterResponsePath(points, cutoff) {
-    var size = 256;
+  /// The 0..1 response points of the current kernel, relative to cutoff.
+  ///
+  /// x = 0 is DC, x = 1 is Nyquist; cutoff sits at harmonic 24, so its marker is
+  /// at 24 / 512 of the axis.
+  function filterResponsePoints(points) {
+    var size = 1024;
     var frame = [];
     var mean = 0;
 
@@ -591,38 +594,251 @@
     mean /= size;
     for (var i = 0; i < size; i++) frame[i] -= mean;
 
-    var cutoff = Math.max(cutoff, 20);
-    var bins = 64;
+    var re = frame.slice();
+    var im = new Array(size).fill(0);
+    fft(re, im, false);
+
     var magnitude = [];
     var peak = 1e-9;
 
-    for (var band = 0; band < bins; band++) {
-      var frequency = 20 * Math.pow(1000, band / (bins - 1));
-      var harmonic = frequency * 24 / cutoff;
-      var omega = Math.PI * 2 * harmonic / size;
-      var real = 0;
-      var imaginary = 0;
-
-      for (var sample = 0; sample < size; sample++) {
-        real += frame[sample] * Math.cos(omega * sample);
-        imaginary -= frame[sample] * Math.sin(omega * sample);
-      }
-
-      var value = Math.sqrt(real * real + imaginary * imaginary);
+    for (var bin = 0; bin <= size / 2; bin++) {
+      var value = Math.sqrt(re[bin] * re[bin] + im[bin] * im[bin]);
       magnitude.push(value);
       peak = Math.max(peak, value);
     }
 
-    var path = "";
+    var bins = 64;
+    var response = [];
 
-    for (var index = 0; index < bins; index++) {
-      var db = 20 * Math.log10(Math.max(magnitude[index] / peak, 1e-4));
-      var y = 60 - Math.max(0, Math.min(1, (db + 48) / 48)) * 52;
-      var x = 8 + index / (bins - 1) * 284;
-      path += (index ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
+    for (var band = 0; band < bins; band++) {
+      var at = band / (bins - 1) * (size / 2);
+      var index = Math.floor(at);
+      var fraction = at - index;
+      var first = magnitude[index] || 0;
+      var second = magnitude[Math.min(index + 1, magnitude.length - 1)] || 0;
+      var level = first + (second - first) * fraction;
+      var db = 20 * Math.log10(Math.max(level / peak, 1e-4));
+      var value = Math.max(0, Math.min(1, (db + 48) / 48));
+
+      response.push({ time: band / (bins - 1), value: value, bend: 0 });
     }
 
-    return path;
+    return response;
+  }
+
+  /// An in-place radix-2 FFT, enough for the response editor.
+  function fft(re, im, inverse) {
+    var size = re.length;
+    var j = 0;
+
+    for (var i = 1; i < size; i++) {
+      var bit = size >> 1;
+
+      while (j & bit) {
+        j ^= bit;
+        bit >>= 1;
+      }
+
+      j ^= bit;
+
+      if (i < j) {
+        var swapRe = re[i]; re[i] = re[j]; re[j] = swapRe;
+        var swapIm = im[i]; im[i] = im[j]; im[j] = swapIm;
+      }
+    }
+
+    for (var length = 2; length <= size; length <<= 1) {
+      var angle = 2 * Math.PI / length * (inverse ? 1 : -1);
+      var stepRe = Math.cos(angle);
+      var stepIm = Math.sin(angle);
+
+      for (var offset = 0; offset < size; offset += length) {
+        var wRe = 1;
+        var wIm = 0;
+
+        for (var k = 0; k < length / 2; k++) {
+          var uRe = re[offset + k];
+          var uIm = im[offset + k];
+          var vRe = re[offset + k + length / 2] * wRe - im[offset + k + length / 2] * wIm;
+          var vIm = re[offset + k + length / 2] * wIm + im[offset + k + length / 2] * wRe;
+
+          re[offset + k] = uRe + vRe;
+          im[offset + k] = uIm + vIm;
+          re[offset + k + length / 2] = uRe - vRe;
+          im[offset + k + length / 2] = uIm - vIm;
+
+          var nextRe = wRe * stepRe - wIm * stepIm;
+          wIm = wRe * stepIm + wIm * stepRe;
+          wRe = nextRe;
+        }
+      }
+    }
+
+    if (inverse) {
+      for (var index = 0; index < size; index++) {
+        re[index] /= size;
+        im[index] /= size;
+      }
+    }
+  }
+
+  /// Interpolate a response point list at x in [0, 1].
+  function responseValue(response, x) {
+    var sorted = response.slice().sort(function (a, b) { return a.time - b.time; });
+    if (!sorted.length) return 0;
+    if (x <= sorted[0].time) return sorted[0].value;
+
+    for (var index = 1; index < sorted.length; index++) {
+      var left = sorted[index - 1];
+      var right = sorted[index];
+
+      if (x <= right.time) {
+        var span = Math.max(right.time - left.time, 1e-6);
+        var unit = Math.max(0, Math.min(1, (x - left.time) / span));
+        return left.value + (right.value - left.value) * unit;
+      }
+    }
+
+    return sorted[sorted.length - 1].value;
+  }
+
+  /// Turn the relative magnitude curve into a zero-phase time kernel.
+  function filterTimeFromResponse(response) {
+    var size = 1024;
+    var re = new Array(size).fill(0);
+    var im = new Array(size).fill(0);
+
+    for (var bin = 0; bin <= size / 2; bin++) {
+      var x = bin / (size / 2);
+      var db = responseValue(response, x) * 48 - 48;
+      var magnitude = Math.pow(10, db / 20);
+      re[bin] = magnitude;
+      if (bin > 0 && bin < size / 2) re[size - bin] = magnitude;
+    }
+
+    fft(re, im, true);
+
+    var shifted = new Array(size);
+    for (var index = 0; index < size; index++) {
+      shifted[(index + size / 2) % size] = re[index];
+    }
+
+    var peak = 1e-9;
+    for (var index = 0; index < size; index++) peak = Math.max(peak, Math.abs(shifted[index]));
+
+    var points = [];
+    var count = 256;
+
+    for (var index = 0; index < count; index++) {
+      var value = shifted[Math.floor(index / count * size)] / peak;
+      points.push({
+        time: index / (count - 1),
+        value: Math.max(0, Math.min(1, value * 0.5 + 0.5)),
+        bend: 0,
+      });
+    }
+
+    return points;
+  }
+
+  /// The mono samples of a window of an AudioBuffer.
+  function importWindow(buffer, windowMs) {
+    var rate = buffer.sampleRate;
+    var source = buffer.getChannelData(0);
+    var wanted = Math.max(1, Math.min(source.length, Math.round(windowMs / 1000 * rate)));
+    var samples = new Array(wanted);
+
+    for (var index = 0; index < wanted; index++) samples[index] = source[index];
+
+    var peak = 1e-9;
+    for (var index = 0; index < wanted; index++) peak = Math.max(peak, Math.abs(samples[index]));
+    for (var index = 0; index < wanted; index++) samples[index] /= peak;
+
+    return samples;
+  }
+
+  /// A sample as a time kernel, resampled to 256 page points.
+  function importTimePoints(buffer, windowMs) {
+    var samples = importWindow(buffer, windowMs);
+    var count = 256;
+    var points = [];
+
+    for (var index = 0; index < count; index++) {
+      var at = index / (count - 1) * (samples.length - 1);
+      var left = Math.floor(at);
+      var right = Math.min(left + 1, samples.length - 1);
+      var value = samples[left] + (samples[right] - samples[left]) * (at - left);
+
+      points.push({ time: index / (count - 1), value: value * 0.5 + 0.5, bend: 0 });
+    }
+
+    return points;
+  }
+
+  /// A sample as a relative frequency curve, then IFFT to a time kernel.
+  function importFrequencyPoints(buffer, windowMs) {
+    var samples = importWindow(buffer, windowMs);
+    var size = 1024;
+    var re = new Array(size).fill(0);
+    var im = new Array(size).fill(0);
+
+    for (var index = 0; index < size; index++) {
+      re[index] = samples[Math.floor(index / size * samples.length)] || 0;
+    }
+
+    fft(re, im, false);
+
+    var magnitude = [];
+    var peak = 1e-9;
+
+    for (var bin = 0; bin <= size / 2; bin++) {
+      var value = Math.sqrt(re[bin] * re[bin] + im[bin] * im[bin]);
+      magnitude.push(value);
+      peak = Math.max(peak, value);
+    }
+
+    var bins = 64;
+    var response = [];
+
+    for (var band = 0; band < bins; band++) {
+      var at = band / (bins - 1) * (size / 2);
+      var index = Math.floor(at);
+      var fraction = at - index;
+      var first = magnitude[index] || 0;
+      var second = magnitude[Math.min(index + 1, magnitude.length - 1)] || 0;
+      var level = first + (second - first) * fraction;
+      var db = 20 * Math.log10(Math.max(level / peak, 1e-4));
+      var value = Math.max(0, Math.min(1, (db + 48) / 48));
+
+      response.push({ time: band / (bins - 1), value: value, bend: 0 });
+    }
+
+    return response;
+  }
+
+  /// Decode a file with Web Audio, so a sample can be imported as a kernel.
+  function decodeSample(file) {
+    return new Promise(function (resolve, reject) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) {
+        reject(new Error("no AudioContext"));
+        return;
+      }
+
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error("read failed")); };
+      reader.onload = function () {
+        var context = new Ctx();
+        context.decodeAudioData(reader.result.slice(0), function (buffer) {
+          resolve(buffer);
+          context.close();
+        }, function () {
+          reject(new Error("decode failed"));
+          context.close();
+        });
+      };
+      reader.readAsArrayBuffer(file);
+    });
   }
 
   function filterTableHero(values, context) {
@@ -632,11 +848,12 @@
     var points = pages[selected] || [];
     var view = table && table.view === "time" ? "time" : "freq";
     var path = view === "freq"
-      ? filterResponsePath(points, valueOf(values, "cutoff", 1000))
+      ? historyPath(filterResponsePoints(points))
       : historyPath(points);
 
     return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="xMidYMid meet">' +
       '<line x1="8" y1="60" x2="292" y2="60" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
+      (view === "freq" ? '<line x1="21.3" y1="0" x2="21.3" y2="64" stroke="#666" stroke-dasharray="2 4" stroke-width="1"/>' : '') +
       (path ? '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' : '') +
       '</svg>' +
       '<div class="hero-actions">' +
@@ -646,6 +863,7 @@
         '<button type="button" class="hero-action" data-action="filter-remove">- PAGE</button>' +
         '<button type="button" class="hero-action" data-action="filter-view">' +
           (view === "freq" ? "TIME" : "FREQ") + '</button>' +
+        '<button type="button" class="hero-action" data-action="filter-import">IMPORT</button>' +
       '</div>' +
       '<div class="hero-label" style="left:2%;top:2%">FILTER TABLE \u00b7 PAGE ' +
         (selected + 1) + ' / ' + pages.length +
@@ -666,30 +884,28 @@
     var view = table.view === "time" ? "time" : "freq";
     var accent = (getComputedStyle(el).getPropertyValue("--accent") || "#4c8dff").trim();
     var attached = false;
+    var response = view === "freq" ? filterResponsePoints(pages[selected]) : null;
 
     var post = function () {
       if (state.post) state.post(JSON.stringify(pages));
     };
 
-    var paint = function (points) {
-      pages[selected] = points;
-      IAmCard.sources.drawPreview(svg, "lfo", { points: points, color: accent, segments: 36 }, null);
-    };
-
-    // A simple SVG redraw for the response path: drawPreview is the time view.
     var drawFrequency = function () {
-      svg.textContent = "";
-      var path = filterResponsePath(pages[selected], valueOf(values, "cutoff", 1000));
-      var line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", "8"); line.setAttribute("y1", "60");
-      line.setAttribute("x2", "292"); line.setAttribute("y2", "60");
-      line.setAttribute("stroke", "#333"); line.setAttribute("stroke-dasharray", "2 4");
-      svg.appendChild(line);
-      var curve = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      curve.setAttribute("d", path); curve.setAttribute("fill", "none");
-      curve.setAttribute("stroke", accent); curve.setAttribute("stroke-width", "2");
-      curve.setAttribute("vector-effect", "non-scaling-stroke");
-      svg.appendChild(curve);
+      IAmCard.sources.drawPreview(svg, "lfo", {
+        points: response,
+        color: accent,
+        segments: 36,
+      }, null);
+
+      // Harmonic 24 is Cutoff; on the Nyquist-relative axis it sits at 24/512.
+      var marker = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      marker.setAttribute("x1", "21.3"); marker.setAttribute("y1", "0");
+      marker.setAttribute("x2", "21.3"); marker.setAttribute("y2", "64");
+      marker.setAttribute("stroke", "#666");
+      marker.setAttribute("stroke-dasharray", "2 4");
+      marker.setAttribute("stroke-width", "1");
+      marker.setAttribute("pointer-events", "none");
+      svg.appendChild(marker);
     };
 
     var drawTime = function () {
@@ -706,11 +922,29 @@
     };
 
     var attachEditor = function () {
-      if (attached || view !== "time") return;
+      if (attached) return;
+
+      var holder = view === "freq" ? { points: response } : { points: pages[selected] };
+
       attached = true;
-      IAmCard.sources.editLfo(svg, { points: pages[selected] }, {
-        paint: paint,
-        commit: post,
+      IAmCard.sources.editLfo(svg, holder, {
+        paint: function (points) {
+          if (view === "freq") {
+            response = points;
+            drawFrequency();
+          } else {
+            pages[selected] = points;
+            drawTime();
+          }
+        },
+        commit: function (points) {
+          if (view === "freq") {
+            response = points;
+            pages[selected] = filterTimeFromResponse(points);
+          }
+
+          post();
+        },
         onStart: function () { el.dataset.busy = "1"; },
         onEnd: function () { delete el.dataset.busy; },
       });
@@ -725,18 +959,56 @@
     };
 
     var setView = function (next) {
+      detachEditor();
       view = next === "time" ? "time" : "freq";
       table.view = view;
-      detachEditor();
-      if (view === "time") attachEditor();
+
+      if (view === "freq") response = filterResponsePoints(pages[selected]);
+
       redraw();
+      attachEditor();
+
       var label = el.querySelector(".hero-label");
       if (label) {
         label.textContent = "FILTER TABLE \u00b7 PAGE " + (selected + 1) + " / " +
           pages.length + (view === "freq" ? " \u00b7 FREQ" : " \u00b7 TIME");
       }
+
       var button = el.querySelector('[data-action="filter-view"]');
       if (button) button.textContent = view === "freq" ? "TIME" : "FREQ";
+    };
+
+    var importFile = function () {
+      var input = document.createElement("input");
+      input.type = "file";
+      input.accept = "audio/*,.wav,.aif,.aiff,.flac";
+
+      input.onchange = function () {
+        var file = input.files && input.files[0];
+        if (!file) return;
+
+        var answer = window.prompt("Window length (ms)", String(table.windowMs || 100));
+        var windowMs = Math.max(1, parseFloat(answer) || 100);
+        table.windowMs = windowMs;
+
+        decodeSample(file).then(function (buffer) {
+          if (view === "freq") {
+            response = importFrequencyPoints(buffer, windowMs);
+            pages[selected] = filterTimeFromResponse(response);
+          } else {
+            pages[selected] = importTimePoints(buffer, windowMs);
+          }
+
+          post();
+          redraw();
+        }).catch(function (error) {
+          var label = el.querySelector(".hero-label");
+          if (label) label.textContent = "FILTER TABLE \u00b7 IMPORT FAILED";
+          console.warn(error);
+        });
+      };
+
+      input.click();
     };
 
     svg.addEventListener("pointerdown", function (event) {
@@ -770,6 +1042,8 @@
 
       if (action === "filter-view") {
         setView(view === "freq" ? "time" : "freq");
+      } else if (action === "filter-import") {
+        importFile();
       } else if (action === "filter-prev") {
         state.set("morph", last > 0 ? Math.max(selected - 1, 0) / last : 0);
       } else if (action === "filter-next") {
@@ -788,7 +1062,7 @@
     };
 
     redraw();
-    if (view === "time") attachEditor();
+    attachEditor();
   }
 
 
