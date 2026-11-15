@@ -538,7 +538,9 @@ fn reverse(kernel: &[f32; TAPS]) -> [f32; TAPS] {
 fn normalize(kernel: &mut [f32; TAPS]) {
 	let energy = kernel.iter().map(|value| value * value).sum::<f32>().sqrt();
 	if energy > 1e-6 {
-		let scale = (TAPS as f32).sqrt() / energy;
+		// Unit energy, as an IR should be: white noise comes out at the same RMS
+		// instead of changing level with the kernel's length or shape.
+		let scale = 1.0 / energy;
 		for value in kernel {
 			*value *= scale;
 		}
@@ -913,5 +915,13 @@ mod tests {
 			effect.process(&mut sample, &[], &mut context);
 			assert!(sample[0].is_finite());
 		}
+	}
+
+	#[test]
+	fn the_kernel_has_unit_energy() {
+		let frame = FilterFrame::new();
+		let effect = FilterTableEffect::with_frame(48_000, frame);
+		let energy = effect.kernel.iter().map(|value| value * value).sum::<f32>();
+		assert!((energy - 1.0).abs() < 1e-3, "energy {energy}");
 	}
 }
