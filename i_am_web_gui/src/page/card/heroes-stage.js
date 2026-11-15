@@ -780,6 +780,8 @@
         '<button type="button" class="hero-action" data-action="filter-inv">INV</button>' +
         '<button type="button" class="hero-action" data-action="filter-dc">DC</button>' +
         '<button type="button" class="hero-action" data-action="filter-norm">NORM</button>' +
+        '<button type="button" class="hero-action" data-action="filter-freeze">' +
+          (table && table.frozen ? "FROZEN" : "FREEZE") + '</button>' +
       '</div>' +
       '<div class="hero-label" style="left:2%;top:2%">FILTER TABLE \u00b7 PAGE ' +
         (selected + 1) + ' / ' + pages.length +
@@ -800,6 +802,7 @@
     var view = table.view === "time" ? "time" : "freq";
     var accent = (getComputedStyle(el).getPropertyValue("--accent") || "#4c8dff").trim();
     var attached = false;
+    var frozen = !!table.frozen;
     var response = view === "freq" ? filterResponsePoints(pages[selected]) : null;
 
     var post = function () {
@@ -843,22 +846,9 @@
 
       label.innerHTML = "FILTER TABLE \u00b7 PAGE " + (selected + 1) + " / " +
         pages.length + (view === "freq" ? " \u00b7 FREQ" : " \u00b7 TIME") +
+        (frozen ? " \u00b7 FROZEN" : "") +
         ' \u00b7 <span data-action="filter-window" style="pointer-events:auto;cursor:pointer">WIN ' +
-        (table.windowSamples || 2048) + '</span>' +
-        ' \u00b7 <span data-action="filter-frames" style="pointer-events:auto;cursor:pointer">FRAMES ' +
-        (table.frameCount || 1) + "</span>";
-    };
-
-    var editFrames = function (anchor) {
-      IAmCard.openKnobEditor(
-        { label: "Frames", unit: "frames" },
-        table.frameCount || 1,
-        function (value) {
-          table.frameCount = Math.max(1, Math.round(value));
-          setLabel();
-        },
-        anchor
-      );
+        (table.windowSamples || 2048) + '</span>';
     };
 
     var editWindow = function (anchor) {
@@ -874,7 +864,7 @@
     };
 
     var attachEditor = function () {
-      if (attached) return;
+      if (attached || frozen) return;
 
       var holder = view === "freq" ? { points: response } : { points: pages[selected] };
 
@@ -926,6 +916,20 @@
       if (button) button.textContent = view === "freq" ? "TIME" : "FREQ";
     };
 
+    var setFrozen = function (next) {
+      frozen = next;
+      table.frozen = frozen;
+      el.classList.toggle("frozen", frozen);
+
+      if (frozen) detachEditor();
+      else attachEditor();
+
+      setLabel();
+
+      var button = el.querySelector('[data-action="filter-freeze"]');
+      if (button) button.textContent = frozen ? "FROZEN" : "FREEZE";
+    };
+
     var replacePages = function (result) {
       if (!result || !result.pages) return;
 
@@ -939,13 +943,13 @@
     };
 
     var importBuffer = function (file) {
-      if (!file) return;
+      if (!file || frozen) return;
 
       var windowSamples = Math.max(1, parseInt(table.windowSamples, 10) || 2048);
 
       file.arrayBuffer().then(function (body) {
         if (!state.import) throw new Error("no import route");
-        return state.import(body, windowSamples, selected, table.importMode || "time", table.frameCount || 1);
+        return state.import(body, windowSamples, selected, table.importMode || "time");
       }).then(replacePages).catch(function (error) {
         var label = el.querySelector(".hero-label");
         if (label) label.textContent = "FILTER TABLE \u00b7 IMPORT FAILED";
@@ -1016,29 +1020,29 @@
       var action = button.getAttribute("data-action");
       var last = pages.length - 1;
 
-      if (action === "filter-view") {
+      if (action === "filter-freeze") {
+        setFrozen(!frozen);
+      } else if (action === "filter-view") {
         setView(view === "freq" ? "time" : "freq");
       } else if (action === "filter-window") {
-        editWindow(button);
-      } else if (action === "filter-frames") {
-        editFrames(button);
+        if (!frozen) editWindow(button);
       } else if (action === "filter-mode") {
         table.importMode = table.importMode === "freq" ? "time" : "freq";
         button.textContent = table.importMode === "freq" ? "IMP FREQ" : "IMP TIME";
       } else if (action === "filter-rev" || action === "filter-inv" || action === "filter-dc" || action === "filter-norm") {
         var edit = action.replace("filter-", "");
-        if (state.edit) state.edit(edit, selected).then(replacePages);
+        if (!frozen && state.edit) state.edit(edit, selected).then(replacePages);
       } else if (action === "filter-import") {
-        importFile();
+        if (!frozen) importFile();
       } else if (action === "filter-prev") {
         state.set("morph", last > 0 ? Math.max(selected - 1, 0) / last : 0);
       } else if (action === "filter-next") {
         state.set("morph", last > 0 ? Math.min(selected + 1, last) / last : 0);
-      } else if (action === "filter-add") {
+      } else if (action === "filter-add" && !frozen) {
         pages.splice(selected + 1, 0, pages[selected].map(function (point) { return Object.assign({}, point); }));
         post();
         state.set("morph", (selected + 1) / Math.max(pages.length - 1, 1));
-      } else if (action === "filter-remove" && pages.length > 1) {
+      } else if (action === "filter-remove" && !frozen && pages.length > 1) {
         pages.splice(selected, 1);
         post();
         state.set("morph", Math.min(selected, pages.length - 1) / Math.max(pages.length - 1, 1));
@@ -1047,6 +1051,7 @@
       event.preventDefault();
     };
 
+    el.classList.toggle("frozen", frozen);
     setLabel();
     redraw();
     attachEditor();

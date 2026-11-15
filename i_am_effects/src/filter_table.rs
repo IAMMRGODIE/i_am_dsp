@@ -58,32 +58,37 @@ impl FilterTableHandle {
 		self.0.clone()
 	}
 
-	/// Decodes a WAV into the selected page. `window` is in source samples.
+	/// Decodes a WAV into the table. `window` is in source samples and also the
+	/// per-frame length; the file is cut into as many frames as it fills.
 	///
 	/// `mode` is `time` for the waveform itself or `freq` to take only its
 	/// magnitude and turn that into a zero-phase kernel.
-	pub fn import_wav(
-		&self,
-		bytes: &[u8],
-		window: usize,
-		page: usize,
-		mode: &str,
-		frames: usize,
-	) -> String {
+	pub fn import_wav(&self, bytes: &[u8], window: usize, page: usize, mode: &str) -> String {
 		let Ok(sample) = i_am_dsp::prelude::decode_click(bytes) else {
 			return "{\"error\":\"decode\"}".to_string();
 		};
 
-		let frames = frames.max(1);
-		let window = window.max(1).min(sample.pcm.len());
-		if window == 0 {
+		let window = window.max(1);
+		if sample.pcm.is_empty() {
 			return "{\"error\":\"empty\"}".to_string();
 		}
 
-		let total = window.saturating_mul(frames).min(sample.pcm.len());
+		let total = sample.pcm.len();
+		// A long recording would otherwise make thousands of pages; keep the
+		// table at a size a person can morph through.
+		const MAX_FRAMES: usize = 256;
+		let chunks = total.div_ceil(window);
+		let step = if chunks > MAX_FRAMES {
+			chunks.div_ceil(MAX_FRAMES)
+		} else {
+			1
+		};
 		let mut pages = Vec::new();
 
-		for frame in sample.pcm[..total].chunks(window) {
+		for index in (0..chunks).step_by(step) {
+			let start = index * window;
+			let end = (start + window).min(total);
+			let frame = &sample.pcm[start..end];
 			let signal = if mode == "freq" {
 				i_am_dsp::prelude::magnitude_kernel(frame, 1024)
 			} else {
@@ -224,7 +229,6 @@ fn filter_route(
 		};
 		let window = value("window").unwrap_or(2048);
 		let page = value("page").unwrap_or(0);
-		let frames = value("frames").unwrap_or(1);
 		let mode = text("mode").unwrap_or("time");
 
 		return Some(ProtocolResponse::json(handle.import_wav(
@@ -232,7 +236,6 @@ fn filter_route(
 			window,
 			page,
 			mode,
-			frames,
 		)));
 	}
 
@@ -483,7 +486,7 @@ mod tests {
 		}
 
 		let handle = FilterTableHandle::new();
-		let answer = handle.import_wav(&wav(&[0, 16_000, -16_000, 8_000]), 4, 0, "time", 1);
+		let answer = handle.import_wav(&wav(&[0, 16_000, -16_000, 8_000]), 4, 0, "time");
 
 		assert!(answer.contains("\"pages\""), "{answer}");
 		assert_eq!(handle.frame().pages()[0].len(), 256);
@@ -524,7 +527,7 @@ mod tests {
 
 		let handle = FilterTableHandle::new();
 		let samples = [0i16, 8_000, 16_000, 8_000, -8_000, -16_000, -8_000, 0];
-		let answer = handle.import_wav(&wav(&samples), 4, 0, "time", 2);
+		let answer = handle.import_wav(&wav(&samples), 4, 0, "time");
 
 		assert!(answer.contains("\"pages\""), "{answer}");
 		assert_eq!(handle.frame().pages().len(), 2);

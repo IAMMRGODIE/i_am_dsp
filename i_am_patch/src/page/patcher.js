@@ -1348,7 +1348,7 @@
 
         state.view = entry.context.filterTable && entry.context.filterTable.view;
         state.windowSamples = entry.context.filterTable && entry.context.filterTable.windowSamples;
-        state.frameCount = entry.context.filterTable && entry.context.filterTable.frameCount;
+        state.frozen = entry.context.filterTable && entry.context.filterTable.frozen;
         entry.context.filterTable = state;
         if (entry.card.repaintHero) entry.card.repaintHero();
       })
@@ -1380,9 +1380,9 @@
           .then((response) => (response.ok ? response.json() : null))
           .catch(() => {});
       },
-      import: (body, window, page, mode, frames) =>
+      import: (body, window, page, mode) =>
         fetch(
-          "/filter-table/import?node=" + entry.node.id + "&window=" + window + "&page=" + page + "&mode=" + mode + "&frames=" + frames,
+          "/filter-table/import?node=" + entry.node.id + "&window=" + window + "&page=" + page + "&mode=" + mode,
           { method: "POST", body }
         ).then((response) => (response.ok ? response.json() : null)),
       edit: (action, page) =>

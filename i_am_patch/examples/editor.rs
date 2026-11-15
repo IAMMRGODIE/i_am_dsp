@@ -666,7 +666,6 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				.split('&')
 				.find_map(|pair| pair.strip_prefix("mode="))
 				.unwrap_or("time");
-			let frames = value("frames").unwrap_or(1);
 
 			(
 				"200 OK",
@@ -674,7 +673,7 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				shared
 					.slots
 					.filter_table(node)
-					.import_wav(body_bytes, window, page, mode, frames),
+					.import_wav(body_bytes, window, page, mode),
 			)
 		}
 		("POST", path)

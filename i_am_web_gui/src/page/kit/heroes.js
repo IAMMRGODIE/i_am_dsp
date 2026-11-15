@@ -37,8 +37,8 @@
               var path = hero.kind === "filtertable" ? "/filter-table" : "/history";
               fetch(path, { method: "POST", body: body }).catch(function () {});
             },
-            import: function (body, window, page, mode, frames) {
-              return fetch("/filter-table/import?window=" + window + "&page=" + page + "&mode=" + mode + "&frames=" + frames, {
+            import: function (body, window, page, mode) {
+              return fetch("/filter-table/import?window=" + window + "&page=" + page + "&mode=" + mode, {
                 method: "POST",
                 body: body
               }).then(function (response) {
