@@ -216,6 +216,12 @@ impl<const ORDER: usize, const CHANNELS: usize> IIRFreqShifter<ORDER, CHANNELS> 
 
 	/// Sets the shift frequency of the frequency shifter.
 	pub fn set_shift_freq(&mut self, shift_freq: f32) {
+		// A caller that sweeps this every sample should pay for the rebuild once
+		// per move, not once per sample.
+		if shift_freq == self.last_shift {
+			return;
+		}
+
 		let sample_rate = self.sample_rate as f32;
 		let shift_freq = shift_freq.clamp(
 			-sample_rate / 2.0 + MIN_FREQUENCY,

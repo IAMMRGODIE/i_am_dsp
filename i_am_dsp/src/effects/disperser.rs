@@ -27,6 +27,12 @@ pub struct Disperser<const CHANNELS: usize = 2> {
 	bandwidth: f32,
 	#[sub_param]
 	biquads: Vec<Biquad<CHANNELS>>,
+	/// The cutoff the sections were designed from, so a parameter write that
+	/// bypasses the setter is noticed on the next block.
+	#[skip]
+	seen_cutoff: f32,
+	#[skip]
+	seen_bandwidth: f32,
 }
 
 impl<const CHANNELS: usize> Disperser<CHANNELS> {
@@ -43,6 +49,8 @@ impl<const CHANNELS: usize> Disperser<CHANNELS> {
 			cutoff: 440.0,
 			bandwidth: 1000.0,
 			biquads: Vec::new(),
+			seen_cutoff: 440.0,
+			seen_bandwidth: 1000.0,
 		}
 	}
 
@@ -65,8 +73,16 @@ impl<const CHANNELS: usize> Disperser<CHANNELS> {
 	/// [`Crusher`](crate::effects::crusher::Crusher)) would otherwise run the
 	/// filter design once per section.
 	pub fn set_filter_parameters(&mut self, cutoff: f32, bandwidth: f32) {
+		// Designing the prototype is not free, and an effect that calls this
+		// every sample (the wider does) should cost the design once per move.
+		if (cutoff, bandwidth) == (self.seen_cutoff, self.seen_bandwidth) {
+			return;
+		}
+
 		self.cutoff = cutoff;
 		self.bandwidth = bandwidth;
+		self.seen_cutoff = cutoff;
+		self.seen_bandwidth = bandwidth;
 
 		if self.biquads.is_empty() {
 			return;
@@ -114,6 +130,12 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Disperser<CHANNELS> {
 		other: &[&[f32; CHANNELS]],
 		ctx: &mut Box<dyn ProcessContext>,
 	) {
+		// A parameter write changes the field, not the coefficients; rebuilding
+		// here is what makes a host's cutoff actually reach the audio.
+		if self.cutoff != self.seen_cutoff || self.bandwidth != self.seen_bandwidth {
+			self.set_filter_parameters(self.cutoff, self.bandwidth);
+		}
+
 		for biquad in &mut self.biquads {
 			biquad.process(samples, other, ctx);
 		}
@@ -194,5 +216,33 @@ mod tests {
 
 		let rms = (sum / (samples / 2) as f64).sqrt();
 		assert!(rms > 0.2, "the allpass chain attenuated to {rms}");
+	}
+
+	/// A host writing the cutoff has to hear it: the chain rebuilds itself when
+	/// a value it was designed from moves, rather than only when a setter runs.
+	#[test]
+	fn a_parameter_write_rebuilds_the_chain() {
+		let mut disperser = Disperser::<2>::new(48_000);
+		disperser.set_biquad_count(4);
+		disperser.set_filter_parameters(1_000.0, 1_000.0);
+		let before = disperser.complex_response(1_000.0).1;
+
+		assert!(crate::prelude::Parameters::set_parameter(
+			&mut disperser,
+			"cutoff",
+			crate::prelude::SetValue::Float(4_000.0)
+		));
+
+		// The field moved; the design catches up on the next block.
+		let mut context: Box<dyn crate::ProcessContext> = Box::new(());
+		let mut frame = [0.0f32, 0.0];
+		disperser.process(&mut frame, &[], &mut context);
+
+		let after = disperser.complex_response(1_000.0).1;
+
+		assert!(
+			(before - after).abs() > 1e-3,
+			"phase {before} against {after}"
+		);
 	}
 }

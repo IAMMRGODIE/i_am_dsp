@@ -43,8 +43,6 @@ pub struct Dispersion {
 	disperser: Disperser<2>,
 	#[skip]
 	stages: usize,
-	#[skip]
-	cached: Option<(f32, f32)>,
 }
 
 impl Dispersion {
@@ -60,7 +58,6 @@ impl Dispersion {
 			bandwidth: 1000.0,
 			disperser,
 			stages: 0,
-			cached: None,
 		}
 	}
 }
@@ -81,18 +78,12 @@ impl Effect<2> for Dispersion {
 		if stages != self.stages {
 			self.disperser.set_biquad_count(stages);
 			self.stages = stages;
-			self.cached = None;
 		}
 
-		let filter = (self.cutoff, self.bandwidth);
-
-		// Designing the prototype is not free; do it when a knob moved, not on
-		// every sample.
-		if self.cached != Some(filter) {
-			self.disperser
-				.set_filter_parameters(self.cutoff, self.bandwidth);
-			self.cached = Some(filter);
-		}
+		// The chain skips a design that would change nothing, so this can run
+		// every sample and still cost the design once per knob move.
+		self.disperser
+			.set_filter_parameters(self.cutoff, self.bandwidth);
 
 		self.disperser.process(samples, other, context);
 	}
