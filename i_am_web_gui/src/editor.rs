@@ -100,8 +100,10 @@ pub fn editor_with_page<P: Plugin>(
 	let command_map = map;
 	let command_bypass = bypass;
 
+	let page_html = page.versioned_html();
+
 	Some(Box::new(
-		WryEditor::<P>::new(page.html, move |body| {
+		WryEditor::<P>::new(page_html.clone(), move |body| {
 			if command(body) {
 				return None;
 			}
@@ -120,7 +122,7 @@ pub fn editor_with_page<P: Plugin>(
 			}
 
 			match request.path {
-				"/" | "/index.html" => ProtocolResponse::html(page.html),
+				"/" | "/index.html" => ProtocolResponse::html(page_html.clone()),
 				"/kit.css" => ProtocolResponse {
 					status: 200,
 					content_type: "text/css; charset=utf-8",
@@ -170,6 +172,8 @@ pub fn editor_with_page<P: Plugin>(
 				_ => ProtocolResponse::not_found(),
 			}
 		})
-		.with_url("webgui://localhost/"),
+		// The document itself is cached by URL too, so a rebuild moves the URL:
+		// otherwise the page keeps the script URLs of the build before it.
+		.with_url(format!("webgui://localhost/?v={}", page.version())),
 	))
 }

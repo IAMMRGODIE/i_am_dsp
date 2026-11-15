@@ -34,6 +34,7 @@ pub const CARD_SCRIPT: &str = concat!(
 	include_str!("page/card/heroes-stage.js"),
 	include_str!("page/card/heroes-voice.js"),
 	include_str!("page/card/heroes-drums.js"),
+	include_str!("page/card/heroes-spectral.js"),
 	include_str!("page/card/registry.js"),
 	include_str!("page/card/controls.js"),
 	include_str!("page/card/card.js"),
@@ -61,11 +62,106 @@ pub struct PageAssets {
 	pub js: &'static str,
 }
 
+/// A short FNV-1a of the asset's bytes, as the URL's cache stamp.
+fn stamp(text: &str) -> String {
+	let mut hash: u32 = 2_166_136_261;
+
+	for byte in text.bytes() {
+		hash ^= byte as u32;
+		hash = hash.wrapping_mul(16_777_619);
+	}
+
+	format!("{hash:08x}")
+}
+
+/// Replaces the token after each `path?v=` with the asset's content stamp.
+fn stamp_urls(html: &str, assets: &[(&str, &str)]) -> String {
+	let mut out = html.to_string();
+
+	for (path, content) in assets {
+		let needle = format!("{path}?v=");
+		let value = stamp(content);
+
+		while let Some(index) = out.find(&needle) {
+			let start = index + needle.len();
+			let end = out[start..]
+				.find(['"', '&', ' '])
+				.map(|offset| start + offset)
+				.unwrap_or(out.len());
+
+			if out[start..end] == value {
+				break;
+			}
+
+			out.replace_range(start..end, &value);
+		}
+	}
+
+	out
+}
+
 impl PageAssets {
+	/// The page with each asset URL stamped by that asset's content.
+	///
+	/// WebView2 caches a script by its URL: a rebuild that changes the bytes but
+	/// not the URL keeps running the old page until the host forgets it. Stamping
+	/// the URL with the content makes the cache expire exactly when it should.
+	pub fn versioned_html(&self) -> String {
+		stamp_urls(
+			self.html,
+			&[
+				("/card.css", CARD_STYLE),
+				("/kit.css", self.css),
+				("/card.js", CARD_SCRIPT),
+				("/kit.js", self.js),
+			],
+		)
+	}
+
+	/// A stamp of the whole page, for the document URL a rebuild has to move.
+	pub fn version(&self) -> String {
+		stamp(&format!("{}{}{}", self.html, self.css, self.js))
+	}
+
 	/// The faceplate page: controls generated from parameter metadata.
 	pub const FACEPLATE: Self = Self {
 		html: PAGE,
 		css: STYLE,
 		js: SCRIPT,
 	};
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Every asset URL carries its content's stamp, so a rebuilt page cannot
+	/// keep running a script the WebView cached from the previous build.
+	#[test]
+	fn the_asset_urls_carry_a_content_stamp() {
+		let html = PageAssets::FACEPLATE.versioned_html();
+
+		for path in ["/card.css", "/kit.css", "/card.js", "/kit.js"] {
+			let needle = format!("{path}?v=");
+			let start = html
+				.find(&needle)
+				.unwrap_or_else(|| panic!("{path} missing"))
+				+ needle.len();
+			let end = html[start..].find('"').expect("a quoted url") + start;
+			let stamp = &html[start..end];
+
+			assert_eq!(stamp.len(), 8, "{path} stamp {stamp}");
+			assert!(
+				stamp.chars().all(|character| character.is_ascii_hexdigit()),
+				"{path} stamp {stamp}"
+			);
+		}
+	}
+
+	/// The stamp is the content, so two different assets never share one.
+	#[test]
+	fn a_different_asset_gets_a_different_stamp() {
+		assert_ne!(stamp("one"), stamp("two"));
+		assert_eq!(stamp("one"), stamp("one"));
+	}
 }
