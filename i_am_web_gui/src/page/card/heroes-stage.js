@@ -1033,7 +1033,6 @@
 
     el.addEventListener("dragover", function (event) {
       event.preventDefault();
-      event.stopPropagation();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
       el.classList.add("drop");
     });
@@ -1044,7 +1043,6 @@
 
     el.addEventListener("drop", function (event) {
       event.preventDefault();
-      event.stopPropagation();
       el.classList.remove("drop");
 
       var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];

@@ -219,18 +219,18 @@ fn import_pages(
 		return Err("the file holds no samples".to_string());
 	}
 
-	let slices = slice_frames(&sample.pcm, window, slice);
-	if slices.is_empty() {
+	let ranges = slice_ranges(&sample.pcm, window, slice);
+	if ranges.is_empty() {
 		return Err("the file holds no frames".to_string());
 	}
 
 	const MAX_FRAMES: usize = 256;
-	let step = if slices.len() > MAX_FRAMES {
-		slices.len().div_ceil(MAX_FRAMES)
+	let step = if ranges.len() > MAX_FRAMES {
+		ranges.len().div_ceil(MAX_FRAMES)
 	} else {
 		1
 	};
-	let total = slices.iter().step_by(step).count();
+	let total = ranges.iter().step_by(step).count();
 
 	if let Some(progress) = progress {
 		let mut progress = progress.lock().unwrap_or_else(|error| error.into_inner());
@@ -240,14 +240,15 @@ fn import_pages(
 
 	let mut pages = Vec::with_capacity(total);
 
-	for (index, frame) in slices.iter().step_by(step).enumerate() {
-		let signal = if mode == "freq" {
-			i_am_dsp::prelude::magnitude_kernel(frame, 1024)
+	for (index, (start, end)) in ranges.iter().step_by(step).enumerate() {
+		let frame = &sample.pcm[*start..*end];
+		let points = if mode == "freq" {
+			points_from_signal(&i_am_dsp::prelude::magnitude_kernel(frame, 1024), 256)
 		} else {
-			frame.clone()
+			points_from_signal(frame, 256)
 		};
 
-		pages.push(points_from_signal(&signal, 256));
+		pages.push(points);
 
 		if let Some(progress) = progress {
 			let mut progress = progress.lock().unwrap_or_else(|error| error.into_inner());
@@ -268,10 +269,10 @@ fn import_pages(
 	Ok(())
 }
 
-/// Cuts a sample into frames. Auto follows the Shapes rules: a short file is
-/// one cycle, a whole number of windows is fixed, and anything else that has a
-/// stable pitch is cut at its cycle.
-fn slice_frames(samples: &[f32], window: usize, slice: &str) -> Vec<Vec<f32>> {
+/// The byte ranges of the frames a sample cuts into. Auto follows the Shapes
+/// rules: a short file is one cycle, a whole number of windows is fixed, and
+/// anything else that has a stable pitch is cut at its cycle.
+fn slice_ranges(samples: &[f32], window: usize, slice: &str) -> Vec<(usize, usize)> {
 	let window = window.max(1);
 	let cycle = if slice == "auto" || slice == "pitch" {
 		detect_cycle(samples)
@@ -279,24 +280,29 @@ fn slice_frames(samples: &[f32], window: usize, slice: &str) -> Vec<Vec<f32>> {
 		None
 	};
 
-	let raw: Vec<&[f32]> = match slice {
-		"single" => vec![samples],
-		"pitch" => samples.chunks(cycle.unwrap_or(window)).collect(),
-		"fixed" => samples.chunks(window).collect(),
+	let step = match slice {
+		"single" => samples.len(),
+		"pitch" => cycle.unwrap_or(window),
+		"fixed" => window,
 		_ => {
 			if samples.len() < window + window / 2 {
-				vec![samples]
+				samples.len()
 			} else if samples.len().is_multiple_of(window) {
-				samples.chunks(window).collect()
-			} else if let Some(cycle) = cycle {
-				samples.chunks(cycle).collect()
+				window
 			} else {
-				samples.chunks(window).collect()
+				cycle.unwrap_or(window)
 			}
 		}
 	};
 
-	raw.into_iter().map(|frame| frame.to_vec()).collect()
+	if step == 0 {
+		return Vec::new();
+	}
+
+	(0..samples.len())
+		.step_by(step)
+		.map(|start| (start, (start + step).min(samples.len())))
+		.collect()
 }
 
 /// The first strong period in a sample, in samples.
