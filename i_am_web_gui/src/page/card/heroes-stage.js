@@ -814,6 +814,7 @@
         points: response,
         color: accent,
         segments: 36,
+        handles: !frozen,
       }, null);
 
       // Harmonic 24 is Cutoff; on the Nyquist-relative axis it sits at 24/512.
@@ -832,6 +833,7 @@
         points: pages[selected],
         color: accent,
         segments: 36,
+        handles: !frozen,
       }, null);
     };
 
@@ -924,6 +926,7 @@
       if (frozen) detachEditor();
       else attachEditor();
 
+      redraw();
       setLabel();
 
       var button = el.querySelector('[data-action="filter-freeze"]');

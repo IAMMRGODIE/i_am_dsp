@@ -124,6 +124,8 @@
       "stroke-linecap": "round", "vector-effect": "non-scaling-stroke"
     }));
 
+    if (data.handles === false) return;
+
     points.forEach(function (item) {
       var x = 8 + item.time * 284;
       var y = 60 - item.value * 52;
