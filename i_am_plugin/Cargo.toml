@@ -35,7 +35,7 @@ clack-host = "0.1.1"
 # here so a plug-in crate only depends on one plugin package. The non-Windows
 # build keeps a stub with the same API.
 [target.'cfg(windows)'.dependencies]
-wry = { version = "0.57.1", default-features = false }
+wry = { version = "0.57.2", default-features = false }
 windows-sys = { version = "0.61", features = [
 	"Win32_Foundation",
 	"Win32_Graphics_Gdi",

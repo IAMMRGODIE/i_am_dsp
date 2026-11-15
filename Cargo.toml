@@ -30,7 +30,7 @@ i_am_patch = { path = "i_am_patch" }
 i_am_patch_product = { path = "i_am_patch_product" }
 i_am_synths = { path = "i_am_synths" }
 
-# wry 0.57.1 registers a process-global WRY_WEBVIEW window class. A host that
+# wry registers a process-global WRY_WEBVIEW window class. A host that
 # unloads a plug-in DLL while the process stays alive leaves that class with a
 # dangling wndproc, and the next WebView crashes on its first window message.
 # The vendored copy gives each WebView its own class and unregisters it on drop.
