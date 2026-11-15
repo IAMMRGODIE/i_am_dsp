@@ -33,6 +33,7 @@ pub mod reverb_ir_gen;
 pub mod router;
 pub mod schroeder;
 pub mod smoothed_effect;
+pub mod spectral_dynamics;
 pub mod spectral_retune;
 pub mod stereo_control;
 pub mod tape_stop;

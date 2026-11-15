@@ -23,6 +23,7 @@ pub use super::psola::*;
 pub use super::reverb::*;
 pub use super::reverb_ir_gen::*;
 pub use super::smoothed_effect::*;
+pub use super::spectral_dynamics::*;
 pub use super::spectral_retune::*;
 pub use super::stereo_control::*;
 pub use super::unstablizer::*;

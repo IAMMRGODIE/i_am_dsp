@@ -14,6 +14,16 @@ pub trait FrequencyMapper: Parameters {
 	/// Maps a frequency and amplitude to a new frequency and amplitude.
 	fn map_frequency(&mut self, frequency: f32, amplitude: f32) -> (f32, f32);
 
+	/// Told the analysis settings before the first bin is mapped.
+	///
+	/// A mapper that carries per-bin state sizes it here; a mapper that keeps
+	/// nothing between bins leaves the default alone. The window size changes
+	/// only when the vocoder is rebuilt, so this is the one place a per-bin
+	/// table can be allocated without doing it per frame.
+	fn prepare(&mut self, sample_rate: usize, window_size: usize, window_factor: f32) {
+		let _ = (sample_rate, window_size, window_factor);
+	}
+
 	/// Returns the phase a mapped bin is synthesized with.
 	///
 	/// `analysis_phase` is the phase the bin was measured with, and
@@ -148,7 +158,7 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 		let temp_buffer = core::array::from_fn(|_| vec![Complex::ZERO; window_size]);
 		let output_temp_buffer = core::array::from_fn(|_| vec![Complex::ZERO; window_size]);
 
-		Self {
+		let mut effect = Self {
 			mapper,
 			window_factor: 0.54,
 			window_offset: 0,
@@ -167,7 +177,13 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 			output_temp_buffer,
 			input_count: 0,
 			output_count: 0,
-		}
+		};
+
+		effect
+			.mapper
+			.prepare(sample_rate, window_size, effect.window_factor);
+
+		effect
 	}
 
 	/// Returns the window size in samples.
@@ -205,6 +221,9 @@ impl<Mapper: FrequencyMapper, const CHANNELS: usize> PhaseVocoder<Mapper, CHANNE
 
 		self.input_count = 0;
 		self.output_count = 0;
+
+		self.mapper
+			.prepare(self.sample_rate, window_size, self.window_factor);
 
 		Some(window_size)
 	}
