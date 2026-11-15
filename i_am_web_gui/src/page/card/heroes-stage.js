@@ -1031,23 +1031,26 @@
       input.click();
     };
 
-    el.addEventListener("dragover", function (event) {
+    // These are properties, not listeners: the product page rewires the hero
+    // on every poll, and addEventListener would stack a new drop handler each
+    // time. A drop then ran hundreds of handlers and took the host with it.
+    el.ondragover = function (event) {
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
       el.classList.add("drop");
-    });
+    };
 
-    el.addEventListener("dragleave", function () {
+    el.ondragleave = function () {
       el.classList.remove("drop");
-    });
+    };
 
-    el.addEventListener("drop", function (event) {
+    el.ondrop = function (event) {
       event.preventDefault();
       el.classList.remove("drop");
 
       var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
       if (file) importBuffer(file);
-    });
+    };
 
     svg.addEventListener("pointerdown", function (event) {
       var buttons = el.querySelectorAll(".hero-action");
