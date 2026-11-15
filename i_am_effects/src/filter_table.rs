@@ -273,7 +273,11 @@ fn import_pages(
 /// stable pitch is cut at its cycle.
 fn slice_frames(samples: &[f32], window: usize, slice: &str) -> Vec<Vec<f32>> {
 	let window = window.max(1);
-	let cycle = detect_cycle(samples);
+	let cycle = if slice == "auto" || slice == "pitch" {
+		detect_cycle(samples)
+	} else {
+		None
+	};
 
 	let raw: Vec<&[f32]> = match slice {
 		"single" => vec![samples],
@@ -297,13 +301,13 @@ fn slice_frames(samples: &[f32], window: usize, slice: &str) -> Vec<Vec<f32>> {
 
 /// The first strong period in a sample, in samples.
 fn detect_cycle(samples: &[f32]) -> Option<usize> {
-	let max_lag = (samples.len() / 2).min(4096);
+	let max_lag = (samples.len() / 2).min(1024);
 
 	if max_lag < 16 {
 		return None;
 	}
 
-	let span = samples.len().min(4096);
+	let span = samples.len().min(2048);
 	let mut best = 0.0f32;
 	let mut best_lag = 0;
 

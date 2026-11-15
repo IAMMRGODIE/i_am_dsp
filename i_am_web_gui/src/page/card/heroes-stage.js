@@ -961,10 +961,13 @@
     };
 
     var importBuffer = function (file) {
-      if (!file || frozen || importing) return;
+      if (!file || frozen || importing || table.importing) return;
+
+      importing = true;
+      table.importing = true;
+      el.dataset.busy = "1";
 
       var windowSamples = Math.max(1, parseInt(table.windowSamples, 10) || 2048);
-      importing = true;
 
       file.arrayBuffer().then(function (body) {
         if (!state.import) throw new Error("no import route");
@@ -985,6 +988,8 @@
           }
 
           importing = false;
+          table.importing = false;
+          delete el.dataset.busy;
           showProgress("IMPORT \u00b7 DONE");
           state.reload().then(function (result) {
             replacePages(result);
@@ -994,6 +999,8 @@
 
         var fail = function (error) {
           importing = false;
+          table.importing = false;
+          delete el.dataset.busy;
           showProgress("IMPORT \u00b7 FAILED");
           setTimeout(hideProgress, 900);
           console.warn(error);
@@ -1002,6 +1009,8 @@
         watch(progress);
       }).catch(function (error) {
         importing = false;
+        table.importing = false;
+        delete el.dataset.busy;
         showProgress("IMPORT \u00b7 FAILED");
         setTimeout(hideProgress, 900);
         console.warn(error);
