@@ -63,6 +63,24 @@ pub struct OuterWider {
 	#[layout(group = "Width", order = 4, widget = knob)]
 	pub low_cut: f32,
 
+	/// Where the allpass chain scatters the phase most.
+	#[range(min = 20.0, max = 20_000.0)]
+	#[unit(hertz)]
+	#[logarithmic]
+	#[default(1_000.0)]
+	#[id(display = "Cutoff")]
+	#[layout(group = "Width", order = 5, widget = knob)]
+	pub cutoff: f32,
+
+	/// How wide a band around the cutoff the scattering covers.
+	#[range(min = 20.0, max = 10_000.0)]
+	#[unit(hertz)]
+	#[logarithmic]
+	#[default(1_600.0)]
+	#[id(display = "Bandwidth")]
+	#[layout(group = "Width", order = 6, widget = knob)]
+	pub bandwidth: f32,
+
 	#[skip]
 	sample_rate: usize,
 	#[skip]
@@ -77,6 +95,10 @@ pub struct OuterWider {
 	seen_disperse: f32,
 	#[skip]
 	seen_low_cut: f32,
+	#[skip]
+	seen_cutoff: f32,
+	#[skip]
+	seen_bandwidth: f32,
 }
 
 impl OuterWider {
@@ -95,6 +117,8 @@ impl OuterWider {
 			shift: 1.5,
 			disperse: 0.4,
 			low_cut: 150.0,
+			cutoff: 1_000.0,
+			bandwidth: 1_600.0,
 			sample_rate,
 			lows,
 			shifter: IIRFreqShifter::new(sample_rate, 1.5),
@@ -102,6 +126,8 @@ impl OuterWider {
 			seen_shift: 1.5,
 			seen_disperse: 0.4,
 			seen_low_cut: 150.0,
+			seen_cutoff: 1_000.0,
+			seen_bandwidth: 1_600.0,
 		}
 	}
 
@@ -120,8 +146,18 @@ impl OuterWider {
 		if self.disperse != self.seen_disperse {
 			self.disperser
 				.set_biquad_count(Self::sections(self.disperse));
-			self.disperser.set_filter_parameters(1_000.0, 1_600.0);
+			self.disperser
+				.set_filter_parameters(self.cutoff, self.bandwidth);
 			self.seen_disperse = self.disperse;
+			self.seen_cutoff = self.cutoff;
+			self.seen_bandwidth = self.bandwidth;
+		}
+
+		if self.cutoff != self.seen_cutoff || self.bandwidth != self.seen_bandwidth {
+			self.disperser
+				.set_filter_parameters(self.cutoff, self.bandwidth);
+			self.seen_cutoff = self.cutoff;
+			self.seen_bandwidth = self.bandwidth;
 		}
 
 		if self.low_cut != self.seen_low_cut {
@@ -166,10 +202,13 @@ impl Effect<2> for OuterWider {
 		self.disperser = Disperser::<1>::new(self.sample_rate);
 		self.disperser
 			.set_biquad_count(Self::sections(self.disperse));
-		self.disperser.set_filter_parameters(1_000.0, 1_600.0);
+		self.disperser
+			.set_filter_parameters(self.cutoff, self.bandwidth);
 		self.seen_shift = self.shift;
 		self.seen_disperse = self.disperse;
 		self.seen_low_cut = self.low_cut;
+		self.seen_cutoff = self.cutoff;
+		self.seen_bandwidth = self.bandwidth;
 	}
 }
 
@@ -220,6 +259,8 @@ mod tests {
 		wider.shift = 10.0;
 		wider.disperse = 1.0;
 		wider.low_cut = 60.0;
+		wider.cutoff = 400.0;
+		wider.bandwidth = 300.0;
 
 		let input = |index: usize| {
 			let phase = std::f32::consts::TAU * 440.0 * index as f32 / 48_000.0;

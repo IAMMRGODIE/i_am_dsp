@@ -142,7 +142,7 @@ fn main() {
 			(
 				i_am_web_gui::face_json(
 					&plugin,
-					&Faceplate::new("I Am Wider", "#ff6fae", (640.0, 360.0)),
+					&Faceplate::new("I Am Wider", "#ff6fae", (760.0, 360.0)),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

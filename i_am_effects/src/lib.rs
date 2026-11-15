@@ -190,7 +190,7 @@ web_plugin!(
 	OuterWider::new,
 	"iamdsp.effects.outer_wider.web",
 	"I Am Wider",
-	(640.0, 360.0),
+	(760.0, 360.0),
 	"#ff6fae"
 );
 
