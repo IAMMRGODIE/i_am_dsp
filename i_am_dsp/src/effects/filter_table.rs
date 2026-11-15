@@ -243,6 +243,8 @@ pub struct FilterTableEffect {
 	#[skip]
 	fade: f32,
 	#[skip]
+	fade_step: f32,
+	#[skip]
 	low_initialized: bool,
 	#[skip]
 	seen_factor: usize,
@@ -306,6 +308,7 @@ impl FilterTableEffect {
 			low_lp: [[0.0; 2]; 2],
 			low_alpha: 0.0,
 			fade: 1.0,
+			fade_step: 1.0 / (sample_rate as f32 * 0.03).max(1.0),
 			low_initialized: false,
 			seen_factor: 0,
 			dry: core::array::from_fn(|_| vec![0.0; TAPS / 2 * 8 + 1]),
@@ -425,8 +428,15 @@ impl FilterTableEffect {
 				self.next = target;
 				self.blend = 1.0;
 			} else {
-				self.previous = self.kernel;
-				self.previous_rev = self.kernel_rev;
+				// Start the new fade from the kernel that is actually playing, not
+				// from the previous target. Otherwise a control move during a fade
+				// jumps from the mix to the old target in one sample.
+				let mix = self.blend;
+				for index in 0..TAPS {
+					self.previous[index] =
+						self.previous[index] + (self.next[index] - self.previous[index]) * mix;
+				}
+				self.previous_rev = reverse(&self.previous);
 				self.next = target;
 				self.blend = 0.0;
 			}
@@ -447,7 +457,11 @@ impl FilterTableEffect {
 				self.low_next_rev = self.low_previous_rev;
 				self.blend = 1.0;
 			} else {
-				self.low_previous_rev = self.low_kernel_rev;
+				let mix = self.blend;
+				for index in 0..TAPS {
+					self.low_previous_rev[index] = self.low_previous_rev[index]
+						+ (self.low_next_rev[index] - self.low_previous_rev[index]) * mix;
+				}
 				self.low_next_rev = reverse(&target);
 				self.blend = 0.0;
 			}
@@ -653,14 +667,14 @@ impl Effect<2> for FilterTableEffect {
 				}
 			}
 
-			self.blend = (blend + 1.0 / 128.0).min(1.0);
+			self.blend = (blend + self.fade_step).min(1.0);
 
 			let fade = self.fade;
 			for (channel, sample) in samples.iter_mut().enumerate() {
 				*sample = dry[channel] * (1.0 - mix) + wet[channel] * fade * mix;
 			}
 
-			self.fade = (fade + 1.0 / 128.0).min(1.0);
+			self.fade = (fade + self.fade_step).min(1.0);
 			self.write = (self.write + 1) % TAPS;
 			return;
 		}
@@ -697,7 +711,7 @@ impl Effect<2> for FilterTableEffect {
 			}
 			self.low_interp = 0.0;
 
-			self.blend = (blend + 1.0 / 128.0).min(1.0);
+			self.blend = (blend + self.fade_step * factor as f32).min(1.0);
 			self.low_write = (self.low_write + 1) % TAPS;
 			self.low_count = 0;
 			self.low_sum = [0.0; 2];
@@ -710,7 +724,7 @@ impl Effect<2> for FilterTableEffect {
 				+ (self.low_out[channel] - self.low_previous_out[channel]) * self.low_interp;
 			*sample = dry[channel] * (1.0 - mix) + wet * fade * mix;
 		}
-		self.fade = (fade + 1.0 / 128.0).min(1.0);
+		self.fade = (fade + self.fade_step).min(1.0);
 	}
 }
 
