@@ -40,6 +40,9 @@
     heroes.forEach(function (hero) {
       // A canvas being dragged owns its own markup until the pointer is up.
       if (hero.el.dataset.busy === "1") return;
+      // A pointer resting on the hero's buttons owns them too: replacing the
+      // markup would drop the hover and the click that is about to land.
+      if (hero.el.dataset.hoverActions === "1") return;
 
       var content = IAmCard.hero(hero.kind, values, {
         active: activeControl,

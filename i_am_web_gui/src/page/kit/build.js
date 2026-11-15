@@ -599,6 +599,23 @@
           }, { passive: false });
         }
 
+        // A live picture redraws while the pointer rests on its buttons, and a
+        // replacement drops the hover and the click under the pointer. The hero
+        // remembers that its actions are hovered, and the repaint skips them.
+        hero.addEventListener("pointerover", function (event) {
+          if (event.target.closest(".hero-actions")) hero.dataset.hoverActions = "1";
+        });
+        hero.addEventListener("pointerout", function (event) {
+          var inside = event.relatedTarget && event.relatedTarget.closest
+            ? event.relatedTarget.closest(".hero-actions")
+            : null;
+
+          if (event.target.closest(".hero-actions") && !inside) delete hero.dataset.hoverActions;
+        });
+        hero.addEventListener("pointerleave", function () {
+          delete hero.dataset.hoverActions;
+        });
+
         heroes.push({ el: hero, kind: section.hero });
         el.appendChild(hero);
       } else {
