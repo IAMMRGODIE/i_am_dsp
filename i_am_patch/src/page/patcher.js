@@ -1347,7 +1347,7 @@
         if (!state || !state.pages) return;
 
         state.view = entry.context.filterTable && entry.context.filterTable.view;
-        state.windowMs = entry.context.filterTable && entry.context.filterTable.windowMs;
+        state.windowSamples = entry.context.filterTable && entry.context.filterTable.windowSamples;
         entry.context.filterTable = state;
         if (entry.card.repaintHero) entry.card.repaintHero();
       })
@@ -1379,6 +1379,11 @@
           .then((response) => (response.ok ? response.json() : null))
           .catch(() => {});
       },
+      import: (body, window, page) =>
+        fetch(
+          "/filter-table/import?node=" + entry.node.id + "&window=" + window + "&page=" + page,
+          { method: "POST", body }
+        ).then((response) => (response.ok ? response.json() : null)),
     });
   }
 

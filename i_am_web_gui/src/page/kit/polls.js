@@ -519,7 +519,7 @@
         if (!state || !state.pages) return;
         if (document.querySelector(".hero[data-busy='1']")) return;
         state.view = filterTableState && filterTableState.view;
-        state.windowMs = filterTableState && filterTableState.windowMs;
+        state.windowSamples = filterTableState && filterTableState.windowSamples;
         filterTableState = state;
         markDirty();
       })

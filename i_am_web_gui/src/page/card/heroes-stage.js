@@ -742,104 +742,12 @@
   }
 
   /// The mono samples of a window of an AudioBuffer.
-  function importWindow(buffer, windowMs) {
-    var rate = buffer.sampleRate;
-    var source = buffer.getChannelData(0);
-    var wanted = Math.max(1, Math.min(source.length, Math.round(windowMs / 1000 * rate)));
-    var samples = new Array(wanted);
-
-    for (var index = 0; index < wanted; index++) samples[index] = source[index];
-
-    var peak = 1e-9;
-    for (var index = 0; index < wanted; index++) peak = Math.max(peak, Math.abs(samples[index]));
-    for (var index = 0; index < wanted; index++) samples[index] /= peak;
-
-    return samples;
-  }
 
   /// A sample as a time kernel, resampled to 256 page points.
-  function importTimePoints(buffer, windowMs) {
-    var samples = importWindow(buffer, windowMs);
-    var count = 256;
-    var points = [];
-
-    for (var index = 0; index < count; index++) {
-      var at = index / (count - 1) * (samples.length - 1);
-      var left = Math.floor(at);
-      var right = Math.min(left + 1, samples.length - 1);
-      var value = samples[left] + (samples[right] - samples[left]) * (at - left);
-
-      points.push({ time: index / (count - 1), value: value * 0.5 + 0.5, bend: 0 });
-    }
-
-    return points;
-  }
 
   /// A sample as a relative frequency curve, then IFFT to a time kernel.
-  function importFrequencyPoints(buffer, windowMs) {
-    var samples = importWindow(buffer, windowMs);
-    var size = 1024;
-    var re = new Array(size).fill(0);
-    var im = new Array(size).fill(0);
-
-    for (var index = 0; index < size; index++) {
-      re[index] = samples[Math.floor(index / size * samples.length)] || 0;
-    }
-
-    fft(re, im, false);
-
-    var magnitude = [];
-    var peak = 1e-9;
-
-    for (var bin = 0; bin <= size / 2; bin++) {
-      var value = Math.sqrt(re[bin] * re[bin] + im[bin] * im[bin]);
-      magnitude.push(value);
-      peak = Math.max(peak, value);
-    }
-
-    var bins = 64;
-    var response = [];
-
-    for (var band = 0; band < bins; band++) {
-      var at = band / (bins - 1) * (size / 2);
-      var index = Math.floor(at);
-      var fraction = at - index;
-      var first = magnitude[index] || 0;
-      var second = magnitude[Math.min(index + 1, magnitude.length - 1)] || 0;
-      var level = first + (second - first) * fraction;
-      var db = 20 * Math.log10(Math.max(level / peak, 1e-4));
-      var value = Math.max(0, Math.min(1, (db + 48) / 48));
-
-      response.push({ time: band / (bins - 1), value: value, bend: 0 });
-    }
-
-    return response;
-  }
 
   /// Decode a file with Web Audio, so a sample can be imported as a kernel.
-  function decodeSample(file) {
-    return new Promise(function (resolve, reject) {
-      var Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) {
-        reject(new Error("no AudioContext"));
-        return;
-      }
-
-      var reader = new FileReader();
-      reader.onerror = function () { reject(new Error("read failed")); };
-      reader.onload = function () {
-        var context = new Ctx();
-        context.decodeAudioData(reader.result.slice(0), function (buffer) {
-          resolve(buffer);
-          context.close();
-        }, function () {
-          reject(new Error("decode failed"));
-          context.close();
-        });
-      };
-      reader.readAsArrayBuffer(file);
-    });
-  }
 
   function filterTableHero(values, context) {
     var table = context && context.filterTable;
@@ -981,26 +889,32 @@
     var importFile = function () {
       var input = document.createElement("input");
       input.type = "file";
-      input.accept = "audio/*,.wav,.aif,.aiff,.flac";
+      input.accept = ".wav,audio/wav";
 
       input.onchange = function () {
         var file = input.files && input.files[0];
         if (!file) return;
 
-        var answer = window.prompt("Window length (ms)", String(table.windowMs || 100));
-        var windowMs = Math.max(1, parseFloat(answer) || 100);
-        table.windowMs = windowMs;
+        var answer = window.prompt("Window length (samples)", String(table.windowSamples || 2048));
+        var windowSamples = Math.max(1, parseInt(answer, 10) || 2048);
+        table.windowSamples = windowSamples;
 
-        decodeSample(file).then(function (buffer) {
-          if (view === "freq") {
-            response = importFrequencyPoints(buffer, windowMs);
-            pages[selected] = filterTimeFromResponse(response);
-          } else {
-            pages[selected] = importTimePoints(buffer, windowMs);
+        file.arrayBuffer().then(function (body) {
+          if (!state.import) {
+            throw new Error("no import route");
           }
 
-          post();
+          return state.import(body, windowSamples, selected);
+        }).then(function (result) {
+          if (!result || !result.pages) throw new Error("import failed");
+
+          table.pages = result.pages;
+          pages = result.pages;
+          selected = Math.min(selected, pages.length - 1);
+          response = view === "freq" ? filterResponsePoints(pages[selected]) : null;
+          detachEditor();
           redraw();
+          attachEditor();
         }).catch(function (error) {
           var label = el.querySelector(".hero-label");
           if (label) label.textContent = "FILTER TABLE \u00b7 IMPORT FAILED";

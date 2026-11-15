@@ -76,6 +76,17 @@ impl FilterFrame {
 		self.set_pages(vec![points]);
 	}
 
+	/// Replaces one page and keeps the rest.
+	pub fn set_page(&self, index: usize, points: Vec<FilterPoint>) {
+		let mut pages = self.pages();
+		if pages.is_empty() {
+			pages.push(default_points());
+		}
+		let index = index.min(pages.len() - 1);
+		pages[index] = points;
+		self.set_pages(pages);
+	}
+
 	/// Replaces all pages; the swap is safe for the audio thread to read.
 	pub fn set_pages(&self, mut pages: Vec<Vec<FilterPoint>>) {
 		if pages.is_empty() {

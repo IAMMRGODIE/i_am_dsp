@@ -57,6 +57,39 @@ impl FilterTableHandle {
 	pub fn frame(&self) -> Arc<FilterFrame> {
 		self.0.clone()
 	}
+
+	/// Decodes a WAV into the selected page. `window` is in source samples; the
+	/// page's own resample then turns it into the 256 points the editor draws.
+	pub fn import_wav(&self, bytes: &[u8], window: usize, page: usize) -> String {
+		let Ok(sample) = i_am_dsp::prelude::decode_click(bytes) else {
+			return "{\"error\":\"decode\"}".to_string();
+		};
+
+		let window = window.max(1).min(sample.pcm.len());
+		if window == 0 {
+			return "{\"error\":\"empty\"}".to_string();
+		}
+
+		let count = 256;
+		let mut points = Vec::with_capacity(count);
+
+		for index in 0..count {
+			let at = index as f32 / (count - 1) as f32 * (window - 1) as f32;
+			let left = at.floor() as usize;
+			let right = (left + 1).min(window - 1);
+			let value =
+				sample.pcm[left] + (sample.pcm[right] - sample.pcm[left]) * (at - left as f32);
+
+			points.push(FilterPoint {
+				time: index as f32 / (count - 1) as f32,
+				value: (value * 0.5 + 0.5).clamp(0.0, 1.0),
+				bend: 0.0,
+			});
+		}
+
+		self.0.set_page(page, points);
+		self.state_json()
+	}
 }
 
 impl Default for FilterTableHandle {
@@ -69,6 +102,29 @@ fn filter_route(
 	request: &ProtocolRequest<'_>,
 	handle: &FilterTableHandle,
 ) -> Option<ProtocolResponse> {
+	if request.path == "/filter-table/import" {
+		if request.method != "POST" {
+			return Some(ProtocolResponse::json("{\"error\":\"method\"}"));
+		}
+
+		let value = |key: &str| {
+			request
+				.query
+				.unwrap_or("")
+				.split('&')
+				.find_map(|pair| pair.strip_prefix(&format!("{key}=")))
+				.and_then(|value| value.parse::<usize>().ok())
+		};
+		let window = value("window").unwrap_or(2048);
+		let page = value("page").unwrap_or(0);
+
+		return Some(ProtocolResponse::json(handle.import_wav(
+			request.body,
+			window,
+			page,
+		)));
+	}
+
 	if request.path != "/filter-table" {
 		return None;
 	}
@@ -270,5 +326,35 @@ mod tests {
 
 		assert!(restored.set_parameter("filter_pages", SetValue::Serialized(bytes)));
 		assert_eq!(restored.handle().frame().pages().len(), 2);
+	}
+
+	#[test]
+	fn an_imported_wav_fills_the_page() {
+		fn wav(samples: &[i16]) -> Vec<u8> {
+			let data_len = (samples.len() * 2) as u32;
+			let mut bytes = Vec::new();
+			bytes.extend_from_slice(b"RIFF");
+			bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+			bytes.extend_from_slice(b"WAVEfmt ");
+			bytes.extend_from_slice(&16u32.to_le_bytes());
+			bytes.extend_from_slice(&1u16.to_le_bytes());
+			bytes.extend_from_slice(&1u16.to_le_bytes());
+			bytes.extend_from_slice(&48_000u32.to_le_bytes());
+			bytes.extend_from_slice(&96_000u32.to_le_bytes());
+			bytes.extend_from_slice(&2u16.to_le_bytes());
+			bytes.extend_from_slice(&16u16.to_le_bytes());
+			bytes.extend_from_slice(b"data");
+			bytes.extend_from_slice(&data_len.to_le_bytes());
+			for sample in samples {
+				bytes.extend_from_slice(&sample.to_le_bytes());
+			}
+			bytes
+		}
+
+		let handle = FilterTableHandle::new();
+		let answer = handle.import_wav(&wav(&[0, 16_000, -16_000, 8_000]), 4, 0);
+
+		assert!(answer.contains("\"pages\""), "{answer}");
+		assert_eq!(handle.frame().pages()[0].len(), 256);
 	}
 }

@@ -134,6 +134,24 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			Some(ProtocolResponse::json(answer))
 		}
+		("POST", "/filter-table/import") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let window = query_value(request, "window")
+				.and_then(|value| value.parse::<usize>().ok())
+				.unwrap_or(2048);
+			let page = query_value(request, "page")
+				.and_then(|value| value.parse::<usize>().ok())
+				.unwrap_or(0);
+
+			Some(ProtocolResponse::json(
+				shared
+					.slots
+					.filter_table(node)
+					.import_wav(request.body, window, page),
+			))
+		}
 		("GET", "/filter-table") | ("POST", "/filter-table") => {
 			let node = query_value(request, "node")
 				.and_then(|value| value.parse::<u32>().ok())

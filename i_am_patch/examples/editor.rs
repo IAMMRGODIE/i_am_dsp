@@ -649,6 +649,29 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				shared.slots.drummer(node).set_amp(body_bytes, drum),
 			)
 		}
+		("POST", path)
+			if path == "/filter-table/import" || path.starts_with("/filter-table/import?") =>
+		{
+			let query = path.split_once('?').map(|(_, query)| query).unwrap_or("");
+			let value = |key: &str| {
+				query
+					.split('&')
+					.find_map(|pair| pair.strip_prefix(&format!("{key}=")))
+					.and_then(|value| value.parse::<usize>().ok())
+			};
+			let node = value("node").unwrap_or(0) as u32;
+			let window = value("window").unwrap_or(2048);
+			let page = value("page").unwrap_or(0);
+
+			(
+				"200 OK",
+				"application/json",
+				shared
+					.slots
+					.filter_table(node)
+					.import_wav(body_bytes, window, page),
+			)
+		}
 		("GET", path) if path == "/filter-table" || path.starts_with("/filter-table?") => {
 			let node = path
 				.split_once('?')
