@@ -774,11 +774,6 @@
         '<button type="button" class="hero-action" data-action="filter-import">IMPORT</button>' +
       '</div>' +
       '<div class="hero-actions" style="bottom:20px">' +
-        '<label class="filter-window" style="display:flex;align-items:center;gap:4px">WIN' +
-          '<input type="number" min="1" max="192000" step="1" value="' +
-            (table && table.windowSamples ? table.windowSamples : 2048) +
-            '" style="width:56px;background:#1a1a1a;color:var(--text2);border:1px solid #3a3a3a;border-radius:3px;font:9px/1.2 var(--mono);padding:1px 2px" data-role="filter-window"/>' +
-        '</label>' +
         '<button type="button" class="hero-action" data-action="filter-mode">' +
           (table && table.importMode === "freq" ? "IMP FREQ" : "IMP TIME") + '</button>' +
         '<button type="button" class="hero-action" data-action="filter-rev">REV</button>' +
@@ -842,6 +837,28 @@
       else drawTime();
     };
 
+    var setLabel = function () {
+      var label = el.querySelector(".hero-label");
+      if (!label) return;
+
+      label.innerHTML = "FILTER TABLE \u00b7 PAGE " + (selected + 1) + " / " +
+        pages.length + (view === "freq" ? " \u00b7 FREQ" : " \u00b7 TIME") +
+        ' \u00b7 <span data-action="filter-window" style="pointer-events:auto;cursor:pointer">WIN ' +
+        (table.windowSamples || 2048) + "</span>";
+    };
+
+    var editWindow = function (anchor) {
+      IAmCard.openKnobEditor(
+        { label: "Window", unit: "samples" },
+        table.windowSamples || 2048,
+        function (value) {
+          table.windowSamples = Math.max(1, Math.round(value));
+          setLabel();
+        },
+        anchor
+      );
+    };
+
     var attachEditor = function () {
       if (attached) return;
 
@@ -889,11 +906,7 @@
       redraw();
       attachEditor();
 
-      var label = el.querySelector(".hero-label");
-      if (label) {
-        label.textContent = "FILTER TABLE \u00b7 PAGE " + (selected + 1) + " / " +
-          pages.length + (view === "freq" ? " \u00b7 FREQ" : " \u00b7 TIME");
-      }
+      setLabel();
 
       var button = el.querySelector('[data-action="filter-view"]');
       if (button) button.textContent = view === "freq" ? "TIME" : "FREQ";
@@ -911,13 +924,20 @@
       attachEditor();
     };
 
-    var windowInput = el.querySelector('[data-role="filter-window"]');
-    if (windowInput) {
-      windowInput.addEventListener("pointerdown", function (event) { event.stopPropagation(); });
-      windowInput.addEventListener("change", function () {
-        table.windowSamples = Math.max(1, parseInt(windowInput.value, 10) || 2048);
+    var importBuffer = function (file) {
+      if (!file) return;
+
+      var windowSamples = Math.max(1, parseInt(table.windowSamples, 10) || 2048);
+
+      file.arrayBuffer().then(function (body) {
+        if (!state.import) throw new Error("no import route");
+        return state.import(body, windowSamples, selected, table.importMode || "time");
+      }).then(replacePages).catch(function (error) {
+        var label = el.querySelector(".hero-label");
+        if (label) label.textContent = "FILTER TABLE \u00b7 IMPORT FAILED";
+        console.warn(error);
       });
-    }
+    };
 
     var importFile = function () {
       var input = document.createElement("input");
@@ -926,22 +946,32 @@
 
       input.onchange = function () {
         var file = input.files && input.files[0];
-        if (!file) return;
 
-        var windowSamples = Math.max(1, parseInt(table.windowSamples, 10) || 2048);
-
-        file.arrayBuffer().then(function (body) {
-          if (!state.import) throw new Error("no import route");
-          return state.import(body, windowSamples, selected, table.importMode || "time");
-        }).then(replacePages).catch(function (error) {
-          var label = el.querySelector(".hero-label");
-          if (label) label.textContent = "FILTER TABLE \u00b7 IMPORT FAILED";
-          console.warn(error);
-        });
+        if (file) importBuffer(file);
       };
 
       input.click();
     };
+
+    el.addEventListener("dragover", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      el.classList.add("drop");
+    });
+
+    el.addEventListener("dragleave", function () {
+      el.classList.remove("drop");
+    });
+
+    el.addEventListener("drop", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      el.classList.remove("drop");
+
+      var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) importBuffer(file);
+    });
 
     svg.addEventListener("pointerdown", function (event) {
       var buttons = el.querySelectorAll(".hero-action");
@@ -974,6 +1004,8 @@
 
       if (action === "filter-view") {
         setView(view === "freq" ? "time" : "freq");
+      } else if (action === "filter-window") {
+        editWindow(button);
       } else if (action === "filter-mode") {
         table.importMode = table.importMode === "freq" ? "time" : "freq";
         button.textContent = table.importMode === "freq" ? "IMP FREQ" : "IMP TIME";
@@ -999,6 +1031,7 @@
       event.preventDefault();
     };
 
+    setLabel();
     redraw();
     attachEditor();
   }

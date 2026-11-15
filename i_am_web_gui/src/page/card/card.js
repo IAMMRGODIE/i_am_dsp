@@ -788,6 +788,7 @@
     choiceHandle: makeChoiceHandle,
     sliderHandle: makeSliderHandle,
     hero: hero,
+    openKnobEditor: openKnobEditor,
     wire: function (el, kind, values, state) {
       if (kind === "canvas") wireCanvas(el, kind, values, state);
       else if (kind === "spectrum" || kind === "morph-spectrum") {
