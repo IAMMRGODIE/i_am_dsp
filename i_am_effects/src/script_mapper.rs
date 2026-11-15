@@ -340,8 +340,6 @@ pub struct ScriptMapperEffect {
 	compiled: Option<Arc<CompiledScript>>,
 	#[skip]
 	seen_compiled: u64,
-	#[skip]
-	last_window_size: i32,
 }
 
 impl ScriptMapperEffect {
@@ -371,7 +369,6 @@ impl ScriptMapperEffect {
 			last_request: None,
 			compiled: None,
 			seen_compiled: 0,
-			last_window_size: 2,
 		}
 	}
 
@@ -431,17 +428,11 @@ impl ScriptMapperEffect {
 
 	/// Rebuilds the vocoder when the window size changes.
 	fn sync_window(&mut self) {
-		if self.window_size == self.last_window_size {
-			return;
-		}
-
 		let size = [512, 1024, 2048, 4096][self.window_size.clamp(0, 3) as usize];
 
 		if self.vocoder.renew_window_size(size).is_some() {
 			self.vocoder.gain = 1.0 / overlap_add_gain(self.vocoder.window_factor);
 		}
-
-		self.last_window_size = self.window_size;
 	}
 }
 

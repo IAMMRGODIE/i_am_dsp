@@ -72,8 +72,6 @@ pub struct ParticleWiderEffect {
 	inner: ParticleWider,
 	#[skip]
 	last_window_factor: f32,
-	#[skip]
-	last_fft_size: i32,
 }
 
 impl ParticleWiderEffect {
@@ -89,7 +87,6 @@ impl ParticleWiderEffect {
 			allow_negative: false,
 			inner: ParticleWider::new(sample_rate),
 			last_window_factor: 0.54,
-			last_fft_size: 2,
 		}
 	}
 }
@@ -111,12 +108,10 @@ impl Effect<2> for ParticleWiderEffect {
 			self.last_window_factor = self.window_factor;
 		}
 
-		if self.fft_size != self.last_fft_size {
-			let size = [512, 1024, 2048, 4096][self.fft_size.clamp(0, 3) as usize];
-			if self.inner.vocoder.renew_window_size(size).is_some() {
-				self.inner.compensate_overlap_gain();
-			}
-			self.last_fft_size = self.fft_size;
+		let size = [512, 1024, 2048, 4096][self.fft_size.clamp(0, 3) as usize];
+
+		if self.inner.vocoder.renew_window_size(size).is_some() {
+			self.inner.compensate_overlap_gain();
 		}
 
 		let mapper = &mut self.inner.vocoder.mapper;

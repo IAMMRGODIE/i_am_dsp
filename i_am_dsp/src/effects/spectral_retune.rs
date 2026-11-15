@@ -191,8 +191,6 @@ pub struct SpectralRetuneEffect {
 	#[skip]
 	inner: PhaseVocoder<SpectralRetuneMapper, 2>,
 	#[skip]
-	last_window_size: i32,
-	#[skip]
 	held_notes: Vec<usize>,
 }
 
@@ -213,7 +211,6 @@ impl SpectralRetuneEffect {
 			midi: false,
 			window_size: 2,
 			inner,
-			last_window_size: 2,
 			held_notes: Vec::new(),
 		}
 	}
@@ -272,13 +269,11 @@ impl Effect<2> for SpectralRetuneEffect {
 	) {
 		self.track_events(context);
 
-		if self.window_size != self.last_window_size {
-			let size = [512, 1_024, 2_048, 4_096][self.window_size.clamp(0, 3) as usize];
-			if self.inner.renew_window_size(size).is_some() {
-				self.inner.mapper.resize(size);
-				self.inner.gain = 1.0 / overlap_add_gain(self.inner.window_factor);
-			}
-			self.last_window_size = self.window_size;
+		let size = [512, 1_024, 2_048, 4_096][self.window_size.clamp(0, 3) as usize];
+
+		if self.inner.renew_window_size(size).is_some() {
+			self.inner.mapper.resize(size);
+			self.inner.gain = 1.0 / overlap_add_gain(self.inner.window_factor);
 		}
 
 		let dry = *samples;

@@ -43,8 +43,6 @@ pub struct PitchEffect {
 	vocoder: PhaseVocoder<PitchShift, 2>,
 	#[skip]
 	psola: Psola<2>,
-	#[skip]
-	last_window_size: i32,
 }
 
 impl PitchEffect {
@@ -56,7 +54,6 @@ impl PitchEffect {
 			time: PitchShifter::<2>::new(1_024),
 			vocoder: PhaseVocoder::new(PitchShift::default(), 2_048, sample_rate),
 			psola: Psola::<2>::new(sample_rate),
-			last_window_size: 2,
 		}
 	}
 }
@@ -88,13 +85,8 @@ impl Effect<2> for PitchEffect {
 			return;
 		}
 
-		if self.window_size != self.last_window_size {
-			let size = [512, 1024, 2048, 4096][self.window_size.clamp(0, 3) as usize];
-			if self.vocoder.renew_window_size(size).is_some() {
-				self.vocoder.gain = 1.0 / overlap_add_gain(self.vocoder.window_factor);
-			}
-			self.last_window_size = self.window_size;
-		}
+		let size = [512, 1024, 2048, 4096][self.window_size.clamp(0, 3) as usize];
+		self.vocoder.renew_window_size(size);
 
 		self.vocoder.mapper.shift = self.pitch_shift_factor;
 		self.vocoder.gain = 1.0 / overlap_add_gain(self.vocoder.window_factor);

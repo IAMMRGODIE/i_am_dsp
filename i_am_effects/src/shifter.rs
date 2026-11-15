@@ -54,8 +54,6 @@ pub struct ShifterEffect {
 	fir: FIRFreqShifter<2>,
 	#[skip]
 	vocoder: PhaseVocoder<FreqShift, 2>,
-	#[skip]
-	last_window_size: i32,
 }
 
 impl ShifterEffect {
@@ -67,7 +65,6 @@ impl ShifterEffect {
 			time: IIRFreqShifter::<8, 2>::new(sample_rate, 0.0),
 			fir: FIRFreqShifter::<2>::new(sample_rate, 0.0),
 			vocoder: PhaseVocoder::new(FreqShift::default(), 2_048, sample_rate),
-			last_window_size: 2,
 			order: 127,
 		}
 	}
@@ -105,13 +102,10 @@ impl Effect<2> for ShifterEffect {
 			return;
 		}
 
-		if self.window_size != self.last_window_size {
-			let size = [512, 1024, 2048, 4096][self.window_size.clamp(0, 3) as usize];
-			if self.vocoder.renew_window_size(size).is_some() {
-				self.vocoder.gain = 1.0 / overlap_add_gain(self.vocoder.window_factor);
-			}
-			self.last_window_size = self.window_size;
-		}
+		// The vocoder returns Some only when the size really moved, and the
+		// overlap-add gain is recomputed below on every block anyway.
+		let size = [512, 1024, 2048, 4096][self.window_size.clamp(0, 3) as usize];
+		self.vocoder.renew_window_size(size);
 
 		self.vocoder.mapper.freq = self.shift_freq;
 		self.vocoder.gain = 1.0 / overlap_add_gain(self.vocoder.window_factor);

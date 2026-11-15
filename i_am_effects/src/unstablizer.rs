@@ -66,8 +66,6 @@ pub struct UnstablizerEffect {
 	inner: Unstablizer<2>,
 	#[skip]
 	last_window_factor: f32,
-	#[skip]
-	last_window_size: i32,
 }
 
 impl UnstablizerEffect {
@@ -82,7 +80,6 @@ impl UnstablizerEffect {
 			midi: false,
 			inner: Unstablizer::new(sample_rate),
 			last_window_factor: 0.6,
-			last_window_size: 2,
 		}
 	}
 
@@ -108,12 +105,10 @@ impl Effect<2> for UnstablizerEffect {
 			self.last_window_factor = self.window_factor;
 		}
 
-		if self.window_size != self.last_window_size {
-			let size = [512, 1024, 2048, 4096][self.window_size.clamp(0, 3) as usize];
-			if self.inner.vocoder.renew_window_size(size).is_some() {
-				self.compensate_overlap_gain();
-			}
-			self.last_window_size = self.window_size;
+		let size = [512, 1024, 2048, 4096][self.window_size.clamp(0, 3) as usize];
+
+		if self.inner.vocoder.renew_window_size(size).is_some() {
+			self.compensate_overlap_gain();
 		}
 
 		self.inner.reference_pitch = self.reference_pitch;
