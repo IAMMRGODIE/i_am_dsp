@@ -96,6 +96,8 @@ impl Drop for InnerWebView {
     let _ = unsafe { self.controller.Close() };
     if self.is_child {
       let _ = unsafe { DestroyWindow(self.hwnd) };
+    } else {
+      unsafe { Self::dettach_parent_subclass(*self.parent.borrow()) }
     }
     if !self.class_name.is_empty() {
       let _ = unsafe {
@@ -105,7 +107,6 @@ impl Drop for InnerWebView {
         )
       };
     }
-    unsafe { Self::dettach_parent_subclass(*self.parent.borrow()) }
   }
 }
 
@@ -1427,7 +1428,7 @@ impl InnerWebView {
           }
         }
 
-        WM_SETFOCUS | WM_ENTERSIZEMOVE => {
+        WM_SETFOCUS => {
           let controller = dwrefdata as *mut ICoreWebView2Controller;
           let _ = (*controller).MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
         }
