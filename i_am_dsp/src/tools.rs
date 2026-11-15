@@ -3,6 +3,7 @@
 pub mod audio_io_chooser;
 pub mod beat_clock;
 pub mod bpm_syncer;
+pub mod frequency;
 pub(crate) mod interpolate;
 pub(crate) mod matrix;
 pub mod page;

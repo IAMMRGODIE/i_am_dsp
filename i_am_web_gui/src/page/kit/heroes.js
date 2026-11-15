@@ -37,10 +37,17 @@
               var path = hero.kind === "filtertable" ? "/filter-table" : "/history";
               fetch(path, { method: "POST", body: body }).catch(function () {});
             },
-            import: function (body, window, page) {
-              return fetch("/filter-table/import?window=" + window + "&page=" + page, {
+            import: function (body, window, page, mode) {
+              return fetch("/filter-table/import?window=" + window + "&page=" + page + "&mode=" + mode, {
                 method: "POST",
                 body: body
+              }).then(function (response) {
+                return response.ok ? response.json() : null;
+              });
+            },
+            edit: function (action, page) {
+              return fetch("/filter-table/edit?action=" + action + "&page=" + page, {
+                method: "POST"
               }).then(function (response) {
                 return response.ok ? response.json() : null;
               });

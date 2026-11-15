@@ -58,9 +58,11 @@ impl FilterTableHandle {
 		self.0.clone()
 	}
 
-	/// Decodes a WAV into the selected page. `window` is in source samples; the
-	/// page's own resample then turns it into the 256 points the editor draws.
-	pub fn import_wav(&self, bytes: &[u8], window: usize, page: usize) -> String {
+	/// Decodes a WAV into the selected page. `window` is in source samples.
+	///
+	/// `mode` is `time` for the waveform itself or `freq` to take only its
+	/// magnitude and turn that into a zero-phase kernel.
+	pub fn import_wav(&self, bytes: &[u8], window: usize, page: usize, mode: &str) -> String {
 		let Ok(sample) = i_am_dsp::prelude::decode_click(bytes) else {
 			return "{\"error\":\"decode\"}".to_string();
 		};
@@ -70,24 +72,67 @@ impl FilterTableHandle {
 			return "{\"error\":\"empty\"}".to_string();
 		}
 
-		let count = 256;
-		let mut points = Vec::with_capacity(count);
+		let signal = if mode == "freq" {
+			i_am_dsp::prelude::magnitude_kernel(&sample.pcm[..window], 1024)
+		} else {
+			sample.pcm[..window].to_vec()
+		};
 
-		for index in 0..count {
-			let at = index as f32 / (count - 1) as f32 * (window - 1) as f32;
-			let left = at.floor() as usize;
-			let right = (left + 1).min(window - 1);
-			let value =
-				sample.pcm[left] + (sample.pcm[right] - sample.pcm[left]) * (at - left as f32);
+		self.0.set_page(page, points_from_signal(&signal, 256));
+		self.state_json()
+	}
 
-			points.push(FilterPoint {
-				time: index as f32 / (count - 1) as f32,
-				value: (value * 0.5 + 0.5).clamp(0.0, 1.0),
-				bend: 0.0,
-			});
+	/// Applies a Shapes-style page edit: reverse, invert, dc or normalize.
+	pub fn edit_page(&self, action: &str, page: usize) -> String {
+		let mut pages = self.0.pages();
+		if pages.is_empty() {
+			return self.state_json();
 		}
 
-		self.0.set_page(page, points);
+		let index = page.min(pages.len() - 1);
+		let points = &mut pages[index];
+
+		sort_points(points);
+
+		match action {
+			"reverse" => {
+				for point in points.iter_mut() {
+					point.time = 1.0 - point.time;
+				}
+				points.sort_by(|a, b| {
+					a.time
+						.partial_cmp(&b.time)
+						.unwrap_or(core::cmp::Ordering::Equal)
+				});
+			}
+			"invert" => {
+				for point in points.iter_mut() {
+					point.value = 1.0 - point.value;
+				}
+			}
+			"dc" => {
+				let mean =
+					points.iter().map(|point| point.value).sum::<f32>() / points.len() as f32;
+				for point in points.iter_mut() {
+					point.value = (point.value - mean).clamp(0.0, 1.0);
+				}
+			}
+			"normalize" => {
+				let peak = points
+					.iter()
+					.map(|point| (point.value - 0.5).abs())
+					.fold(0.0f32, f32::max);
+				if peak > 1e-6 {
+					for point in points.iter_mut() {
+						point.value = (0.5f32 + (point.value - 0.5) / peak).clamp(0.0, 1.0);
+					}
+				}
+			}
+			_ => {}
+		}
+
+		let pages = pages;
+		self.0.set_pages(pages);
 		self.state_json()
 	}
 }
@@ -96,6 +141,37 @@ impl Default for FilterTableHandle {
 	fn default() -> Self {
 		Self::new()
 	}
+}
+
+fn sort_points(points: &mut [FilterPoint]) {
+	points.sort_by(|a, b| {
+		a.time
+			.partial_cmp(&b.time)
+			.unwrap_or(core::cmp::Ordering::Equal)
+	});
+}
+
+fn points_from_signal(signal: &[f32], count: usize) -> Vec<FilterPoint> {
+	let mut points = Vec::with_capacity(count);
+	let last = signal.len().saturating_sub(1).max(1);
+
+	for index in 0..count {
+		let at = index as f32 / count.saturating_sub(1).max(1) as f32 * last as f32;
+		let left = at.floor() as usize;
+		let right = (left + 1).min(signal.len().saturating_sub(1));
+		let value = signal.get(left).copied().unwrap_or(0.0)
+			+ (signal.get(right).copied().unwrap_or(0.0)
+				- signal.get(left).copied().unwrap_or(0.0))
+				* (at - left as f32);
+
+		points.push(FilterPoint {
+			time: index as f32 / count.saturating_sub(1).max(1) as f32,
+			value: (value * 0.5 + 0.5).clamp(0.0, 1.0),
+			bend: 0.0,
+		});
+	}
+
+	points
 }
 
 fn filter_route(
@@ -115,14 +191,43 @@ fn filter_route(
 				.find_map(|pair| pair.strip_prefix(&format!("{key}=")))
 				.and_then(|value| value.parse::<usize>().ok())
 		};
+		let text = |key: &str| {
+			request
+				.query
+				.unwrap_or("")
+				.split('&')
+				.find_map(|pair| pair.strip_prefix(&format!("{key}=")))
+		};
 		let window = value("window").unwrap_or(2048);
 		let page = value("page").unwrap_or(0);
+		let mode = text("mode").unwrap_or("time");
 
 		return Some(ProtocolResponse::json(handle.import_wav(
 			request.body,
 			window,
 			page,
+			mode,
 		)));
+	}
+
+	if request.path == "/filter-table/edit" {
+		if request.method != "POST" {
+			return Some(ProtocolResponse::json("{\"error\":\"method\"}"));
+		}
+
+		let value = |key: &str| {
+			request
+				.query
+				.unwrap_or("")
+				.split('&')
+				.find_map(|pair| pair.strip_prefix(&format!("{key}=")))
+		};
+		let action = value("action").unwrap_or("");
+		let page = value("page")
+			.and_then(|value| value.parse::<usize>().ok())
+			.unwrap_or(0);
+
+		return Some(ProtocolResponse::json(handle.edit_page(action, page)));
 	}
 
 	if request.path != "/filter-table" {
@@ -352,9 +457,19 @@ mod tests {
 		}
 
 		let handle = FilterTableHandle::new();
-		let answer = handle.import_wav(&wav(&[0, 16_000, -16_000, 8_000]), 4, 0);
+		let answer = handle.import_wav(&wav(&[0, 16_000, -16_000, 8_000]), 4, 0, "time");
 
 		assert!(answer.contains("\"pages\""), "{answer}");
 		assert_eq!(handle.frame().pages()[0].len(), 256);
+	}
+
+	#[test]
+	fn a_page_edit_changes_the_page() {
+		let handle = FilterTableHandle::new();
+		let before = handle.frame().pages()[0][0].value;
+		handle.edit_page("invert", 0);
+		let after = handle.frame().pages()[0][0].value;
+
+		assert!((before + after - 1.0).abs() < 1e-6);
 	}
 }

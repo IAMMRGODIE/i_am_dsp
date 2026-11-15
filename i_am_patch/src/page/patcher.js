@@ -1379,10 +1379,15 @@
           .then((response) => (response.ok ? response.json() : null))
           .catch(() => {});
       },
-      import: (body, window, page) =>
+      import: (body, window, page, mode) =>
         fetch(
-          "/filter-table/import?node=" + entry.node.id + "&window=" + window + "&page=" + page,
+          "/filter-table/import?node=" + entry.node.id + "&window=" + window + "&page=" + page + "&mode=" + mode,
           { method: "POST", body }
+        ).then((response) => (response.ok ? response.json() : null)),
+      edit: (action, page) =>
+        fetch(
+          "/filter-table/edit?node=" + entry.node.id + "&action=" + action + "&page=" + page,
+          { method: "POST" }
         ).then((response) => (response.ok ? response.json() : null)),
     });
   }

@@ -662,6 +662,10 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			let node = value("node").unwrap_or(0) as u32;
 			let window = value("window").unwrap_or(2048);
 			let page = value("page").unwrap_or(0);
+			let mode = query
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("mode="))
+				.unwrap_or("time");
 
 			(
 				"200 OK",
@@ -669,7 +673,30 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 				shared
 					.slots
 					.filter_table(node)
-					.import_wav(body_bytes, window, page),
+					.import_wav(body_bytes, window, page, mode),
+			)
+		}
+		("POST", path)
+			if path == "/filter-table/edit" || path.starts_with("/filter-table/edit?") =>
+		{
+			let query = path.split_once('?').map(|(_, query)| query).unwrap_or("");
+			let value = |key: &str| {
+				query
+					.split('&')
+					.find_map(|pair| pair.strip_prefix(&format!("{key}=")))
+					.and_then(|value| value.parse::<usize>().ok())
+			};
+			let node = value("node").unwrap_or(0) as u32;
+			let page = value("page").unwrap_or(0);
+			let action = query
+				.split('&')
+				.find_map(|pair| pair.strip_prefix("action="))
+				.unwrap_or("");
+
+			(
+				"200 OK",
+				"application/json",
+				shared.slots.filter_table(node).edit_page(action, page),
 			)
 		}
 		("GET", path) if path == "/filter-table" || path.starts_with("/filter-table?") => {

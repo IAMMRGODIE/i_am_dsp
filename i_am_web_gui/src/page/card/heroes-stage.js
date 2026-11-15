@@ -773,6 +773,19 @@
           (view === "freq" ? "TIME" : "FREQ") + '</button>' +
         '<button type="button" class="hero-action" data-action="filter-import">IMPORT</button>' +
       '</div>' +
+      '<div class="hero-actions" style="bottom:20px">' +
+        '<label class="filter-window" style="display:flex;align-items:center;gap:4px">WIN' +
+          '<input type="number" min="1" max="192000" step="1" value="' +
+            (table && table.windowSamples ? table.windowSamples : 2048) +
+            '" style="width:56px;background:#1a1a1a;color:var(--text2);border:1px solid #3a3a3a;border-radius:3px;font:9px/1.2 var(--mono);padding:1px 2px" data-role="filter-window"/>' +
+        '</label>' +
+        '<button type="button" class="hero-action" data-action="filter-mode">' +
+          (table && table.importMode === "freq" ? "IMP FREQ" : "IMP TIME") + '</button>' +
+        '<button type="button" class="hero-action" data-action="filter-rev">REV</button>' +
+        '<button type="button" class="hero-action" data-action="filter-inv">INV</button>' +
+        '<button type="button" class="hero-action" data-action="filter-dc">DC</button>' +
+        '<button type="button" class="hero-action" data-action="filter-norm">NORM</button>' +
+      '</div>' +
       '<div class="hero-label" style="left:2%;top:2%">FILTER TABLE \u00b7 PAGE ' +
         (selected + 1) + ' / ' + pages.length +
         (view === "freq" ? ' \u00b7 FREQ' : ' \u00b7 TIME') + '</div>';
@@ -886,6 +899,26 @@
       if (button) button.textContent = view === "freq" ? "TIME" : "FREQ";
     };
 
+    var replacePages = function (result) {
+      if (!result || !result.pages) return;
+
+      table.pages = result.pages;
+      pages = result.pages;
+      selected = Math.min(selected, pages.length - 1);
+      response = view === "freq" ? filterResponsePoints(pages[selected]) : null;
+      detachEditor();
+      redraw();
+      attachEditor();
+    };
+
+    var windowInput = el.querySelector('[data-role="filter-window"]');
+    if (windowInput) {
+      windowInput.addEventListener("pointerdown", function (event) { event.stopPropagation(); });
+      windowInput.addEventListener("change", function () {
+        table.windowSamples = Math.max(1, parseInt(windowInput.value, 10) || 2048);
+      });
+    }
+
     var importFile = function () {
       var input = document.createElement("input");
       input.type = "file";
@@ -895,27 +928,12 @@
         var file = input.files && input.files[0];
         if (!file) return;
 
-        var answer = window.prompt("Window length (samples)", String(table.windowSamples || 2048));
-        var windowSamples = Math.max(1, parseInt(answer, 10) || 2048);
-        table.windowSamples = windowSamples;
+        var windowSamples = Math.max(1, parseInt(table.windowSamples, 10) || 2048);
 
         file.arrayBuffer().then(function (body) {
-          if (!state.import) {
-            throw new Error("no import route");
-          }
-
-          return state.import(body, windowSamples, selected);
-        }).then(function (result) {
-          if (!result || !result.pages) throw new Error("import failed");
-
-          table.pages = result.pages;
-          pages = result.pages;
-          selected = Math.min(selected, pages.length - 1);
-          response = view === "freq" ? filterResponsePoints(pages[selected]) : null;
-          detachEditor();
-          redraw();
-          attachEditor();
-        }).catch(function (error) {
+          if (!state.import) throw new Error("no import route");
+          return state.import(body, windowSamples, selected, table.importMode || "time");
+        }).then(replacePages).catch(function (error) {
           var label = el.querySelector(".hero-label");
           if (label) label.textContent = "FILTER TABLE \u00b7 IMPORT FAILED";
           console.warn(error);
@@ -956,6 +974,12 @@
 
       if (action === "filter-view") {
         setView(view === "freq" ? "time" : "freq");
+      } else if (action === "filter-mode") {
+        table.importMode = table.importMode === "freq" ? "time" : "freq";
+        button.textContent = table.importMode === "freq" ? "IMP FREQ" : "IMP TIME";
+      } else if (action === "filter-rev" || action === "filter-inv" || action === "filter-dc" || action === "filter-norm") {
+        var edit = action.replace("filter-", "");
+        if (state.edit) state.edit(edit, selected).then(replacePages);
       } else if (action === "filter-import") {
         importFile();
       } else if (action === "filter-prev") {
