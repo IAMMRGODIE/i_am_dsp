@@ -15,6 +15,7 @@ pub use super::hilbert_transform::*;
 pub use super::history::*;
 pub use super::hybrid_reverb::*;
 pub use super::multimode::*;
+pub use super::outer_wider::*;
 pub use super::particle_wider::*;
 pub use super::phase_vocoder::*;
 pub use super::phaser::*;

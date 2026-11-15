@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use i_am_dsp::prelude::{
 	AutoTune, Chorus, Crusher, Delay, Distortion, Effect, Expander, Flanger, FormantFilter, Gain,
-	Gate, HistoryEffect, HistoryFeed, Limiter, LrControl, Multimode, OttMeters, Parameter,
-	ParametricEq, Phaser, Resonator, SineWave, SpectralRetuneEffect, StereoController,
+	Gate, HistoryEffect, HistoryFeed, Limiter, LrControl, Multimode, OttMeters, OuterWider,
+	Parameter, ParametricEq, Phaser, Resonator, SineWave, SpectralRetuneEffect, StereoController,
 	StereoRouter, StftVocoderEffect, TapeStopEffect, TransientShaper, VocoderEffect, VocoderMeters,
 };
 
@@ -125,6 +125,10 @@ fn width(_: usize) -> Box<dyn Effect<2>> {
 	Box::new(StereoController::new())
 }
 
+fn outer_wider(sample_rate: usize) -> Box<dyn Effect<2>> {
+	Box::new(OuterWider::new(sample_rate))
+}
+
 fn shifter(sample_rate: usize) -> Box<dyn Effect<2>> {
 	Box::new(ShifterEffect::new(sample_rate))
 }
@@ -235,6 +239,7 @@ pub fn face(id: &str) -> Option<(f32, f32)> {
 		"comb" => Some(crate::CombWeb::size()),
 		"allpass" => Some(crate::AllpassWeb::size()),
 		"width" => Some(crate::WidthWeb::size()),
+		"outer_wider" => Some(crate::OuterWiderWeb::size()),
 		"shifter" => Some(crate::ShifterWeb::size()),
 		"disperser" => Some(crate::DisperserWeb::size()),
 		"balance" => Some(crate::BalanceWeb::size()),
@@ -434,6 +439,19 @@ pub const WIDTH: ModuleDescriptor = ModuleDescriptor {
 	switches: &[],
 	build_with_ir: None,
 	build: width,
+};
+
+/// The wider product: a side synthesized from the mid.
+pub const OUTER_WIDER: ModuleDescriptor = ModuleDescriptor {
+	id: "outer_wider",
+	name: "Wider",
+	accent: "#ff6fae",
+	mode: None,
+	header: &[],
+	visible: None,
+	switches: &[],
+	build_with_ir: None,
+	build: outer_wider,
 };
 
 /// The shifter product.
@@ -818,6 +836,7 @@ pub const MODULES: &[ModuleDescriptor] = &[
 	CRUSHER,
 	DISPERSER,
 	WIDTH,
+	OUTER_WIDER,
 	BALANCE,
 	ROUTER,
 	TAPE_STOP,

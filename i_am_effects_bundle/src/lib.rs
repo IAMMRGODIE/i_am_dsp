@@ -24,6 +24,7 @@ export_plugin!(
 	CombWeb,
 	AllpassWeb,
 	WidthWeb,
+	OuterWiderWeb,
 	PitchWeb,
 	AutoTuneWeb,
 	SpectralRetuneWeb,

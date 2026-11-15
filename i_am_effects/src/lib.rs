@@ -50,6 +50,7 @@ pub use convolver::{ConvolverWeb, IrData, IrFades, IrSlot, decode_ir};
 use disperser::Dispersion;
 pub use filter_table::{FilterTableHandle, FilterTableWeb, faceplate as filter_table_faceplate};
 pub use history::{HistoryHandle, HistoryWeb, faceplate as history_faceplate};
+use i_am_dsp::prelude::OuterWider;
 use ir_reverb::IrReverbEffect;
 pub use ott::{OTT_PAGES, OttWeb};
 use particle_wider::ParticleWiderEffect;
@@ -180,6 +181,16 @@ web_plugin!(
 	"iamdsp.effects.width.web",
 	"I Am Width",
 	(420.0, 340.0),
+	"#ff6fae"
+);
+
+web_plugin!(
+	OuterWiderWeb,
+	OuterWider,
+	OuterWider::new,
+	"iamdsp.effects.outer_wider.web",
+	"I Am Wider",
+	(640.0, 360.0),
 	"#ff6fae"
 );
 

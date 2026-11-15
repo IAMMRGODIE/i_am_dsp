@@ -18,10 +18,10 @@ use i_am_effects::{
 	CrusherWeb, DELAY_HEADER, DELAY_SWITCHES, DISTORTION_VISIBLE, DelayWeb, DisperserWeb,
 	DistortionWeb, EqWeb, ExpanderWeb, FLANGER_HEADER, FLANGER_SWITCHES, FilterTableWeb, FilterWeb,
 	FlangerWeb, FormantFilterWeb, GainWeb, GateWeb, HistoryWeb, IrReverbWeb, LimiterWeb, OTT_PAGES,
-	OttWeb, PHASER_HEADER, PHASER_SWITCHES, PITCH_VISIBLE, ParticleWiderWeb, PhaserWeb, PitchWeb,
-	ResonatorWeb, ReverbWeb, RouterWeb, SHIFTER_VISIBLE, SchroederWeb, ScriptDistortionWeb,
-	ScriptMapperWeb, ShifterWeb, SpectralDynamicsWeb, SpectralRetuneWeb, StftVocoderWeb,
-	TapeStopWeb, TransientWeb, UnstablizerWeb, VocoderWeb, WidthWeb,
+	OttWeb, OuterWiderWeb, PHASER_HEADER, PHASER_SWITCHES, PITCH_VISIBLE, ParticleWiderWeb,
+	PhaserWeb, PitchWeb, ResonatorWeb, ReverbWeb, RouterWeb, SHIFTER_VISIBLE, SchroederWeb,
+	ScriptDistortionWeb, ScriptMapperWeb, ShifterWeb, SpectralDynamicsWeb, SpectralRetuneWeb,
+	StftVocoderWeb, TapeStopWeb, TransientWeb, UnstablizerWeb, VocoderWeb, WidthWeb,
 };
 use i_am_effects::{FILTER_HEADER, FILTER_VISIBLE};
 use i_am_plugin::Plugin;
@@ -133,6 +133,16 @@ fn main() {
 				i_am_web_gui::face_json(
 					&plugin,
 					&Faceplate::new("I Am Width", "#ff6fae", (420.0, 340.0)),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
+		"outer_wider" => {
+			let plugin = OuterWiderWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Wider", "#ff6fae", (640.0, 360.0)),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

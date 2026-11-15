@@ -21,6 +21,7 @@ pub mod history;
 pub mod hybrid_reverb;
 pub mod multimode;
 pub mod ott;
+pub mod outer_wider;
 pub mod particle_wider;
 pub mod phase_vocoder;
 pub mod phaser;
