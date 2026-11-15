@@ -62,23 +62,47 @@ impl FilterTableHandle {
 	///
 	/// `mode` is `time` for the waveform itself or `freq` to take only its
 	/// magnitude and turn that into a zero-phase kernel.
-	pub fn import_wav(&self, bytes: &[u8], window: usize, page: usize, mode: &str) -> String {
+	pub fn import_wav(
+		&self,
+		bytes: &[u8],
+		window: usize,
+		page: usize,
+		mode: &str,
+		frames: usize,
+	) -> String {
 		let Ok(sample) = i_am_dsp::prelude::decode_click(bytes) else {
 			return "{\"error\":\"decode\"}".to_string();
 		};
 
+		let frames = frames.max(1);
 		let window = window.max(1).min(sample.pcm.len());
 		if window == 0 {
 			return "{\"error\":\"empty\"}".to_string();
 		}
 
-		let signal = if mode == "freq" {
-			i_am_dsp::prelude::magnitude_kernel(&sample.pcm[..window], 1024)
-		} else {
-			sample.pcm[..window].to_vec()
-		};
+		let total = window.saturating_mul(frames).min(sample.pcm.len());
+		let mut pages = Vec::new();
 
-		self.0.set_page(page, points_from_signal(&signal, 256));
+		for frame in sample.pcm[..total].chunks(window) {
+			let signal = if mode == "freq" {
+				i_am_dsp::prelude::magnitude_kernel(frame, 1024)
+			} else {
+				frame.to_vec()
+			};
+
+			pages.push(points_from_signal(&signal, 256));
+		}
+
+		if pages.is_empty() {
+			return "{\"error\":\"empty\"}".to_string();
+		}
+
+		if pages.len() == 1 {
+			self.0.set_page(page, pages.remove(0));
+		} else {
+			self.0.set_pages(pages);
+		}
+
 		self.state_json()
 	}
 
@@ -200,6 +224,7 @@ fn filter_route(
 		};
 		let window = value("window").unwrap_or(2048);
 		let page = value("page").unwrap_or(0);
+		let frames = value("frames").unwrap_or(1);
 		let mode = text("mode").unwrap_or("time");
 
 		return Some(ProtocolResponse::json(handle.import_wav(
@@ -207,6 +232,7 @@ fn filter_route(
 			window,
 			page,
 			mode,
+			frames,
 		)));
 	}
 
@@ -457,7 +483,7 @@ mod tests {
 		}
 
 		let handle = FilterTableHandle::new();
-		let answer = handle.import_wav(&wav(&[0, 16_000, -16_000, 8_000]), 4, 0, "time");
+		let answer = handle.import_wav(&wav(&[0, 16_000, -16_000, 8_000]), 4, 0, "time", 1);
 
 		assert!(answer.contains("\"pages\""), "{answer}");
 		assert_eq!(handle.frame().pages()[0].len(), 256);
@@ -471,5 +497,37 @@ mod tests {
 		let after = handle.frame().pages()[0][0].value;
 
 		assert!((before + after - 1.0).abs() < 1e-6);
+	}
+
+	#[test]
+	fn an_import_can_make_several_frames() {
+		fn wav(samples: &[i16]) -> Vec<u8> {
+			let data_len = (samples.len() * 2) as u32;
+			let mut bytes = Vec::new();
+			bytes.extend_from_slice(b"RIFF");
+			bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+			bytes.extend_from_slice(b"WAVEfmt ");
+			bytes.extend_from_slice(&16u32.to_le_bytes());
+			bytes.extend_from_slice(&1u16.to_le_bytes());
+			bytes.extend_from_slice(&1u16.to_le_bytes());
+			bytes.extend_from_slice(&48_000u32.to_le_bytes());
+			bytes.extend_from_slice(&96_000u32.to_le_bytes());
+			bytes.extend_from_slice(&2u16.to_le_bytes());
+			bytes.extend_from_slice(&16u16.to_le_bytes());
+			bytes.extend_from_slice(b"data");
+			bytes.extend_from_slice(&data_len.to_le_bytes());
+			for sample in samples {
+				bytes.extend_from_slice(&sample.to_le_bytes());
+			}
+			bytes
+		}
+
+		let handle = FilterTableHandle::new();
+		let samples = [0i16, 8_000, 16_000, 8_000, -8_000, -16_000, -8_000, 0];
+		let answer = handle.import_wav(&wav(&samples), 4, 0, "time", 2);
+
+		assert!(answer.contains("\"pages\""), "{answer}");
+		assert_eq!(handle.frame().pages().len(), 2);
+		assert_eq!(handle.frame().pages()[0].len(), 256);
 	}
 }

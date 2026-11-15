@@ -520,6 +520,7 @@
         if (document.querySelector(".hero[data-busy='1']")) return;
         state.view = filterTableState && filterTableState.view;
         state.windowSamples = filterTableState && filterTableState.windowSamples;
+        state.frameCount = filterTableState && filterTableState.frameCount;
         filterTableState = state;
         markDirty();
       })

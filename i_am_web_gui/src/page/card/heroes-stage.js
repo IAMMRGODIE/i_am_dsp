@@ -844,7 +844,21 @@
       label.innerHTML = "FILTER TABLE \u00b7 PAGE " + (selected + 1) + " / " +
         pages.length + (view === "freq" ? " \u00b7 FREQ" : " \u00b7 TIME") +
         ' \u00b7 <span data-action="filter-window" style="pointer-events:auto;cursor:pointer">WIN ' +
-        (table.windowSamples || 2048) + "</span>";
+        (table.windowSamples || 2048) + '</span>' +
+        ' \u00b7 <span data-action="filter-frames" style="pointer-events:auto;cursor:pointer">FRAMES ' +
+        (table.frameCount || 1) + "</span>";
+    };
+
+    var editFrames = function (anchor) {
+      IAmCard.openKnobEditor(
+        { label: "Frames", unit: "frames" },
+        table.frameCount || 1,
+        function (value) {
+          table.frameCount = Math.max(1, Math.round(value));
+          setLabel();
+        },
+        anchor
+      );
     };
 
     var editWindow = function (anchor) {
@@ -931,7 +945,7 @@
 
       file.arrayBuffer().then(function (body) {
         if (!state.import) throw new Error("no import route");
-        return state.import(body, windowSamples, selected, table.importMode || "time");
+        return state.import(body, windowSamples, selected, table.importMode || "time", table.frameCount || 1);
       }).then(replacePages).catch(function (error) {
         var label = el.querySelector(".hero-label");
         if (label) label.textContent = "FILTER TABLE \u00b7 IMPORT FAILED";
@@ -1006,6 +1020,8 @@
         setView(view === "freq" ? "time" : "freq");
       } else if (action === "filter-window") {
         editWindow(button);
+      } else if (action === "filter-frames") {
+        editFrames(button);
       } else if (action === "filter-mode") {
         table.importMode = table.importMode === "freq" ? "time" : "freq";
         button.textContent = table.importMode === "freq" ? "IMP FREQ" : "IMP TIME";
