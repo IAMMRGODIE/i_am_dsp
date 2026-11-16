@@ -16,3 +16,6 @@ i_am_patch = { workspace = true }
 i_am_plugin = { workspace = true }
 i_am_web_gui = { workspace = true }
 serde_json = "1"
+
+[lints]
+workspace = true

@@ -11,3 +11,6 @@ name = "i_am_bundler"
 path = "src/main.rs"
 
 [dependencies]
+
+[lints]
+workspace = true

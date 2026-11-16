@@ -51,3 +51,6 @@ portable-atomic = { version = "1.15.0", features = ["float", "serde"] }
 bimap = "0.6.3"
 phf = { version = "0.14.0", features = ["macros"] }
 # crossbeam-queue = "0.3.12"
+
+[lints]
+workspace = true

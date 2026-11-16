@@ -13,3 +13,6 @@ i_am_dsp = { workspace = true }
 i_am_plugin = { workspace = true }
 # The control schema is serialized for a page that draws its own layout (the rack).
 serde = { version = "1.0.229", features = ["derive"] }
+
+[lints]
+workspace = true

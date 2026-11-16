@@ -23,3 +23,6 @@ id = "iamdsp.synths"
 [dependencies]
 i_am_synths = { workspace = true }
 i_am_plugin = { workspace = true }
+
+[lints]
+workspace = true

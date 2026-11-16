@@ -23,3 +23,6 @@ id = "iamdsp.effects.web"
 [dependencies]
 i_am_effects = { workspace = true }
 i_am_plugin = { workspace = true }
+
+[lints]
+workspace = true

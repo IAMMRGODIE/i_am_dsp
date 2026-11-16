@@ -17,3 +17,6 @@ id = "iamdsp.patch"
 [dependencies]
 i_am_patch_product = { workspace = true }
 i_am_plugin = { workspace = true }
+
+[lints]
+workspace = true
