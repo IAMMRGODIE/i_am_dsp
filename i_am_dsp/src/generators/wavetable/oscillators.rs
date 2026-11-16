@@ -500,6 +500,10 @@ impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator
 }
 
 /// A warp oscillator: the warp decides where in the table each position reads.
+///
+/// The table is read twice per output sample and decimated, so the edges a warp
+/// makes (a fold, a repeated cycle) do not alias as hard as they would at the
+/// output rate.
 #[derive(Parameters)]
 pub struct WarpOsc<Carrier: WaveTable, Warper: Warp> {
 	/// The carrier wave.
@@ -508,6 +512,8 @@ pub struct WarpOsc<Carrier: WaveTable, Warper: Warp> {
 	/// The phase warp.
 	#[sub_param]
 	pub warper: Warper,
+	#[skip]
+	sample_rate: usize,
 }
 
 impl<Carrier: WaveTable, Warper: Warp> WarpOsc<Carrier, Warper> {
@@ -516,7 +522,16 @@ impl<Carrier: WaveTable, Warper: Warp> WarpOsc<Carrier, Warper> {
 		Self {
 			carrier: TableOsc(carrier),
 			warper,
+			sample_rate: 48_000,
 		}
+	}
+
+	/// One sample of the warped table at an offset in seconds.
+	fn sample_at(&self, frequency: f32, time: f32, phase: f32, channel: usize) -> f32 {
+		let t = (time * frequency + phase).rem_euclid(1.0);
+		let warped = self.warper.apply(t).rem_euclid(1.0);
+
+		self.carrier.0.sample(warped, channel)
 	}
 }
 
@@ -524,19 +539,31 @@ impl<Carrier: WaveTable, Warper: Warp, const CHANNELS: usize> Oscillator<CHANNEL
 	for WarpOsc<Carrier, Warper>
 {
 	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
-		let mut warped = phase;
+		let mut output = [0.0; CHANNELS];
 
-		// The table is read where the warp points, so the offset the carrier sees
-		// is the warped position minus the one it would have used.
-		for (channel, value) in warped.iter_mut().enumerate() {
-			let t = (time * frequency + phase[channel]).rem_euclid(1.0);
-			*value += self.warper.apply(t) - t;
+		// A warp can fold or repeat the table, and those edges alias at the
+		// output rate. Sampling twice and decimating with a binomial kernel is
+		// stateless -- the oscillator is read, not stepped -- so it costs five
+		// reads and no history.
+		let half = 0.5 / self.sample_rate as f32;
+		let kernel = [(-2.0, 1.0), (-1.0, 4.0), (0.0, 6.0), (1.0, 4.0), (2.0, 1.0)];
+
+		for (channel, value) in output.iter_mut().enumerate() {
+			let mut total = 0.0;
+
+			for (offset, weight) in kernel {
+				total += weight
+					* self.sample_at(frequency, time + offset * half, phase[channel], channel);
+			}
+
+			*value = total / 16.0;
 		}
 
-		self.carrier.play_at(frequency, time, warped)
+		output
 	}
 
 	fn set_pitch(&mut self, frequency: f32, sample_rate: usize) {
+		self.sample_rate = sample_rate.max(1);
 		<TableOsc<Carrier> as Oscillator<CHANNELS>>::set_pitch(
 			&mut self.carrier,
 			frequency,
@@ -975,6 +1002,38 @@ mod tests {
 
 		assert!((plain - 0.5).abs() < 1e-3, "{plain}");
 		assert!((modulated - 1.0).abs() < 1e-3, "{modulated}");
+	}
+
+	/// The decimator's kernel sums to one, so the fundamental passes unchanged.
+	#[test]
+	fn the_oversampler_passes_the_fundamental() {
+		use crate::generators::wavetable::{BendWarp, Oscillator, SineWave};
+
+		let mut osc = WarpOsc::new(SineWave, BendWarp::new());
+		Oscillator::<1>::set_pitch(&mut osc, 440.0, 48_000);
+
+		let value = Oscillator::<1>::play_at(&osc, 440.0, 0.0, [0.25])[0];
+
+		assert!((value - 1.0).abs() < 2e-2, "{value}");
+	}
+
+	/// A hard warp still has to stay inside the table's range.
+	#[test]
+	fn a_hard_warp_stays_bounded() {
+		use crate::generators::wavetable::{Oscillator, QuantizeWarp, SineWave};
+
+		let mut warp = QuantizeWarp::new();
+		warp.steps = 8.0;
+
+		let mut osc = WarpOsc::new(SineWave, warp);
+		Oscillator::<1>::set_pitch(&mut osc, 1_000.0, 48_000);
+
+		for index in 0..512 {
+			let time = index as f32 / 48_000.0;
+			let value = Oscillator::<1>::play_at(&osc, 1_000.0, time, [0.0])[0];
+
+			assert!(value.is_finite() && value.abs() <= 1.01, "{time}: {value}");
+		}
 	}
 
 	/// The warp moves where the carrier reads, without changing its shape.
