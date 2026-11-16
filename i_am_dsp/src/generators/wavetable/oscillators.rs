@@ -4,7 +4,7 @@ use i_am_dsp_derive::Parameters;
 
 use crate::prelude::{Parameter, Parameters, bend, page_position};
 
-use super::{Oscillator, TableOsc, WaveTable};
+use super::{Oscillator, TableOsc, Warp, WaveTable};
 
 /// A wave table that smoothly transitions between multiple wave tables.
 #[derive(Parameters)]
@@ -499,6 +499,64 @@ impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator
 	}
 }
 
+/// A warp oscillator: the warp decides where in the table each position reads.
+#[derive(Parameters)]
+pub struct WarpOsc<Carrier: WaveTable, Warper: Warp> {
+	/// The carrier wave.
+	#[sub_param]
+	pub carrier: TableOsc<Carrier>,
+	/// The phase warp.
+	#[sub_param]
+	pub warper: Warper,
+}
+
+impl<Carrier: WaveTable, Warper: Warp> WarpOsc<Carrier, Warper> {
+	/// Create a new [`WarpOsc`] from a carrier and a warp.
+	pub fn new(carrier: Carrier, warper: Warper) -> Self {
+		Self {
+			carrier: TableOsc(carrier),
+			warper,
+		}
+	}
+}
+
+impl<Carrier: WaveTable, Warper: Warp, const CHANNELS: usize> Oscillator<CHANNELS>
+	for WarpOsc<Carrier, Warper>
+{
+	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		let mut warped = phase;
+
+		// The table is read where the warp points, so the offset the carrier sees
+		// is the warped position minus the one it would have used.
+		for (channel, value) in warped.iter_mut().enumerate() {
+			let t = (time * frequency + phase[channel]).rem_euclid(1.0);
+			*value += self.warper.apply(t) - t;
+		}
+
+		self.carrier.play_at(frequency, time, warped)
+	}
+
+	fn set_pitch(&mut self, frequency: f32, sample_rate: usize) {
+		<TableOsc<Carrier> as Oscillator<CHANNELS>>::set_pitch(
+			&mut self.carrier,
+			frequency,
+			sample_rate,
+		);
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		use crate::tools::ui_tools::draw_wavetable;
+
+		Oscillator::<CHANNELS>::demo_ui(
+			&mut self.carrier,
+			ui,
+			format!("{id_prefix}_warp_osc_carrier"),
+		);
+		draw_wavetable(ui, |t| self.warper.apply(t));
+	}
+}
+
 impl WaveTable for Box<dyn WaveTable + Send + Sync> {
 	fn sample(&self, t: f32, channel: usize) -> f32 {
 		self.as_ref().sample(t, channel)
@@ -917,6 +975,23 @@ mod tests {
 
 		assert!((plain - 0.5).abs() < 1e-3, "{plain}");
 		assert!((modulated - 1.0).abs() < 1e-3, "{modulated}");
+	}
+
+	/// The warp moves where the carrier reads, without changing its shape.
+	#[test]
+	fn the_warp_moves_the_read_position() {
+		use crate::generators::wavetable::{BendWarp, Oscillator};
+
+		let ramp: Vec<f32> = (0..1_024).map(|index| index as f32 / 1_023.0).collect();
+		let mut osc = WarpOsc::new(ramp, BendWarp::new());
+		let plain = Oscillator::<1>::play_at(&osc, 440.0, 0.0, [0.5])[0];
+
+		osc.warper.power = 2.0;
+
+		let warped = Oscillator::<1>::play_at(&osc, 440.0, 0.0, [0.5])[0];
+
+		assert!((plain - 0.5).abs() < 1e-2, "{plain}");
+		assert!((warped - 0.25).abs() < 1e-2, "{warped}");
 	}
 
 	/// Ring modulation at full depth is the product of the two waves.

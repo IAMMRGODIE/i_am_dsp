@@ -130,8 +130,10 @@ mod frames;
 mod oscillators;
 mod smoothers;
 mod tables;
+mod warp;
 
 pub use frames::*;
 pub use oscillators::*;
 pub use smoothers::*;
 pub use tables::*;
+pub use warp::*;
