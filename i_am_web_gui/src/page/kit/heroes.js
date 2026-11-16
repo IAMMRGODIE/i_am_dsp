@@ -50,7 +50,7 @@
         rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,
         ott: ottState, vocoder: vocoderState, eqSpectrum: eqSpectrum,
-        autotune: autotuneState, canvas: canvasState, spectrum: spectrumState, history: historyState, filterTable: filterTableState,
+        autotune: autotuneState, canvas: canvasState, spectrum: spectrumState, history: historyState, filterTable: filterTableState, sidechain: filterTableSidechain,
         waves: wavesState, waveMode: waveMode, sample: sampleState, sampleView: sampleView, script: scriptState, click: clickState, samples: samplesState, ampCurves: ampCurves, kickMode: kickMode, snareMode: snareMode,
         spectralDynamics: spectralDynamicsState, sdCurve: spectralDynamicsCurve
       });
@@ -61,7 +61,7 @@
         if (hero.el.innerHTML !== content) hero.el.innerHTML = content;
         if (IAmCard.wire) {
           IAmCard.wire(hero.el, hero.kind, values, {
-            canvas: canvasState, spectrum: spectrumState, history: historyState, filterTable: filterTableState,
+            canvas: canvasState, spectrum: spectrumState, history: historyState, filterTable: filterTableState, sidechain: filterTableSidechain,
             spectralDynamics: spectralDynamicsState, sdCurve: spectralDynamicsCurve,
             repaint: markDirty,
             set: setControl,

@@ -534,6 +534,29 @@
       });
   }
 
+  /// The sidechain trace the Filter Table follows, read from the scope's third
+  /// channel so the panel shows exactly what the effect heard.
+  function pollFilterTableSidechain() {
+    if (!filterTableSidechain.wanted) {
+      setTimeout(pollFilterTableSidechain, 200);
+      return;
+    }
+
+    fetch("/filter-table/sidechain", { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.arrayBuffer() : null;
+      })
+      .then(function (buffer) {
+        if (!buffer || !buffer.byteLength) return;
+        filterTableSidechain.input = new Float32Array(buffer);
+        markDirty();
+      })
+      .catch(function () {})
+      .then(function () {
+        setTimeout(pollFilterTableSidechain, 120);
+      });
+  }
+
   /// The Spectral Dynamics pages, which live outside the parameter map.
   function pollSpectralDynamics() {
     fetch("/spectral-dynamics", { cache: "no-store" })

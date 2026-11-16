@@ -159,8 +159,24 @@ pub struct FilterTableEffect {
 	#[id(display = "Morph")]
 	#[layout(group = "Filter", order = 4, widget = knob)]
 	pub morph: f32,
+	/// Whether the kernel comes from the frame or from the sidechain input.
+	#[choices("Table", "Sidechain")]
+	#[default(0)]
+	#[id(display = "Mode")]
+	#[layout(group = "Filter", order = 5, widget = choice)]
+	pub mode: i32,
 	#[skip]
 	frame: Arc<FilterFrame>,
+	#[skip]
+	sidechain: [f32; TAPS],
+	#[skip]
+	sidechain_write: usize,
+	#[skip]
+	sidechain_count: usize,
+	#[skip]
+	seen_mode: i32,
+	#[skip]
+	spectrum: [Complex<f32>; TAPS],
 	#[skip]
 	sample_rate: f32,
 	#[skip]
@@ -287,6 +303,12 @@ impl FilterTableEffect {
 			seen_resonance: f32::NAN,
 			seen_phase: i32::MIN,
 			seen_morph: f32::NAN,
+			mode: 0,
+			sidechain: [0.0; TAPS],
+			sidechain_write: 0,
+			sidechain_count: 0,
+			seen_mode: 0,
+			spectrum: [Complex::new(0.0, 0.0); TAPS],
 		};
 		effect.rebuild();
 		effect
@@ -298,6 +320,11 @@ impl FilterTableEffect {
 	}
 
 	fn factor(&self) -> usize {
+		if self.mode == 1 {
+			// The sidechain path has no cutoff to decimate for.
+			return 1;
+		}
+
 		if self.cutoff < 120.0 {
 			8
 		} else if self.cutoff < 240.0 {
@@ -387,32 +414,7 @@ impl FilterTableEffect {
 
 		if self.seen_factor == 1 {
 			let target = self.build_target(&snapshot, self.sample_rate);
-
-			if !self.initialized {
-				self.initialized = true;
-				self.previous = target;
-				self.kernel = target;
-				self.next = target;
-				self.blend = 1.0;
-			} else {
-				// Start the new fade from the kernel that is actually playing, not
-				// from the previous target. Otherwise a control move during a fade
-				// jumps from the mix to the old target in one sample.
-				let mix = self.blend;
-				for index in 0..TAPS {
-					self.previous[index] =
-						self.previous[index] + (self.next[index] - self.previous[index]) * mix;
-				}
-				self.previous_rev = reverse(&self.previous);
-				self.next = target;
-				self.blend = 0.0;
-			}
-
-			self.kernel = target;
-			for index in 0..TAPS {
-				self.kernel_rev[index] = target[TAPS - 1 - index];
-			}
-			self.next_rev = self.kernel_rev;
+			self.apply_target(target);
 		} else {
 			let rate = self.sample_rate / self.seen_factor as f32;
 			let target = self.build_target(&snapshot, rate);
@@ -447,6 +449,92 @@ impl FilterTableEffect {
 					/ (self.sample_rate * self.seen_factor as f32))
 					.exp();
 		}
+	}
+
+	/// Crossfades the kernel to `target` over the effect's fade.
+	fn apply_target(&mut self, target: [f32; TAPS]) {
+		if !self.initialized {
+			self.initialized = true;
+			self.previous = target;
+			self.kernel = target;
+			self.next = target;
+			self.blend = 1.0;
+		} else {
+			// Start the new fade from the kernel that is actually playing, not
+			// from the previous target. Otherwise a control move during a fade
+			// jumps from the mix to the old target in one sample.
+			let mix = self.blend;
+			for index in 0..TAPS {
+				self.previous[index] =
+					self.previous[index] + (self.next[index] - self.previous[index]) * mix;
+			}
+			self.previous_rev = reverse(&self.previous);
+			self.next = target;
+			self.blend = 0.0;
+		}
+
+		self.kernel = target;
+		for index in 0..TAPS {
+			self.kernel_rev[index] = target[TAPS - 1 - index];
+		}
+		self.next_rev = self.kernel_rev;
+	}
+
+	/// Captures the sidechain and rebuilds the kernel once per window.
+	fn follow_sidechain(&mut self, other: &[&[f32; 2]]) {
+		let Some(frame) = other.get(1) else {
+			return;
+		};
+
+		let mono = (frame[0] + frame[1]) * 0.5;
+		self.sidechain[self.sidechain_write] = mono;
+		self.sidechain_write = (self.sidechain_write + 1) % TAPS;
+		self.sidechain_count += 1;
+
+		if self.sidechain_count < TAPS {
+			return;
+		}
+
+		self.sidechain_count = 0;
+
+		if let Some(target) = self.sidechain_target() {
+			self.apply_target(target);
+		}
+	}
+
+	/// The kernel a window of the sidechain asks for: its magnitude, minimum
+	/// phase, so the filter stays causal and reports no latency.
+	fn sidechain_target(&mut self) -> Option<[f32; TAPS]> {
+		let mut energy = 0.0;
+
+		for index in 0..TAPS {
+			let sample = self.sidechain[(self.sidechain_write + index) % TAPS];
+			let window = 0.5 - 0.5 * (std::f32::consts::TAU * index as f32 / TAPS as f32).cos();
+			energy += sample * sample;
+			self.spectrum[index] = Complex::new(sample * window, 0.0);
+		}
+
+		// Silence has no spectrum to follow; keeping the last kernel is better
+		// than fading to nothing every time the sidechain pauses.
+		if energy < 1e-9 {
+			return None;
+		}
+
+		self.forward.process(&mut self.spectrum);
+
+		for value in &mut self.spectrum {
+			*value = Complex::new(value.norm(), 0.0);
+		}
+
+		self.inverse.process(&mut self.spectrum);
+
+		let mut raw = [0.0f32; TAPS];
+		for (index, value) in self.spectrum.iter().enumerate() {
+			raw[(index + TAPS / 2) % TAPS] = value.re / TAPS as f32;
+		}
+
+		normalize(&mut raw);
+		Some(self.minimum(&raw))
 	}
 
 	fn linear(&self, raw: &[f32; TAPS]) -> [f32; TAPS] {
@@ -567,6 +655,11 @@ fn sample_frame(points: &[FilterPoint], x: f32) -> f32 {
 
 impl Effect<2> for FilterTableEffect {
 	fn delay(&self) -> usize {
+		if self.mode == 1 {
+			// The sidechain kernel is minimum phase: nothing is held back.
+			return 0;
+		}
+
 		let factor = self.factor();
 		if self.phase == 1 {
 			TAPS / 2 * factor
@@ -578,10 +671,26 @@ impl Effect<2> for FilterTableEffect {
 	fn process(
 		&mut self,
 		samples: &mut [f32; 2],
-		_other: &[&[f32; 2]],
+		other: &[&[f32; 2]],
 		_context: &mut Box<dyn ProcessContext>,
 	) {
-		if self.frame.generation() != self.seen_generation
+		if self.mode != self.seen_mode {
+			self.seen_mode = self.mode;
+			self.sidechain = [0.0; TAPS];
+			self.sidechain_write = 0;
+			self.sidechain_count = 0;
+
+			// Coming back to the table has to rebuild from the frame; going to
+			// the sidechain waits for its first window and keeps the old kernel
+			// until then.
+			if self.mode == 0 {
+				self.rebuild();
+			}
+		}
+
+		if self.mode == 1 {
+			self.follow_sidechain(other);
+		} else if self.frame.generation() != self.seen_generation
 			|| self.cutoff != self.seen_cutoff
 			|| self.resonance != self.seen_resonance
 			|| self.phase != self.seen_phase
@@ -911,5 +1020,118 @@ mod tests {
 		let effect = FilterTableEffect::with_frame(48_000, frame);
 		let energy = effect.kernel.iter().map(|value| value * value).sum::<f32>();
 		assert!((energy - 1.0).abs() < 1e-3, "energy {energy}");
+	}
+
+	/// The sidechain's spectrum becomes the kernel's magnitude response.
+	#[test]
+	fn the_sidechain_shapes_the_kernel() {
+		let frame = FilterFrame::new();
+		let mut effect = FilterTableEffect::with_frame(48_000, frame);
+		effect.mode = 1;
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+
+		for index in 0..8_192 {
+			let phase = std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0;
+			let sidechain = [phase.sin() * 0.5; 2];
+			let other: [&[f32; 2]; 1] = [&sidechain];
+			let mut samples = [0.0f32; 2];
+
+			effect.process(&mut samples, &other, &mut context);
+		}
+
+		let magnitude = |frequency: f32| {
+			let bin = (frequency * TAPS as f32 / 48_000.0).round() as usize;
+			let mut buffer: Vec<Complex<f32>> = effect
+				.kernel
+				.iter()
+				.map(|sample| Complex::new(*sample, 0.0))
+				.collect();
+
+			FftPlanner::<f32>::new()
+				.plan_fft_forward(TAPS)
+				.process(&mut buffer);
+
+			buffer[bin].norm()
+		};
+
+		assert!(
+			magnitude(1_000.0) > magnitude(4_000.0) * 4.0,
+			"1 kHz {}, 4 kHz {}",
+			magnitude(1_000.0),
+			magnitude(4_000.0)
+		);
+	}
+
+	/// The sidechain kernel is minimum phase, so it reports no latency even when
+	/// the table's phase choice says linear.
+	#[test]
+	fn the_sidechain_mode_reports_no_latency() {
+		let mut effect = FilterTableEffect::with_frame(48_000, FilterFrame::new());
+		effect.phase = 1;
+		effect.mode = 1;
+
+		assert_eq!(effect.delay(), 0);
+	}
+
+	/// A paused sidechain keeps the kernel it had: fading to silence every time
+	/// the sidechain rests would pump the mix.
+	#[test]
+	fn a_silent_sidechain_keeps_the_kernel() {
+		let frame = FilterFrame::new();
+		let mut effect = FilterTableEffect::with_frame(48_000, frame);
+		effect.mode = 1;
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+
+		for index in 0..4_096 {
+			let phase = std::f32::consts::TAU * 500.0 * index as f32 / 48_000.0;
+			let sidechain = [phase.sin() * 0.5; 2];
+			let other: [&[f32; 2]; 1] = [&sidechain];
+			let mut samples = [0.0f32; 2];
+
+			effect.process(&mut samples, &other, &mut context);
+		}
+
+		let before = effect.kernel;
+
+		for _ in 0..4_096 {
+			let sidechain = [0.0f32; 2];
+			let other: [&[f32; 2]; 1] = [&sidechain];
+			let mut samples = [0.0f32; 2];
+
+			effect.process(&mut samples, &other, &mut context);
+		}
+
+		assert_eq!(before, effect.kernel);
+	}
+
+	/// Switching into the sidechain keeps the signal finite, table kernel and all.
+	#[test]
+	fn switching_to_the_sidechain_stays_finite() {
+		let frame = FilterFrame::new();
+		let mut effect = FilterTableEffect::with_frame(48_000, frame);
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+
+		for index in 0..2_048 {
+			let phase = std::f32::consts::TAU * 220.0 * index as f32 / 48_000.0;
+			let mut samples = [phase.sin() * 0.3; 2];
+
+			effect.process(&mut samples, &[], &mut context);
+			assert!(samples[0].is_finite() && samples[1].is_finite());
+		}
+
+		effect.mode = 1;
+
+		for index in 0..4_096 {
+			let phase = std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0;
+			let sidechain = [phase.sin() * 0.5; 2];
+			let other: [&[f32; 2]; 1] = [&sidechain];
+			let mut samples = [0.0f32; 2];
+
+			effect.process(&mut samples, &other, &mut context);
+			assert!(
+				samples[0].is_finite() && samples[1].is_finite(),
+				"non-finite at {index}"
+			);
+		}
 	}
 }

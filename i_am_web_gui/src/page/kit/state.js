@@ -89,6 +89,9 @@ var canvasState = null;
     generation: 0,
     pages: [[{ time: 0, value: 0, bend: 0 }, { time: 1, value: 1, bend: 0 }]]
   };
+  // The sidechain trace the Filter Table kernel follows, and whether the page is
+  // currently showing it.
+  var filterTableSidechain = { input: null, wanted: false };
 var wantsOtt = false;
 var ottState = null;
 var wantsVocoder = false;

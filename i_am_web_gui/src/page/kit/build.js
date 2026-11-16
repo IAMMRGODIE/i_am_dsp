@@ -796,6 +796,7 @@
     pollHistory();
     pollHistoryPhase();
     pollFilterTable();
+  pollFilterTableSidechain();
     if (heroes.some(function (hero) {
       return hero.kind === "spectraldynamics-curve";
     })) pollSpectralDynamics();

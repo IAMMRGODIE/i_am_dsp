@@ -749,8 +749,42 @@
 
   /// Decode a file with Web Audio, so a sample can be imported as a kernel.
 
+  /// A raw sample window as an SVG path on the hero canvas.
+  function filterWaveformPath(samples) {
+    if (!samples || !samples.length) return "";
+
+    var path = "";
+
+    for (var index = 0; index < samples.length; index++) {
+      var x = 8 + (index / (samples.length - 1)) * 284;
+      var y = 32 - Math.max(-1, Math.min(1, samples[index] * 4)) * 22;
+      path += (index === 0 ? "M" : "L") + x.toFixed(2) + " " + y.toFixed(2);
+    }
+
+    return path;
+  }
+
   function filterTableHero(values, context) {
     var table = context && context.filterTable;
+    var sidechain = context && context.sidechain;
+
+    // The sidechain mode has no page to edit: the hero is the input it follows.
+    if (valueOf(values, "mode", 0) >= 0.5) {
+      if (sidechain) sidechain.wanted = true;
+
+      var samples = sidechain && sidechain.input;
+      var path = filterWaveformPath(samples);
+
+      return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="xMidYMid meet">' +
+        '<line x1="8" y1="32" x2="292" y2="32" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
+        (path ? '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' : '') +
+        '</svg>' +
+        (samples ? '' : '<div class="hero-empty">Waiting for the sidechain...</div>') +
+        '<div class="hero-label" style="left:2%;top:2%">SIDECHAIN \u00b7 INPUT</div>';
+    }
+
+    if (sidechain) sidechain.wanted = false;
+
     var pages = (table && table.pages) || [[]];
     var selected = filterTablePage(values, pages);
     var points = pages[selected] || [];
@@ -795,6 +829,9 @@
     var table = state && state.filterTable;
 
     if (kind !== "filtertable" || !table || !table.pages) return;
+
+    // Sidechain mode shows the input, not the frame: no editor, no page buttons.
+    if (valueOf(values, "mode", 0) >= 0.5) return;
 
     var svg = el.querySelector("svg");
     if (!svg) return;

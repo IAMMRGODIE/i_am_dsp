@@ -373,7 +373,21 @@ fn points_from_signal(signal: &[f32], count: usize) -> Vec<FilterPoint> {
 fn filter_route(
 	request: &ProtocolRequest<'_>,
 	handle: &FilterTableHandle,
+	scope: &Scope,
 ) -> Option<ProtocolResponse> {
+	if request.path == "/filter-table/sidechain" {
+		// The page shows the sidechain the effect heard, and nothing else: the
+		// scope's third trace is exactly that.
+		let snapshot = scope.snapshot();
+		let third = snapshot.len() / 3;
+
+		return Some(ProtocolResponse {
+			status: 200,
+			content_type: "application/octet-stream",
+			body: snapshot[2 * third..].to_vec(),
+		});
+	}
+
 	if request.path == "/filter-table/import/progress" {
 		return Some(ProtocolResponse::json(handle.progress()));
 	}
@@ -524,13 +538,18 @@ impl Processor for FilterTableWeb {
 		context: &mut Box<dyn ProcessContext>,
 	) {
 		let input = *samples;
+		let sidechain = other
+			.get(1)
+			.map(|frame| (frame[0] + frame[1]) * 0.5)
+			.unwrap_or(0.0);
+
 		if self.bypass.load(Ordering::Relaxed) {
-			self.scope.push_stereo(input, input, 0.0);
+			self.scope.push_stereo(input, input, sidechain);
 			return;
 		}
 
 		i_am_dsp::Processor::process(&mut self.processor, samples, other, context);
-		self.scope.push_stereo(input, *samples, 0.0);
+		self.scope.push_stereo(input, *samples, sidechain);
 	}
 
 	fn on_message(&self, message: Self::Message) {
@@ -538,9 +557,20 @@ impl Processor for FilterTableWeb {
 	}
 }
 
+/// The sidechain mode hides the frame controls: a kernel from the sidechain has
+/// no page to edit.
+const FILTER_TABLE_VISIBLE: &[(i32, &[&str])] = &[
+	(0, &["cutoff", "resonance", "mix", "phase", "morph"]),
+	// The sidechain supplies the shape, so the frame's cutoff, resonance and
+	// phase would be knobs that do nothing.
+	(1, &["mix"]),
+];
+
 /// The faceplate: the cutoff, the resonance and the mix; the frame hero is on Cutoff.
 pub fn faceplate() -> Faceplate {
 	Faceplate::new(TITLE, ACCENT, SIZE)
+		.with_mode("mode")
+		.with_visible(FILTER_TABLE_VISIBLE)
 }
 
 impl Plugin for FilterTableWeb {
@@ -549,6 +579,9 @@ impl Plugin for FilterTableWeb {
 		.with_version(env!("CARGO_PKG_VERSION"));
 
 	const HAS_GUI: bool = true;
+
+	/// The main input, and the sidechain the kernel can come from.
+	const INPUT_PORTS: &'static [i_am_plugin::AudioPort] = crate::SIDECHAIN_PORTS;
 
 	fn new() -> Self {
 		Self::default()
@@ -572,13 +605,14 @@ impl Plugin for FilterTableWeb {
 
 	fn editor(&self) -> Option<Box<dyn i_am_plugin::Editor<Self>>> {
 		let handle = self.handle.clone();
+		let scope = self.scope.clone();
 		i_am_web_gui::editor_with(
 			self,
 			faceplate(),
 			self.bypass.clone(),
 			self.scope.clone(),
 			self.processor.sample_rate(),
-			move |request: &ProtocolRequest<'_>| filter_route(request, &handle),
+			move |request: &ProtocolRequest<'_>| filter_route(request, &handle, &scope),
 			|_: &str| false,
 		)
 	}
@@ -758,5 +792,49 @@ mod tests {
 		}
 
 		panic!("the import did not finish");
+	}
+
+	/// The product asks the host for a sidechain input alongside the main one.
+	#[test]
+	fn the_product_declares_its_sidechain() {
+		use i_am_plugin::Plugin;
+
+		assert_eq!(FilterTableWeb::INPUT_PORTS.len(), 2);
+		assert_eq!(FilterTableWeb::INPUT_PORTS[1].name, "Sidechain");
+	}
+
+	/// The panel's sidechain route reports the signal the effect heard.
+	#[test]
+	fn the_sidechain_route_reports_the_input() {
+		let mut product = FilterTableWeb::default();
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		// Port 0 is the main input; the sidechain is the second frame.
+		let sidechain = [[0.0f32; 2], [0.25f32; 2]];
+		let mut samples = [0.0f32; 2];
+
+		for _ in 0..64 {
+			i_am_dsp::Processor::process(&mut product, &mut samples, &sidechain, &mut context);
+		}
+
+		let request = ProtocolRequest {
+			method: "GET",
+			path: "/filter-table/sidechain",
+			query: None,
+			body: &[],
+		};
+		let response =
+			filter_route(&request, &product.handle(), &product.scope).expect("the sidechain route");
+		let values = response
+			.body
+			.as_chunks::<4>()
+			.0
+			.iter()
+			.map(|bytes| f32::from_le_bytes(*bytes))
+			.collect::<Vec<_>>();
+
+		assert!(
+			values.iter().any(|value| (*value - 0.25).abs() < 1e-3),
+			"the sidechain never reached the scope"
+		);
 	}
 }
