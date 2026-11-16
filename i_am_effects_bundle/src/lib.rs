@@ -25,6 +25,7 @@ export_plugin!(
 	AllpassWeb,
 	WidthWeb,
 	OuterWiderWeb,
+	RingModWeb,
 	PitchWeb,
 	AutoTuneWeb,
 	SpectralRetuneWeb,

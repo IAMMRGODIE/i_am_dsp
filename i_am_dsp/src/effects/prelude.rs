@@ -35,6 +35,7 @@ pub use super::eq::*;
 pub use super::formant_filter::*;
 pub use super::ott::*;
 pub use super::resonator::*;
+pub use super::ring_mod::*;
 pub use super::router::*;
 pub use super::tape_stop::*;
 pub use super::vocoder::*;

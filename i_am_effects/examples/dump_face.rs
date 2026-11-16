@@ -19,11 +19,12 @@ use i_am_effects::{
 	DistortionWeb, EqWeb, ExpanderWeb, FLANGER_HEADER, FLANGER_SWITCHES, FilterTableWeb, FilterWeb,
 	FlangerWeb, FormantFilterWeb, GainWeb, GateWeb, HistoryWeb, IrReverbWeb, LimiterWeb, OTT_PAGES,
 	OttWeb, OuterWiderWeb, PHASER_HEADER, PHASER_SWITCHES, PITCH_VISIBLE, ParticleWiderWeb,
-	PhaserWeb, PitchWeb, ResonatorWeb, ReverbWeb, RouterWeb, SHIFTER_VISIBLE, SchroederWeb,
-	ScriptDistortionWeb, ScriptMapperWeb, ShifterWeb, SpectralDynamicsWeb, SpectralRetuneWeb,
-	StftVocoderWeb, TapeStopWeb, TransientWeb, UnstablizerWeb, VocoderWeb, WidthWeb,
+	PhaserWeb, PitchWeb, ResonatorWeb, ReverbWeb, RingModWeb, RouterWeb, SHIFTER_VISIBLE,
+	SchroederWeb, ScriptDistortionWeb, ScriptMapperWeb, ShifterWeb, SpectralDynamicsWeb,
+	SpectralRetuneWeb, StftVocoderWeb, TapeStopWeb, TransientWeb, UnstablizerWeb, VocoderWeb,
+	WidthWeb,
 };
-use i_am_effects::{FILTER_HEADER, FILTER_VISIBLE};
+use i_am_effects::{FILTER_HEADER, FILTER_VISIBLE, RING_VISIBLE};
 use i_am_plugin::Plugin;
 use i_am_web_gui::Faceplate;
 
@@ -193,6 +194,18 @@ fn main() {
 						.with_mode("algorithm")
 						.with_visible(SHIFTER_VISIBLE)
 						.with_header(&["window_size"]),
+				),
+				i_am_web_gui::state_json(&plugin),
+			)
+		}
+		"ring_mod" => {
+			let plugin = RingModWeb::new();
+			(
+				i_am_web_gui::face_json(
+					&plugin,
+					&Faceplate::new("I Am Ring", "#5ec8e0", (520.0, 330.0))
+						.with_mode("mode")
+						.with_visible(RING_VISIBLE),
 				),
 				i_am_web_gui::state_json(&plugin),
 			)

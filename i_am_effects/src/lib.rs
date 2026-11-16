@@ -50,7 +50,7 @@ pub use convolver::{ConvolverWeb, IrData, IrFades, IrSlot, decode_ir};
 use disperser::Dispersion;
 pub use filter_table::{FilterTableHandle, FilterTableWeb, faceplate as filter_table_faceplate};
 pub use history::{HistoryHandle, HistoryWeb, faceplate as history_faceplate};
-use i_am_dsp::prelude::OuterWider;
+use i_am_dsp::prelude::{OuterWider, RingMod};
 use ir_reverb::IrReverbEffect;
 pub use ott::{OTT_PAGES, OttWeb};
 use particle_wider::ParticleWiderEffect;
@@ -192,6 +192,26 @@ web_plugin!(
 	"I Am Wider",
 	(760.0, 360.0),
 	"#ff6fae"
+);
+
+/// The controls each ring modulation mode reads.
+pub const RING_VISIBLE: &[(i32, &[&str])] = &[
+	(0, &["shape", "rate", "stereo", "mix"]),
+	(1, &["shape", "rate", "depth", "stereo", "mix"]),
+	(2, &["mix"]),
+];
+
+web_plugin!(
+	RingModWeb,
+	RingMod,
+	RingMod::new,
+	"iamdsp.effects.ring_mod.web",
+	"I Am Ring",
+	(520.0, 330.0),
+	"#5ec8e0",
+	mode = "mode",
+	visible = RING_VISIBLE,
+	ports = SIDECHAIN_PORTS
 );
 
 web_plugin!(

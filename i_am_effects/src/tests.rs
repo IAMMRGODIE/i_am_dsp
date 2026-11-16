@@ -1060,3 +1060,14 @@ fn bypass_passes_the_input_untouched() {
 	plugin.process(&mut active, &[], &mut context);
 	assert_eq!(active, [0.125, -0.25]);
 }
+
+/// The ring modulator's third mode takes its carrier from the second input, so
+/// the host has to see a sidechain port.
+#[test]
+fn the_ring_modulator_declares_its_sidechain() {
+	assert_eq!(<RingModWeb as i_am_plugin::Plugin>::INPUT_PORTS.len(), 2);
+	assert_eq!(
+		<RingModWeb as i_am_plugin::Plugin>::INPUT_PORTS[1].name,
+		"Sidechain"
+	);
+}

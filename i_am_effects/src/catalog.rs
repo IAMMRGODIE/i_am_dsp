@@ -10,8 +10,9 @@ use std::sync::Arc;
 use i_am_dsp::prelude::{
 	AutoTune, Chorus, Crusher, Delay, Distortion, Effect, Expander, Flanger, FormantFilter, Gain,
 	Gate, HistoryEffect, HistoryFeed, Limiter, LrControl, Multimode, OttMeters, OuterWider,
-	Parameter, ParametricEq, Phaser, Resonator, SineWave, SpectralRetuneEffect, StereoController,
-	StereoRouter, StftVocoderEffect, TapeStopEffect, TransientShaper, VocoderEffect, VocoderMeters,
+	Parameter, ParametricEq, Phaser, Resonator, RingMod, SineWave, SpectralRetuneEffect,
+	StereoController, StereoRouter, StftVocoderEffect, TapeStopEffect, TransientShaper,
+	VocoderEffect, VocoderMeters,
 };
 
 use i_am_dsp::prelude::{FilterFrame, FilterTableEffect};
@@ -133,6 +134,10 @@ fn shifter(sample_rate: usize) -> Box<dyn Effect<2>> {
 	Box::new(ShifterEffect::new(sample_rate))
 }
 
+fn ring_mod(sample_rate: usize) -> Box<dyn Effect<2>> {
+	Box::new(RingMod::new(sample_rate))
+}
+
 fn disperser(sample_rate: usize) -> Box<dyn Effect<2>> {
 	Box::new(Dispersion::new(sample_rate))
 }
@@ -239,6 +244,7 @@ pub fn face(id: &str) -> Option<(f32, f32)> {
 		"comb" => Some(crate::CombWeb::size()),
 		"allpass" => Some(crate::AllpassWeb::size()),
 		"width" => Some(crate::WidthWeb::size()),
+		"ring_mod" => Some(crate::RingModWeb::size()),
 		"outer_wider" => Some(crate::OuterWiderWeb::size()),
 		"shifter" => Some(crate::ShifterWeb::size()),
 		"disperser" => Some(crate::DisperserWeb::size()),
@@ -465,6 +471,19 @@ pub const SHIFTER: ModuleDescriptor = ModuleDescriptor {
 	switches: &[],
 	build_with_ir: None,
 	build: shifter,
+};
+
+/// The ring modulator product.
+pub const RING_MOD: ModuleDescriptor = ModuleDescriptor {
+	id: "ring_mod",
+	name: "Ring",
+	accent: "#5ec8e0",
+	mode: Some("mode"),
+	header: &[],
+	visible: Some(crate::RING_VISIBLE),
+	switches: &[],
+	build_with_ir: None,
+	build: ring_mod,
 };
 
 /// The disperser product.
@@ -835,6 +854,7 @@ pub const MODULES: &[ModuleDescriptor] = &[
 	PHASER,
 	CRUSHER,
 	DISPERSER,
+	RING_MOD,
 	WIDTH,
 	OUTER_WIDER,
 	BALANCE,

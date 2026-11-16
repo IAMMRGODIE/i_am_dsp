@@ -31,6 +31,7 @@ pub mod psola;
 pub mod resonator;
 pub mod reverb;
 pub mod reverb_ir_gen;
+pub mod ring_mod;
 pub mod router;
 pub mod schroeder;
 pub mod smoothed_effect;
