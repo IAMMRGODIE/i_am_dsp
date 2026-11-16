@@ -165,6 +165,12 @@ pub struct FilterTableEffect {
 	#[id(display = "Mode")]
 	#[layout(group = "Filter", order = 5, widget = choice)]
 	pub mode: i32,
+	/// What the sidechain becomes: its magnitude response, or the kernel itself.
+	#[choices("Response", "Kernel")]
+	#[default(0)]
+	#[id(display = "Sidechain")]
+	#[layout(group = "Filter", order = 6, widget = choice)]
+	pub sidechain_mode: i32,
 	#[skip]
 	frame: Arc<FilterFrame>,
 	#[skip]
@@ -304,6 +310,7 @@ impl FilterTableEffect {
 			seen_phase: i32::MIN,
 			seen_morph: f32::NAN,
 			mode: 0,
+			sidechain_mode: 0,
 			sidechain: [0.0; TAPS],
 			sidechain_write: 0,
 			sidechain_count: 0,
@@ -497,7 +504,13 @@ impl FilterTableEffect {
 
 		self.sidechain_count = 0;
 
-		if let Some(target) = self.sidechain_target() {
+		let target = if self.sidechain_mode == 1 {
+			self.sidechain_kernel_target()
+		} else {
+			self.sidechain_target()
+		};
+
+		if let Some(target) = target {
 			self.apply_target(target);
 		}
 	}
@@ -535,6 +548,28 @@ impl FilterTableEffect {
 
 		normalize(&mut raw);
 		Some(self.minimum(&raw))
+	}
+
+	/// The kernel the sidechain's own waveform asks for: the window is the
+	/// impulse response, so the main input is convolved with the sidechain.
+	fn sidechain_kernel_target(&mut self) -> Option<[f32; TAPS]> {
+		let mut raw = [0.0f32; TAPS];
+		let mut energy = 0.0;
+
+		for (index, target) in raw.iter_mut().enumerate() {
+			let sample = self.sidechain[(self.sidechain_write + index) % TAPS];
+			let window = 0.5 - 0.5 * (std::f32::consts::TAU * index as f32 / TAPS as f32).cos();
+			energy += sample * sample;
+			*target = sample * window;
+		}
+
+		// A silent window would make the filter vanish; keep the last kernel.
+		if energy < 1e-9 {
+			return None;
+		}
+
+		normalize(&mut raw);
+		Some(raw)
 	}
 
 	fn linear(&self, raw: &[f32; TAPS]) -> [f32; TAPS] {
@@ -1102,6 +1137,78 @@ mod tests {
 		}
 
 		assert_eq!(before, effect.kernel);
+	}
+
+	/// In kernel mode the sidechain's own waveform is the impulse response.
+	#[test]
+	fn the_sidechain_kernel_is_the_input_window() {
+		let frame = FilterFrame::new();
+		let mut effect = FilterTableEffect::with_frame(48_000, frame);
+		effect.mode = 1;
+		effect.sidechain_mode = 1;
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+
+		for index in 0..TAPS {
+			let phase = std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0;
+			let sidechain = [phase.sin() * 0.5; 2];
+			let zero = [0.0f32; 2];
+			let other: [&[f32; 2]; 2] = [&zero, &sidechain];
+			let mut samples = [0.0f32; 2];
+
+			effect.process(&mut samples, &other, &mut context);
+		}
+
+		// The window the sidechain filled, hann weighted and normalised.
+		let mut expected = [0.0f32; TAPS];
+		for (index, value) in expected.iter_mut().enumerate() {
+			let phase = std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0;
+			let window = 0.5 - 0.5 * (std::f32::consts::TAU * index as f32 / TAPS as f32).cos();
+			*value = phase.sin() * 0.5 * window;
+		}
+		normalize(&mut expected);
+
+		for (index, value) in effect.kernel.iter().enumerate() {
+			assert!(
+				(value - expected[index]).abs() < 1e-5,
+				"sample {index}: {value} against {}",
+				expected[index]
+			);
+		}
+	}
+
+	/// The two sidechain modes have to sound different: one keeps the phase, the
+	/// other drops it.
+	#[test]
+	fn the_two_sidechain_modes_build_different_kernels() {
+		fn kernel(mode: i32) -> [f32; TAPS] {
+			let mut effect = FilterTableEffect::with_frame(48_000, FilterFrame::new());
+			effect.mode = 1;
+			effect.sidechain_mode = mode;
+			let mut context: Box<dyn ProcessContext> = Box::new(());
+
+			for index in 0..TAPS {
+				let phase = std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0;
+				let sidechain = [phase.sin() * 0.5; 2];
+				let zero = [0.0f32; 2];
+				let other: [&[f32; 2]; 2] = [&zero, &sidechain];
+				let mut samples = [0.0f32; 2];
+
+				effect.process(&mut samples, &other, &mut context);
+			}
+
+			effect.kernel
+		}
+
+		let response = kernel(0);
+		let direct = kernel(1);
+		let difference = response
+			.iter()
+			.zip(direct.iter())
+			.map(|(left, right)| (left - right) * (left - right))
+			.sum::<f32>()
+			.sqrt();
+
+		assert!(difference > 0.1, "the kernels are too close: {difference}");
 	}
 
 	/// Switching into the sidechain keeps the signal finite, table kernel and all.

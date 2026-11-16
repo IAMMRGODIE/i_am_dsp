@@ -780,7 +780,9 @@
         (path ? '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' : '') +
         '</svg>' +
         (samples ? '' : '<div class="hero-empty">Waiting for the sidechain...</div>') +
-        '<div class="hero-label" style="left:2%;top:2%">SIDECHAIN \u00b7 INPUT</div>';
+        '<div class="hero-label" style="left:2%;top:2%">SIDECHAIN \u00b7 ' +
+        (Math.round(valueOf(values, "sidechain_mode", 0) || 0) === 1 ? "KERNEL" : "RESPONSE") +
+        '</div>';
     }
 
     if (sidechain) sidechain.wanted = false;

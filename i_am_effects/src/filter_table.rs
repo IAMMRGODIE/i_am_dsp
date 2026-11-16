@@ -562,8 +562,8 @@ impl Processor for FilterTableWeb {
 const FILTER_TABLE_VISIBLE: &[(i32, &[&str])] = &[
 	(0, &["cutoff", "resonance", "mix", "phase", "morph"]),
 	// The sidechain supplies the shape, so the frame's cutoff, resonance and
-	// phase would be knobs that do nothing.
-	(1, &["mix"]),
+	// phase would be knobs that do nothing; only the mode and the mix remain.
+	(1, &["sidechain_mode", "mix"]),
 ];
 
 /// The faceplate: the cutoff, the resonance and the mix; the frame hero is on Cutoff.
