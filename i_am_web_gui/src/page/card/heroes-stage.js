@@ -750,6 +750,66 @@
   /// Decode a file with Web Audio, so a sample can be imported as a kernel.
 
   /// A raw sample window as an SVG path on the hero canvas.
+
+  /// The carrier wave the ring modulator multiplies the signal with.
+  function ringCarrier(shape, t) {
+    var phase = t - Math.floor(t);
+
+    if (shape === 1) {
+      return phase < 0.25 ? 4 * phase : phase < 0.75 ? 4 * (0.5 - phase) : 4 * (phase - 1);
+    }
+    if (shape === 2) return phase < 0.5 ? 2 * phase : 2 * phase - 2;
+    if (shape === 3) return phase < 0.5 ? 1 : -1;
+    if (shape === 4) {
+      // A stable pseudo noise, so the picture does not flicker between paints.
+      var hash = Math.sin(t * 12.9898 + 78.233) * 43758.5453;
+      return (hash - Math.floor(hash)) * 2 - 1;
+    }
+    return Math.sin(phase * Math.PI * 2);
+  }
+
+  function ringWavePath(shape, offset, cycles) {
+    var path = "";
+    var samples = 128;
+
+    for (var index = 0; index < samples; index++) {
+      var unit = index / (samples - 1);
+      var value = ringCarrier(shape, unit * cycles + offset);
+      var x = 8 + unit * 284;
+      var y = 32 - value * 22;
+      path += (index ? "L" : "M") + x.toFixed(2) + " " + y.toFixed(2);
+    }
+
+    return path;
+  }
+
+  /// The carrier of the ring modulator: two cycles, one trace per channel.
+  function ringHero(values) {
+    var shape = Math.round(valueOf(values, "shape", 0));
+    var mode = Math.round(valueOf(values, "mode", 0));
+    var stereo = valueOf(values, "stereo", 0);
+    var offset = stereo / 360;
+    var shapes = ["SINE", "TRIANGLE", "SAW", "SQUARE", "NOISE"];
+    var modes = ["RING", "AM", "SIDECHAIN"];
+    var label = '<div class="hero-label" style="left:2%;top:2%">' + modes[mode] + ' \u00b7 ' + shapes[shape] + '</div>';
+
+    if (mode === 2) {
+      return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="xMidYMid meet">' +
+        '<line x1="8" y1="32" x2="292" y2="32" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
+        '</svg>' +
+        '<div class="hero-empty">CARRIER FROM THE SIDECHAIN</div>' +
+        label;
+    }
+
+    return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="xMidYMid meet">' +
+      '<line x1="8" y1="32" x2="292" y2="32" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
+      '<path d="' + ringWavePath(shape, offset, 2) + '" fill="none" stroke="var(--accent)" stroke-width="2" opacity="0.4" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + ringWavePath(shape, 0, 2) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' +
+      '</svg>' +
+      '<div class="hero-label" style="right:2%;top:2%">L \u00b7 R +' + Math.round(stereo) + '\u00b0</div>' +
+      label;
+  }
+
   function filterWaveformPath(samples) {
     if (!samples || !samples.length) return "";
 

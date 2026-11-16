@@ -49,7 +49,7 @@ pub struct RingMod {
 	#[unit(hertz)]
 	#[default(440.0)]
 	#[id(display = "Rate")]
-	#[layout(group = "Ring", order = 2, widget = knob, hero = "spectrum")]
+	#[layout(group = "Ring", order = 2, widget = knob, hero = "ring")]
 	pub rate: f32,
 
 	/// How much of the carrier is added in the amplitude mode.
