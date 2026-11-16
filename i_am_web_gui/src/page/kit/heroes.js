@@ -12,7 +12,7 @@
   /// The hero kinds whose picture is drawn from the scope.
   var SCOPE_HEROES = [
     "spectrum", "spectra", "waveform", "unison", "transfer",
-    "compressor", "gate", "expander", "limiter", "eq", "spectraldynamics-spectrum"
+    "compressor", "gate", "expander", "limiter", "eq", "spectraldynamics-spectrum", "ring"
   ];
 
   /// Whether a picture that reads the scope is on screen.

@@ -783,8 +783,25 @@
     return path;
   }
 
+  /// One trace of a scope buffer, as a path in the 520 by 160 hero space.
+  function ringTracePath(samples, middle, height) {
+    if (!samples || samples.length < 64) return "";
+
+    var last = samples.length - 1;
+    var stride = Math.max(1, Math.floor(last / 400));
+    var path = "";
+
+    for (var index = 0; index <= last; index += stride) {
+      var x = 20 + index / last * 480;
+      var y = middle - clamp(samples[index], -1.2, 1.2) / 1.2 * height;
+      path += (path ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+    }
+
+    return path;
+  }
+
   /// The ring modulator: the carrier it multiplies with, or, in the sidechain
-  /// mode, what that carrier does to the signal.
+  /// mode, the signal before and after that multiplication.
   function ringHero(values, context) {
     var shape = Math.round(valueOf(values, "shape", 0));
     var mode = Math.round(valueOf(values, "mode", 0));
@@ -794,25 +811,12 @@
 
     if (mode === 2) {
       var scope = context && context.scope;
-      var spectra = context && context.spectra;
-      var rate = (context && context.rate) || 48000;
-      var inputPath = "";
-      var outputPath = "";
-
-      if (scope && scope.input && scope.output && spectra) {
-        var inputBands = bandsOf(scope.input, rate);
-        var outputBands = bandsOf(scope.output, rate);
-
-        if (inputBands && outputBands) {
-          spectra.input = smoothBands(spectra.input, inputBands);
-          spectra.output = smoothBands(spectra.output, outputBands);
-          inputPath = bandsPath(spectra.input);
-          outputPath = bandsPath(spectra.output);
-        }
-      }
+      var inputPath = ringTracePath(scope && scope.input, 80, 60);
+      var outputPath = ringTracePath(scope && scope.output, 80, 60);
 
       return '<svg class="mcard-graph" viewBox="0 0 520 160" preserveAspectRatio="xMidYMid meet">' +
-        (inputPath ? '<path d="' + inputPath + '" fill="none" stroke="#666" stroke-width="1.5" vector-effect="non-scaling-stroke"/>' : '') +
+        '<line x1="20" y1="80" x2="500" y2="80" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
+        (inputPath ? '<path d="' + inputPath + '" fill="none" stroke="#666" stroke-width="1.5" opacity="0.7" vector-effect="non-scaling-stroke"/>' : '') +
         (outputPath ? '<path d="' + outputPath + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' : '') +
         '</svg>' +
         (outputPath ? '' : '<div class="hero-empty">Waiting for the sidechain...</div>') +

@@ -675,7 +675,7 @@
         hero.kind === "spectrum" || hero.kind === "spectra" ||
         hero.kind === "compressor" || hero.kind === "gate" ||
         hero.kind === "expander" || hero.kind === "limiter" || hero.kind === "eq" ||
-        hero.kind === "spectraldynamics-spectrum";
+        hero.kind === "spectraldynamics-spectrum" || hero.kind === "ring";
     });
     wantsMeter = heroes.some(function (hero) {
       return hero.kind === "compressor" || hero.kind === "gate" ||
