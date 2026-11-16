@@ -781,7 +781,7 @@
         '</svg>' +
         (samples ? '' : '<div class="hero-empty">Waiting for the sidechain...</div>') +
         '<div class="hero-label" style="left:2%;top:2%">SIDECHAIN \u00b7 ' +
-        (Math.round(valueOf(values, "sidechain_mode", 0) || 0) === 1 ? "KERNEL" : "RESPONSE") +
+        (Math.round(valueOf(values, "mode", 0) || 0) === 2 ? "KERNEL" : "RESPONSE") +
         '</div>';
     }
 

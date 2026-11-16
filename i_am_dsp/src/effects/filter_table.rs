@@ -159,18 +159,13 @@ pub struct FilterTableEffect {
 	#[id(display = "Morph")]
 	#[layout(group = "Filter", order = 4, widget = knob)]
 	pub morph: f32,
-	/// Whether the kernel comes from the frame or from the sidechain input.
-	#[choices("Table", "Sidechain")]
+	/// Where the kernel comes from: the frame, the sidechain's magnitude, or the
+	/// sidechain's waveform itself.
+	#[choices("Table", "Response", "Kernel")]
 	#[default(0)]
 	#[id(display = "Mode")]
 	#[layout(group = "Filter", order = 5, widget = choice)]
 	pub mode: i32,
-	/// What the sidechain becomes: its magnitude response, or the kernel itself.
-	#[choices("Response", "Kernel")]
-	#[default(0)]
-	#[id(display = "Sidechain")]
-	#[layout(group = "Filter", order = 6, widget = choice)]
-	pub sidechain_mode: i32,
 	#[skip]
 	frame: Arc<FilterFrame>,
 	#[skip]
@@ -310,7 +305,6 @@ impl FilterTableEffect {
 			seen_phase: i32::MIN,
 			seen_morph: f32::NAN,
 			mode: 0,
-			sidechain_mode: 0,
 			sidechain: [0.0; TAPS],
 			sidechain_write: 0,
 			sidechain_count: 0,
@@ -327,8 +321,8 @@ impl FilterTableEffect {
 	}
 
 	fn factor(&self) -> usize {
-		if self.mode == 1 {
-			// The sidechain path has no cutoff to decimate for.
+		if self.mode != 0 {
+			// The sidechain paths decide their own kernel length.
 			return 1;
 		}
 
@@ -504,7 +498,7 @@ impl FilterTableEffect {
 
 		self.sidechain_count = 0;
 
-		let target = if self.sidechain_mode == 1 {
+		let target = if self.mode == 2 {
 			self.sidechain_kernel_target()
 		} else {
 			self.sidechain_target()
@@ -535,15 +529,44 @@ impl FilterTableEffect {
 
 		self.forward.process(&mut self.spectrum);
 
-		for value in &mut self.spectrum {
-			*value = Complex::new(value.norm(), 0.0);
+		// The cutoff scales the spectrum the way the table's cutoff scales its
+		// frame: 1 kHz leaves the sidechain where it is, higher moves it up.
+		let half = TAPS / 2;
+		let ratio = (self.cutoff / 1_000.0).max(1e-3);
+		let mut magnitude = [0.0f32; TAPS];
+
+		for (bin, value) in magnitude.iter_mut().enumerate().take(half + 1) {
+			let source = (bin as f32 / ratio).min(half as f32);
+			let lower = source.floor() as usize;
+			let upper = (lower + 1).min(half);
+			let fraction = source - lower as f32;
+			let first = self.spectrum[lower].norm();
+			let second = self.spectrum[upper].norm();
+			*value = first + (second - first) * fraction;
+		}
+
+		for bin in 1..half {
+			magnitude[TAPS - bin] = magnitude[bin];
+		}
+
+		for (slot, value) in self.spectrum.iter_mut().zip(magnitude) {
+			*slot = Complex::new(value, 0.0);
 		}
 
 		self.inverse.process(&mut self.spectrum);
 
 		let mut raw = [0.0f32; TAPS];
 		for (index, value) in self.spectrum.iter().enumerate() {
-			raw[(index + TAPS / 2) % TAPS] = value.re / TAPS as f32;
+			raw[(index + half) % TAPS] = value.re / TAPS as f32;
+		}
+
+		// The same comb the table path applies, so the control means the same
+		// thing in both modes.
+		let peak = self.resonance.clamp(0.0, 1.0);
+		for (index, value) in raw.iter_mut().enumerate() {
+			*value *= 1.0
+				+ peak
+					* (std::f32::consts::TAU * self.cutoff * index as f32 / self.sample_rate).cos();
 		}
 
 		normalize(&mut raw);
@@ -690,8 +713,8 @@ fn sample_frame(points: &[FilterPoint], x: f32) -> f32 {
 
 impl Effect<2> for FilterTableEffect {
 	fn delay(&self) -> usize {
-		if self.mode == 1 {
-			// The sidechain kernel is minimum phase: nothing is held back.
+		if self.mode != 0 {
+			// Both sidechain kernels are causal: nothing is held back.
 			return 0;
 		}
 
@@ -723,7 +746,7 @@ impl Effect<2> for FilterTableEffect {
 			}
 		}
 
-		if self.mode == 1 {
+		if self.mode != 0 {
 			self.follow_sidechain(other);
 		} else if self.frame.generation() != self.seen_generation
 			|| self.cutoff != self.seen_cutoff
@@ -1057,6 +1080,84 @@ mod tests {
 		assert!((energy - 1.0).abs() < 1e-3, "energy {energy}");
 	}
 
+	/// A response kernel for a 1 kHz sidechain at the given controls.
+	fn sidechain_response(cutoff: f32, resonance: f32) -> [f32; TAPS] {
+		let mut effect = FilterTableEffect::with_frame(48_000, FilterFrame::new());
+		effect.mode = 1;
+		effect.cutoff = cutoff;
+		effect.resonance = resonance;
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+
+		for index in 0..TAPS {
+			let phase = std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0;
+			let sidechain = [phase.sin() * 0.5; 2];
+			let zero = [0.0f32; 2];
+			let other: [&[f32; 2]; 2] = [&zero, &sidechain];
+			let mut samples = [0.0f32; 2];
+
+			effect.process(&mut samples, &other, &mut context);
+		}
+
+		effect.kernel
+	}
+
+	/// The strongest bin of a kernel, in Hz.
+	fn peak_frequency(kernel: &[f32; TAPS]) -> f32 {
+		let mut buffer: Vec<Complex<f32>> = kernel
+			.iter()
+			.map(|sample| Complex::new(*sample, 0.0))
+			.collect();
+		FftPlanner::<f32>::new()
+			.plan_fft_forward(TAPS)
+			.process(&mut buffer);
+
+		let mut best = 1;
+		let mut best_value = 0.0;
+
+		for (bin, value) in buffer.iter().enumerate().take(TAPS / 2).skip(1) {
+			if value.norm() > best_value {
+				best_value = value.norm();
+				best = bin;
+			}
+		}
+
+		best as f32 * 48_000.0 / TAPS as f32
+	}
+
+	/// The cutoff scales the sidechain's spectrum: 500 Hz moves the peak an
+	/// octave down, 2 kHz an octave up.
+	#[test]
+	fn the_cutoff_scales_the_sidechain_spectrum() {
+		let neutral = peak_frequency(&sidechain_response(1_000.0, 0.0));
+		let low = peak_frequency(&sidechain_response(500.0, 0.0));
+		let high = peak_frequency(&sidechain_response(2_000.0, 0.0));
+
+		assert!(
+			(neutral - 1_000.0).abs() < 60.0,
+			"neutral peaked at {neutral}"
+		);
+		assert!((low - 500.0).abs() < 60.0, "500 Hz cutoff peaked at {low}");
+		assert!(
+			(high - 2_000.0).abs() < 60.0,
+			"2 kHz cutoff peaked at {high}"
+		);
+	}
+
+	/// The resonance comb still shapes the response, as it does on the table.
+	#[test]
+	fn the_resonance_changes_the_response() {
+		let flat = sidechain_response(1_000.0, 0.0);
+		let emphasised = sidechain_response(1_000.0, 0.8);
+		let difference = flat
+			.iter()
+			.zip(emphasised.iter())
+			.map(|(left, right)| (left - right) * (left - right))
+			.sum::<f32>()
+			.sqrt();
+
+		assert!(difference > 0.05, "the comb changed nothing: {difference}");
+	}
+
 	/// The sidechain's spectrum becomes the kernel's magnitude response.
 	#[test]
 	fn the_sidechain_shapes_the_kernel() {
@@ -1144,8 +1245,7 @@ mod tests {
 	fn the_sidechain_kernel_is_the_input_window() {
 		let frame = FilterFrame::new();
 		let mut effect = FilterTableEffect::with_frame(48_000, frame);
-		effect.mode = 1;
-		effect.sidechain_mode = 1;
+		effect.mode = 2;
 		let mut context: Box<dyn ProcessContext> = Box::new(());
 
 		for index in 0..TAPS {
@@ -1182,8 +1282,7 @@ mod tests {
 	fn the_two_sidechain_modes_build_different_kernels() {
 		fn kernel(mode: i32) -> [f32; TAPS] {
 			let mut effect = FilterTableEffect::with_frame(48_000, FilterFrame::new());
-			effect.mode = 1;
-			effect.sidechain_mode = mode;
+			effect.mode = mode;
 			let mut context: Box<dyn ProcessContext> = Box::new(());
 
 			for index in 0..TAPS {
@@ -1199,8 +1298,8 @@ mod tests {
 			effect.kernel
 		}
 
-		let response = kernel(0);
-		let direct = kernel(1);
+		let response = kernel(1);
+		let direct = kernel(2);
 		let difference = response
 			.iter()
 			.zip(direct.iter())

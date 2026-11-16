@@ -561,9 +561,10 @@ impl Processor for FilterTableWeb {
 /// no page to edit.
 const FILTER_TABLE_VISIBLE: &[(i32, &[&str])] = &[
 	(0, &["cutoff", "resonance", "mix", "phase", "morph"]),
-	// The sidechain supplies the shape, so the frame's cutoff, resonance and
-	// phase would be knobs that do nothing; only the mode and the mix remain.
-	(1, &["sidechain_mode", "mix"]),
+	// The response path still has a spectrum to scale and emphasise; the kernel
+	// path is the sidechain's waveform, so only the mix is left.
+	(1, &["cutoff", "resonance", "mix"]),
+	(2, &["mix"]),
 ];
 
 /// The faceplate: the cutoff, the resonance and the mix; the frame hero is on Cutoff.
