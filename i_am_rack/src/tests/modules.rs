@@ -196,6 +196,11 @@ slot.3.add=Delay",
 	);
 	assert_eq!(response.body, b"{\"ok\":true}");
 
+	// Every lane is padded to the slowest one, and the default second band
+	// carries a distortion whose shaper reports the oversampler's latency, so
+	// the dry copy of the impulse arrives before the echo.
+	let latency = crate::engine::Engine::new(44_100, &rack.state()).delay();
+
 	process(&mut rack, [1.0, 1.0]);
 
 	let mut peak = 0.0_f32;
@@ -204,7 +209,9 @@ slot.3.add=Delay",
 	for index in 0..14_000 {
 		let out = process(&mut rack, [0.0, 0.0]);
 
-		if out[0].abs() > peak {
+		// The dry copy sits at the compensation; the echo is what has to land
+		// on the delay time.
+		if index > 1_000 && out[0].abs() > peak {
 			peak = out[0].abs();
 			peak_at = index;
 		}
@@ -212,7 +219,7 @@ slot.3.add=Delay",
 
 	assert!(peak > 0.2, "the delayed impulse was only {peak}");
 	assert!(
-		(peak_at as i32 - 11_025).abs() < 100,
+		(peak_at as i32 - (11_025 + latency as i32 - 1)).abs() < 100,
 		"the impulse came back at {peak_at} instead of 250 ms"
 	);
 }

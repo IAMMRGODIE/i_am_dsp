@@ -8,6 +8,7 @@ pub mod frequency;
 pub mod gain_computer;
 pub(crate) mod interpolate;
 pub(crate) mod matrix;
+pub mod oversampling;
 pub mod page;
 pub mod pcm_data;
 pub mod pitch;

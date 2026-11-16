@@ -487,9 +487,13 @@ fn compressor_latency_is_reported_and_compensated() {
 
 	let engine = crate::engine::Engine::new(48_000, &state);
 
+	// The second band starts with a distortion, and its four-times shaper
+	// reports the oversampler's latency.
+	let distortion = i_am_dsp::tools::oversampling::LATENCY;
+
 	assert_eq!(engine.delay(), 2400);
-	assert_eq!(engine.lane_delays(), [2400, 0, 0]);
-	assert_eq!(engine.lane_compensations(), [0, 2400, 2400]);
+	assert_eq!(engine.lane_delays(), [2400, distortion, 0]);
+	assert_eq!(engine.lane_compensations(), [0, 2400 - distortion, 2400]);
 
 	state.bands[0].slots[1]
 		.as_mut()
@@ -498,7 +502,7 @@ fn compressor_latency_is_reported_and_compensated() {
 
 	let engine = crate::engine::Engine::new(48_000, &state);
 
-	assert_eq!(engine.delay(), 0);
-	assert_eq!(engine.lane_delays(), [0, 0, 0]);
-	assert_eq!(engine.lane_compensations(), [0, 0, 0]);
+	assert_eq!(engine.delay(), distortion);
+	assert_eq!(engine.lane_delays(), [0, distortion, 0]);
+	assert_eq!(engine.lane_compensations(), [distortion, 0, distortion]);
 }

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use i_am_dsp::prelude::{Effect, ParamMap, Parameter, ProcessContext, SetValue};
+use i_am_dsp::tools::oversampling::{LATENCY, Oversampler};
 use i_am_dsp_derive::Parameters;
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
 use i_am_plugin::{Descriptor, Editor, Plugin, WindowOptions};
@@ -157,6 +158,14 @@ pub struct ScriptDistortionEffect {
 	seen_compiled: u64,
 	#[skip]
 	realtime_scope: rhai::Scope<'static>,
+	#[skip]
+	oversampler: Oversampler<2>,
+	/// The line both paths run through, so the dry blend stays in phase with the
+	/// shaped signal.
+	#[skip]
+	align: [[f32; 2]; LATENCY],
+	#[skip]
+	align_write: usize,
 }
 
 impl ScriptDistortionEffect {
@@ -181,6 +190,9 @@ impl ScriptDistortionEffect {
 			realtime_script: None,
 			seen_compiled: 0,
 			realtime_scope: CompiledScript::scope([0.0; 4]),
+			oversampler: Oversampler::new(),
+			align: [[0.0; 2]; LATENCY],
+			align_write: 0,
 		}
 	}
 
@@ -238,7 +250,9 @@ impl ScriptDistortionEffect {
 
 impl Effect<2> for ScriptDistortionEffect {
 	fn delay(&self) -> usize {
-		0
+		// The table path is shaped at four times the host rate; the script path
+		// only carries the same delay.
+		LATENCY
 	}
 
 	fn process(
@@ -257,6 +271,12 @@ impl Effect<2> for ScriptDistortionEffect {
 		let mix = self.mix.clamp(0.0, 1.0);
 		let in_gain = 10.0_f32.powf(self.in_gain / 20.0);
 
+		// Both paths run on the delayed input, so the dry half of the mix stays
+		// in phase with the shaped one.
+		let aligned = self.align[self.align_write];
+		self.align[self.align_write] = dry;
+		self.align_write = (self.align_write + 1) % LATENCY;
+
 		if self.realtime
 			&& let Some(script) = self.realtime_script.clone()
 		{
@@ -266,7 +286,7 @@ impl Effect<2> for ScriptDistortionEffect {
 			let _ = self.realtime_scope.set_value("p4", self.p4);
 
 			for (channel, sample) in samples.iter_mut().enumerate() {
-				let input = dry[channel];
+				let input = aligned[channel];
 				let _ = self.realtime_scope.set_value("x", input * in_gain);
 
 				let shaped = script
@@ -288,13 +308,22 @@ impl Effect<2> for ScriptDistortionEffect {
 		}
 
 		let Some(table) = self.table.as_ref() else {
-			// Nothing rendered yet: pass the dry signal rather than silence.
+			// Nothing rendered yet: pass the delayed dry signal rather than
+			// silence, so the timing still matches.
+			*samples = aligned;
 			return;
 		};
 
+		let mut shape = |frame: [f32; 2]| {
+			[
+				table.sample(frame[0]) * out_gain,
+				table.sample(frame[1]) * out_gain,
+			]
+		};
+		let shaped = self.oversampler.process(aligned, &mut shape);
+
 		for (channel, sample) in samples.iter_mut().enumerate() {
-			let shaped = table.sample(dry[channel]) * out_gain;
-			*sample = dry[channel] * (1.0 - mix) + shaped * mix;
+			*sample = aligned[channel] * (1.0 - mix) + shaped[channel] * mix;
 		}
 	}
 }
@@ -643,7 +672,13 @@ mod tests {
 
 		let mut context: Box<dyn ProcessContext> = Box::new(());
 		let mut frame = [0.25, -0.5];
-		effect.process(&mut frame, &[], &mut context);
+
+		// The effect delays its output to keep the paths in phase, so the test
+		// has to run past that before it reads the shaped value.
+		for _ in 0..LATENCY + 8 {
+			frame = [0.25, -0.5];
+			effect.process(&mut frame, &[], &mut context);
+		}
 
 		assert!((frame[0] - 0.5).abs() < 1e-3, "{}", frame[0]);
 		assert!((frame[1] + 1.0).abs() < 1e-3, "{}", frame[1]);
@@ -711,9 +746,15 @@ mod tests {
 
 		let mut context: Box<dyn ProcessContext> = Box::new(());
 		let mut frame = [0.5, -0.5];
-		effect.process(&mut frame, &[], &mut context);
 
-		assert!((frame[0] - 0.75).abs() < 1e-4, "{}", frame[0]);
-		assert!((frame[1] + 0.75).abs() < 1e-4, "{}", frame[1]);
+		// The shaped path is oversampled, so the steady value is what the mix
+		// settles on, not the first frame out.
+		for _ in 0..LATENCY + 128 {
+			frame = [0.5, -0.5];
+			effect.process(&mut frame, &[], &mut context);
+		}
+
+		assert!((frame[0] - 0.75).abs() < 1e-3, "{}", frame[0]);
+		assert!((frame[1] + 0.75).abs() < 1e-3, "{}", frame[1]);
 	}
 }

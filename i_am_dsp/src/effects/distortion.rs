@@ -4,7 +4,11 @@ use std::f32::consts::PI;
 
 use i_am_dsp_derive::Parameters;
 
-use crate::{Effect, ProcessContext, prelude::MIN_FREQUENCY};
+use crate::{
+	Effect, ProcessContext,
+	prelude::MIN_FREQUENCY,
+	tools::oversampling::{LATENCY, Oversampler},
+};
 
 /// A Hard Clipper which clamps the signal between -threshold and threshold.
 #[derive(Parameters)]
@@ -568,6 +572,14 @@ pub struct Distortion<const CHANNELS: usize = 2> {
 	empty_count: usize,
 	#[skip]
 	last_mode: i32,
+	#[skip]
+	oversampler: Oversampler<CHANNELS>,
+	/// The delay line the sample-rate crushers run through, so every mode has
+	/// the same timing as the oversampled ones.
+	#[skip]
+	align: [[f32; CHANNELS]; LATENCY],
+	#[skip]
+	align_write: usize,
 }
 
 impl<const CHANNELS: usize> Distortion<CHANNELS> {
@@ -589,6 +601,9 @@ impl<const CHANNELS: usize> Distortion<CHANNELS> {
 			phase: 2.0 * PI,
 			empty_count: 0,
 			last_mode: 0,
+			oversampler: Oversampler::new(),
+			align: [[0.0; CHANNELS]; LATENCY],
+			align_write: 0,
 		}
 	}
 
@@ -628,7 +643,9 @@ impl<const CHANNELS: usize> Distortion<CHANNELS> {
 
 impl<const CHANNELS: usize> Effect<CHANNELS> for Distortion<CHANNELS> {
 	fn delay(&self) -> usize {
-		0
+		// The shaper runs four times the host rate, and the filters around it
+		// are linear phase, so the host has to pull the result back by this much.
+		LATENCY
 	}
 
 	fn process(
@@ -646,40 +663,90 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Distortion<CHANNELS> {
 			self.empty_count = 0;
 		}
 
-		match self.mode {
-			1 => {
-				for value in samples.iter_mut() {
-					*value = (*value / self.alpha.max(0.01)).tanh();
-				}
-			}
-			2 => {
-				for value in samples.iter_mut() {
-					*value = 2.0 / (1.0 + (-*value * self.k).exp()) - 1.0;
-				}
-			}
-			3 => {
-				for value in samples.iter_mut() {
-					*value = saturate(*value, self.a.max(0.01), self.p);
-				}
-			}
-			4 => {
-				let steps = self.bits.max(1) as f32;
+		// Every mode runs through the same delay, so switching between them does
+		// not move the effect against the rest of the graph.
+		let input = *samples;
+		let aligned = self.align[self.align_write];
+		self.align[self.align_write] = input;
+		self.align_write = (self.align_write + 1) % LATENCY;
 
-				for value in samples.iter_mut() {
-					*value = (steps * *value).round() / steps;
+		if self.mode >= 4 {
+			// The crushers are sample-rate effects; filtering their hold or their
+			// steps away would remove the sound they exist for.
+			let mut frame = aligned;
+
+			match self.mode {
+				4 => {
+					let steps = self.bits.max(1) as f32;
+
+					for value in frame.iter_mut() {
+						*value = (steps * *value).round() / steps;
+					}
 				}
+				_ => self.downsample(&mut frame),
 			}
-			5 => self.downsample(samples),
-			_ => {
-				for value in samples.iter_mut() {
-					*value = value.clamp(-self.threshold, self.threshold);
-				}
+
+			for value in frame.iter_mut() {
+				*value *= self.gain;
 			}
+
+			*samples = frame;
+			return;
 		}
 
-		for value in samples.iter_mut() {
+		let mode = self.mode;
+		let threshold = self.threshold;
+		let alpha = self.alpha.max(0.01);
+		let k = self.k;
+		let a = self.a.max(0.01);
+		let p = self.p;
+
+		let mut shape = |frame: [f32; CHANNELS]| {
+			let mut shaped = frame;
+
+			match mode {
+				1 => {
+					for value in shaped.iter_mut() {
+						*value = (*value / alpha).tanh();
+					}
+				}
+				2 => {
+					for value in shaped.iter_mut() {
+						*value = 2.0 / (1.0 + (-*value * k).exp()) - 1.0;
+					}
+				}
+				3 => {
+					for value in shaped.iter_mut() {
+						*value = saturate(*value, a, p);
+					}
+				}
+				_ => {
+					for value in shaped.iter_mut() {
+						*value = value.clamp(-threshold, threshold);
+					}
+				}
+			}
+
+			shaped
+		};
+
+		let mut shaped = self.oversampler.process(input, &mut shape);
+
+		for value in shaped.iter_mut() {
 			*value *= self.gain;
 		}
+
+		*samples = shaped;
+	}
+
+	fn clear_tail(&mut self) {
+		self.oversampler.clear();
+		self.align = [[0.0; CHANNELS]; LATENCY];
+		self.align_write = 0;
+		self.history = [0.0; CHANNELS];
+		self.hold = [0.0; CHANNELS];
+		self.phase = 2.0 * PI;
+		self.empty_count = 0;
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -724,11 +791,19 @@ mod distortion_tests {
 		let mut effect = Distortion::<1>::new(48_000);
 		effect.mode = mode;
 
-		let mut frame = [sample];
 		let mut context: Box<dyn ProcessContext> = Box::new(());
-		effect.process(&mut frame, &[], &mut context);
+		let mut output = sample;
 
-		frame[0]
+		// A shaper inside an oversampler has to settle; the first frames out are
+		// the filter's start-up, not the mode's shape.
+		for _ in 0..1_024 {
+			let mut frame = [sample];
+
+			effect.process(&mut frame, &[], &mut context);
+			output = frame[0];
+		}
+
+		output
 	}
 
 	/// The six shapers are not six names for the same curve.
@@ -774,5 +849,74 @@ mod distortion_tests {
 		}
 
 		assert_eq!(render(48_000.0), render(192_000.0));
+	}
+
+	/// Four-times shaping keeps the clip's fold-back out of the audible band.
+	#[test]
+	fn the_hard_clip_aliases_less_than_a_direct_clip() {
+		fn magnitude(samples: &[f32], frequency: f32) -> f32 {
+			let mut real = 0.0;
+			let mut imaginary = 0.0;
+
+			for (index, sample) in samples.iter().enumerate() {
+				let phase = core::f32::consts::TAU * frequency * index as f32 / 48_000.0;
+				real += sample * phase.cos();
+				imaginary -= sample * phase.sin();
+			}
+
+			(real * real + imaginary * imaginary).sqrt() / samples.len() as f32
+		}
+
+		let mut distortion = Distortion::<1>::new(48_000);
+		distortion.mode = 0;
+		distortion.threshold = 0.5;
+
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut shaped = Vec::new();
+		let mut direct = Vec::new();
+
+		for index in 0..4_800 {
+			let input = (core::f32::consts::TAU * 5_000.0 * index as f32 / 48_000.0).sin();
+			let mut frame = [input];
+
+			distortion.process(&mut frame, &[], &mut context);
+			shaped.push(frame[0]);
+			direct.push(input.clamp(-0.5, 0.5));
+		}
+
+		// The fifth harmonic of 5 kHz folds back onto 13 kHz at 48 kHz.
+		let skip = 512;
+		let alias = magnitude(&shaped[skip..], 13_000.0);
+		let raw_alias = magnitude(&direct[skip..], 13_000.0);
+
+		assert!(alias < raw_alias * 0.5, "{alias} against {raw_alias}");
+	}
+
+	/// The sample-rate crushers run on the delayed input, so every mode lands at
+	/// the same time.
+	#[test]
+	fn the_crushers_land_at_the_oversampler_latency() {
+		let mut distortion = Distortion::<1>::new(48_000);
+		distortion.mode = 4;
+		distortion.bits = 32;
+
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut output = Vec::new();
+
+		for index in 0..96 {
+			let mut frame = [if index == 0 { 1.0 } else { 0.0 }];
+
+			distortion.process(&mut frame, &[], &mut context);
+			output.push(frame[0]);
+		}
+
+		let peak = output
+			.iter()
+			.enumerate()
+			.max_by(|left, right| left.1.abs().partial_cmp(&right.1.abs()).unwrap())
+			.map(|(index, _)| index)
+			.unwrap();
+
+		assert_eq!(peak, LATENCY);
 	}
 }
