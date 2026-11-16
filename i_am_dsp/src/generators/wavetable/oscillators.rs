@@ -137,39 +137,220 @@ impl<const CHANNELS: usize> OscillatorSmoother<CHANNELS> {
 	}
 }
 
-/// An pm oscillator that modulates the phase of the carrier wave.
+/// A phase-modulation oscillator: the modulator bends the carrier's phase.
 #[derive(Parameters)]
-pub struct PmTable<Carrier: WaveTable, Modulator: WaveTable> {
+pub struct PmOsc<Carrier: WaveTable, Modulator: WaveTable> {
 	/// The carrier wave.
 	#[sub_param]
-	pub carrier: Carrier,
+	pub carrier: TableOsc<Carrier>,
 	/// The modulator wave.
 	#[sub_param]
-	pub modulator: Modulator,
-	#[range(min = 0.0, max = 1.0)]
-	/// The PM factor, 0.0 for not to pm.
-	pub pm_factor: f32,
+	pub modulator: TableOsc<Modulator>,
+	/// How far the modulator pushes the carrier's phase, in cycles.
+	#[range(min = 0.0, max = 8.0)]
+	#[layout(group = "Modulation", order = 0, widget = knob)]
+	pub index: f32,
+	/// How fast the modulator runs against the carrier.
+	#[range(min = 1.0, max = 16.0)]
+	#[layout(group = "Modulation", order = 1, widget = knob, step = 1.0)]
+	pub ratio: f32,
 }
 
-impl<Carrier: WaveTable, Modulator: WaveTable> PmTable<Carrier, Modulator> {
-	/// Create a new [`PmTable`] from a carrier and modulator wave.
+impl<Carrier: WaveTable, Modulator: WaveTable> PmOsc<Carrier, Modulator> {
+	/// Create a new [`PmOsc`] from a carrier and modulator wave.
 	pub fn new(carrier: Carrier, modulator: Modulator) -> Self {
 		Self {
-			carrier,
-			modulator,
-			pm_factor: 0.0,
+			carrier: TableOsc(carrier),
+			modulator: TableOsc(modulator),
+			index: 0.0,
+			ratio: 1.0,
 		}
 	}
 }
 
-impl<Carrier: WaveTable, Modulator: WaveTable> WaveTable for PmTable<Carrier, Modulator> {
-	fn sample(&self, t: f32, channel: usize) -> f32 {
-		if self.pm_factor == 0.0 {
-			self.carrier.sample(t, channel)
-		} else {
-			let pm_phase = self.modulator.sample(t, channel) * self.pm_factor;
-			self.carrier.sample(t + pm_phase, channel)
+impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator<CHANNELS>
+	for PmOsc<Carrier, Modulator>
+{
+	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		if self.index <= 0.0005 {
+			return self.carrier.play_at(frequency, time, phase);
 		}
+
+		// The modulator is a phase offset in cycles, so the carrier is played
+		// with the offset added rather than with a shifted frequency.
+		let modulator = self.modulator.play_at(frequency * self.ratio, time, phase);
+		let mut shifted = phase;
+
+		for (channel, value) in shifted.iter_mut().enumerate() {
+			*value += modulator[channel] * self.index;
+		}
+
+		self.carrier.play_at(frequency, time, shifted)
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		Oscillator::<CHANNELS>::demo_ui(
+			&mut self.carrier,
+			ui,
+			format!("{id_prefix}_pm_osc_carrier"),
+		);
+		Oscillator::<CHANNELS>::demo_ui(
+			&mut self.modulator,
+			ui,
+			format!("{id_prefix}_pm_osc_modulator"),
+		);
+
+		ui.add(egui::Slider::new(&mut self.index, 0.0..=8.0).text("PM Index"));
+		ui.add(
+			egui::Slider::new(&mut self.ratio, 1.0..=16.0)
+				.text("Modulator Ratio")
+				.integer(),
+		);
+	}
+}
+
+/// An amplitude-modulation oscillator: the modulator scales the carrier's level.
+#[derive(Parameters)]
+pub struct AmOsc<Carrier: WaveTable, Modulator: WaveTable> {
+	/// The carrier wave.
+	#[sub_param]
+	pub carrier: TableOsc<Carrier>,
+	/// The modulator wave.
+	#[sub_param]
+	pub modulator: TableOsc<Modulator>,
+	/// How much of the modulator reaches the carrier's level.
+	#[range(min = 0.0, max = 1.0)]
+	#[layout(group = "Modulation", order = 0, widget = knob)]
+	pub depth: f32,
+	/// How fast the modulator runs against the carrier.
+	#[range(min = 1.0, max = 16.0)]
+	#[layout(group = "Modulation", order = 1, widget = knob, step = 1.0)]
+	pub ratio: f32,
+}
+
+impl<Carrier: WaveTable, Modulator: WaveTable> AmOsc<Carrier, Modulator> {
+	/// Create a new [`AmOsc`] from a carrier and modulator wave.
+	pub fn new(carrier: Carrier, modulator: Modulator) -> Self {
+		Self {
+			carrier: TableOsc(carrier),
+			modulator: TableOsc(modulator),
+			depth: 0.0,
+			ratio: 1.0,
+		}
+	}
+}
+
+impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator<CHANNELS>
+	for AmOsc<Carrier, Modulator>
+{
+	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		if self.depth <= 0.0005 {
+			return self.carrier.play_at(frequency, time, phase);
+		}
+
+		// A bipolar modulator at full depth reaches silence, which is what makes
+		// this modulation rather than a tremolo around a fixed level.
+		let modulator = self.modulator.play_at(frequency * self.ratio, time, phase);
+		let mut output = self.carrier.play_at(frequency, time, phase);
+
+		for (channel, value) in output.iter_mut().enumerate() {
+			*value *= 1.0 + modulator[channel] * self.depth;
+		}
+
+		output
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		Oscillator::<CHANNELS>::demo_ui(
+			&mut self.carrier,
+			ui,
+			format!("{id_prefix}_am_osc_carrier"),
+		);
+		Oscillator::<CHANNELS>::demo_ui(
+			&mut self.modulator,
+			ui,
+			format!("{id_prefix}_am_osc_modulator"),
+		);
+
+		ui.add(egui::Slider::new(&mut self.depth, 0.0..=1.0).text("AM Depth"));
+		ui.add(
+			egui::Slider::new(&mut self.ratio, 1.0..=16.0)
+				.text("Modulator Ratio")
+				.integer(),
+		);
+	}
+}
+
+/// A ring-modulation oscillator: the modulator multiplies the carrier.
+#[derive(Parameters)]
+pub struct RmOsc<Carrier: WaveTable, Modulator: WaveTable> {
+	/// The carrier wave.
+	#[sub_param]
+	pub carrier: TableOsc<Carrier>,
+	/// The modulator wave.
+	#[sub_param]
+	pub modulator: TableOsc<Modulator>,
+	/// The blend from the carrier to the product of the two waves.
+	#[range(min = 0.0, max = 1.0)]
+	#[layout(group = "Modulation", order = 0, widget = knob)]
+	pub depth: f32,
+	/// How fast the modulator runs against the carrier.
+	#[range(min = 1.0, max = 16.0)]
+	#[layout(group = "Modulation", order = 1, widget = knob, step = 1.0)]
+	pub ratio: f32,
+}
+
+impl<Carrier: WaveTable, Modulator: WaveTable> RmOsc<Carrier, Modulator> {
+	/// Create a new [`RmOsc`] from a carrier and modulator wave.
+	pub fn new(carrier: Carrier, modulator: Modulator) -> Self {
+		Self {
+			carrier: TableOsc(carrier),
+			modulator: TableOsc(modulator),
+			depth: 0.0,
+			ratio: 1.0,
+		}
+	}
+}
+
+impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator<CHANNELS>
+	for RmOsc<Carrier, Modulator>
+{
+	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		if self.depth <= 0.0005 {
+			return self.carrier.play_at(frequency, time, phase);
+		}
+
+		let modulator = self.modulator.play_at(frequency * self.ratio, time, phase);
+		let mut output = self.carrier.play_at(frequency, time, phase);
+
+		for (channel, value) in output.iter_mut().enumerate() {
+			*value *= 1.0 - self.depth + self.depth * modulator[channel];
+		}
+
+		output
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		Oscillator::<CHANNELS>::demo_ui(
+			&mut self.carrier,
+			ui,
+			format!("{id_prefix}_rm_osc_carrier"),
+		);
+		Oscillator::<CHANNELS>::demo_ui(
+			&mut self.modulator,
+			ui,
+			format!("{id_prefix}_rm_osc_modulator"),
+		);
+
+		ui.add(egui::Slider::new(&mut self.depth, 0.0..=1.0).text("Ring Depth"));
+		ui.add(
+			egui::Slider::new(&mut self.ratio, 1.0..=16.0)
+				.text("Modulator Ratio")
+				.integer(),
+		);
 	}
 }
 
@@ -234,7 +415,7 @@ impl<const CHANNELS: usize, A: WaveTable, B: WaveTable, C: WaveTable, D: WaveTab
 		let mut output = [0.0; CHANNELS];
 
 		for i in 0..CHANNELS {
-			let t = (time * frequency + phase[i]) % 1.0;
+			let t = (time * frequency + phase[i]).rem_euclid(1.0);
 			output[i] = self.sample(t, i);
 		}
 
@@ -682,5 +863,71 @@ mod tests {
 
 		assert!(lfo.sample(0.75, 0) > 0.4 && lfo.sample(0.75, 0) < 0.6);
 		assert!(lfo.sample(1.0, 0).abs() < 1e-6);
+	}
+
+	/// A negative phase must wrap, not saturate: `%` on a negative float stays
+	/// negative, and the table reader turns that into garbage.
+	#[test]
+	fn a_negative_phase_does_not_fall_to_zero() {
+		use crate::generators::wavetable::{Oscillator, TableOsc};
+
+		let osc = TableOsc(vec![1.0f32; 8]);
+		let output = Oscillator::<1>::play_at(&osc, 440.0, 0.0, [-0.25]);
+
+		assert!((output[0] - 1.0).abs() < 1e-3, "{output:?}");
+	}
+
+	/// The index is a phase offset in cycles, so a quarter cycle lands on the
+	/// ramp quarter way up.
+	#[test]
+	fn the_pm_index_moves_the_carrier_phase() {
+		use crate::generators::wavetable::Oscillator;
+
+		let ramp: Vec<f32> = (0..1_024).map(|index| index as f32 / 1_023.0).collect();
+		let mut pm = PmOsc::new(ramp, vec![1.0f32; 4]);
+		let plain = Oscillator::<1>::play_at(&pm, 440.0, 0.0, [0.0])[0];
+
+		pm.index = 0.25;
+
+		let shifted = Oscillator::<1>::play_at(&pm, 440.0, 0.0, [0.0])[0];
+
+		assert!(plain.abs() < 1e-3, "the carrier starts at zero: {plain}");
+		assert!(
+			(shifted - 0.25).abs() < 1e-2,
+			"a quarter cycle offset should land on 0.25: {shifted}"
+		);
+	}
+
+	/// AM at depth 1 with a full modulator doubles the carrier; at depth 0 it is
+	/// the carrier itself.
+	#[test]
+	fn am_scales_the_carrier_with_the_modulator() {
+		use crate::generators::wavetable::Oscillator;
+
+		let mut am = AmOsc::new(vec![0.5f32; 4], vec![1.0f32; 4]);
+		let plain = Oscillator::<1>::play_at(&am, 440.0, 0.0, [0.0])[0];
+
+		am.depth = 1.0;
+
+		let modulated = Oscillator::<1>::play_at(&am, 440.0, 0.0, [0.0])[0];
+
+		assert!((plain - 0.5).abs() < 1e-3, "{plain}");
+		assert!((modulated - 1.0).abs() < 1e-3, "{modulated}");
+	}
+
+	/// Ring modulation at full depth is the product of the two waves.
+	#[test]
+	fn ring_at_full_depth_multiplies_the_two_waves() {
+		use crate::generators::wavetable::Oscillator;
+
+		let mut rm = RmOsc::new(vec![0.5f32; 4], vec![0.5f32; 4]);
+		let plain = Oscillator::<1>::play_at(&rm, 440.0, 0.0, [0.0])[0];
+
+		rm.depth = 1.0;
+
+		let modulated = Oscillator::<1>::play_at(&rm, 440.0, 0.0, [0.0])[0];
+
+		assert!((plain - 0.5).abs() < 1e-3, "{plain}");
+		assert!((modulated - 0.25).abs() < 1e-3, "{modulated}");
 	}
 }

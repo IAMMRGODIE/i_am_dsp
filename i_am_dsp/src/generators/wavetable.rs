@@ -95,7 +95,7 @@ impl<T: WaveTable, const CHANNELS: usize> Oscillator<CHANNELS> for TableOsc<T> {
 		let mut output = [0.0; CHANNELS];
 
 		for i in 0..CHANNELS {
-			let t = (time * frequency + phase[i]) % 1.0;
+			let t = (time * frequency + phase[i]).rem_euclid(1.0);
 			output[i] = self.0.sample(t, i);
 		}
 
