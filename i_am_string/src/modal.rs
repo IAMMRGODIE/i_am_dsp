@@ -436,7 +436,8 @@ impl ModalString {
 			// follows rather than as a sinc, because the contact is soft.
 			let contact = (-tilt * (n - 1.0).max(0.0)).exp();
 			mode.q = (mode.level as f64 * 2.0 * height / (n * n * pi * pi * beta * (1.0 - beta))
-				* shape * contact) as f32;
+				* shape
+				* contact) as f32;
 			mode.v = 0.0;
 			// A plucked mode is awake whatever its amplitude, because the pluck
 			// is what put it there.

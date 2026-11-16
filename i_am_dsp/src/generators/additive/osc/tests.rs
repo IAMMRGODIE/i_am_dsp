@@ -74,7 +74,8 @@ fn reference<Freq: GenFreqInfo, const MAX_SINES: usize, const CHANNELS: usize>(
 
 			*output += (2.0 * std::f64::consts::PI * cycles).sin()
 				* osc.calculated_amplitudes[j] as f64
-				* damping * osc.gain as f64;
+				* damping
+				* osc.gain as f64;
 		}
 	}
 

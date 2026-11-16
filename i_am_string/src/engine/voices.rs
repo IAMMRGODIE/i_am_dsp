@@ -106,9 +106,12 @@ impl Attack {
 			for (frequency, weight) in frequencies.iter().zip(weights.iter()) {
 				let decay = 8.0 + 0.01 * frequency;
 				*sample += weight
-					* rise * rise * (-decay * t).exp()
+					* rise
+					* rise
+					* (-decay * t).exp()
 					* (std::f32::consts::TAU * frequency * t).sin()
-					* end * end;
+					* end
+					* end;
 			}
 		}
 		let peak = knock

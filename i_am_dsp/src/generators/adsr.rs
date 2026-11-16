@@ -663,7 +663,8 @@ impl<
 						self.sample_time(time)
 					} else {
 						self.sample_release_time(time - none_release_time)
-							.unwrap_or(0.0) * self.sustain_level
+							.unwrap_or(0.0)
+							* self.sustain_level
 					};
 					*position = pos2(time / total_time, -sample);
 					*position = to_screen * *position;

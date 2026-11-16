@@ -660,7 +660,8 @@ impl StringEngine {
 			for index in 1..=SYMPATHETIC_PARTIALS {
 				let order = index as f32;
 				let frequency = spec.string.frequency
-					* order * (1.0 + spec.string.inharmonicity * order * order).sqrt();
+					* order
+					* (1.0 + spec.string.inharmonicity * order * order).sqrt();
 				if frequency >= nyquist {
 					break;
 				}

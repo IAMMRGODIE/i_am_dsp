@@ -388,7 +388,8 @@ impl<const CHANNELS: usize> Sampler<CHANNELS> {
 			} else {
 				position
 			} + phase[i] * delay_range)
-				* scale * self.speed;
+				* scale
+				* self.speed;
 			let position = if self.one_shot {
 				position.clamp(0.0, vals.len() as f32 - 2.0)
 			} else {

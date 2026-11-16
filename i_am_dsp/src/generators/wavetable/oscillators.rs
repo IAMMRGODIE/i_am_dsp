@@ -802,7 +802,8 @@ impl EditableLfo {
 					let mut time = (pointer_position.x - rect.left()) / rect.width();
 					let mut value = (rect.bottom() - pointer_position.y) / rect.height();
 					if let Some((row, column)) = &self.grid
-						&& *row != 0 && *column != 0
+						&& *row != 0
+						&& *column != 0
 					{
 						time = (time * *column as f32).round() / *column as f32;
 						value = (value * *row as f32).round() / *row as f32;

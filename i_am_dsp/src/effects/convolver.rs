@@ -145,7 +145,8 @@ impl DelyaCaculateMode {
 						inner[start..end]
 							.iter()
 							.map(|&x| (x - avg).powi(2))
-							.sum::<f32>() / (end - start - 1) as f32
+							.sum::<f32>()
+							/ (end - start - 1) as f32
 					})
 					.min_by_key(|x| (x.abs() * 1000.0) as usize)
 					.unwrap_or(0.0))

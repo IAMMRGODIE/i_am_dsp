@@ -129,7 +129,8 @@ pub(crate) fn draw_waveform(
 							.step_by(STEP)
 							.take(WINDOW_SIZE)
 							.map(|val| val * val)
-							.sum::<f32>() / total as f32
+							.sum::<f32>()
+							/ total as f32
 						// .unwrap_or(&0.0)
 					})
 					.sum::<f32>()

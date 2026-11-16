@@ -145,7 +145,8 @@ impl<Lfo: WaveTable + Send + Sync, const CHANNELS: usize> Effect<CHANNELS>
 		let dry = *samples;
 		let base_phase =
 			self.phase
-				.advance_rate(&self.tempo, ctx.infos(), self.lfo_freq, self.sample_rate) as f32;
+				.advance_rate(&self.tempo, ctx.infos(), self.lfo_freq, self.sample_rate)
+				as f32;
 		samples
 			.iter_mut()
 			.zip(self.feedback_history.iter_mut())

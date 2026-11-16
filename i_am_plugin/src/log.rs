@@ -213,7 +213,8 @@ mod tests {
 		assert!(
 			fs::metadata(path.with_file_name("open.log.1"))
 				.unwrap()
-				.len() <= 32,
+				.len()
+				<= 32,
 			"the backup is not larger than the cap"
 		);
 

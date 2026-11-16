@@ -346,7 +346,8 @@ pub(crate) fn handle_param_mod_event(param: &ParamModEvent, param_map: &ParamMap
 				let amount = inner
 					.load(std::sync::atomic::Ordering::SeqCst)
 					.int()
-					.unwrap() + value as i32;
+					.unwrap()
+					+ value as i32;
 				inner.store(amount, std::sync::atomic::Ordering::SeqCst);
 				inner.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 			} else if inner.is_float() {
