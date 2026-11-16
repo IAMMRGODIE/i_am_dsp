@@ -488,10 +488,14 @@ impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator
 		Oscillator::<CHANNELS>::demo_ui(
 			&mut self.modulator,
 			ui,
-			format!("{id_prefix}_fm_osc_carrier"),
+			format!("{id_prefix}_fm_osc_modulator"),
 		);
 
-		ui.add(egui::Slider::new(&mut self.fm_factor, 0.0..=1.0).text("FM Factor"));
+		ui.add(
+			egui::Slider::new(&mut self.fm_factor, 0.0001..=10_000.0)
+				.logarithmic(true)
+				.text("FM Factor"),
+		);
 	}
 }
 
