@@ -4,10 +4,15 @@ use i_am_dsp_derive::Parameters;
 
 use crate::prelude::{Parameter, Parameters, SetValue};
 
+use super::WaveTable;
+
 /// A phase warp: maps a position in the cycle to the position the table is
 /// read at.
 pub trait Warp: Parameters + Send {
 	/// The position to read at for the given position of the cycle.
+	///
+	/// A warp that repeats the table may return a position past one cycle: the
+	/// carrier wraps it, which is how a remap curve draws a sync-like map.
 	fn apply(&self, t: f32) -> f32;
 }
 
@@ -138,6 +143,36 @@ impl Warp for QuantizeWarp {
 	}
 }
 
+/// Replaces the straight phase with a curve, in the spirit of Serum's remap.
+#[derive(Parameters)]
+pub struct RemapWarp<Curve: WaveTable> {
+	/// The curve that maps the input phase to the read position.
+	#[sub_param]
+	pub curve: Curve,
+	/// How far the curve replaces the straight phase; 0 leaves the table alone.
+	#[range(min = 0.0, max = 1.0)]
+	#[default(0.0)]
+	#[id(display = "Amount")]
+	pub amount: f32,
+}
+
+impl<Curve: WaveTable> RemapWarp<Curve> {
+	/// A remap that leaves the table alone, on the given curve.
+	pub fn new(curve: Curve) -> Self {
+		Self { curve, amount: 0.0 }
+	}
+}
+
+impl<Curve: WaveTable> Warp for RemapWarp<Curve> {
+	fn apply(&self, t: f32) -> f32 {
+		// The amount is a crossfade between the straight phase and the curve, so
+		// zero is the phase the oscillator would have used anyway.
+		let mapped = self.curve.sample(t, 0);
+
+		t + (mapped - t) * self.amount
+	}
+}
+
 impl Warp for Box<dyn Warp + Send + Sync> {
 	fn apply(&self, t: f32) -> f32 {
 		self.as_ref().apply(t)
@@ -215,6 +250,74 @@ mod tests {
 
 		assert!((warp.apply(0.3) - 0.25).abs() < 1e-5);
 		assert!((warp.apply(0.99) - 0.75).abs() < 1e-5);
+	}
+
+	/// At zero the remap gives the straight phase back, whatever the curve says.
+	#[test]
+	fn remap_amount_zero_is_the_identity() {
+		let mut warp = RemapWarp::new(vec![1.0f32, 0.0]);
+		warp.amount = 0.0;
+
+		for index in 0..16 {
+			let t = index as f32 / 16.0;
+			assert!((warp.apply(t) - t).abs() < 1e-4, "{t}");
+		}
+	}
+
+	/// At one the curve is the phase.
+	#[test]
+	fn remap_amount_one_is_the_curve() {
+		let curve = vec![1.0f32, 0.0];
+		let mut warp = RemapWarp::new(curve.clone());
+		warp.amount = 1.0;
+
+		for index in 0..16 {
+			let t = index as f32 / 16.0;
+			let expected = curve.sample(t, 0);
+			assert!((warp.apply(t) - expected).abs() < 1e-4, "{t}");
+		}
+	}
+
+	/// A half amount sits halfway between the two phases.
+	#[test]
+	fn remap_amount_is_a_crossfade() {
+		let curve = vec![1.0f32, 0.0];
+		let mut warp = RemapWarp::new(curve.clone());
+		warp.amount = 0.5;
+
+		let t = 0.25;
+		let mapped = curve.sample(t, 0);
+
+		assert!((warp.apply(t) - (t + mapped) * 0.5).abs() < 1e-4);
+	}
+
+	/// A curve drawn past one cycle is a sync-like map: the value passes through
+	/// and the carrier wraps it.
+	#[test]
+	fn remap_can_read_past_one_cycle() {
+		let mut warp = RemapWarp::new(vec![0.0f32, 2.0]);
+		warp.amount = 1.0;
+
+		assert!((warp.apply(0.5) - 1.0).abs() < 1e-4);
+		assert!(warp.apply(0.75) > 1.0);
+	}
+
+	/// A drawn curve is a wave table too, so it can drive the remap directly.
+	#[test]
+	fn a_drawn_curve_can_be_the_remap() {
+		use super::super::EditableLfo;
+
+		let mut curve = EditableLfo::new();
+		curve.add_point(0.0, 0.0, 0.0);
+		curve.add_point(1.0, 1.0, 0.0);
+
+		let mut warp = RemapWarp::new(curve);
+		warp.amount = 1.0;
+
+		for index in 1..16 {
+			let t = index as f32 / 16.0;
+			assert!((warp.apply(t) - t).abs() < 0.05, "{t}");
+		}
 	}
 
 	/// Whatever the control says, a warp has to land inside one cycle.
