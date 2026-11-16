@@ -775,39 +775,58 @@
     for (var index = 0; index < samples; index++) {
       var unit = index / (samples - 1);
       var value = ringCarrier(shape, unit * cycles + offset);
-      var x = 8 + unit * 284;
-      var y = 32 - value * 22;
+      var x = 20 + unit * 480;
+      var y = 80 - value * 60;
       path += (index ? "L" : "M") + x.toFixed(2) + " " + y.toFixed(2);
     }
 
     return path;
   }
 
-  /// The carrier of the ring modulator: two cycles, one trace per channel.
-  function ringHero(values) {
+  /// The ring modulator: the carrier it multiplies with, or, in the sidechain
+  /// mode, what that carrier does to the signal.
+  function ringHero(values, context) {
     var shape = Math.round(valueOf(values, "shape", 0));
     var mode = Math.round(valueOf(values, "mode", 0));
     var stereo = valueOf(values, "stereo", 0);
-    var offset = stereo / 360;
     var shapes = ["SINE", "TRIANGLE", "SAW", "SQUARE", "NOISE"];
     var modes = ["RING", "AM", "SIDECHAIN"];
-    var label = '<div class="hero-label" style="left:2%;top:2%">' + modes[mode] + ' \u00b7 ' + shapes[shape] + '</div>';
 
     if (mode === 2) {
-      return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="xMidYMid meet">' +
-        '<line x1="8" y1="32" x2="292" y2="32" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
+      var scope = context && context.scope;
+      var spectra = context && context.spectra;
+      var rate = (context && context.rate) || 48000;
+      var inputPath = "";
+      var outputPath = "";
+
+      if (scope && scope.input && scope.output && spectra) {
+        var inputBands = bandsOf(scope.input, rate);
+        var outputBands = bandsOf(scope.output, rate);
+
+        if (inputBands && outputBands) {
+          spectra.input = smoothBands(spectra.input, inputBands);
+          spectra.output = smoothBands(spectra.output, outputBands);
+          inputPath = bandsPath(spectra.input);
+          outputPath = bandsPath(spectra.output);
+        }
+      }
+
+      return '<svg class="mcard-graph" viewBox="0 0 520 160" preserveAspectRatio="xMidYMid meet">' +
+        (inputPath ? '<path d="' + inputPath + '" fill="none" stroke="#666" stroke-width="1.5" vector-effect="non-scaling-stroke"/>' : '') +
+        (outputPath ? '<path d="' + outputPath + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' : '') +
         '</svg>' +
-        '<div class="hero-empty">CARRIER FROM THE SIDECHAIN</div>' +
-        label;
+        (outputPath ? '' : '<div class="hero-empty">Waiting for the sidechain...</div>') +
+        '<div class="hero-label" style="top:2%">SIDECHAIN \u00b7 BEFORE / AFTER</div>';
     }
 
-    return '<svg class="mcard-graph" viewBox="0 0 300 64" preserveAspectRatio="xMidYMid meet">' +
-      '<line x1="8" y1="32" x2="292" y2="32" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
+    var offset = stereo / 360;
+
+    return '<svg class="mcard-graph" viewBox="0 0 520 160" preserveAspectRatio="xMidYMid meet">' +
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#333" stroke-width="1" stroke-dasharray="2 4"/>' +
       '<path d="' + ringWavePath(shape, offset, 2) + '" fill="none" stroke="var(--accent)" stroke-width="2" opacity="0.4" vector-effect="non-scaling-stroke"/>' +
       '<path d="' + ringWavePath(shape, 0, 2) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>' +
       '</svg>' +
-      '<div class="hero-label" style="right:2%;top:2%">L \u00b7 R +' + Math.round(stereo) + '\u00b0</div>' +
-      label;
+      '<div class="hero-label" style="top:2%">' + modes[mode] + ' \u00b7 ' + shapes[shape] + ' \u00b7 R+' + Math.round(stereo) + '\u00b0</div>';
   }
 
   function filterWaveformPath(samples) {
