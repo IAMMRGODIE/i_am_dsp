@@ -261,11 +261,11 @@ impl<const CHANNELS: usize> HistoryEffect<CHANNELS> {
 				.unwrap_or(core::cmp::Ordering::Equal)
 		});
 
-		for index in 0..TABLE {
+		for (index, value) in self.table.iter_mut().enumerate() {
 			let x = index as f32 / (TABLE - 1) as f32;
 			let a = page_value_sorted(&first, x);
 			let b = page_value_sorted(&second, x);
-			self.table[index] = a + (b - a) * blend;
+			*value = a + (b - a) * blend;
 		}
 	}
 

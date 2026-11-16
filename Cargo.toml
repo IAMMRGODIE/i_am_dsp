@@ -23,9 +23,7 @@ i_am_string = { path = "i_am_string" }
 i_am_dsp = { path = "i_am_dsp" }
 i_am_plugin = { path = "i_am_plugin" }
 i_am_effects = { path = "i_am_effects" }
-i_am_effects_bundle = { path = "i_am_effects_bundle" }
 i_am_web_gui = { path = "i_am_web_gui" }
-i_am_rack = { path = "i_am_rack" }
 i_am_patch = { path = "i_am_patch" }
 i_am_patch_product = { path = "i_am_patch_product" }
 i_am_synths = { path = "i_am_synths" }
@@ -36,3 +34,6 @@ i_am_synths = { path = "i_am_synths" }
 # The vendored copy gives each WebView its own class and unregisters it on drop.
 [patch.crates-io]
 wry = { path = "vendor/wry" }
+
+[workspace.lints.cargo]
+unused_dependencies = "warn"

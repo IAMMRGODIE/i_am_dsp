@@ -1,7 +1,7 @@
 //! Implmentation of the reverb impulse response generator.
 
 use i_am_dsp_derive::Parameters;
-use std::f32::{self, consts::PI};
+use std::f32::consts::PI;
 
 use crate::{
 	Effect,

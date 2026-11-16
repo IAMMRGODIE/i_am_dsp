@@ -31,8 +31,8 @@ impl<const CHANNELS: usize> Waveform<CHANNELS> {
 
 	/// Resizes the buffer capacity of the history buffer.
 	pub fn resize(&mut self, capacity: usize) {
-		for i in 0..CHANNELS {
-			self.buffer[i].resize(capacity);
+		for buffer in &mut self.buffer {
+			buffer.resize(capacity);
 		}
 	}
 }
