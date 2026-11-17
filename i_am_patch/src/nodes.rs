@@ -7,10 +7,11 @@ use std::sync::atomic::AtomicU32;
 
 use i_am_dsp::prelude::{
 	AdditiveOsc, Adsr, BendedSawGen, Effect, EqualTemperament, FmIntegral, Generator, Message,
-	NoteEvent, Oscillator, Parameter, Parameters, SetValue, TableOsc, Value, WaveFramesOsc,
-	WaveTable, bend_phase, mirror_phase, quantize_phase, sync_phase,
+	NoteEvent, Oscillator, Parameter, Parameters, SetValue, TableBankOsc, TableOsc, Value,
+	WaveFramesOsc, WaveTable, bend_phase, mirror_phase, quantize_phase, sync_phase,
 };
 use i_am_plugin::Plugin;
+use i_am_synths::{CanvasOscillator, ScriptOscillator};
 use std::sync::atomic::Ordering;
 
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer};
@@ -221,6 +222,27 @@ pub fn make_with(
 				32,
 			))
 		})),
+		"osc:spectrum" => {
+			let handle = slots.spectrum(node);
+
+			Box::new(ProductOscNode::new(move || {
+				Box::new(TableBankOsc::new(handle.feed()))
+			}))
+		}
+		"osc:script" => {
+			let handle = slots.script(node);
+
+			Box::new(ProductOscNode::new(move || {
+				Box::new(ScriptOscillator::new(rate, handle.clone()))
+			}))
+		}
+		"osc:canvas" => {
+			let handle = slots.canvas(node);
+
+			Box::new(ProductOscNode::new(move || {
+				Box::new(CanvasOscillator::new(handle.clone()))
+			}))
+		}
 		"osc:shapes" => {
 			let slot = slots.waves(node);
 

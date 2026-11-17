@@ -291,6 +291,30 @@ const BUILTINS: &[NodeDesc] = &[
 		params: &[],
 	},
 	NodeDesc {
+		id: "osc:spectrum",
+		name: "Spectrum",
+		inputs: &[],
+		outputs: &[port("osc", SignalKind::Osc)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
+		id: "osc:script",
+		name: "Script",
+		inputs: &[],
+		outputs: &[port("osc", SignalKind::Osc)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
+		id: "osc:canvas",
+		name: "Canvas",
+		inputs: &[],
+		outputs: &[port("osc", SignalKind::Osc)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
 		id: "osc:am",
 		name: "AM",
 		inputs: &[

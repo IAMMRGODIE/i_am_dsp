@@ -333,9 +333,28 @@ fn the_modulation_nodes_play() {
 
 #[test]
 fn a_product_oscillator_plays() {
+	for kind in ["osc:additive", "osc:spectrum", "osc:script", "osc:canvas"] {
+		let mut graph = Graph::new();
+		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+		let oscillator = graph.add_node(kind, (0.0, 100.0)).expect("osc");
+		let envelope = graph.add_node("adsr", (200.0, 0.0)).expect("adsr");
+		let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+
+		graph.connect((midi, 0), (envelope, 0));
+		graph.connect((oscillator, 0), (envelope, 1));
+		graph.connect((envelope, 0), (out, 0));
+
+		assert!(render(&graph) > 1e-3, "{kind} was silent");
+	}
+}
+
+/// The shapes oscillator reads the page's wavetable slot; an empty one is
+/// silent, but the graph still has to build.
+#[test]
+fn a_shapes_oscillator_builds_without_a_table() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let oscillator = graph.add_node("osc:additive", (0.0, 100.0)).expect("osc");
+	let oscillator = graph.add_node("osc:shapes", (0.0, 100.0)).expect("osc");
 	let envelope = graph.add_node("adsr", (200.0, 0.0)).expect("adsr");
 	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
 
@@ -343,7 +362,7 @@ fn a_product_oscillator_plays() {
 	graph.connect((oscillator, 0), (envelope, 1));
 	graph.connect((envelope, 0), (out, 0));
 
-	assert!(render(&graph) > 1e-3);
+	Engine::new(&graph, 48_000).expect("the graph builds");
 }
 
 #[test]
