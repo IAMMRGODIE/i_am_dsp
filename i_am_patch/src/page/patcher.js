@@ -2677,8 +2677,56 @@
 
   function placeMenu(clientX, clientY) {
     menu.style.display = "block";
-    menu.style.left = `${Math.min(clientX, window.innerWidth - 260)}px`;
-    menu.style.top = `${Math.min(clientY, window.innerHeight - 320)}px`;
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+
+    const width = menu.offsetWidth;
+    const height = menu.offsetHeight;
+
+    menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(clientY, window.innerHeight - height - 8))}px`;
+  }
+
+  /// Opens a category's flyout on the side of the window that has room.
+  ///
+  /// A flyout that always opens right runs off the edge of a narrow window, so
+  /// it mirrors when the right side is short and rides up when the category is
+  /// near the bottom.
+  function placeFlyout(category) {
+    const sub = category.querySelector(".menu-sub");
+
+    if (!sub) return;
+
+    sub.classList.remove("left");
+    sub.style.top = "";
+
+    // `mouseenter` can arrive before the hover rule has given the flyout a
+    // layout, so measure it with a hidden box when it has none yet.
+    const hidden = sub.offsetWidth === 0;
+
+    if (hidden) {
+      sub.style.visibility = "hidden";
+      sub.style.display = "block";
+    }
+
+    const rect = category.getBoundingClientRect();
+    const width = sub.offsetWidth;
+    const height = sub.offsetHeight;
+
+    if (hidden) {
+      sub.style.display = "";
+      sub.style.visibility = "";
+    }
+
+    if (rect.right + width > window.innerWidth - 8 && rect.left - width >= 8) {
+      sub.classList.add("left");
+    }
+
+    // Vertical: slide the flyout up so it ends inside the window. A flyout
+    // taller than the window keeps its scroll box at the top instead.
+    const top = Math.min(0, window.innerHeight - 8 - height - rect.top);
+
+    sub.style.top = `${top}px`;
   }
 
   function menuButton(label, action) {
@@ -2913,6 +2961,7 @@
 
         const sub = document.createElement("div");
         sub.className = "menu-sub";
+        row.addEventListener("mouseenter", () => placeFlyout(row));
 
         for (const kind of items) {
           sub.appendChild(menuButton(kind.name, () => pick(kind.id)));
