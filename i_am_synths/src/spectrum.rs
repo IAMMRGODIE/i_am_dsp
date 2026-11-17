@@ -274,6 +274,52 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn a_voice_hears_new_pages_through_both_adapters() {
+		use i_am_dsp::prelude::{
+			OscTable, Oscillator, SpectralFeed, SpectralFrame, TableBankOsc, TableOsc,
+		};
+
+		let page = |level: f32| {
+			let mut levels = vec![0.0; 8];
+			levels[0] = level;
+			SpectralFrame::new(levels, vec![0.0; 8])
+		};
+
+		let feed = SpectralFeed::new(vec![page(1.0)]);
+		let mut voice = TableOsc(OscTable::<2, _>(TableBankOsc::new(feed.clone())));
+		Oscillator::<2>::set_pitch(&mut voice, 110.0, 48_000);
+
+		// A quarter of the way through a single partial is its peak.
+		let before = Oscillator::<2>::play_at(&voice, 1.0, 0.25, [0.0; 2])[0];
+
+		// The page the editor just drew: the partial is gone.
+		feed.set(vec![page(0.0)]);
+
+		let mut after = before;
+
+		for _ in 0..200 {
+			Oscillator::<2>::sync(&mut voice);
+			after = Oscillator::<2>::play_at(&voice, 1.0, 0.25, [0.0; 2])[0];
+
+			if after.abs() < before.abs() * 0.5 {
+				break;
+			}
+
+			std::thread::sleep(std::time::Duration::from_millis(5));
+		}
+
+		assert!(
+			before.abs() > 0.5,
+			"the voice was silent before the edit: {before}"
+		);
+
+		assert!(
+			after.abs() < before.abs() * 0.5,
+			"{after} did not follow {before}: the sync never reached the bank"
+		);
+	}
+
+	#[test]
 	fn a_spectrum_handle_round_trips_the_pages() {
 		let handle = SpectrumHandle::new();
 		let state: serde_json::Value =
