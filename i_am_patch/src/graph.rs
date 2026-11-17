@@ -311,7 +311,7 @@ const BUILTINS: &[NodeDesc] = &[
 		latency: 0,
 		params: &[
 			param("depth", 0.5, 0.0, 1.0),
-			step_param("ratio", 1.0, 1.0, 16.0, 1.0),
+			log_param("ratio", 1.0, 0.25, 16.0),
 		],
 	},
 	NodeDesc {
@@ -325,7 +325,7 @@ const BUILTINS: &[NodeDesc] = &[
 		latency: 0,
 		params: &[
 			param("depth", 0.5, 0.0, 1.0),
-			step_param("ratio", 1.0, 1.0, 16.0, 1.0),
+			log_param("ratio", 1.0, 0.25, 16.0),
 		],
 	},
 	NodeDesc {
@@ -339,7 +339,7 @@ const BUILTINS: &[NodeDesc] = &[
 		latency: 0,
 		params: &[
 			param("depth", 1.0, 0.0, 8.0),
-			step_param("ratio", 1.0, 1.0, 16.0, 1.0),
+			log_param("ratio", 1.0, 0.25, 16.0),
 		],
 	},
 	NodeDesc {
@@ -353,7 +353,7 @@ const BUILTINS: &[NodeDesc] = &[
 		latency: 0,
 		params: &[
 			param("depth", 2.0, 0.0, 16.0),
-			step_param("ratio", 1.0, 1.0, 16.0, 1.0),
+			log_param("ratio", 1.0, 0.25, 16.0),
 		],
 	},
 	NodeDesc {
@@ -378,7 +378,7 @@ const BUILTINS: &[NodeDesc] = &[
 		inputs: &[port("wave", SignalKind::Wavetable)],
 		outputs: &[port("wave", SignalKind::Wavetable)],
 		latency: 0,
-		params: &[step_param("ratio", 1.0, 1.0, 8.0, 1.0)],
+		params: &[log_param("ratio", 1.0, 1.0, 8.0)],
 	},
 	NodeDesc {
 		id: "warp:quantize",

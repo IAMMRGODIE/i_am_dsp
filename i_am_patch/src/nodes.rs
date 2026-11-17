@@ -1086,7 +1086,9 @@ impl Parameters for VoiceOsc {
 impl Oscillator<2> for VoiceOsc {
 	fn play_at(&self, frequency: f32, time: f32, phase: [f32; 2]) -> [f32; 2] {
 		let depth = self.depth();
-		let ratio = self.ratio().max(1.0);
+		// The ratio is continuous: a modulator slower than the carrier is a
+		// valid setting, it only has to stay above a divide-by-zero guard.
+		let ratio = self.ratio().max(0.01);
 		let mut output = [0.0f32; 2];
 
 		for (channel, value) in output.iter_mut().enumerate() {
