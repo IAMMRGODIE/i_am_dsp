@@ -2,7 +2,7 @@
 
 use i_am_dsp_derive::Parameters;
 
-use crate::prelude::{Parameter, Parameters, bend, page_position};
+use crate::prelude::{Parameter, Parameters, SetValue, bend, page_position};
 
 use super::{Oscillator, TableOsc, Warp, WaveTable};
 
@@ -17,33 +17,6 @@ pub struct OscillatorSmoother<const CHANNELS: usize> {
 
 	#[cfg(feature = "real_time_demo")]
 	current_oscillator: usize,
-}
-
-impl<const CHANNELS: usize> Parameters for Vec<Box<dyn Oscillator<CHANNELS> + Send + Sync>> {
-	fn get_parameters(&self) -> Vec<Parameter> {
-		let mut output = vec![];
-		for (i, table) in self.iter().enumerate() {
-			for mut param in table.get_parameters() {
-				param.identifier = format!("{}.{}", i, param.identifier);
-				output.push(param);
-			}
-		}
-		output
-	}
-
-	fn set_parameter(&mut self, identifier: &str, value: crate::prelude::SetValue) -> bool {
-		let mut parts = identifier.split(".").collect::<Vec<_>>();
-		let index = parts
-			.remove(0)
-			.parse::<usize>()
-			.expect("Invalid identifier");
-		let param_name = parts.join(".");
-		if let Some(table) = self.get_mut(index) {
-			table.set_parameter(&param_name, value)
-		} else {
-			false
-		}
-	}
 }
 
 impl<const CHANNELS: usize> OscillatorSmoother<CHANNELS> {
@@ -693,6 +666,39 @@ impl<Carrier: WaveTable, Warper: Warp, const CHANNELS: usize> Oscillator<CHANNEL
 	}
 }
 
+impl<const CHANNELS: usize> Oscillator<CHANNELS> for Box<dyn Oscillator<CHANNELS> + Send + Sync> {
+	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
+		self.as_ref().play_at(frequency, time, phase)
+	}
+
+	fn set_pitch(&mut self, frequency: f32, sample_rate: usize) {
+		self.as_mut().set_pitch(frequency, sample_rate);
+	}
+
+	fn absolute_time(&self) -> bool {
+		self.as_ref().absolute_time()
+	}
+
+	fn sync(&mut self) {
+		self.as_mut().sync();
+	}
+
+	#[cfg(feature = "real_time_demo")]
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		self.as_mut().demo_ui(ui, id_prefix);
+	}
+}
+
+impl<const CHANNELS: usize> Parameters for Box<dyn Oscillator<CHANNELS> + Send + Sync> {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		self.as_ref().get_parameters()
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		self.as_mut().set_parameter(identifier, value)
+	}
+}
+
 impl WaveTable for Box<dyn WaveTable + Send + Sync> {
 	fn sample(&self, t: f32, channel: usize) -> f32 {
 		self.as_ref().sample(t, channel)
@@ -1035,6 +1041,42 @@ impl WaveTable for EditableLfo {
 mod tests {
 	use super::*;
 
+	/// Records the driver calls the boxed forwarding test checks.
+	struct Recorder {
+		pitches: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+		syncs: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+	}
+
+	impl Parameters for Recorder {
+		fn get_parameters(&self) -> Vec<Parameter> {
+			Vec::new()
+		}
+
+		fn set_parameter(&mut self, _: &str, _: SetValue) -> bool {
+			false
+		}
+	}
+
+	impl Oscillator<1> for Recorder {
+		fn play_at(&self, _: f32, _: f32, phase: [f32; 1]) -> [f32; 1] {
+			phase
+		}
+
+		fn set_pitch(&mut self, _: f32, _: usize) {
+			self.pitches
+				.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		}
+
+		fn sync(&mut self) {
+			self.syncs
+				.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		}
+
+		fn absolute_time(&self) -> bool {
+			true
+		}
+	}
+
 	/// A time past the last point lands on a zero-length segment when the curve
 	/// ends at 1.0; the sampler must not divide by it, because a NaN here is a
 	/// NaN in the modulation.
@@ -1244,6 +1286,38 @@ mod tests {
 			(after - before).abs() > 0.5,
 			"{before} did not become {after}"
 		);
+	}
+
+	/// A boxed oscillator forwards the driver calls to the oscillator inside:
+	/// losing `set_pitch` would silently remove the band limiting.
+	#[test]
+	fn a_boxed_oscillator_forwards_the_driver_calls() {
+		use std::sync::Arc;
+		use std::sync::atomic::{AtomicUsize, Ordering};
+
+		let pitches = Arc::new(AtomicUsize::new(0));
+		let syncs = Arc::new(AtomicUsize::new(0));
+		let mut boxed: Box<dyn Oscillator<1> + Send + Sync> = Box::new(Recorder {
+			pitches: pitches.clone(),
+			syncs: syncs.clone(),
+		});
+
+		Oscillator::<1>::set_pitch(&mut boxed, 440.0, 48_000);
+		Oscillator::<1>::sync(&mut boxed);
+
+		assert_eq!(pitches.load(Ordering::Relaxed), 1);
+		assert_eq!(syncs.load(Ordering::Relaxed), 1);
+		assert!(Oscillator::<1>::absolute_time(&boxed));
+	}
+
+	/// A boxed table reads exactly like the table it holds.
+	#[test]
+	fn a_boxed_table_reads_the_same() {
+		use crate::generators::wavetable::TableOsc;
+
+		let boxed: Box<dyn Oscillator<1> + Send + Sync> = Box::new(TableOsc(vec![1.0f32; 8]));
+
+		assert_eq!(Oscillator::<1>::play_at(&boxed, 440.0, 0.0, [0.25]), [1.0]);
 	}
 
 	/// The warp moves where the carrier reads, without changing its shape.

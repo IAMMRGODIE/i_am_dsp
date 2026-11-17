@@ -173,6 +173,32 @@ impl<Curve: WaveTable> Warp for RemapWarp<Curve> {
 	}
 }
 
+/// A table read through a warp: the warp decides where each sample comes from.
+#[derive(Parameters)]
+pub struct WarpTable<Wave: WaveTable, Warper: Warp> {
+	/// The table being read.
+	#[sub_param]
+	pub wave: Wave,
+	/// The phase map applied before the read.
+	#[sub_param]
+	pub warper: Warper,
+}
+
+impl<Wave: WaveTable, Warper: Warp> WarpTable<Wave, Warper> {
+	/// A table read through the given warp.
+	pub fn new(wave: Wave, warper: Warper) -> Self {
+		Self { wave, warper }
+	}
+}
+
+impl<Wave: WaveTable, Warper: Warp> WaveTable for WarpTable<Wave, Warper> {
+	fn sample(&self, t: f32, channel: usize) -> f32 {
+		let position = self.warper.apply(t).rem_euclid(1.0);
+
+		self.wave.sample(position, channel)
+	}
+}
+
 impl Warp for Box<dyn Warp + Send + Sync> {
 	fn apply(&self, t: f32) -> f32 {
 		self.as_ref().apply(t)
@@ -318,6 +344,25 @@ mod tests {
 			let t = index as f32 / 16.0;
 			assert!((warp.apply(t) - t).abs() < 0.05, "{t}");
 		}
+	}
+
+	/// A warped table is the table read where the warp points.
+	#[test]
+	fn a_warp_table_reads_at_the_warped_position() {
+		let ramp: Vec<f32> = (0..1_024).map(|index| index as f32 / 1_023.0).collect();
+		let folded = WarpTable::new(ramp.clone(), MirrorWarp { amount: 1.0 });
+		let straight = WarpTable::new(ramp, BendWarp::new());
+
+		assert!(
+			(folded.sample(0.25, 0) - 0.5).abs() < 1e-2,
+			"{}",
+			folded.sample(0.25, 0)
+		);
+		assert!(
+			(straight.sample(0.25, 0) - 0.25).abs() < 1e-2,
+			"{}",
+			straight.sample(0.25, 0)
+		);
 	}
 
 	/// Whatever the control says, a warp has to land inside one cycle.
