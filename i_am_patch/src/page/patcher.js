@@ -432,7 +432,10 @@
   /// The two tables a modulation reads, combined the way the node combines them.
   function patchModHero(mode, values, context) {
     var depth = patchValue(values, "depth", 0);
-    var ratio = Math.max(patchValue(values, "ratio", 1), 1);
+    var ratio = Math.max(patchValue(values, "ratio", 1), 0.0625);
+    // A modulator slower than the carrier moves almost not at all over two
+    // cycles, so the window grows until one modulator cycle fits.
+    var cycles = Math.min(Math.max(2, Math.ceil(1 / ratio)), 32);
     var sine = function (t) { return Math.sin(t * Math.PI * 2); };
     var carrier = patchSourceShape(context && context.source(0)) || sine;
     var modulator = patchSourceShape(context && context.source(1)) || sine;
@@ -441,7 +444,7 @@
     var integral = 0;
 
     for (var i = 0; i <= steps; i++) {
-      var t = i / steps * 2;
+      var t = i / steps * cycles;
       var m = modulator(patchFrac(t * ratio));
       var value;
 
@@ -449,7 +452,7 @@
       else if (mode === "rm") value = carrier(patchFrac(t)) * (1 - depth + depth * m);
       else if (mode === "pm") value = carrier(patchFrac(t + depth * m));
       else {
-        integral += m * (2 / steps);
+        integral += m * (cycles / steps);
         value = carrier(patchFrac(t + depth * integral));
       }
 
@@ -461,7 +464,12 @@
     return patchSvg(
       '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
       '<path d="' + patchTrace(points) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>'
-    ) + '<div class="hero-label" style="left:2%;top:2%">' + names[mode] + " · " + depth.toFixed(2) + '</div>';
+    ) + '<div class="hero-label" style="left:2%;top:2%">' +
+        names[mode] +
+        " · " +
+        depth.toFixed(2) +
+        (Math.abs(ratio - 1) > 0.001 ? " × " + ratio.toFixed(2) : "") +
+        "</div>";
   }
 
   function patchEnvelopeHero(values) {
