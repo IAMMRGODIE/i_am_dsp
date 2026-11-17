@@ -1122,6 +1122,14 @@
     }
   }
 
+  /// Heroes that draw another node (an envelope's source, a warp's table) follow
+  /// a structural edit too: rewiring changes what they should show.
+  function repaintHeroes() {
+    for (const entry of Object.values(cards)) {
+      if (entry && entry.card && entry.card.repaintHero) entry.card.repaintHero();
+    }
+  }
+
   function postParam(node, key, value) {
     repaintDependents(node);
 
@@ -2419,6 +2427,11 @@
       patch = readPatch(await (await fetch("/patch")).json());
 
       if (body.op === "param" && typeof body.id === "number") repaintDependents(body.id);
+
+      if (["connect", "disconnect", "replace", "remove", "add", "duplicate"].includes(body.op)) {
+        repaintHeroes();
+      }
+
       if (redraw) draw();
 
       return result;
