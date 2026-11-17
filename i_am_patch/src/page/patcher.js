@@ -2299,6 +2299,7 @@
   function drawBody(group, node, kind) {
     {
       const rows = kind.params.slice(0, 6);
+      const meta = new Map((kind.param_meta || []).map((entry) => [entry.name, entry]));
 
       rows.forEach(([key, fallback], index) => {
         const y = 42 + index * 20;
@@ -2307,7 +2308,12 @@
         label.textContent = key;
         row.appendChild(label);
         const value = el("text", { class: "card-value", x: BASE_W - 12, y, "text-anchor": "end" });
-        value.textContent = (node.params[key] ?? fallback).toFixed(2);
+        const entry = meta.get(key);
+        const raw = node.params[key] ?? fallback;
+        const choice = entry && entry.choices && entry.step === 1
+          ? entry.choices[Math.round(raw)]
+          : null;
+        value.textContent = choice ?? raw.toFixed(2);
         row.appendChild(value);
         row.appendChild(el("rect", { x: 6, y: y - 13, width: BASE_W - 12, height: 18, fill: "transparent" }));
         group.appendChild(row);
@@ -2394,6 +2400,8 @@
       return "Effect";
     }
     if (id.startsWith("gen:") || id.startsWith("synth:")) return "Generator";
+    if (id.startsWith("table:") || id.startsWith("warp:")) return "Wavetable";
+    if (id.startsWith("osc:") || id === "adsr") return "Oscillator";
     if (CONTROL_KINDS.includes(id)) return "Control";
 
     return "I/O";
