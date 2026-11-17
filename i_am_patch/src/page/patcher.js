@@ -468,7 +468,36 @@
     IAmCard.registerHero("patch-mod-pm", function (values) { return patchModHero("pm", values); });
     IAmCard.registerHero("patch-mod-fm", function (values) { return patchModHero("fm", values); });
     IAmCard.registerHero("patch-envelope", patchEnvelopeHero);
-    IAmCard.registerHero("patch-osc", patchProductHero("OSC", 0));
+    // The envelope's shape page draws the oscillator it is actually fed, not a
+    // fixed sine: the source's kind and parameters decide the picture.
+    IAmCard.registerHero("patch-osc", function (values, context) {
+      const source = context && context.oscSource;
+
+      if (!source) return patchProductHero("OSC", 0)(values, context);
+
+      const kind = source.kind;
+      const params = source.params || {};
+
+      if (kind === "table:shape" || kind === "osc:shape") return patchTableHero(params);
+
+      const mode = kind.indexOf("osc:") === 0 ? kind.slice(4) : "";
+
+      if (["am", "rm", "pm", "fm"].includes(mode)) return patchModHero(mode, params);
+
+      if (kind.indexOf("table:") === 0) {
+        const product = kind.slice(6);
+        const heroes = { shapes: "shape", additive: "partials", spectrum: "spectra" };
+        const hero = heroes[product];
+
+        if (hero) {
+          const html = IAmCard.hero(hero, params, context);
+
+          if (html) return html;
+        }
+      }
+
+      return patchProductHero("OSC", 0)(values, context);
+    });
     IAmCard.registerHero("patch-osc-shapes", patchProductHero("SHAPES", 0));
     IAmCard.registerHero("patch-osc-additive", patchProductHero("ADDITIVE", 2));
     IAmCard.registerHero("patch-osc-spectrum", patchProductHero("SPECTRUM", 1));
@@ -846,6 +875,21 @@
         spectra: {},
         eqSpectrum: {},
       };
+
+      // What an envelope card draws in its Shape hero: whatever node feeds its
+      // oscillator input, read when the picture is painted so it never lags the
+      // source's own parameters behind.
+      Object.defineProperty(context, "oscSource", {
+        get() {
+          const edge = patch.edges.find(
+            (candidate) => candidate.to[0] === node.id && candidate.to[1] === 1,
+          );
+          const upstream = edge ? nodeOf(edge.from[0]) : null;
+
+          return upstream ? { kind: upstream.kind, params: upstream.params || {} } : null;
+        },
+      });
+
       cardContexts.set(node.id, context);
     }
 
@@ -1026,7 +1070,25 @@
   /// A gesture that is still running posts as it goes, so the sound follows the
   /// hand and the graph ends up with what the card already shows. A parameter
   /// is cheap now: the engine takes the value without rebuilding.
+  /// A card that draws another node's state (the envelope's Shape hero) follows
+  /// a parameter edit on that node without a full redraw.
+  function repaintDependents(nodeId) {
+    for (const entry of Object.values(cards)) {
+      if (!entry || !entry.card || entry.kindId !== "adsr") continue;
+
+      const edge = patch.edges.find(
+        (candidate) => candidate.to[0] === entry.node.id && candidate.to[1] === 1,
+      );
+
+      if (edge && edge.from[0] === nodeId && entry.card.repaintHero) {
+        entry.card.repaintHero();
+      }
+    }
+  }
+
   function postParam(node, key, value) {
+    repaintDependents(node);
+
     return queued(() =>
       fetch("/op", {
         method: "POST",
@@ -2306,6 +2368,8 @@
       const result = await response.json();
       showStatus(result.error ? String(result.error) : "");
       patch = readPatch(await (await fetch("/patch")).json());
+
+      if (body.op === "param" && typeof body.id === "number") repaintDependents(body.id);
       if (redraw) draw();
 
       return result;
