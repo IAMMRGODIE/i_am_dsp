@@ -36,6 +36,8 @@ header .spacer{flex:1}
 .port.audio{fill:#7aa7c7}
 .port.midi{fill:#c9a227}
 .port.control{fill:#9a7ac7}
+.port.wavetable{fill:#4fb3a5}
+.port.osc{fill:#d96a6a}
 .port-label{fill:var(--text3);font-size:9px}
 .wire{fill:none;stroke:var(--wire);stroke-width:2;pointer-events:none}
 .wire.selected{stroke:var(--accent)}
@@ -92,6 +94,8 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 .port.audio{fill:#7aa7c7}
 .port.midi{fill:#c9a227}
 .port.control{fill:#9a7ac7}
+.port.wavetable{fill:#4fb3a5}
+.port.osc{fill:#d96a6a}
 .port-label{fill:var(--text3);font-size:9px}
 .wire{fill:none;stroke:var(--wire);stroke-width:2;pointer-events:none}
 .wire.selected{stroke:var(--accent)}
