@@ -98,15 +98,32 @@ fn kind_json(kind: &NodeDesc) -> Value {
 		&& let Some(descriptor) = crate::synths::synth(product)
 	{
 		let faceplate = (descriptor.faceplate)();
-		let sections: Vec<i_am_web_gui::Section> =
+		let mut sections: Vec<i_am_web_gui::Section> =
 			i_am_web_gui::sections(&(descriptor.parameters)())
 				.into_iter()
 				.filter(|section| !matches!(section.name.as_deref(), Some("Envelope" | "Voice")))
 				.collect();
 
+		// The output stage (gain, pitch, pan) belongs to the envelope node: a
+		// table is read by it, not played by itself.
+		let hero_name = sections.iter().find_map(|section| section.hero.clone());
+
+		for section in &mut sections {
+			section
+				.controls
+				.retain(|control| {
+					!matches!(
+						control.id.as_str(),
+						"gain" | "pitch" | "pitch_factor" | "pan"
+					)
+				});
+		}
+
+		sections.retain(|section| !section.controls.is_empty());
+
 		let hidden = faceplate.hidden.unwrap_or(&[]);
 
-		hero = sections.iter().find_map(|section| section.hero.clone());
+		hero = hero_name;
 		accent = faceplate.accent;
 		title = Some(faceplate.title.to_string());
 		script = faceplate.script;
@@ -178,7 +195,15 @@ fn kind_json(kind: &NodeDesc) -> Value {
 	// The envelope node borrows the products' envelope and voice pages: the same
 	// controls, heroes and one Sync switch, without a product around them.
 	if kind.id == "adsr" {
-		let sections = i_am_web_gui::sections(&crate::graph::adsr_parameters());
+		let mut sections = i_am_web_gui::sections(&crate::graph::adsr_parameters());
+
+		// The output page's picture is the oscillator the envelope plays, not a
+		// product's own drawing.
+		for section in &mut sections {
+			if section.name.as_deref() == Some("Shape") {
+				section.hero = Some("patch-osc".to_string());
+			}
+		}
 
 		hero = sections.iter().find_map(|section| section.hero.clone());
 		// The envelope page holds nine knobs in a row: the card needs the room a
@@ -275,8 +300,10 @@ fn sections_json(sections: &[i_am_web_gui::Section], hidden: &[&str]) -> Vec<Val
 		.collect()
 }
 
-/// The envelope node's pages: the products' envelope and voice, no product page.
+/// The envelope node's pages: the oscillator's output stage, the envelope, and
+/// the voice's unisons. The products' own pages are not here.
 const ADSR_PAGES: &[i_am_web_gui::Page] = &[
+	i_am_web_gui::Page::new("Shape", &["Shape"]),
 	i_am_web_gui::Page::new("Envelope", &["Envelope"]),
 	i_am_web_gui::Page::new("Voice", &["Voice"]),
 ];

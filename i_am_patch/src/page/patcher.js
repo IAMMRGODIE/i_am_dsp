@@ -468,6 +468,7 @@
     IAmCard.registerHero("patch-mod-pm", function (values) { return patchModHero("pm", values); });
     IAmCard.registerHero("patch-mod-fm", function (values) { return patchModHero("fm", values); });
     IAmCard.registerHero("patch-envelope", patchEnvelopeHero);
+    IAmCard.registerHero("patch-osc", patchProductHero("OSC", 0));
     IAmCard.registerHero("patch-osc-shapes", patchProductHero("SHAPES", 0));
     IAmCard.registerHero("patch-osc-additive", patchProductHero("ADDITIVE", 2));
     IAmCard.registerHero("patch-osc-spectrum", patchProductHero("SPECTRUM", 1));
