@@ -87,6 +87,11 @@ pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 		let (Some(from), Some(_)) = (graph.get(link.source.0), graph.get(link.target.0)) else {
 			continue;
 		};
+
+		if from.kind.outputs.get(link.source.1).is_none() {
+			continue;
+		}
+
 		let _ = writeln!(
 			out,
 			"mod {}.{} -> {}.{} depth={}{}",
@@ -104,8 +109,16 @@ pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 	}
 
 	for edge in &graph.edges {
-		let from = graph.get(edge.from.0).expect("an edge names a node");
-		let to = graph.get(edge.to.0).expect("an edge names a node");
+		// An edge can name a node or a port the graph no longer has; the compiler
+		// rejects it, so the projection drops it instead of panicking.
+		let (Some(from), Some(to)) = (graph.get(edge.from.0), graph.get(edge.to.0)) else {
+			continue;
+		};
+
+		if from.kind.outputs.get(edge.from.1).is_none() || to.kind.inputs.get(edge.to.1).is_none() {
+			continue;
+		}
+
 		let _ = writeln!(
 			out,
 			"connect {}.{} -> {}.{}",

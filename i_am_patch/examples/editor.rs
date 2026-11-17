@@ -1031,6 +1031,25 @@ fn op_graph(shared: &Shared, value: &Value) -> Value {
 				}
 			}
 
+			// The page can name a port a node does not have (a stale card, a
+			// hand-written op). Refusing here keeps an unplayable edge out of the
+			// graph; the text projection used to panic on one.
+			if graph
+				.get(from.0)
+				.and_then(|node| node.kind.outputs.get(from.1))
+				.is_none()
+			{
+				return json!({ "error": "the source port does not exist" });
+			}
+
+			if graph
+				.get(to.0)
+				.and_then(|node| node.kind.inputs.get(to.1))
+				.is_none()
+			{
+				return json!({ "error": "the target port does not exist" });
+			}
+
 			graph.connect(from, to);
 			json!({ "ok": true, "replaced": replaced })
 		}
