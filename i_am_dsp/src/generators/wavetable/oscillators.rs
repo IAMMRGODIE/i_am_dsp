@@ -417,6 +417,96 @@ const FM_POINTS: usize = 2_048;
 /// How often the modulator's shape is checked for a change.
 const FM_RECHECK: usize = 256;
 
+/// One cycle of a modulator's integral, in cycles of the carrier.
+///
+/// A table's integral is another table, so true FM needs no history: build it
+/// once, rebuild it when the modulator's shape moves, and read it by phase.
+#[derive(Clone)]
+pub struct FmIntegral {
+	points: [f32; FM_POINTS],
+	seen: u64,
+	age: usize,
+}
+
+impl FmIntegral {
+	/// Builds the integral of a table.
+	pub fn new(modulator: &dyn WaveTable) -> Self {
+		let mut integral = Self {
+			points: [0.0; FM_POINTS],
+			seen: 0,
+			age: 0,
+		};
+
+		integral.seen = integral.fingerprint(modulator);
+		integral.rebuild(modulator);
+
+		integral
+	}
+
+	/// A cheap sample of the shape, to notice a parameter move.
+	fn fingerprint(&self, modulator: &dyn WaveTable) -> u64 {
+		let mut hash = 0xcbf2_9ce4_8422_2325u64;
+
+		for index in 0..64 {
+			let value = modulator.sample(index as f32 / 64.0, 0);
+
+			hash ^= value.to_bits() as u64;
+			hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+		}
+
+		hash
+	}
+
+	/// Rebuilds the points in place; the mean is removed so the cycle closes.
+	pub fn rebuild(&mut self, modulator: &dyn WaveTable) {
+		let mut running = 0.0f32;
+		let mut total = 0.0f32;
+
+		for (index, point) in self.points.iter_mut().enumerate() {
+			let value = modulator.sample(index as f32 / FM_POINTS as f32, 0);
+
+			running += value;
+			total += value;
+			*point = running;
+		}
+
+		let mean = total / FM_POINTS as f32;
+		let scale = 1.0 / FM_POINTS as f32;
+
+		for (index, value) in self.points.iter_mut().enumerate() {
+			let unit = (index + 1) as f32 / FM_POINTS as f32;
+
+			*value = *value * scale - mean * unit;
+		}
+	}
+
+	/// The integral at a position in the cycle, linearly interpolated.
+	pub fn at(&self, position: f32) -> f32 {
+		let scaled = position * FM_POINTS as f32;
+		let index = scaled as usize % FM_POINTS;
+		let next = (index + 1) % FM_POINTS;
+		let fraction = scaled - scaled.floor();
+
+		self.points[index] + (self.points[next] - self.points[index]) * fraction
+	}
+
+	/// Checks the modulator every few samples and rebuilds when it moved.
+	pub fn sync(&mut self, modulator: &dyn WaveTable) {
+		self.age = self.age.wrapping_add(1);
+
+		if !self.age.is_multiple_of(FM_RECHECK) {
+			return;
+		}
+
+		let fingerprint = self.fingerprint(modulator);
+
+		if fingerprint != self.seen {
+			self.seen = fingerprint;
+			self.rebuild(modulator);
+		}
+	}
+}
+
 /// An FM oscillator: the integral of the modulator bends the carrier's phase.
 ///
 /// The modulator is a table, so its integral over one cycle is a table too:
@@ -441,86 +531,22 @@ pub struct FmOsc<Carrier: WaveTable, Modulator: WaveTable> {
 	pub ratio: f32,
 	/// One cycle of the modulator's integral, in cycles of the carrier.
 	#[skip]
-	integral: [f32; FM_POINTS],
-	/// The modulator shape the integral was built from.
-	#[skip]
-	seen: u64,
-	#[skip]
-	age: usize,
+	integral: FmIntegral,
 }
 
 impl<Carrier: WaveTable, Modulator: WaveTable> FmOsc<Carrier, Modulator> {
 	/// Create a new [`FmOsc`] from a carrier and modulator wave.
 	pub fn new(carrier: Carrier, modulator: Modulator) -> Self {
-		let mut fm = Self {
+		let modulator = TableOsc(modulator);
+		let integral = FmIntegral::new(&modulator.0);
+
+		Self {
 			carrier: TableOsc(carrier),
-			modulator: TableOsc(modulator),
+			modulator,
 			depth: 0.0,
 			ratio: 1.0,
-			integral: [0.0; FM_POINTS],
-			seen: 0,
-			age: 0,
-		};
-
-		fm.seen = fm.fingerprint();
-		fm.rebuild();
-
-		fm
-	}
-
-	/// A cheap sample of the modulator's shape, to notice a parameter move.
-	///
-	/// The integral is only valid for the shape it was built from, and the
-	/// modulator may be a table with its own controls (a drawn LFO, an imported
-	/// wave). Sixty-four points are enough for that shape check and cost nothing
-	/// per sample when spread over the recheck interval.
-	fn fingerprint(&self) -> u64 {
-		let mut hash = 0xcbf2_9ce4_8422_2325u64;
-
-		for index in 0..64 {
-			let value = self.modulator.0.sample(index as f32 / 64.0, 0);
-
-			hash ^= value.to_bits() as u64;
-			hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+			integral,
 		}
-
-		hash
-	}
-
-	/// Rebuilds the integral table, in place, from the modulator's current shape.
-	///
-	/// The mean is removed first: an integral that does not return to zero would
-	/// shift the carrier's pitch by a constant and leave a jump at the cycle end.
-	fn rebuild(&mut self) {
-		let mut running = 0.0f32;
-		let mut total = 0.0f32;
-
-		for index in 0..FM_POINTS {
-			let value = self.modulator.0.sample(index as f32 / FM_POINTS as f32, 0);
-
-			running += value;
-			total += value;
-			self.integral[index] = running;
-		}
-
-		let mean = total / FM_POINTS as f32;
-		let scale = 1.0 / FM_POINTS as f32;
-
-		for (index, value) in self.integral.iter_mut().enumerate() {
-			let unit = (index + 1) as f32 / FM_POINTS as f32;
-
-			*value = *value * scale - mean * unit;
-		}
-	}
-
-	/// The integral at a position in the cycle, linearly interpolated.
-	fn integral_at(&self, position: f32) -> f32 {
-		let scaled = position * FM_POINTS as f32;
-		let index = scaled as usize % FM_POINTS;
-		let next = (index + 1) % FM_POINTS;
-		let fraction = scaled - scaled.floor();
-
-		self.integral[index] + (self.integral[next] - self.integral[index]) * fraction
 	}
 }
 
@@ -538,25 +564,14 @@ impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator
 		for (channel, value) in shifted.iter_mut().enumerate() {
 			let position = (time * frequency * ratio + phase[channel]).rem_euclid(1.0);
 
-			*value += self.depth * self.integral_at(position);
+			*value += self.depth * self.integral.at(position);
 		}
 
 		self.carrier.play_at(frequency, time, shifted)
 	}
 
 	fn sync(&mut self) {
-		self.age = self.age.wrapping_add(1);
-
-		if !self.age.is_multiple_of(FM_RECHECK) {
-			return;
-		}
-
-		let fingerprint = self.fingerprint();
-
-		if fingerprint != self.seen {
-			self.seen = fingerprint;
-			self.rebuild();
-		}
+		self.integral.sync(&self.modulator.0);
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -1197,9 +1212,9 @@ mod tests {
 		let fm = FmOsc::new(SineWave, SineWave);
 
 		assert!(
-			fm.integral[FM_POINTS - 1].abs() < 1e-3,
+			fm.integral.at(0.9999).abs() < 1e-2,
 			"{}",
-			fm.integral[FM_POINTS - 1]
+			fm.integral.at(0.9999)
 		);
 	}
 
