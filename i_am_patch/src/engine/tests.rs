@@ -391,6 +391,30 @@ fn a_shapes_oscillator_builds_without_a_table() {
 }
 
 #[test]
+fn a_table_node_takes_its_product_parameters() {
+	let mut graph = Graph::new();
+	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+	let table = graph.add_node("table:shapes", (0.0, 100.0)).expect("table");
+	let envelope = graph.add_node("adsr", (200.0, 0.0)).expect("adsr");
+	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+
+	graph.connect((midi, 0), (envelope, 0));
+	graph.connect((table, 0), (envelope, 1));
+	graph.connect((envelope, 0), (out, 0));
+
+	let mut engine = Engine::new(&graph, 48_000).expect("the graph builds");
+
+	assert!(
+		engine.set_param(table, "oscillator.smooth_factor", 0.5),
+		"the table dropped the product parameter"
+	);
+	assert!(
+		!engine.set_param(table, "gain", 0.5),
+		"the envelope's output stage belongs to the envelope"
+	);
+}
+
+#[test]
 fn a_warp_between_tables_plays() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");

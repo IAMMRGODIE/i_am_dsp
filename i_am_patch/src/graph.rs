@@ -275,46 +275,6 @@ const BUILTINS: &[NodeDesc] = &[
 		params: &[choice_param("shape", 0.0, 4.0, CONSTRUCTOR_SHAPES)],
 	},
 	NodeDesc {
-		id: "table:canvas",
-		name: "Canvas Table",
-		inputs: &[],
-		outputs: &[port("wave", SignalKind::Wavetable)],
-		latency: 0,
-		params: &[],
-	},
-	NodeDesc {
-		id: "table:shapes",
-		name: "Shapes Table",
-		inputs: &[],
-		outputs: &[port("wave", SignalKind::Wavetable)],
-		latency: 0,
-		params: &[],
-	},
-	NodeDesc {
-		id: "table:additive",
-		name: "Additive Table",
-		inputs: &[],
-		outputs: &[port("wave", SignalKind::Wavetable)],
-		latency: 0,
-		params: &[],
-	},
-	NodeDesc {
-		id: "table:spectrum",
-		name: "Spectrum Table",
-		inputs: &[],
-		outputs: &[port("wave", SignalKind::Wavetable)],
-		latency: 0,
-		params: &[],
-	},
-	NodeDesc {
-		id: "table:script",
-		name: "Script Table",
-		inputs: &[],
-		outputs: &[port("wave", SignalKind::Wavetable)],
-		latency: 0,
-		params: &[],
-	},
-	NodeDesc {
 		id: "osc:am",
 		name: "AM",
 		inputs: &[
@@ -601,6 +561,7 @@ pub fn catalog() -> &'static [NodeDesc] {
 	CATALOG.get_or_init(|| {
 		let mut kinds = BUILTINS.to_vec();
 		kinds.extend(module_catalog());
+		kinds.extend(table_catalog());
 		kinds.push(adsr_catalog());
 		kinds.extend(synth_catalog());
 		kinds
@@ -697,6 +658,58 @@ fn adsr_catalog() -> NodeDesc {
 		latency: 0,
 		params: Box::leak(params.into_boxed_slice()),
 	}
+}
+
+/// The product tables, and the parameters their product pages edit.
+const TABLE_PRODUCTS: &[(&str, &str)] = &[
+	("shapes", "Shapes Table"),
+	("additive", "Additive Table"),
+	("spectrum", "Spectrum Table"),
+	("script", "Script Table"),
+	("canvas", "Canvas Table"),
+];
+
+/// A table node: the product's own parameters, on the graph's ports.
+///
+/// The output stage (gain, pitch, pan) stays on the envelope node: a table is
+/// read by it, not played by itself.
+fn table_catalog() -> Vec<NodeDesc> {
+	let mut kinds = Vec::new();
+
+	for (product, name) in TABLE_PRODUCTS {
+		let Some(descriptor) = crate::synths::synth(product) else {
+			continue;
+		};
+
+		let id: &'static str = Box::leak(format!("table:{product}").into_boxed_str());
+		let mut params: Vec<ParamDesc> = Vec::new();
+
+		for parameter in (descriptor.parameters)() {
+			if matches!(
+				parameter.identifier.as_str(),
+				"gain" | "pitch" | "pitch_factor" | "pan"
+			) {
+				continue;
+			}
+
+			let param_name: &'static str = Box::leak(parameter.identifier.clone().into_boxed_str());
+
+			if let Some(desc) = parameter_desc(param_name, &parameter) {
+				params.push(desc);
+			}
+		}
+
+		kinds.push(NodeDesc {
+			id,
+			name,
+			inputs: &[],
+			outputs: Box::leak(vec![port("wave", SignalKind::Wavetable)].into_boxed_slice()),
+			latency: 0,
+			params: Box::leak(params.into_boxed_slice()),
+		});
+	}
+
+	kinds
 }
 
 fn synth_catalog() -> Vec<NodeDesc> {
@@ -1087,6 +1100,22 @@ impl Graph {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn a_table_node_carries_the_product_parameters() {
+		let catalog = super::catalog();
+		let kind = catalog
+			.iter()
+			.find(|kind| kind.id == "table:shapes")
+			.expect("the shapes table");
+
+		assert!(
+			kind.params
+				.iter()
+				.any(|param| param.name == "oscillator.smooth_factor")
+		);
+		assert!(!kind.params.iter().any(|param| param.name == "gain"));
+	}
+
 	use super::*;
 
 	#[test]
