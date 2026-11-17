@@ -1514,7 +1514,9 @@ impl BlockNode for AdsrNode {
 
 	fn set_param(&mut self, name: &str, value: f32) {
 		if let Some(inner) = &mut self.inner {
-			inner.set_parameter(name, SetValue::Float(value));
+			// The Voice page mixes floats, an integer (unisons) and a bool
+			// (phase per channel); a float-only write silently dropped two of them.
+			write_param(inner, name, value);
 		}
 	}
 
@@ -1683,6 +1685,40 @@ mod voice_tests {
 
 	fn shared(value: f32) -> Arc<AtomicU32> {
 		Arc::new(AtomicU32::new(value.to_bits()))
+	}
+
+	/// The envelope's Voice page mixes value types; each has to reach the DSP.
+	#[test]
+	fn an_envelope_takes_its_voice_parameters() {
+		use i_am_dsp::prelude::Value as ParamValue;
+
+		let mut node = AdsrNode::new(48_000);
+
+		assert!(node.install(Box::new(TableOsc(sine()))));
+
+		node.set_param("unisons", 4.0);
+		node.set_param("random_phase_by_channel", 1.0);
+
+		let inner = node.inner.as_ref().expect("installed");
+		let parameters = inner.get_parameters();
+		let unisons = parameters
+			.iter()
+			.find(|parameter| parameter.identifier == "unisons")
+			.expect("unisons");
+		let channel = parameters
+			.iter()
+			.find(|parameter| parameter.identifier == "random_phase_by_channel")
+			.expect("phase per channel");
+
+		match unisons.value {
+			ParamValue::Int { value, .. } => assert_eq!(value, 4),
+			_ => panic!("unisons is not an int"),
+		}
+
+		match channel.value {
+			ParamValue::Bool(value) => assert!(value),
+			_ => panic!("phase per channel is not a bool"),
+		}
 	}
 
 	fn play(kind: ModKind, depth: f32) -> f32 {
