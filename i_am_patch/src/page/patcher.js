@@ -292,6 +292,197 @@
     );
   }
 
+
+  // Heroes for the constructor nodes. The card kit draws product pictures from
+  // their own metadata; these nodes have no product, so the page draws what the
+  // node is set to: the table, the phase map, the modulation, the envelope.
+  function patchSvg(content) {
+    return '<svg viewBox="0 0 520 160" preserveAspectRatio="none">' + content + '</svg>';
+  }
+
+  function patchValue(values, name, fallback) {
+    var value = values && values[name];
+    return typeof value === "number" ? value : fallback;
+  }
+
+  function patchTrace(points) {
+    var path = "";
+
+    for (var i = 0; i < points.length; i++) {
+      path += (i ? " L " : "M ") + points[i][0].toFixed(1) + " " + points[i][1].toFixed(1);
+    }
+
+    return path;
+  }
+
+  function patchShapeValue(shape, t) {
+    var cycle = t - Math.floor(t);
+
+    if (shape === 1) return 2 * Math.abs(2 * cycle - 1) - 1;
+    if (shape === 2) return 2 * cycle - 1;
+    if (shape === 3) return cycle < 0.5 ? 1 : -1;
+    if (shape === 4) {
+      var noise = Math.sin(cycle * 12345.678) * 43758.5453;
+      return (noise - Math.floor(noise)) * 2 - 1;
+    }
+
+    return Math.sin(cycle * Math.PI * 2);
+  }
+
+  function patchTableHero(values) {
+    var shapes = ["SINE", "TRIANGLE", "SAW", "SQUARE", "NOISE"];
+    var shape = Math.round(patchValue(values, "shape", 0));
+    var points = [];
+
+    for (var i = 0; i <= 240; i++) {
+      var t = i / 240;
+      points.push([20 + t * 480, 80 - patchShapeValue(shape, t) * 52]);
+    }
+
+    return patchSvg(
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+      '<path d="' + patchTrace(points) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>'
+    ) + '<div class="hero-label" style="left:2%;top:2%">' + shapes[shape] + '</div>';
+  }
+
+  function patchWarpHero(mode, values) {
+    var amount = patchValue(values, "amount", 0);
+    var power = Math.max(patchValue(values, "power", 1), 0.25);
+    var ratio = Math.max(patchValue(values, "ratio", 1), 1);
+    var steps = Math.max(patchValue(values, "steps", 1), 1);
+    var points = [];
+    var diagonal = [];
+
+    for (var i = 0; i <= 200; i++) {
+      var t = i / 200;
+      var folded = 1 - Math.abs(2 * t - 1);
+      var warped = mode === "bend" ? Math.pow(t, power)
+        : mode === "mirror" ? t + (folded - t) * amount
+        : mode === "sync" ? t * ratio - Math.floor(t * ratio)
+        : mode === "quantize" ? Math.floor(t * steps) / steps
+        : t + (0.5 + 0.5 * Math.sin(t * Math.PI * 2) - t) * amount;
+
+      points.push([20 + t * 480, 148 - warped * 126]);
+      diagonal.push([20 + t * 480, 148 - t * 126]);
+    }
+
+    var names = { bend: "BEND", mirror: "MIRROR", sync: "SYNC", quantize: "QUANTIZE", remap: "REMAP" };
+
+    return patchSvg(
+      '<path d="' + patchTrace(diagonal) + '" fill="none" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+      '<path d="' + patchTrace(points) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>'
+    ) + '<div class="hero-label" style="left:2%;top:2%">' + names[mode] + '</div>';
+  }
+
+  function patchModHero(mode, values) {
+    var depth = patchValue(values, "depth", 0);
+    var ratio = Math.max(patchValue(values, "ratio", 1), 1);
+    var points = [];
+    var carrier = [];
+
+    for (var i = 0; i <= 400; i++) {
+      var t = i / 400 * 2;
+      var angle = t * Math.PI * 2;
+      var modulator = Math.sin(angle * ratio);
+      var value;
+
+      if (mode === "am") value = Math.sin(angle) * (1 + depth * modulator);
+      else if (mode === "rm") value = Math.sin(angle) * (1 - depth + depth * modulator);
+      else if (mode === "pm") value = Math.sin(angle + depth * modulator);
+      else {
+        var integral = (1 - Math.cos(angle * ratio)) / (2 * Math.PI * ratio);
+        value = Math.sin(angle + depth * integral * Math.PI * 2);
+      }
+
+      points.push([20 + i / 400 * 480, 80 - value * 50]);
+      carrier.push([20 + i / 400 * 480, 80 - Math.sin(angle) * 50]);
+    }
+
+    var names = { am: "AM", rm: "RM", pm: "PM", fm: "FM" };
+
+    return patchSvg(
+      '<path d="' + patchTrace(carrier) + '" fill="none" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+      '<path d="' + patchTrace(points) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>'
+    ) + '<div class="hero-label" style="left:2%;top:2%">' + names[mode] + " · " + depth.toFixed(2) + '</div>';
+  }
+
+  function patchEnvelopeHero(values) {
+    var attack = Math.min(Math.max(patchValue(values, "attack_time", 0.01), 0.001), 0.9);
+    var decay = Math.min(Math.max(patchValue(values, "decay_time", 0.2), 0.001), 0.9);
+    var sustain = Math.min(Math.max(patchValue(values, "sustain_level", 0.7), 0), 1);
+    var release = Math.min(Math.max(patchValue(values, "release_time", 0.3), 0.001), 1);
+    var x = function (time) { return 20 + time * 300; };
+    var y = function (level) { return 148 - level * 120; };
+    var points = [
+      [x(0), y(0)],
+      [x(attack), y(1)],
+      [x(Math.min(attack + decay, 0.98)), y(sustain)],
+      [x(1), y(sustain)],
+      [x(1 + release), y(0)]
+    ];
+
+    return patchSvg(
+      '<line x1="20" y1="148" x2="500" y2="148" stroke="#2a2a2a"/>' +
+      '<path d="' + patchTrace(points) + ' L 20 148 Z" fill="var(--accent)" fill-opacity=".08"/>' +
+      '<path d="' + patchTrace(points) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>'
+    ) + '<div class="hero-label" style="left:2%;top:2%">ADSR</div>';
+  }
+
+  function patchProductHero(name, shape) {
+    return function () {
+      var points = [];
+
+      for (var i = 0; i <= 240; i++) {
+        var t = i / 240;
+        points.push([20 + t * 480, 80 - patchShapeValue(shape, t) * 50]);
+      }
+
+      return patchSvg(
+        '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+        '<path d="' + patchTrace(points) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>'
+      ) + '<div class="hero-label" style="left:2%;top:2%">' + name + '</div>';
+    };
+  }
+
+  if (window.IAmCard) {
+    IAmCard.registerHero("patch-wavetable", patchTableHero);
+    IAmCard.registerHero("patch-warp-bend", function (values) { return patchWarpHero("bend", values); });
+    IAmCard.registerHero("patch-warp-mirror", function (values) { return patchWarpHero("mirror", values); });
+    IAmCard.registerHero("patch-warp-sync", function (values) { return patchWarpHero("sync", values); });
+    IAmCard.registerHero("patch-warp-quantize", function (values) { return patchWarpHero("quantize", values); });
+    IAmCard.registerHero("patch-warp-remap", function (values) { return patchWarpHero("remap", values); });
+    IAmCard.registerHero("patch-mod-am", function (values) { return patchModHero("am", values); });
+    IAmCard.registerHero("patch-mod-rm", function (values) { return patchModHero("rm", values); });
+    IAmCard.registerHero("patch-mod-pm", function (values) { return patchModHero("pm", values); });
+    IAmCard.registerHero("patch-mod-fm", function (values) { return patchModHero("fm", values); });
+    IAmCard.registerHero("patch-envelope", patchEnvelopeHero);
+    IAmCard.registerHero("patch-osc-shapes", patchProductHero("SHAPES", 0));
+    IAmCard.registerHero("patch-osc-additive", patchProductHero("ADDITIVE", 2));
+    IAmCard.registerHero("patch-osc-spectrum", patchProductHero("SPECTRUM", 1));
+    IAmCard.registerHero("patch-osc-script", patchProductHero("SCRIPT", 3));
+    IAmCard.registerHero("patch-osc-canvas", patchProductHero("CANVAS", 4));
+    IAmCard.registerHero("patch-canvas-table", patchProductHero("CANVAS", 4));
+  }
+
+  CARD_HEROES["table:shape"] = "patch-wavetable";
+  CARD_HEROES["table:canvas"] = "patch-canvas-table";
+  CARD_HEROES["osc:shape"] = "patch-wavetable";
+  CARD_HEROES["osc:am"] = "patch-mod-am";
+  CARD_HEROES["osc:rm"] = "patch-mod-rm";
+  CARD_HEROES["osc:pm"] = "patch-mod-pm";
+  CARD_HEROES["osc:fm"] = "patch-mod-fm";
+  CARD_HEROES["warp:bend"] = "patch-warp-bend";
+  CARD_HEROES["warp:mirror"] = "patch-warp-mirror";
+  CARD_HEROES["warp:sync"] = "patch-warp-sync";
+  CARD_HEROES["warp:quantize"] = "patch-warp-quantize";
+  CARD_HEROES["warp:remap"] = "patch-warp-remap";
+  CARD_HEROES["adsr"] = "patch-envelope";
+  CARD_HEROES["osc:shapes"] = "patch-osc-shapes";
+  CARD_HEROES["osc:additive"] = "patch-osc-additive";
+  CARD_HEROES["osc:spectrum"] = "patch-osc-spectrum";
+  CARD_HEROES["osc:script"] = "patch-osc-script";
+  CARD_HEROES["osc:canvas"] = "patch-osc-canvas";
+
   // A source card's history comes from the engine's tap for that node, and a
   // tap exists only after it is asked for once.
   const tapped = new Set();
@@ -440,7 +631,10 @@
         String(Math.max(0.05, Math.min(w / baseWidth(node), h / baseHeight(node)))),
       );
       entry.host.classList.toggle("compact", w < 430);
-      drawSourceCard(entry);
+      // Only a source card's picture is redrawn here. Every other card keeps the
+      // hero its kind registered; painting the source picture over it would wipe
+      // that hero on the next redraw.
+      if (SOURCE_KINDS.includes(kind.id)) drawSourceCard(entry);
 
       return entry.host;
     }

@@ -260,7 +260,7 @@ const BUILTINS: &[NodeDesc] = &[
 	},
 	NodeDesc {
 		id: "table:shape",
-		name: "Wavetable",
+		name: "Table",
 		inputs: &[],
 		outputs: &[port("wave", SignalKind::Wavetable)],
 		latency: 0,
@@ -276,7 +276,7 @@ const BUILTINS: &[NodeDesc] = &[
 	},
 	NodeDesc {
 		id: "table:canvas",
-		name: "Canvas",
+		name: "Canvas Table",
 		inputs: &[],
 		outputs: &[port("wave", SignalKind::Wavetable)],
 		latency: 0,
@@ -284,7 +284,7 @@ const BUILTINS: &[NodeDesc] = &[
 	},
 	NodeDesc {
 		id: "osc:shapes",
-		name: "Shapes",
+		name: "Shapes Osc",
 		inputs: &[],
 		outputs: &[port("osc", SignalKind::Osc)],
 		latency: 0,
@@ -292,7 +292,7 @@ const BUILTINS: &[NodeDesc] = &[
 	},
 	NodeDesc {
 		id: "osc:additive",
-		name: "Additive",
+		name: "Additive Osc",
 		inputs: &[],
 		outputs: &[port("osc", SignalKind::Osc)],
 		latency: 0,
@@ -300,7 +300,7 @@ const BUILTINS: &[NodeDesc] = &[
 	},
 	NodeDesc {
 		id: "osc:spectrum",
-		name: "Spectrum",
+		name: "Spectrum Osc",
 		inputs: &[],
 		outputs: &[port("osc", SignalKind::Osc)],
 		latency: 0,
@@ -308,7 +308,7 @@ const BUILTINS: &[NodeDesc] = &[
 	},
 	NodeDesc {
 		id: "osc:script",
-		name: "Script",
+		name: "Script Osc",
 		inputs: &[],
 		outputs: &[port("osc", SignalKind::Osc)],
 		latency: 0,
@@ -316,7 +316,7 @@ const BUILTINS: &[NodeDesc] = &[
 	},
 	NodeDesc {
 		id: "osc:canvas",
-		name: "Canvas",
+		name: "Canvas Osc",
 		inputs: &[],
 		outputs: &[port("osc", SignalKind::Osc)],
 		latency: 0,
@@ -423,7 +423,7 @@ const BUILTINS: &[NodeDesc] = &[
 	},
 	NodeDesc {
 		id: "adsr",
-		name: "Envelope",
+		name: "ADSR",
 		inputs: &[port("midi", SignalKind::Midi), port("osc", SignalKind::Osc)],
 		outputs: &[port("audio", AUDIO)],
 		latency: 0,
