@@ -439,7 +439,17 @@ impl<A: WaveTable, B: WaveTable, C: WaveTable, D: WaveTable> WaveTable
 	}
 }
 
-/// An FM oscillator that modulates the frequency of the carrier wave.
+/// How many points one cycle of the integrated modulator keeps.
+const FM_POINTS: usize = 2_048;
+/// How often the modulator's shape is checked for a change.
+const FM_RECHECK: usize = 256;
+
+/// An FM oscillator: the integral of the modulator bends the carrier's phase.
+///
+/// The modulator is a table, so its integral over one cycle is a table too:
+/// build it once, scale it by the depth, and add it to the carrier's phase. That
+/// is frequency modulation rather than the phase modulation `PmOsc` does, and
+/// it needs no history because the integral of a table is another table.
 #[derive(Parameters)]
 pub struct FmOsc<Carrier: WaveTable, Modulator: WaveTable> {
 	/// The carrier wave.
@@ -448,20 +458,96 @@ pub struct FmOsc<Carrier: WaveTable, Modulator: WaveTable> {
 	/// The modulator wave.
 	#[sub_param]
 	pub modulator: TableOsc<Modulator>,
-	/// The FM factor, the unit is Hz.
-	#[range(min = 0.0001, max = 10000.0)]
-	#[logarithmic]
-	pub fm_factor: f32,
+	/// How far the integrated modulator pushes the carrier, in cycles.
+	#[range(min = 0.0, max = 16.0)]
+	#[layout(group = "Modulation", order = 0, widget = knob)]
+	pub depth: f32,
+	/// How fast the modulator runs against the carrier.
+	#[range(min = 1.0, max = 16.0)]
+	#[layout(group = "Modulation", order = 1, widget = knob, step = 1.0)]
+	pub ratio: f32,
+	/// One cycle of the modulator's integral, in cycles of the carrier.
+	#[skip]
+	integral: [f32; FM_POINTS],
+	/// The modulator shape the integral was built from.
+	#[skip]
+	seen: u64,
+	#[skip]
+	age: usize,
 }
 
 impl<Carrier: WaveTable, Modulator: WaveTable> FmOsc<Carrier, Modulator> {
 	/// Create a new [`FmOsc`] from a carrier and modulator wave.
 	pub fn new(carrier: Carrier, modulator: Modulator) -> Self {
-		Self {
+		let mut fm = Self {
 			carrier: TableOsc(carrier),
 			modulator: TableOsc(modulator),
-			fm_factor: 0.0,
+			depth: 0.0,
+			ratio: 1.0,
+			integral: [0.0; FM_POINTS],
+			seen: 0,
+			age: 0,
+		};
+
+		fm.seen = fm.fingerprint();
+		fm.rebuild();
+
+		fm
+	}
+
+	/// A cheap sample of the modulator's shape, to notice a parameter move.
+	///
+	/// The integral is only valid for the shape it was built from, and the
+	/// modulator may be a table with its own controls (a drawn LFO, an imported
+	/// wave). Sixty-four points are enough for that shape check and cost nothing
+	/// per sample when spread over the recheck interval.
+	fn fingerprint(&self) -> u64 {
+		let mut hash = 0xcbf2_9ce4_8422_2325u64;
+
+		for index in 0..64 {
+			let value = self.modulator.0.sample(index as f32 / 64.0, 0);
+
+			hash ^= value.to_bits() as u64;
+			hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
 		}
+
+		hash
+	}
+
+	/// Rebuilds the integral table, in place, from the modulator's current shape.
+	///
+	/// The mean is removed first: an integral that does not return to zero would
+	/// shift the carrier's pitch by a constant and leave a jump at the cycle end.
+	fn rebuild(&mut self) {
+		let mut running = 0.0f32;
+		let mut total = 0.0f32;
+
+		for index in 0..FM_POINTS {
+			let value = self.modulator.0.sample(index as f32 / FM_POINTS as f32, 0);
+
+			running += value;
+			total += value;
+			self.integral[index] = running;
+		}
+
+		let mean = total / FM_POINTS as f32;
+		let scale = 1.0 / FM_POINTS as f32;
+
+		for (index, value) in self.integral.iter_mut().enumerate() {
+			let unit = (index + 1) as f32 / FM_POINTS as f32;
+
+			*value = *value * scale - mean * unit;
+		}
+	}
+
+	/// The integral at a position in the cycle, linearly interpolated.
+	fn integral_at(&self, position: f32) -> f32 {
+		let scaled = position * FM_POINTS as f32;
+		let index = scaled as usize % FM_POINTS;
+		let next = (index + 1) % FM_POINTS;
+		let fraction = scaled - scaled.floor();
+
+		self.integral[index] + (self.integral[next] - self.integral[index]) * fraction
 	}
 }
 
@@ -469,13 +555,35 @@ impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator
 	for FmOsc<Carrier, Modulator>
 {
 	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
-		if self.fm_factor <= 0.0005 {
+		if self.depth <= 0.0 {
 			return self.carrier.play_at(frequency, time, phase);
 		}
 
-		let module = self.modulator.play_at(frequency, time, phase)[0];
-		self.carrier
-			.play_at(frequency * self.fm_factor * module, time, phase)
+		let ratio = self.ratio.max(1.0);
+		let mut shifted = phase;
+
+		for (channel, value) in shifted.iter_mut().enumerate() {
+			let position = (time * frequency * ratio + phase[channel]).rem_euclid(1.0);
+
+			*value += self.depth * self.integral_at(position);
+		}
+
+		self.carrier.play_at(frequency, time, shifted)
+	}
+
+	fn sync(&mut self) {
+		self.age = self.age.wrapping_add(1);
+
+		if !self.age.is_multiple_of(FM_RECHECK) {
+			return;
+		}
+
+		let fingerprint = self.fingerprint();
+
+		if fingerprint != self.seen {
+			self.seen = fingerprint;
+			self.rebuild();
+		}
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -491,10 +599,11 @@ impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator
 			format!("{id_prefix}_fm_osc_modulator"),
 		);
 
+		ui.add(egui::Slider::new(&mut self.depth, 0.0..=16.0).text("FM Depth"));
 		ui.add(
-			egui::Slider::new(&mut self.fm_factor, 0.0001..=10_000.0)
-				.logarithmic(true)
-				.text("FM Factor"),
+			egui::Slider::new(&mut self.ratio, 1.0..=16.0)
+				.text("Modulator Ratio")
+				.integer(),
 		);
 	}
 }
@@ -1035,6 +1144,106 @@ mod tests {
 
 			assert!(value.is_finite() && value.abs() <= 1.01, "{time}: {value}");
 		}
+	}
+
+	/// The FM integral closes at the end of the cycle, so the phase does not
+	/// jump when the modulator wraps.
+	#[test]
+	fn the_fm_integral_closes_at_the_end_of_the_cycle() {
+		use crate::generators::wavetable::SineWave;
+
+		let fm = FmOsc::new(SineWave, SineWave);
+
+		assert!(
+			fm.integral[FM_POINTS - 1].abs() < 1e-3,
+			"{}",
+			fm.integral[FM_POINTS - 1]
+		);
+	}
+
+	/// At zero depth the carrier plays untouched.
+	#[test]
+	fn fm_at_zero_depth_is_the_carrier() {
+		use crate::generators::wavetable::{Oscillator, SineWave, TableOsc};
+
+		let fm = FmOsc::new(SineWave, SineWave);
+		let carrier = TableOsc(SineWave);
+
+		for index in 0..32 {
+			let phase = [index as f32 / 32.0];
+
+			assert_eq!(
+				Oscillator::<1>::play_at(&fm, 440.0, 0.0, phase),
+				Oscillator::<1>::play_at(&carrier, 440.0, 0.0, phase)
+			);
+		}
+	}
+
+	/// The phase moves by the depth times the integral of the modulator.
+	#[test]
+	fn fm_shifts_the_phase_by_the_integral() {
+		use crate::generators::wavetable::{Oscillator, SineWave};
+
+		let mut fm = FmOsc::new(SineWave, SineWave);
+		fm.depth = 1.0;
+		fm.ratio = 1.0;
+
+		// The integral of a unit sine at a half cycle is 1/pi cycles, so the
+		// carrier reads at 0.5 + 1/pi and a sine carrier gives sin(pi + 2).
+		let value = Oscillator::<1>::play_at(&fm, 440.0, 0.0, [0.5])[0];
+		let expected = (std::f32::consts::PI + 2.0).sin();
+
+		assert!(
+			(value - expected).abs() < 1e-3,
+			"{value} against {expected}"
+		);
+	}
+
+	/// FM is periodic with the note: a whole carrier cycle later is the same
+	/// sample, because the integral returns to zero.
+	#[test]
+	fn fm_is_periodic_with_the_note() {
+		use crate::generators::wavetable::{Oscillator, SineWave};
+
+		let mut fm = FmOsc::new(SineWave, SineWave);
+		fm.depth = 2.0;
+		fm.ratio = 1.0;
+
+		let start = Oscillator::<1>::play_at(&fm, 480.0, 0.0, [0.0])[0];
+		let later = Oscillator::<1>::play_at(&fm, 480.0, 1.0 / 480.0, [0.0])[0];
+
+		assert!((start - later).abs() < 1e-4, "{start} against {later}");
+	}
+
+	/// A modulator with its own controls has to reach the integral: the shape is
+	/// checked every few samples and rebuilt when it moved.
+	#[test]
+	fn a_modulator_change_rebuilds_the_integral() {
+		use crate::generators::wavetable::{Oscillator, SineWave};
+
+		let sine: Vec<f32> = (0..1_024)
+			.map(|index| (std::f32::consts::TAU * index as f32 / 1_024.0).sin())
+			.collect();
+		let mut fm = FmOsc::new(SineWave, sine);
+		fm.depth = 1.0;
+		fm.ratio = 1.0;
+
+		let before = Oscillator::<1>::play_at(&fm, 440.0, 0.0, [0.5])[0];
+
+		fm.modulator.0 = (0..1_024)
+			.map(|index| -(std::f32::consts::TAU * index as f32 / 1_024.0).sin())
+			.collect();
+
+		for _ in 0..FM_RECHECK {
+			Oscillator::<1>::sync(&mut fm);
+		}
+
+		let after = Oscillator::<1>::play_at(&fm, 440.0, 0.0, [0.5])[0];
+
+		assert!(
+			(after - before).abs() > 0.5,
+			"{before} did not become {after}"
+		);
 	}
 
 	/// The warp moves where the carrier reads, without changing its shape.
