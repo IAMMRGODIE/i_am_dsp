@@ -920,6 +920,31 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			"application/json",
 			import_route(shared, method, path, body_bytes, Import::Sample),
 		),
+		("GET", path) if path == "/wave" || path.starts_with("/wave?") => {
+			let query = path.split_once('?').map(|(_, query)| query).unwrap_or("");
+			let value = |key: &str| {
+				query
+					.split('&')
+					.find_map(|pair| pair.strip_prefix(&format!("{key}=")))
+					.and_then(|value| value.parse::<usize>().ok())
+			};
+			let node = value("node").unwrap_or(0) as u32;
+			let points = value("points").unwrap_or(192);
+			let graph = shared.graph.lock().expect("graph").clone();
+			let values = i_am_patch::sample_constructor(
+				&graph,
+				&shared.slots,
+				shared.rate,
+				i_am_patch::graph::NodeId(node),
+				points,
+			);
+
+			(
+				"200 OK",
+				"application/json",
+				json!({ "values": values }).to_string(),
+			)
+		}
 		(method, path) if path == "/waves" || path.starts_with("/waves?") => (
 			"200 OK",
 			"application/json",

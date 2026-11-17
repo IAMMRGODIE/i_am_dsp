@@ -329,9 +329,28 @@
     return path;
   }
 
-  /// The sample function of a node that is a plain table, or nothing.
+  /// A sampler over one cycle of samples, linearly interpolated.
+  function patchSamples(values) {
+    var length = values.length;
+
+    return function (t) {
+      var x = patchFrac(t) * length;
+      var index = Math.floor(x) % length;
+      var next = (index + 1) % length;
+      var fraction = x - Math.floor(x);
+
+      return values[index] + (values[next] - values[index]) * fraction;
+    };
+  }
+
+  /// The sample function of a node: the engine's own rendering when it has been
+  /// fetched, a plain table's shape otherwise.
   function patchSourceShape(source) {
     if (!source) return null;
+
+    const samples = source.id !== undefined ? waveCache.get(source.id) : null;
+
+    if (samples) return patchSamples(samples);
 
     const kind = source.kind;
     const shape = Math.round((source.params && source.params.shape) || 0);
@@ -504,6 +523,24 @@
 
       const kind = source.kind;
       const params = source.params || {};
+      const sampled = waveCache.get(source.id);
+
+      // The engine's own cycle beats any hand-drawn guess.
+      if (sampled) {
+        const sample = patchSamples(sampled);
+        const points = [];
+
+        for (let index = 0; index <= 240; index++) {
+          const t = index / 240;
+          points.push([20 + t * 480, 80 - sample(t) * 56]);
+        }
+
+        return patchSvg(
+          '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+          '<path d="' + patchTrace(points) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>'
+        ) + '<div class="hero-label" style="left:2%;top:2%">' +
+          String(kind.split(":")[1] || kind).toUpperCase() + '</div>';
+      }
 
       if (kind === "table:shape" || kind === "osc:shape") return patchTableHero(params);
 
@@ -1122,6 +1159,50 @@
     }
   }
 
+  // One cycle of each constructor node, as the engine's own builder renders it.
+  const waveCache = new Map();
+  const waveKeys = new Map();
+
+  /// Asks for the sampled cycle of every constructor node, so a hero draws the
+  /// DSP's output instead of a guess.
+  function refreshWaves(force) {
+    const live = new Set(patch.nodes.map((node) => node.id));
+
+    for (const id of [...waveCache.keys()]) {
+      if (!live.has(id)) {
+        waveCache.delete(id);
+        waveKeys.delete(id);
+      }
+    }
+
+    for (const node of patch.nodes) {
+      if (
+        !(
+          node.kind.startsWith("table:") ||
+          node.kind.startsWith("osc:") ||
+          node.kind.startsWith("warp:")
+        )
+      ) {
+        continue;
+      }
+
+      const key = JSON.stringify(node.params);
+
+      if (!force && waveKeys.get(node.id) === key) continue;
+
+      waveKeys.set(node.id, key);
+      fetch("/wave?node=" + node.id + "&points=192", { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((body) => {
+          if (!body || !body.values) return;
+
+          waveCache.set(node.id, body.values);
+          repaintHeroes();
+        })
+        .catch(() => {});
+    }
+  }
+
   /// Heroes that draw another node (an envelope's source, a warp's table) follow
   /// a structural edit too: rewiring changes what they should show.
   function repaintHeroes() {
@@ -1146,6 +1227,7 @@
   /// parameter picks the new value up.
   async function reload() {
     patch = readPatch(await (await fetch("/patch")).json());
+    refreshWaves();
     draw();
   }
 
@@ -2190,6 +2272,7 @@
   async function load() {
     catalog = await (await fetch("/catalog")).json();
     patch = readPatch(await (await fetch("/patch")).json());
+    refreshWaves(true);
     draw();
   }
 
@@ -2426,10 +2509,15 @@
       showStatus(result.error ? String(result.error) : "");
       patch = readPatch(await (await fetch("/patch")).json());
 
-      if (body.op === "param" && typeof body.id === "number") repaintDependents(body.id);
+      if (body.op === "param" && typeof body.id === "number") {
+        waveCache.delete(body.id);
+        waveKeys.delete(body.id);
+        repaintDependents(body.id);
+        refreshWaves(true);
+      }
 
       if (["connect", "disconnect", "replace", "remove", "add", "duplicate"].includes(body.op)) {
-        repaintHeroes();
+        refreshWaves(true);
       }
 
       if (redraw) draw();
@@ -3851,6 +3939,7 @@
       if (JSON.stringify(next) === JSON.stringify(patch)) return;
 
       patch = next;
+      refreshWaves();
       draw();
     } catch {
       // The next tick tries again.

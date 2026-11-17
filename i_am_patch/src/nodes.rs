@@ -1456,7 +1456,7 @@ fn table_source(
 }
 
 /// Resolves a table node, including the warps that read another table.
-fn build_table_node(
+pub(crate) fn build_table_node(
 	nodes: &[Box<dyn BlockNode>],
 	steps: &BTreeMap<crate::graph::NodeId, usize>,
 	graph: &crate::graph::Graph,

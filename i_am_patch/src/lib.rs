@@ -52,6 +52,56 @@ pub(crate) fn voice_patch() -> crate::graph::Graph {
 	graph
 }
 
+/// One cycle of a constructor node's table, for the page's picture.
+///
+/// The page cannot sample a product's table itself: it asks the same code the
+/// engine uses to build one, so the picture is the DSP's own output.
+pub fn sample_constructor(
+	graph: &crate::graph::Graph,
+	slots: &crate::Slots,
+	rate: usize,
+	id: crate::graph::NodeId,
+	points: usize,
+) -> Option<Vec<f32>> {
+	let mut nodes: Vec<Box<dyn crate::nodes::BlockNode>> = Vec::new();
+	let mut steps = std::collections::BTreeMap::new();
+
+	for instance in &graph.nodes {
+		let Some(node) = crate::nodes::make_with(
+			instance.kind.id,
+			instance.id.0,
+			rate,
+			&instance.params,
+			&instance.points,
+			&instance.velocity_points,
+			slots,
+		) else {
+			continue;
+		};
+
+		steps.insert(instance.id, nodes.len());
+		nodes.push(node);
+	}
+
+	let points = points.clamp(8, 2048);
+
+	if let Some(table) = crate::nodes::build_table_node(&nodes, &steps, graph, id) {
+		return Some(
+			(0..points)
+				.map(|index| table.sample(index as f32 / points as f32, 0))
+				.collect(),
+		);
+	}
+
+	let oscillator = crate::nodes::build_oscillator(&nodes, &steps, graph, id)?;
+
+	Some(
+		(0..points)
+			.map(|index| oscillator.play_at(1.0, index as f32 / points as f32, [0.0; 2])[0])
+			.collect(),
+	)
+}
+
 /// Where a page reads the scripts the running nodes own, by node id.
 pub type Scripts = std::sync::Arc<
 	std::sync::Mutex<
