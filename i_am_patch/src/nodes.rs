@@ -1423,12 +1423,8 @@ fn build_table_node(
 		ConstructorSpec::Warp { mode, amount } => {
 			let wave = build_table_node(nodes, steps, graph, table_source(graph, id, 0)?)?;
 			let curve = if matches!(mode, WarpMode::Remap) {
-				Some(build_table_node(
-					nodes,
-					steps,
-					graph,
-					table_source(graph, id, 1)?,
-				)?)
+				table_source(graph, id, 1)
+					.and_then(|source| build_table_node(nodes, steps, graph, source))
 			} else {
 				None
 			};
@@ -1678,6 +1674,19 @@ mod voice_tests {
 
 		// A full fold maps a quarter cycle to a half.
 		assert!((table.sample(0.25, 0) - sine().sample(0.5, 0)).abs() < 1e-5);
+	}
+
+	/// A remap with no curve is the table itself.
+	#[test]
+	fn a_remap_without_a_curve_reads_straight_through() {
+		let table = WarpedTable {
+			wave: Box::new(sine()),
+			mode: WarpMode::Remap,
+			amount: shared(1.0),
+			curve: None,
+		};
+
+		assert!((table.sample(0.3, 0) - sine().sample(0.3, 0)).abs() < 1e-6);
 	}
 
 	/// The remap warp lerps towards the curve table it is given.

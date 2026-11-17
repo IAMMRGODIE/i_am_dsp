@@ -415,7 +415,8 @@ const BUILTINS: &[NodeDesc] = &[
 		name: "Remap",
 		inputs: &[
 			port("wave", SignalKind::Wavetable),
-			port("curve", SignalKind::Wavetable),
+			// Without a curve the remap reads the table straight through.
+			optional("curve", SignalKind::Wavetable),
 		],
 		outputs: &[port("wave", SignalKind::Wavetable)],
 		latency: 0,
