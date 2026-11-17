@@ -55,7 +55,7 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	#[layout(group = "Envelope", order = 0, widget = knob, hero = "envelope")]
 	pub delay_time: f32,
 	/// The same stage length in musical time: a sixteenth note of delay stays a sixteenth
-	/// note whatever the host is playing at. See [`Self::times`] for how it is read.
+	/// note whatever the host is playing at. See `Self::times` for how it is read.
 	#[sub_param]
 	#[id(display = "Delay")]
 	#[layout(group = "Envelope", order = 1)]

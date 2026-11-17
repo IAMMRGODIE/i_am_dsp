@@ -1,14 +1,14 @@
 //! A WebView2 editor for `i_am_plugin`, as a test of the Editor seam.
 //!
 //! The plug-in wrapper knows nothing about a toolkit; this crate is everything a
-//! web-view GUI costs it. [WryEditor] builds a WebView2 child inside the window the
+//! web-view GUI costs it. `WryEditor` builds a WebView2 child inside the window the
 //! host hands over, loads a page into it, and forwards what the page sends through
 //! `window.ipc.postMessage` to the processor over the same message channel the iced
 //! backend uses.
 //!
 //! A page can also serve itself from a custom protocol, which is how a GUI keeps a
 //! `/state` route open for the values the host changes: see
-//! [WryEditor::with_custom_protocol] and [WryEditor::with_url].
+//! `WryEditor::with_custom_protocol` and `WryEditor::with_url`.
 //!
 //! It is Windows-only for now: the wrapper creates the WebView2 control as a child of
 //! the CLAP parent window, which is the one platform this was tried on. The rest of

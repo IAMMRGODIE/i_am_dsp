@@ -94,7 +94,7 @@
 //! ```
 //!
 //! The backend moves the view to its own thread if it has one, sends
-//! [Message](i_am_dsp::Message) values over the channel, and is otherwise free: the
+//! [Message] values over the channel, and is otherwise free: the
 //! wrapper never calls into it except through the trait.
 //!
 //! # Exporting a VST3 plug-in

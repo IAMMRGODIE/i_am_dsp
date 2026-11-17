@@ -32,7 +32,7 @@ pub struct Chorus<Lfo: WaveTable, const CHANNELS: usize = 2> {
 	#[id(display = "Rate")]
 	#[layout(group = "Chorus", order = 0, widget = knob, hero = "lfo")]
 	pub lfo_frequency: f32,
-	/// The same rate in musical time; see [`Flanger::tempo`] for what syncing does to a
+	/// The same rate in musical time; see `Flanger::tempo` for what syncing does to a
 	/// sweep.
 	#[id(display = "Tempo")]
 	#[layout(group = "Chorus", order = 0)]

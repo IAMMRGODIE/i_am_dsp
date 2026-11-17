@@ -96,7 +96,7 @@ impl Tuning for PythagoreanTuning {
 /// A tuning system defined by an arbitrary scale of frequency ratios.
 ///
 /// This lets you build any fixed (non-EDO) scale as a preset. ratios should be
-/// one octave of ratios relative to the root, with ratios[0] == 1.0 (C). For
+/// one octave of ratios relative to the root, with `ratios[0]` == 1.0 (C). For
 /// example a major pentatonic scale:
 ///
 /// ScaleTuning::<5>::new([1.0, 9.0/8.0, 5.0/4.0, 3.0/2.0, 5.0/3.0])

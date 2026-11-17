@@ -214,7 +214,7 @@ impl Scope {
 		(level(input_energy), level(sidechain_energy))
 	}
 
-	/// The last [POINTS] frames as little-endian f32: input, output and the
+	/// The last `POINTS` frames as little-endian f32: input, output and the
 	/// sidechain the effect saw. The page draws the sidechain as the before
 	/// trace when a vocoder is modulating from it.
 	pub fn snapshot(&self) -> Vec<u8> {
@@ -244,7 +244,7 @@ impl Scope {
 		bytes
 	}
 
-	/// The last [POINTS] stereo frames as little-endian f32: input L, input R,
+	/// The last `POINTS` stereo frames as little-endian f32: input L, input R,
 	/// output L, output R. The goniometer reads the L/R fields from this.
 	pub fn stereo_snapshot(&self) -> Vec<u8> {
 		let (Some(input_left), Some(input_right), Some(output_left), Some(output_right)) = (

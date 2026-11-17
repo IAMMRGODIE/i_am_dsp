@@ -12,7 +12,7 @@ lazy_static::lazy_static! {
 
 /// A trait for wave tables that can be used by oscillators or be used as LFO.
 ///
-/// Note that `Vec<f32>` and [`RingBuffer<f32>`] is also implemented for this trait.
+/// Note that `Vec<f32>` and `RingBuffer<f32>` are also implemented for this trait.
 pub trait WaveTable: Parameters + Send {
 	/// Returns the sample value at time t.
 	///

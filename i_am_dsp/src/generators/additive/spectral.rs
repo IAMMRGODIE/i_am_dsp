@@ -6,7 +6,7 @@ use super::{FreqInfo, GenFreqInfo};
 
 /// An additive spectrum whose controls are the spectrum itself.
 ///
-/// Every ratio is an integer, so [`AdditiveOsc`] can hold the whole sum in a
+/// Every ratio is an integer, so `AdditiveOsc` can hold the whole sum in a
 /// band limited wavetable built by an inverse FFT: changing a control rebuilds
 /// that table, and playback stays one lookup per sample.
 #[derive(Debug, Clone, PartialEq, Parameters)]

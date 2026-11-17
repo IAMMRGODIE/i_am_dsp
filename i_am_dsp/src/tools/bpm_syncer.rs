@@ -24,7 +24,7 @@ use crate::parameters::Parameters;
 /// it computes from an absolute sample count instead of accumulating (so the same rounding
 /// cannot bite), it takes a tempo *ramp* rather than a single rate, it can be anchored to
 /// what a host reports and re-anchored when the host speaks again, and it knows the
-/// difference between a stopped transport and a running one. [`BeatClock::advance_local`] is
+/// difference between a stopped transport and a running one. `BeatClock::advance_local` is
 /// the direct replacement for a free-running grid:
 ///
 /// ```

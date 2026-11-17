@@ -35,7 +35,7 @@ const MAX_STACK_AMOUNT: usize = 100;
 /// The amount drives all three stages at once: it decides how many allpass
 /// sections are applied, how wide they are, and how hard the saturator is
 /// driven, while the LFO sweeps the cutoff of those sections between
-/// [`MIN_CUTOFF`] and [`MAX_CUTOFF`], scaled by the amount.
+/// `MIN_CUTOFF` and `MAX_CUTOFF`, scaled by the amount.
 #[derive(Parameters)]
 pub struct Crusher<const CHANNELS: usize = 2> {
 	/// How much dispersion and saturation is applied, from 0 to 1.

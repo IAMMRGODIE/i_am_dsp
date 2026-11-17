@@ -322,7 +322,7 @@ pub const PHASER_SWITCHES: &[Switch] =
 	&[Switch::new("tempo.sync", &["tempo.beats"], &["lfo_freq"])];
 
 /// Main input plus a sidechain input. The compressor reads the sidechain as
-/// other[1]; port 0 is always the main input.
+/// `other[1]`; port 0 is always the main input.
 pub const COMPRESSOR_PORTS: &[i_am_plugin::AudioPort] = &[
 	i_am_plugin::AudioPort { name: "Main" },
 	i_am_plugin::AudioPort { name: "Sidechain" },
