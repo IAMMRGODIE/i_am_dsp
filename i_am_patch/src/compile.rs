@@ -317,6 +317,11 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 								| "osc:rm"
 								| "osc:pm"
 								| "osc:fm"
+								| "warp:bend"
+								| "warp:mirror"
+								| "warp:sync"
+								| "warp:quantize"
+								| "warp:remap"
 						)
 					})
 					.unwrap_or(true)

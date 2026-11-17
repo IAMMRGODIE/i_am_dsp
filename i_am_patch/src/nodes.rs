@@ -7,7 +7,8 @@ use std::sync::atomic::AtomicU32;
 
 use i_am_dsp::prelude::{
 	Adsr, Effect, EqualTemperament, FmIntegral, Generator, Message, NoteEvent, Oscillator,
-	Parameter, Parameters, SetValue, TableOsc, Value, WaveTable,
+	Parameter, Parameters, SetValue, TableOsc, Value, WaveTable, bend_phase, mirror_phase,
+	quantize_phase, sync_phase,
 };
 use i_am_plugin::Plugin;
 use std::sync::atomic::Ordering;
@@ -23,6 +24,13 @@ pub enum ConstructorSpec {
 	Table(Box<dyn WaveTable + Send + Sync>),
 	/// A running oscillator.
 	Osc(Box<dyn Oscillator<2> + Send + Sync>),
+	/// A warp over a table from upstream.
+	Warp {
+		/// Which warp.
+		mode: WarpMode,
+		/// The strength, shared with the node's parameter.
+		amount: Arc<AtomicU32>,
+	},
 	/// A modulation that needs its carrier and modulator from upstream.
 	Mod {
 		/// Which modulation.
@@ -32,6 +40,21 @@ pub enum ConstructorSpec {
 		/// The modulator ratio, shared with the node's parameters.
 		ratio: Arc<AtomicU32>,
 	},
+}
+
+/// The warps a patch can put between two tables.
+#[derive(Clone, Copy)]
+pub enum WarpMode {
+	/// Pawn the phase towards the start or the end.
+	Bend,
+	/// Fold the second half of the cycle back over the first.
+	Mirror,
+	/// Repeat the table inside one cycle.
+	Sync,
+	/// Snap the read position to a grid.
+	Quantize,
+	/// Read a second table as the phase map.
+	Remap,
 }
 
 /// The four modulations a patch can put between two tables.
@@ -192,6 +215,11 @@ pub fn make_with(
 		"osc:rm" => Box::new(ModNode::new(ModKind::Rm, params)),
 		"osc:pm" => Box::new(ModNode::new(ModKind::Pm, params)),
 		"osc:fm" => Box::new(ModNode::new(ModKind::Fm, params)),
+		"warp:bend" => Box::new(WarpNode::new(WarpMode::Bend, "power", params)),
+		"warp:mirror" => Box::new(WarpNode::new(WarpMode::Mirror, "amount", params)),
+		"warp:sync" => Box::new(WarpNode::new(WarpMode::Sync, "ratio", params)),
+		"warp:quantize" => Box::new(WarpNode::new(WarpMode::Quantize, "steps", params)),
+		"warp:remap" => Box::new(WarpNode::new(WarpMode::Remap, "amount", params)),
 		kind if kind.starts_with("synth:") => {
 			use i_am_synths::{
 				AdditiveWeb, CanvasWeb, DrummerWeb, FittedWeb, SamplerWeb, ScriptWeb, ShapesWeb,
@@ -1074,6 +1102,77 @@ impl BlockNode for ModNode {
 	}
 }
 
+/// A table read through a warp, with its strength shared with the card.
+struct WarpedTable {
+	wave: Box<dyn WaveTable + Send + Sync>,
+	mode: WarpMode,
+	amount: Arc<AtomicU32>,
+	curve: Option<Box<dyn WaveTable + Send + Sync>>,
+}
+
+impl Parameters for WarpedTable {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		Vec::new()
+	}
+
+	fn set_parameter(&mut self, _: &str, _: SetValue) -> bool {
+		false
+	}
+}
+
+impl WaveTable for WarpedTable {
+	fn sample(&self, t: f32, channel: usize) -> f32 {
+		let amount = f32::from_bits(self.amount.load(Ordering::Relaxed));
+
+		let position = match self.mode {
+			WarpMode::Bend => bend_phase(amount, t),
+			WarpMode::Mirror => mirror_phase(amount, t),
+			WarpMode::Sync => sync_phase(amount, t),
+			WarpMode::Quantize => quantize_phase(amount, t),
+			WarpMode::Remap => match &self.curve {
+				Some(curve) => t + (curve.sample(t, channel) - t) * amount,
+				None => t,
+			},
+		};
+
+		self.wave.sample(position.rem_euclid(1.0), channel)
+	}
+}
+
+/// A warp node: no audio, only the strength and the mode.
+struct WarpNode {
+	mode: WarpMode,
+	param: &'static str,
+	amount: Arc<AtomicU32>,
+}
+
+impl WarpNode {
+	fn new(mode: WarpMode, name: &'static str, params: &BTreeMap<&'static str, f32>) -> Self {
+		Self {
+			mode,
+			param: name,
+			amount: Arc::new(AtomicU32::new(param(params, name, 0.0).to_bits())),
+		}
+	}
+}
+
+impl BlockNode for WarpNode {
+	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], _: &mut [Buffer]) {}
+
+	fn set_param(&mut self, name: &str, value: f32) {
+		if name == self.param {
+			self.amount.store(value.to_bits(), Ordering::Relaxed);
+		}
+	}
+
+	fn constructor_spec(&self) -> Option<ConstructorSpec> {
+		Some(ConstructorSpec::Warp {
+			mode: self.mode,
+			amount: self.amount.clone(),
+		})
+	}
+}
+
 /// The table a shape node plays, with its choice shared with the card.
 ///
 /// The table is cloned into the oscillator tree, so a later shape change has to
@@ -1188,6 +1287,11 @@ pub(crate) fn build_oscillator(
 				kind, carrier, modulator, depth, ratio,
 			)))
 		}
+		// A warp produces a table; the envelope reads it through the same
+		// table oscillator a bare table would get.
+		ConstructorSpec::Warp { .. } => Some(Box::new(TableOsc(build_table_node(
+			nodes, steps, graph, id,
+		)?))),
 	}
 }
 
@@ -1199,16 +1303,53 @@ fn build_table(
 	id: crate::graph::NodeId,
 	port: usize,
 ) -> Option<Box<dyn WaveTable + Send + Sync>> {
-	let source = graph
+	build_table_node(nodes, steps, graph, table_source(graph, id, port)?)
+}
+
+/// The node an input port of `id` reads from.
+fn table_source(
+	graph: &crate::graph::Graph,
+	id: crate::graph::NodeId,
+	port: usize,
+) -> Option<crate::graph::NodeId> {
+	graph
 		.edges
 		.iter()
-		.find(|edge| edge.to.0 == id && edge.to.1 == port)?
-		.from
-		.0;
-	let step = *steps.get(&source)?;
+		.find(|edge| edge.to.0 == id && edge.to.1 == port)
+		.map(|edge| edge.from.0)
+}
+
+/// Resolves a table node, including the warps that read another table.
+fn build_table_node(
+	nodes: &[Box<dyn BlockNode>],
+	steps: &BTreeMap<crate::graph::NodeId, usize>,
+	graph: &crate::graph::Graph,
+	id: crate::graph::NodeId,
+) -> Option<Box<dyn WaveTable + Send + Sync>> {
+	let step = *steps.get(&id)?;
 
 	match nodes.get(step)?.constructor_spec()? {
 		ConstructorSpec::Table(table) => Some(table),
+		ConstructorSpec::Warp { mode, amount } => {
+			let wave = build_table_node(nodes, steps, graph, table_source(graph, id, 0)?)?;
+			let curve = if matches!(mode, WarpMode::Remap) {
+				Some(build_table_node(
+					nodes,
+					steps,
+					graph,
+					table_source(graph, id, 1)?,
+				)?)
+			} else {
+				None
+			};
+
+			Some(Box::new(WarpedTable {
+				wave,
+				mode,
+				amount,
+				curve,
+			}))
+		}
 		_ => None,
 	}
 }
@@ -1433,6 +1574,41 @@ mod voice_tests {
 
 		assert!((play(ModKind::Am, 0.0) - carrier).abs() < 1e-5);
 		assert!((play(ModKind::Am, 1.0) - carrier * (1.0 + carrier)).abs() < 1e-5);
+	}
+
+	/// A warp reads the carrier where the phase function points.
+	#[test]
+	fn a_warp_reads_where_the_phase_points() {
+		let table = WarpedTable {
+			wave: Box::new(sine()),
+			mode: WarpMode::Mirror,
+			amount: shared(1.0),
+			curve: None,
+		};
+
+		// A full fold maps a quarter cycle to a half.
+		assert!((table.sample(0.25, 0) - sine().sample(0.5, 0)).abs() < 1e-5);
+	}
+
+	/// The remap warp lerps towards the curve table it is given.
+	#[test]
+	fn a_remap_warp_follows_its_curve() {
+		let curve = ShapeTable {
+			shape: Arc::new(AtomicU32::new(0)),
+		};
+		let table = WarpedTable {
+			wave: Box::new(sine()),
+			mode: WarpMode::Remap,
+			amount: shared(1.0),
+			curve: Some(Box::new(ShapeTable {
+				shape: Arc::new(AtomicU32::new(0)),
+			})),
+		};
+
+		// At full amount the read follows the curve table.
+		let expected = sine().sample(curve.sample(0.3, 0), 0);
+
+		assert!((table.sample(0.3, 0) - expected).abs() < 1e-5);
 	}
 
 	/// PM and FM at zero depth are the carrier too.
