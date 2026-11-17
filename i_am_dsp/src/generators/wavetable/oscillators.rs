@@ -715,6 +715,10 @@ impl<const CHANNELS: usize> Parameters for Box<dyn Oscillator<CHANNELS> + Send +
 }
 
 impl WaveTable for Box<dyn WaveTable + Send + Sync> {
+	fn sync(&mut self) {
+		self.as_mut().sync();
+	}
+
 	fn sample(&self, t: f32, channel: usize) -> f32 {
 		self.as_ref().sample(t, channel)
 	}
@@ -731,6 +735,10 @@ impl Parameters for Box<dyn WaveTable + Send + Sync> {
 }
 
 impl WaveTable for Box<dyn WaveTable> {
+	fn sync(&mut self) {
+		self.as_mut().sync();
+	}
+
 	fn sample(&self, t: f32, channel: usize) -> f32 {
 		self.as_ref().sample(t, channel)
 	}

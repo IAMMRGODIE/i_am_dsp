@@ -358,6 +358,79 @@ fn a_product_table_plays() {
 	}
 }
 
+
+#[test]
+fn an_edited_spectrum_page_reaches_a_playing_note() {
+	use i_am_dsp::prelude::SpectralFrame;
+
+	let mut graph = Graph::new();
+	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+	let table = graph.add_node("table:spectrum", (0.0, 100.0)).expect("table");
+	let envelope = graph.add_node("adsr", (200.0, 0.0)).expect("adsr");
+	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+
+	graph.connect((midi, 0), (envelope, 0));
+	graph.connect((table, 0), (envelope, 1));
+	graph.connect((envelope, 0), (out, 0));
+
+	let slots = crate::Slots::default();
+	let feed = slots.spectrum(table.0).feed();
+	let mut engine = Engine::new_with(&graph, 48_000, &slots).expect("plays");
+	let input = vec![[0.0f32; 2]; BLOCK];
+	let mut output = vec![[0.0f32; 2]; BLOCK];
+	let on = [NoteEvent::NoteOn {
+		channel: 0,
+		note: 60,
+		velocity: 1.0,
+	}];
+	let mut loud: f32 = 0.0;
+
+	for block in 0..400 {
+		let events: &[NoteEvent] = if block == 0 { &on } else { &[] };
+		engine.process(&input, events, &mut output);
+
+		for frame in &output[..BLOCK] {
+			loud = loud.max(frame[0].abs()).max(frame[1].abs());
+		}
+
+		if loud > 1e-3 {
+			break;
+		}
+	}
+
+	assert!(loud > 1e-3, "the note never sounded");
+
+	// The page the editor draws: every partial gone.
+	let silence: Vec<SpectralFrame> = (0..2)
+		.map(|_| SpectralFrame::new(vec![0.0; 512], vec![0.0; 512]))
+		.collect();
+	feed.set(silence);
+
+	let mut quiet: f32 = loud;
+
+	for _ in 0..400 {
+		engine.process(&input, &[], &mut output);
+		let mut block = 0.0f32;
+
+		for frame in &output[..BLOCK] {
+			block = block.max(frame[0].abs()).max(frame[1].abs());
+		}
+
+		quiet = quiet.min(block);
+
+		if block < loud * 0.1 {
+			break;
+		}
+
+		std::thread::sleep(std::time::Duration::from_millis(2));
+	}
+
+	assert!(
+		quiet < loud * 0.1,
+		"{quiet} did not follow {loud}: the edit never reached the voice"
+	);
+}
+
 #[test]
 fn a_canvas_table_plays_through_the_envelope() {
 	let mut graph = Graph::new();

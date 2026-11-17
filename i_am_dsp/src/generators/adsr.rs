@@ -447,6 +447,11 @@ impl<
 		&mut self,
 		process_context: &mut Box<dyn crate::ProcessContext>,
 	) -> [f32; CHANNELS] {
+		// The driver's other entry point renders the same oscillator, so it has
+		// to be told to sync here too: a drawn table or canvas learns about an
+		// edit only through it.
+		self.oscillator.sync();
+
 		for event in process_context.events() {
 			match event {
 				NoteEvent::NoteOn {
