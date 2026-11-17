@@ -1043,6 +1043,26 @@
     draw();
   }
 
+  /// A hero's editor attaches to the markup a repaint replaces: watch the box
+  /// and re-attach to whatever the repaint puts there, or only the first drag
+  /// works.
+  function watchHero(entry, wire) {
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    if (!hero || entry.heroWatch) return;
+
+    entry.heroWatch = new MutationObserver(() => {
+      if (!entry.host || !entry.host.isConnected) {
+        entry.heroWatch.disconnect();
+        return;
+      }
+
+      wire(entry);
+    });
+
+    entry.heroWatch.observe(hero, { childList: true });
+  }
+
   /// The Canvas node's drawing is not a parameter: the product keeps it, and
   /// the card asks for it the way the product page does.
   function refreshCanvas(entry) {
@@ -1070,25 +1090,12 @@
 
     if (!hero) return;
 
-    // A repaint replaces the hero's svg, and the editor's listeners go with it.
-    // Watch the box and wire whatever the repaint puts there.
-    if (!entry.canvasObserver) {
-      entry.canvasObserver = new MutationObserver(() => {
-        if (!entry.host || !entry.host.isConnected) {
-          entry.canvasObserver.disconnect();
-          return;
-        }
-
-        wireCanvasCard(entry);
-      });
-      entry.canvasObserver.observe(hero, { childList: true });
-    }
-
     const svg = hero.querySelector("svg");
 
     if (!svg || svg.__canvasWired) return;
 
     svg.__canvasWired = true;
+    watchHero(entry, wireCanvasCard);
 
     IAmCard.wire(hero, "canvas", entry.node.params, {
       canvas: entry.context.canvas,
@@ -1145,6 +1152,13 @@
     const hero = entry.card && entry.card.querySelector(".mcard-hero");
 
     if (!hero) return;
+
+    const svg = hero.querySelector("svg");
+
+    if (!svg || svg.__spectrumWired) return;
+
+    svg.__spectrumWired = true;
+    watchHero(entry, wireSpectrumCard);
 
     IAmCard.wire(hero, "spectrum", entry.node.params, {
       spectrum: entry.context.spectrum,
@@ -1591,6 +1605,13 @@
 
     if (!hero) return;
 
+    const svg = hero.querySelector("svg");
+
+    if (!svg || svg.__filterTableWired) return;
+
+    svg.__filterTableWired = true;
+    watchHero(entry, wireFilterTableCard);
+
     IAmCard.wire(hero, "filtertable", entry.node.params, {
       filterTable: entry.context.filterTable,
       set: (id, value) => {
@@ -1650,6 +1671,13 @@
     const hero = entry.card && entry.card.querySelector(".mcard-hero");
 
     if (!hero) return;
+
+    const svg = hero.querySelector("svg");
+
+    if (!svg || svg.__historyWired) return;
+
+    svg.__historyWired = true;
+    watchHero(entry, wireHistoryCard);
 
     IAmCard.wire(hero, "history", entry.node.params, {
       history: entry.context.history,
