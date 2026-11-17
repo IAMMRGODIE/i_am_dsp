@@ -78,6 +78,11 @@ pub struct Poly {
 	/// How many voices may sound at once.
 	limit: usize,
 	voices: Vec<Voice>,
+	/// The voice graph's compiled plan, made once: a note builds an engine, not
+	/// a plan.
+	voice_plan: crate::compile::Plan,
+	/// Engines from retired voices, kept for the next note to build into.
+	spare: Vec<Engine>,
 }
 
 impl Poly {
@@ -225,9 +230,8 @@ impl Poly {
 			}
 		}
 
-		let voice_latency = crate::compile::compile(&voice_graph)
-			.map(|plan| plan.latency.get(&out_id).copied().unwrap_or(0))
-			.unwrap_or(0);
+		let voice_plan = crate::compile::compile(&voice_graph)?;
+		let voice_latency = voice_plan.latency.get(&out_id).copied().unwrap_or(0);
 
 		// Which of the voice graph's links is the graph's link at each index, so a
 		// depth turned on the page reaches the voices and the graph they start
@@ -256,6 +260,8 @@ impl Poly {
 			position: None,
 			limit: voices_of(graph),
 			voices: Vec::new(),
+			voice_plan,
+			spare: Vec::new(),
 		})
 	}
 
@@ -486,7 +492,13 @@ impl Poly {
 						self.voices.remove(position);
 					}
 
-					if let Ok(engine) = Engine::new_with(&self.voice_graph, self.rate, &self.slots)
+					// A retired engine is built into again: its buffers are kept,
+					// only the nodes (whose state must start clean) are rebuilt.
+					let mut engine = self.spare.pop().unwrap_or_else(|| Engine::empty(self.rate));
+
+					if engine
+						.rebuild(&self.voice_plan, &self.voice_graph, self.rate, &self.slots)
+						.is_ok()
 					{
 						if let Some(scripts) = &self.scripts {
 							let mut scripts = scripts.lock().expect("the script lock");
@@ -575,15 +587,27 @@ impl Poly {
 		}
 
 		let release_window = release_blocks(self.rate);
-		self.voices.retain(|voice| {
-			!expired(
+		let mut index = 0;
+
+		while index < self.voices.len() {
+			let voice = &self.voices[index];
+
+			if expired(
 				voice.age,
 				voice.silent,
 				voice.released,
 				voice.release_age,
 				release_window,
-			)
-		});
+			) {
+				let voice = self.voices.remove(index);
+
+				if self.spare.len() < POLYPHONY {
+					self.spare.push(voice.engine);
+				}
+			} else {
+				index += 1;
+			}
+		}
 
 		self.outer.inject(self.out, mix);
 		self.outer
@@ -693,6 +717,46 @@ mod tests {
 		}
 
 		out
+	}
+
+	#[test]
+	fn a_retired_voice_engine_is_built_into_again() {
+		use crate::block::BLOCK;
+
+		let graph = crate::voice_patch();
+		let mut poly = Poly::new(&graph, 48_000).expect("poly builds");
+
+		let _ = play(&mut poly, 60);
+
+		let input = vec![[0.0f32; 2]; BLOCK];
+		let mut out = vec![[0.0f32; 2]; BLOCK];
+		let off = NoteEvent::NoteOff {
+			channel: 0,
+			note: 60,
+			velocity: 0.0,
+		};
+
+		poly.process(&input, &[off], &mut out);
+
+		for _ in 0..4_000 {
+			if poly.voices.is_empty() {
+				break;
+			}
+
+			poly.process(&input, &[], &mut out);
+		}
+
+		assert!(poly.voices.is_empty(), "the voice never retired");
+		assert!(!poly.spare.is_empty(), "the retired engine was dropped");
+
+		let spare = poly.spare.len();
+
+		let _ = play(&mut poly, 62);
+
+		assert!(
+			poly.spare.len() < spare,
+			"the next note did not take the spare engine"
+		);
 	}
 
 	#[test]

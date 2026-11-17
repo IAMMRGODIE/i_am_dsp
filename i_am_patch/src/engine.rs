@@ -134,25 +134,110 @@ impl Engine {
 	/// play a sample the page fitted and a sampler the one it dropped.
 	pub fn new_with(graph: &Graph, rate: usize, slots: &crate::Slots) -> Result<Self, EngineError> {
 		let plan: Plan = compile(graph)?;
-		let steps: std::collections::BTreeMap<NodeId, usize> = plan
-			.order
-			.iter()
-			.enumerate()
-			.map(|(step, id)| (*id, step))
-			.collect();
+		let mut engine = Self::empty(rate);
+		engine.build(&plan, graph, rate, slots)?;
 
-		let mut kinds = Vec::with_capacity(plan.order.len());
-		let mut descs = Vec::with_capacity(plan.order.len());
-		let mut nodes = Vec::with_capacity(plan.order.len());
-		let mut outputs = Vec::with_capacity(plan.order.len());
-		let mut inputs = Vec::with_capacity(plan.order.len());
-		let mut edges = vec![Vec::new(); plan.order.len()];
-		let mut lines: Vec<Vec<Option<DelayLine>>> =
-			(0..plan.order.len()).map(|_| Vec::new()).collect();
-		let mut controls = Vec::with_capacity(plan.order.len());
-		let mut base = Vec::with_capacity(plan.order.len());
-		let mut points = Vec::with_capacity(plan.order.len());
-		let mut velocity_points = Vec::with_capacity(plan.order.len());
+		Ok(engine)
+	}
+
+	/// An engine with no graph, for a caller that builds it in place.
+	pub fn empty(rate: usize) -> Self {
+		Self {
+			rate,
+			block: 0,
+			order: Vec::new(),
+			kinds: Vec::new(),
+			descs: Vec::new(),
+			nodes: Vec::new(),
+			outputs: Vec::new(),
+			inputs: Vec::new(),
+			edges: Vec::new(),
+			lines: Vec::new(),
+			links: Vec::new(),
+			steps: std::collections::BTreeMap::new(),
+			previous: Vec::new(),
+			delta: Vec::new(),
+			pure_control: Vec::new(),
+			retrigger: Vec::new(),
+			controls: Vec::new(),
+			base: Vec::new(),
+			points: Vec::new(),
+			velocity_points: Vec::new(),
+			slots: crate::Slots::default(),
+			output_step: None,
+			latency: 0,
+			tempo: None,
+			position: None,
+			updates: Vec::with_capacity(16),
+			done: Vec::new(),
+			events: Vec::with_capacity(16),
+		}
+	}
+
+	/// Builds a graph into this engine, reusing its buffers.
+	///
+	/// A voice is one engine per note, so the vectors and the buffer arrays are
+	/// kept between notes: only the nodes, whose state has to start clean, are
+	/// built again.
+	pub fn rebuild(
+		&mut self,
+		plan: &Plan,
+		graph: &Graph,
+		rate: usize,
+		slots: &crate::Slots,
+	) -> Result<(), EngineError> {
+		self.build(plan, graph, rate, slots)
+	}
+
+	fn build(
+		&mut self,
+		plan: &Plan,
+		graph: &Graph,
+		rate: usize,
+		slots: &crate::Slots,
+	) -> Result<(), EngineError> {
+		self.rate = rate;
+		self.block = 0;
+		self.tempo = None;
+		self.position = None;
+		self.latency = 0;
+		self.output_step = None;
+		self.slots = slots.clone();
+
+		let mut steps = std::mem::take(&mut self.steps);
+		steps.clear();
+
+		for (step, id) in plan.order.iter().enumerate() {
+			steps.insert(*id, step);
+		}
+
+		let order_len = plan.order.len();
+		let mut kinds = std::mem::take(&mut self.kinds);
+		let mut descs = std::mem::take(&mut self.descs);
+		let mut nodes = std::mem::take(&mut self.nodes);
+		let mut outputs = std::mem::take(&mut self.outputs);
+		let mut inputs = std::mem::take(&mut self.inputs);
+		let mut edges = std::mem::take(&mut self.edges);
+		let mut lines = std::mem::take(&mut self.lines);
+		let mut controls = std::mem::take(&mut self.controls);
+		let mut base = std::mem::take(&mut self.base);
+		let mut points = std::mem::take(&mut self.points);
+		let mut velocity_points = std::mem::take(&mut self.velocity_points);
+
+		kinds.clear();
+		descs.clear();
+		nodes.clear();
+		controls.clear();
+		base.clear();
+		points.clear();
+		velocity_points.clear();
+		edges.clear();
+		edges.resize_with(order_len, Vec::new);
+		lines.clear();
+		lines.resize_with(order_len, Vec::new);
+		outputs.resize_with(order_len, Vec::new);
+		inputs.resize_with(order_len, Vec::new);
+
 		let mut output_step = None;
 
 		for (step, id) in plan.order.iter().enumerate() {
@@ -175,7 +260,8 @@ impl Engine {
 				.ok_or_else(|| EngineError::UnknownKind(kind.id.to_string()))?,
 			);
 
-			let mut node_outputs = Vec::with_capacity(kind.outputs.len());
+			let mut node_outputs = std::mem::take(&mut outputs[step]);
+			node_outputs.clear();
 			for port in kind.outputs {
 				node_outputs.push(match port.kind {
 					SignalKind::Audio(_) => Buffer::Audio(AudioBlock::silent(BLOCK)),
@@ -184,13 +270,14 @@ impl Engine {
 					SignalKind::Wavetable | SignalKind::Osc => Buffer::Control(0.0),
 				});
 			}
-			outputs.push(node_outputs);
+			outputs[step] = node_outputs;
 			controls.push(vec![0.0; kind.outputs.len()]);
 			base.push(instance.params.clone());
 			points.push(instance.points.clone());
 			velocity_points.push(instance.velocity_points.clone());
 
-			let mut node_inputs = Vec::with_capacity(kind.inputs.len());
+			let mut node_inputs = std::mem::take(&mut inputs[step]);
+			node_inputs.clear();
 			for port in kind.inputs {
 				node_inputs.push(match port.kind {
 					SignalKind::Audio(_) => Buffer::Audio(AudioBlock::silent(BLOCK)),
@@ -199,7 +286,7 @@ impl Engine {
 					SignalKind::Wavetable | SignalKind::Osc => Buffer::Control(0.0),
 				});
 			}
-			inputs.push(node_inputs);
+			inputs[step] = node_inputs;
 
 			if kind.id == "out:audio" && output_step.is_none() {
 				output_step = Some(step);
@@ -279,36 +366,31 @@ impl Engine {
 
 		let order_len = plan.order.len();
 
-		Ok(Self {
-			rate,
-			block: 0,
-			order: plan.order,
-			kinds,
-			descs,
-			nodes,
-			outputs,
-			inputs,
-			edges,
-			lines,
-			links,
-			steps: step_map,
-			previous,
-			delta,
-			pure_control,
-			retrigger,
-			controls,
-			base,
-			points,
-			velocity_points,
-			slots: slots.clone(),
-			output_step,
-			latency,
-			tempo: None,
-			position: None,
-			updates: Vec::with_capacity(16),
-			done: vec![false; order_len],
-			events: Vec::with_capacity(16),
-		})
+		self.order.clear();
+		self.order.extend_from_slice(&plan.order);
+		self.kinds = kinds;
+		self.descs = descs;
+		self.nodes = nodes;
+		self.outputs = outputs;
+		self.inputs = inputs;
+		self.edges = edges;
+		self.lines = lines;
+		self.links = links;
+		self.steps = step_map;
+		self.previous = previous;
+		self.delta = delta;
+		self.pure_control = pure_control;
+		self.retrigger = retrigger;
+		self.controls = controls;
+		self.base = base;
+		self.points = points;
+		self.velocity_points = velocity_points;
+		self.output_step = output_step;
+		self.latency = latency;
+		self.done.clear();
+		self.done.resize(order_len, false);
+
+		Ok(())
 	}
 
 	/// Moves one parameter of a node the graph already holds.
