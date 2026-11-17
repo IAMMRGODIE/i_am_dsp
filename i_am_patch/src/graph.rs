@@ -311,7 +311,7 @@ const BUILTINS: &[NodeDesc] = &[
 		latency: 0,
 		params: &[
 			param("depth", 0.5, 0.0, 1.0),
-			log_param("ratio", 1.0, 0.25, 16.0),
+			log_param("ratio", 1.0, 0.0625, 16.0),
 		],
 	},
 	NodeDesc {
@@ -325,7 +325,7 @@ const BUILTINS: &[NodeDesc] = &[
 		latency: 0,
 		params: &[
 			param("depth", 0.5, 0.0, 1.0),
-			log_param("ratio", 1.0, 0.25, 16.0),
+			log_param("ratio", 1.0, 0.0625, 16.0),
 		],
 	},
 	NodeDesc {
@@ -339,7 +339,7 @@ const BUILTINS: &[NodeDesc] = &[
 		latency: 0,
 		params: &[
 			param("depth", 1.0, 0.0, 8.0),
-			log_param("ratio", 1.0, 0.25, 16.0),
+			log_param("ratio", 1.0, 0.0625, 16.0),
 		],
 	},
 	NodeDesc {
@@ -353,7 +353,7 @@ const BUILTINS: &[NodeDesc] = &[
 		latency: 0,
 		params: &[
 			param("depth", 2.0, 0.0, 16.0),
-			log_param("ratio", 1.0, 0.25, 16.0),
+			log_param("ratio", 1.0, 0.0625, 16.0),
 		],
 	},
 	NodeDesc {
