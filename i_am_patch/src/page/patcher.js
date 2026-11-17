@@ -2461,7 +2461,12 @@
         const ports = drag.output ? otherKind.inputs : otherKind.outputs;
 
         ports.forEach((port, index) => {
-          if (port.kind !== signal) return;
+          // A table may land on an oscillator port: the engine reads it through
+          // a table oscillator, and the page has to offer the same pair.
+          const feeds = port.kind === signal
+            || (signal === "wavetable" && port.kind === "osc")
+            || (signal === "osc" && port.kind === "wavetable");
+          if (!feeds) return;
           const at = portXY(other, port, !drag.output);
           const hovered = drag.hoverPort && drag.hoverPort.id === other.id &&
             drag.hoverPort.index === index && drag.hoverPort.output === !drag.output;
@@ -3284,7 +3289,12 @@
         const ports = drag.output ? otherKind.inputs : otherKind.outputs;
 
         ports.forEach((port, index) => {
-          if (port.kind !== signal) return;
+          // A table may land on an oscillator port: the engine reads it through
+          // a table oscillator, and the page has to offer the same pair.
+          const feeds = port.kind === signal
+            || (signal === "wavetable" && port.kind === "osc")
+            || (signal === "osc" && port.kind === "wavetable");
+          if (!feeds) return;
           const at = portXY(other, port, !drag.output);
           const distance = Math.hypot(at.x - drag.point.x, at.y - drag.point.y);
 

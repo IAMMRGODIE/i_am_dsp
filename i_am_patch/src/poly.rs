@@ -117,6 +117,29 @@ impl Poly {
 			return Err(EngineError::NoVoiceGroup);
 		}
 
+		// A constructor that feeds the group travels with it: a voice engine
+		// builds the envelope's oscillator from nodes it owns, so a table can
+		// stay outside the voice group and still play every voice.
+		let mut carried = group.clone();
+		let mut frontier: Vec<NodeId> = group.iter().copied().collect();
+
+		while let Some(id) = frontier.pop() {
+			for edge in &graph.edges {
+				if edge.to.0 != id || carried.contains(&edge.from.0) {
+					continue;
+				}
+
+				if graph
+					.get(edge.from.0)
+					.map(|node| crate::nodes::is_constructor(node.kind.id))
+					.unwrap_or(false)
+				{
+					carried.insert(edge.from.0);
+					frontier.push(edge.from.0);
+				}
+			}
+		}
+
 		// Splitting the graph drops the links that cross the boundary, so a
 		// mistake there would otherwise vanish into silence. Compile the whole
 		// graph first: the same checks, and a build error the page can show.
@@ -132,10 +155,10 @@ impl Poly {
 		// The voice graph: the group's nodes, the edges inside it, and a
 		// synthetic output fed by whatever reached the voice boundary.
 		let mut voice_graph = Graph::new();
-		let ids: BTreeMap<NodeId, NodeId> = group.iter().map(|id| (*id, *id)).collect();
+		let ids: BTreeMap<NodeId, NodeId> = carried.iter().map(|id| (*id, *id)).collect();
 
 		for instance in &graph.nodes {
-			if group.contains(&instance.id) {
+			if carried.contains(&instance.id) {
 				voice_graph.nodes.push(instance.clone());
 			}
 		}
@@ -173,7 +196,7 @@ impl Poly {
 		});
 
 		for edge in &graph.edges {
-			if edge.to.0 == out && group.contains(&edge.from.0) {
+			if edge.to.0 == out && carried.contains(&edge.from.0) {
 				voice_graph.edges.push(Edge {
 					from: edge.from,
 					to: (out_id, 0),
@@ -185,13 +208,13 @@ impl Poly {
 		let mut outer = Graph::new();
 
 		for instance in &graph.nodes {
-			if !group.contains(&instance.id) {
+			if !carried.contains(&instance.id) {
 				outer.nodes.push(instance.clone());
 			}
 		}
 
 		for edge in &graph.edges {
-			if !group.contains(&edge.from.0) && !group.contains(&edge.to.0) {
+			if !carried.contains(&edge.from.0) && !carried.contains(&edge.to.0) {
 				outer.edges.push(*edge);
 			}
 		}
@@ -687,6 +710,36 @@ mod tests {
 			poly.voices.iter().all(|voice| voice.released),
 			"a voice kept sounding after the stop"
 		);
+	}
+
+	#[test]
+	fn an_envelope_voice_builds_its_oscillator_from_a_carried_table() {
+		use crate::graph::Graph;
+
+		let mut graph = Graph::new();
+		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+		let table = graph.add_node("table:shape", (0.0, 120.0)).expect("table");
+		let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
+		let envelope = graph.add_node("adsr", (150.0, 0.0)).expect("adsr");
+		let voice_out = graph
+			.add_node("voice:out", (300.0, 0.0))
+			.expect("voice out");
+		let out = graph.add_node("out:audio", (400.0, 0.0)).expect("out");
+
+		graph.connect((midi, 0), (voice_in, 0));
+		graph.connect((voice_in, 0), (envelope, 0));
+		graph.connect((table, 0), (envelope, 1));
+		graph.connect((envelope, 0), (voice_out, 0));
+		graph.connect((voice_out, 0), (out, 0));
+
+		let mut poly = Poly::new(&graph, 48_000).expect("poly builds");
+		let out = render(&mut poly, 12, &[(0, note(60)), (1, note(67))]);
+
+		assert!(
+			out.iter().any(|frame| frame[0].abs() > 1e-3),
+			"the envelope voice was silent"
+		);
+		assert!(poly.voices.len() >= 2, "the second note took no voice");
 	}
 
 	#[test]
