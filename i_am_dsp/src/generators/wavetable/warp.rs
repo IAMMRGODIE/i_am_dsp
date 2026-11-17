@@ -39,9 +39,14 @@ impl Default for BendWarp {
 	}
 }
 
+/// Bends the phase towards the start or the end of the cycle.
+pub fn bend_phase(power: f32, t: f32) -> f32 {
+	t.powf(power).clamp(0.0, 1.0)
+}
+
 impl Warp for BendWarp {
 	fn apply(&self, t: f32) -> f32 {
-		t.powf(self.power).clamp(0.0, 1.0)
+		bend_phase(self.power, t)
 	}
 }
 
@@ -68,10 +73,16 @@ impl Default for MirrorWarp {
 	}
 }
 
+/// Folds the second half of the cycle back over the first.
+pub fn mirror_phase(amount: f32, t: f32) -> f32 {
+	let folded = 1.0 - (2.0 * t - 1.0).abs();
+
+	(t + (folded - t) * amount).clamp(0.0, 1.0)
+}
+
 impl Warp for MirrorWarp {
 	fn apply(&self, t: f32) -> f32 {
-		let folded = 1.0 - (2.0 * t - 1.0).abs();
-		(t + (folded - t) * self.amount).clamp(0.0, 1.0)
+		mirror_phase(self.amount, t)
 	}
 }
 
@@ -99,11 +110,15 @@ impl Default for SyncWarp {
 	}
 }
 
+/// Repeats the table inside one cycle; the ratio is clamped so a control at
+/// zero cannot divide by it.
+pub fn sync_phase(ratio: f32, t: f32) -> f32 {
+	(t * ratio.max(1.0)).fract()
+}
+
 impl Warp for SyncWarp {
 	fn apply(&self, t: f32) -> f32 {
-		// `fract` keeps the position in the cycle; the ratio is clamped so a
-		// control at zero cannot divide by it.
-		(t * self.ratio.max(1.0)).fract()
+		sync_phase(self.ratio, t)
 	}
 }
 
@@ -131,15 +146,20 @@ impl Default for QuantizeWarp {
 	}
 }
 
+/// Snaps the read position to a grid.
+pub fn quantize_phase(steps: f32, t: f32) -> f32 {
+	let steps = steps.max(1.0);
+
+	if steps <= 1.0 {
+		t
+	} else {
+		((t * steps).floor() / steps).clamp(0.0, 1.0)
+	}
+}
+
 impl Warp for QuantizeWarp {
 	fn apply(&self, t: f32) -> f32 {
-		let steps = self.steps.max(1.0);
-
-		if steps <= 1.0 {
-			t
-		} else {
-			((t * steps).floor() / steps).clamp(0.0, 1.0)
-		}
+		quantize_phase(self.steps, t)
 	}
 }
 
