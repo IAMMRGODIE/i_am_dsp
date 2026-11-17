@@ -91,6 +91,43 @@ fn kind_json(kind: &NodeDesc) -> Value {
 		);
 	}
 
+	// A table node shows its product's table page: the same controls, hero and
+	// accent as the product, without the envelope and voice pages the graph's
+	// own envelope owns.
+	if let Some(product) = kind.id.strip_prefix("table:")
+		&& let Some(descriptor) = crate::synths::synth(product)
+	{
+		let faceplate = (descriptor.faceplate)();
+		let sections: Vec<i_am_web_gui::Section> =
+			i_am_web_gui::sections(&(descriptor.parameters)())
+				.into_iter()
+				.filter(|section| !matches!(section.name.as_deref(), Some("Envelope" | "Voice")))
+				.collect();
+
+		hero = sections.iter().find_map(|section| section.hero.clone());
+		accent = faceplate.accent;
+		title = Some(faceplate.title.to_string());
+		// Wide enough for a hero and the table's own knobs, without the room the
+		// product's other pages need.
+		face = Some((560.0, 360.0));
+
+		for section in &sections {
+			for control in &section.controls {
+				controls.push(serde_json::to_value(control).unwrap_or(Value::Null));
+			}
+		}
+
+		grouped = sections_json(&sections, &[]);
+		pages = sections
+			.iter()
+			.map(|section| {
+				let name = section.name.clone().unwrap_or_default();
+
+				json!({ "name": name.clone(), "sections": [name], "hero": section.hero.clone() })
+			})
+			.collect();
+	}
+
 	// A synth product takes its card from its own faceplate and schema.
 	if let Some(synth) = kind.id.strip_prefix("synth:")
 		&& let Some(descriptor) = crate::synths::synth(synth)

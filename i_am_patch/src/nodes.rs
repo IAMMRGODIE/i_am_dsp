@@ -239,42 +239,51 @@ pub fn make_with(
 		"osc:rm" => Box::new(ModNode::new(ModKind::Rm, params)),
 		"osc:pm" => Box::new(ModNode::new(ModKind::Pm, params)),
 		"osc:fm" => Box::new(ModNode::new(ModKind::Fm, params)),
-		"table:additive" => Box::new(ProductTableNode::new(|| {
-			Box::new(OscTable::<2, _>(AdditiveOsc::<BendedSawGen, 64, 2>::new(
-				BendedSawGen::default(),
-				32,
-			)))
-		})),
+		"table:additive" => Box::new(ProductTableNode::new(
+			|| {
+				Box::new(OscTable::<2, _>(AdditiveOsc::<BendedSawGen, 64, 2>::new(
+					BendedSawGen::default(),
+					32,
+				)))
+			},
+			params,
+		)),
 		"table:canvas" => {
 			let handle = slots.canvas(node);
 
-			Box::new(ProductTableNode::new(move || {
-				Box::new(CanvasOscillator::new(handle.clone()))
-			}))
+			Box::new(ProductTableNode::new(
+				move || Box::new(CanvasOscillator::new(handle.clone())),
+				params,
+			))
 		}
 		"table:spectrum" => {
 			let handle = slots.spectrum(node);
 
-			Box::new(ProductTableNode::new(move || {
-				Box::new(OscTable::<2, _>(TableBankOsc::new(handle.feed())))
-			}))
+			Box::new(ProductTableNode::new(
+				move || Box::new(OscTable::<2, _>(TableBankOsc::new(handle.feed()))),
+				params,
+			))
 		}
 		"table:script" => {
 			let handle = slots.script(node);
 
-			Box::new(ProductTableNode::new(move || {
-				Box::new(OscTable::<2, _>(ScriptOscillator::new(
-					rate,
-					handle.clone(),
-				)))
-			}))
+			Box::new(ProductTableNode::new(
+				move || {
+					Box::new(OscTable::<2, _>(ScriptOscillator::new(
+						rate,
+						handle.clone(),
+					)))
+				},
+				params,
+			))
 		}
 		"table:shapes" => {
 			let slot = slots.waves(node);
 
-			Box::new(ProductTableNode::new(move || {
-				Box::new(OscTable::<2, _>(WaveFramesOsc::with_slot(slot.clone())))
-			}))
+			Box::new(ProductTableNode::new(
+				move || Box::new(OscTable::<2, _>(WaveFramesOsc::with_slot(slot.clone()))),
+				params,
+			))
 		}
 		"warp:bend" => Box::new(WarpNode::new(WarpMode::Bend, "power", params)),
 		"warp:mirror" => Box::new(WarpNode::new(WarpMode::Mirror, "amount", params)),
@@ -1203,12 +1212,17 @@ impl WaveTable for WarpedTable {
 /// A product's table, handed to the node that reads it.
 struct ProductTableNode {
 	factory: Box<dyn Fn() -> Box<dyn WaveTable + Send + Sync> + Send + Sync>,
+	params: BTreeMap<&'static str, f32>,
 }
 
 impl ProductTableNode {
-	fn new(factory: impl Fn() -> Box<dyn WaveTable + Send + Sync> + Send + Sync + 'static) -> Self {
+	fn new(
+		factory: impl Fn() -> Box<dyn WaveTable + Send + Sync> + Send + Sync + 'static,
+		params: &BTreeMap<&'static str, f32>,
+	) -> Self {
 		Self {
 			factory: Box::new(factory),
+			params: params.clone(),
 		}
 	}
 }
@@ -1216,8 +1230,38 @@ impl ProductTableNode {
 impl BlockNode for ProductTableNode {
 	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], _: &mut [Buffer]) {}
 
+	fn set_param(&mut self, name: &str, value: f32) {
+		for (key, stored) in &mut self.params {
+			if *key == name {
+				*stored = value;
+
+				break;
+			}
+		}
+	}
+
 	fn constructor_spec(&self) -> Option<ConstructorSpec> {
-		Some(ConstructorSpec::Table((self.factory)()))
+		let mut table = (self.factory)();
+
+		apply_params(table.as_mut(), &self.params);
+
+		Some(ConstructorSpec::Table(table))
+	}
+}
+
+/// Pushes the card's values into a freshly built table, whatever type each
+/// parameter declares.
+fn apply_params(table: &mut dyn Parameters, params: &BTreeMap<&'static str, f32>) {
+	for (name, value) in params {
+		if table.set_parameter(name, SetValue::Float(*value)) {
+			continue;
+		}
+
+		if table.set_parameter(name, SetValue::Int(*value as i32)) {
+			continue;
+		}
+
+		let _ = table.set_parameter(name, SetValue::Bool(*value > 0.5));
 	}
 }
 
