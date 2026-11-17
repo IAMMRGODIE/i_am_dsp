@@ -16,8 +16,6 @@
 
 use wide::f32x4;
 
-use crate::modal::LANES;
-
 /// A two pole resonator with an adjustable decay rate.
 #[derive(Clone, Copy, Debug)]
 struct Resonator {
@@ -117,7 +115,7 @@ impl SympatheticString {
 		let mut lanes = f32x4::ZERO;
 		let mut index = 0;
 
-		while LANES && index + 4 <= self.partials.len() {
+		while index + 4 <= self.partials.len() {
 			let partials = &self.partials[index..index + 4];
 			let a1 = f32x4::from([
 				partials[0].a1,
