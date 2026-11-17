@@ -275,6 +275,62 @@ const BUILTINS: &[NodeDesc] = &[
 		params: &[choice_param("shape", 0.0, 4.0, CONSTRUCTOR_SHAPES)],
 	},
 	NodeDesc {
+		id: "osc:am",
+		name: "AM",
+		inputs: &[
+			port("carrier", SignalKind::Osc),
+			port("modulator", SignalKind::Osc),
+		],
+		outputs: &[port("osc", SignalKind::Osc)],
+		latency: 0,
+		params: &[
+			param("depth", 0.5, 0.0, 1.0),
+			step_param("ratio", 1.0, 1.0, 16.0, 1.0),
+		],
+	},
+	NodeDesc {
+		id: "osc:rm",
+		name: "RM",
+		inputs: &[
+			port("carrier", SignalKind::Osc),
+			port("modulator", SignalKind::Osc),
+		],
+		outputs: &[port("osc", SignalKind::Osc)],
+		latency: 0,
+		params: &[
+			param("depth", 0.5, 0.0, 1.0),
+			step_param("ratio", 1.0, 1.0, 16.0, 1.0),
+		],
+	},
+	NodeDesc {
+		id: "osc:pm",
+		name: "PM",
+		inputs: &[
+			port("carrier", SignalKind::Osc),
+			port("modulator", SignalKind::Osc),
+		],
+		outputs: &[port("osc", SignalKind::Osc)],
+		latency: 0,
+		params: &[
+			param("depth", 1.0, 0.0, 8.0),
+			step_param("ratio", 1.0, 1.0, 16.0, 1.0),
+		],
+	},
+	NodeDesc {
+		id: "osc:fm",
+		name: "FM",
+		inputs: &[
+			port("carrier", SignalKind::Osc),
+			port("modulator", SignalKind::Osc),
+		],
+		outputs: &[port("osc", SignalKind::Osc)],
+		latency: 0,
+		params: &[
+			param("depth", 2.0, 0.0, 16.0),
+			step_param("ratio", 1.0, 1.0, 16.0, 1.0),
+		],
+	},
+	NodeDesc {
 		id: "adsr",
 		name: "Envelope",
 		inputs: &[port("midi", SignalKind::Midi), port("osc", SignalKind::Osc)],

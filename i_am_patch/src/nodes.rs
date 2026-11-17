@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 
 use i_am_dsp::prelude::{
-	Adsr, Effect, EqualTemperament, Generator, Message, NoteEvent, Oscillator, Parameter,
-	Parameters, SetValue, TableOsc, Value, WaveTable,
+	Adsr, Effect, EqualTemperament, FmIntegral, Generator, Message, NoteEvent, Oscillator,
+	Parameter, Parameters, SetValue, TableOsc, Value, WaveTable,
 };
 use i_am_plugin::Plugin;
 use std::sync::atomic::Ordering;
@@ -18,17 +18,39 @@ use crate::modulation::SourceRuntime;
 use crate::sources::{SourceKind, SourceSettings, lfo_preset};
 
 /// What a constructor node hands the node that consumes it.
-pub enum Constructor {
+pub enum ConstructorSpec {
 	/// A single-cycle table.
 	Table(Box<dyn WaveTable + Send + Sync>),
 	/// A running oscillator.
 	Osc(Box<dyn Oscillator<2> + Send + Sync>),
+	/// A modulation that needs its carrier and modulator from upstream.
+	Mod {
+		/// Which modulation.
+		kind: ModKind,
+		/// The depth, shared with the node's parameters.
+		depth: Arc<AtomicU32>,
+		/// The modulator ratio, shared with the node's parameters.
+		ratio: Arc<AtomicU32>,
+	},
+}
+
+/// The four modulations a patch can put between two tables.
+#[derive(Clone, Copy)]
+pub enum ModKind {
+	/// Amplitude modulation: the carrier scaled by the modulator.
+	Am,
+	/// Ring modulation: the product of the two tables.
+	Rm,
+	/// Phase modulation: the modulator bends the carrier's phase.
+	Pm,
+	/// Frequency modulation: the integral of the modulator bends the phase.
+	Fm,
 }
 
 /// One node in the running graph.
 pub trait BlockNode: Send + Sync {
-	/// The table or oscillator this node builds, when it is a constructor.
-	fn constructor(&self) -> Option<Constructor> {
+	/// The table, oscillator or modulation this node builds, when it is a constructor.
+	fn constructor_spec(&self) -> Option<ConstructorSpec> {
 		None
 	}
 
@@ -166,6 +188,10 @@ pub fn make_with(
 		"table:shape" => Box::new(TableShapeNode::new(params)),
 		"osc:shape" => Box::new(OscShapeNode::new(params)),
 		"adsr" => Box::new(AdsrNode::new(rate)),
+		"osc:am" => Box::new(ModNode::new(ModKind::Am, params)),
+		"osc:rm" => Box::new(ModNode::new(ModKind::Rm, params)),
+		"osc:pm" => Box::new(ModNode::new(ModKind::Pm, params)),
+		"osc:fm" => Box::new(ModNode::new(ModKind::Fm, params)),
 		kind if kind.starts_with("synth:") => {
 			use i_am_synths::{
 				AdditiveWeb, CanvasWeb, DrummerWeb, FittedWeb, SamplerWeb, ScriptWeb, ShapesWeb,
@@ -927,6 +953,127 @@ impl BlockNode for SourceNode {
 	}
 }
 
+/// The oscillator a modulation node builds: two tables and a mode.
+pub(crate) struct VoiceOsc {
+	kind: ModKind,
+	carrier: Box<dyn WaveTable + Send + Sync>,
+	modulator: Box<dyn WaveTable + Send + Sync>,
+	depth: Arc<AtomicU32>,
+	ratio: Arc<AtomicU32>,
+	integral: FmIntegral,
+}
+
+impl VoiceOsc {
+	/// A modulation over the two tables, reading its controls from the atomics.
+	pub(crate) fn new(
+		kind: ModKind,
+		carrier: Box<dyn WaveTable + Send + Sync>,
+		modulator: Box<dyn WaveTable + Send + Sync>,
+		depth: Arc<AtomicU32>,
+		ratio: Arc<AtomicU32>,
+	) -> Self {
+		let integral = FmIntegral::new(modulator.as_ref());
+
+		Self {
+			kind,
+			carrier,
+			modulator,
+			depth,
+			ratio,
+			integral,
+		}
+	}
+
+	fn depth(&self) -> f32 {
+		f32::from_bits(self.depth.load(Ordering::Relaxed))
+	}
+
+	fn ratio(&self) -> f32 {
+		f32::from_bits(self.ratio.load(Ordering::Relaxed))
+	}
+}
+
+impl Parameters for VoiceOsc {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		Vec::new()
+	}
+
+	fn set_parameter(&mut self, _: &str, _: SetValue) -> bool {
+		false
+	}
+}
+
+impl Oscillator<2> for VoiceOsc {
+	fn play_at(&self, frequency: f32, time: f32, phase: [f32; 2]) -> [f32; 2] {
+		let depth = self.depth();
+		let ratio = self.ratio().max(1.0);
+		let mut output = [0.0f32; 2];
+
+		for (channel, value) in output.iter_mut().enumerate() {
+			let t = (time * frequency + phase[channel]).rem_euclid(1.0);
+			let u = (time * frequency * ratio + phase[channel]).rem_euclid(1.0);
+			let modulator = self.modulator.sample(u, channel);
+			let carrier = self.carrier.sample(t, channel);
+
+			*value = match self.kind {
+				ModKind::Am => carrier * (1.0 + depth * modulator),
+				ModKind::Rm => carrier * (1.0 - depth + depth * modulator),
+				ModKind::Pm => self
+					.carrier
+					.sample((t + depth * modulator).rem_euclid(1.0), channel),
+				ModKind::Fm => self
+					.carrier
+					.sample((t + depth * self.integral.at(u)).rem_euclid(1.0), channel),
+			};
+		}
+
+		output
+	}
+
+	fn sync(&mut self) {
+		if matches!(self.kind, ModKind::Fm) {
+			self.integral.sync(self.modulator.as_ref());
+		}
+	}
+}
+
+/// A modulation node: no audio, only the two atomics and the mode.
+struct ModNode {
+	kind: ModKind,
+	depth: Arc<AtomicU32>,
+	ratio: Arc<AtomicU32>,
+}
+
+impl ModNode {
+	fn new(kind: ModKind, params: &BTreeMap<&'static str, f32>) -> Self {
+		Self {
+			kind,
+			depth: Arc::new(AtomicU32::new(param(params, "depth", 0.5).to_bits())),
+			ratio: Arc::new(AtomicU32::new(param(params, "ratio", 1.0).to_bits())),
+		}
+	}
+}
+
+impl BlockNode for ModNode {
+	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], _: &mut [Buffer]) {}
+
+	fn set_param(&mut self, name: &str, value: f32) {
+		match name {
+			"depth" => self.depth.store(value.to_bits(), Ordering::Relaxed),
+			"ratio" => self.ratio.store(value.to_bits(), Ordering::Relaxed),
+			_ => {}
+		}
+	}
+
+	fn constructor_spec(&self) -> Option<ConstructorSpec> {
+		Some(ConstructorSpec::Mod {
+			kind: self.kind,
+			depth: self.depth.clone(),
+			ratio: self.ratio.clone(),
+		})
+	}
+}
+
 /// The table a shape node plays, with its choice shared with the card.
 ///
 /// The table is cloned into the oscillator tree, so a later shape change has to
@@ -981,8 +1128,8 @@ impl BlockNode for TableShapeNode {
 		}
 	}
 
-	fn constructor(&self) -> Option<Constructor> {
-		Some(Constructor::Table(Box::new(ShapeTable {
+	fn constructor_spec(&self) -> Option<ConstructorSpec> {
+		Some(ConstructorSpec::Table(Box::new(ShapeTable {
 			shape: self.shape.clone(),
 		})))
 	}
@@ -1010,10 +1157,59 @@ impl BlockNode for OscShapeNode {
 		}
 	}
 
-	fn constructor(&self) -> Option<Constructor> {
-		Some(Constructor::Osc(Box::new(TableOsc(ShapeTable {
+	fn constructor_spec(&self) -> Option<ConstructorSpec> {
+		Some(ConstructorSpec::Osc(Box::new(TableOsc(ShapeTable {
 			shape: self.shape.clone(),
 		}))))
+	}
+}
+
+/// Builds the oscillator tree an envelope asked for.
+///
+/// A table is wrapped into an oscillator; a modulation takes the two tables its
+/// input edges name and becomes a [`VoiceOsc`]. The tree is built once, at
+/// graph build time, and its controls stay live through the atomics.
+pub(crate) fn build_oscillator(
+	nodes: &[Box<dyn BlockNode>],
+	steps: &BTreeMap<crate::graph::NodeId, usize>,
+	graph: &crate::graph::Graph,
+	id: crate::graph::NodeId,
+) -> Option<Box<dyn Oscillator<2> + Send + Sync>> {
+	let step = *steps.get(&id)?;
+
+	match nodes.get(step)?.constructor_spec()? {
+		ConstructorSpec::Osc(oscillator) => Some(oscillator),
+		ConstructorSpec::Table(table) => Some(Box::new(TableOsc(table))),
+		ConstructorSpec::Mod { kind, depth, ratio } => {
+			let carrier = build_table(nodes, steps, graph, id, 0)?;
+			let modulator = build_table(nodes, steps, graph, id, 1)?;
+
+			Some(Box::new(VoiceOsc::new(
+				kind, carrier, modulator, depth, ratio,
+			)))
+		}
+	}
+}
+
+/// The table a modulation's input port names.
+fn build_table(
+	nodes: &[Box<dyn BlockNode>],
+	steps: &BTreeMap<crate::graph::NodeId, usize>,
+	graph: &crate::graph::Graph,
+	id: crate::graph::NodeId,
+	port: usize,
+) -> Option<Box<dyn WaveTable + Send + Sync>> {
+	let source = graph
+		.edges
+		.iter()
+		.find(|edge| edge.to.0 == id && edge.to.1 == port)?
+		.from
+		.0;
+	let step = *steps.get(&source)?;
+
+	match nodes.get(step)?.constructor_spec()? {
+		ConstructorSpec::Table(table) => Some(table),
+		_ => None,
 	}
 }
 
@@ -1192,6 +1388,60 @@ impl BlockNode for Delay {
 				self.write = (self.write + 1) % 64;
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod voice_tests {
+	use super::*;
+
+	fn sine() -> ShapeTable {
+		ShapeTable {
+			shape: Arc::new(AtomicU32::new(0)),
+		}
+	}
+
+	fn shared(value: f32) -> Arc<AtomicU32> {
+		Arc::new(AtomicU32::new(value.to_bits()))
+	}
+
+	fn play(kind: ModKind, depth: f32) -> f32 {
+		let oscillator = VoiceOsc::new(
+			kind,
+			Box::new(sine()),
+			Box::new(sine()),
+			shared(depth),
+			shared(1.0),
+		);
+
+		oscillator.play_at(440.0, 0.0, [0.25, 0.25])[0]
+	}
+
+	/// Ring at zero depth is the carrier; at full depth it is the product.
+	#[test]
+	fn the_ring_modulation_multiplies_both_tables() {
+		let carrier = sine().sample(0.25, 0);
+
+		assert!((play(ModKind::Rm, 0.0) - carrier).abs() < 1e-5);
+		assert!((play(ModKind::Rm, 1.0) - carrier * carrier).abs() < 1e-5);
+	}
+
+	/// AM keeps the carrier and scales it by the modulator.
+	#[test]
+	fn the_amplitude_modulation_scales_the_carrier() {
+		let carrier = sine().sample(0.25, 0);
+
+		assert!((play(ModKind::Am, 0.0) - carrier).abs() < 1e-5);
+		assert!((play(ModKind::Am, 1.0) - carrier * (1.0 + carrier)).abs() < 1e-5);
+	}
+
+	/// PM and FM at zero depth are the carrier too.
+	#[test]
+	fn the_phase_modulations_at_zero_depth_are_the_carrier() {
+		let carrier = sine().sample(0.25, 0);
+
+		assert!((play(ModKind::Pm, 0.0) - carrier).abs() < 1e-5);
+		assert!((play(ModKind::Fm, 0.0) - carrier).abs() < 1e-5);
 	}
 }
 

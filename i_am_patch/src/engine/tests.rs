@@ -223,6 +223,114 @@ fn a_negative_modulation_does_not_blow_up() {
 	assert!(mean.abs() < 0.01, "the output has DC: {mean}");
 }
 
+fn modulation_graph(kind: &str) -> (Graph, crate::graph::NodeId) {
+	let mut graph = Graph::new();
+	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+	let carrier = graph
+		.add_node("table:shape", (0.0, 100.0))
+		.expect("carrier");
+	let modulator = graph
+		.add_node("table:shape", (0.0, 200.0))
+		.expect("modulator");
+	let oscillator = graph.add_node(kind, (100.0, 150.0)).expect("oscillator");
+	let envelope = graph.add_node("adsr", (200.0, 0.0)).expect("adsr");
+	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+
+	graph.connect((midi, 0), (envelope, 0));
+	graph.connect((carrier, 0), (oscillator, 0));
+	graph.connect((modulator, 0), (oscillator, 1));
+	graph.connect((oscillator, 0), (envelope, 1));
+	graph.connect((envelope, 0), (out, 0));
+
+	(graph, oscillator)
+}
+
+fn render_blocks_of(graph: &Graph, blocks: usize) -> Vec<[f32; 2]> {
+	let mut engine = Engine::new(graph, 48_000).expect("the graph builds");
+	let input = vec![[0.0f32; 2]; BLOCK];
+	let mut out = vec![[0.0f32; 2]; BLOCK];
+	let mut collected = Vec::new();
+
+	for block in 0..blocks {
+		let events = if block == 0 {
+			vec![note_event(60)]
+		} else {
+			vec![]
+		};
+
+		engine.process(&input, &events, &mut out);
+		collected.extend_from_slice(&out);
+	}
+
+	collected
+}
+
+#[test]
+fn a_ring_modulation_follows_its_depth() {
+	let rms = |frames: &[[f32; 2]]| {
+		(frames.iter().map(|frame| frame[0] * frame[0]).sum::<f32>() / frames.len() as f32).sqrt()
+	};
+	let (graph, oscillator) = modulation_graph("osc:rm");
+	let mut engine = Engine::new(&graph, 48_000).expect("the graph builds");
+	let input = vec![[0.0f32; 2]; BLOCK];
+	let mut frames = vec![[0.0f32; 2]; BLOCK];
+
+	assert!(engine.set_param(oscillator, "depth", 0.0));
+
+	let mut carrier = Vec::new();
+
+	for block in 0..6 {
+		let events = if block == 0 {
+			vec![note_event(60)]
+		} else {
+			vec![]
+		};
+
+		engine.process(&input, &events, &mut frames);
+
+		if block >= 4 {
+			carrier.extend_from_slice(&frames);
+		}
+	}
+
+	// A full ring multiplies the carrier by the modulator, which halves its
+	// level for two sines; depth zero leaves the carrier alone.
+	assert!(engine.set_param(oscillator, "depth", 1.0));
+
+	let mut ring = Vec::new();
+
+	for block in 6..10 {
+		engine.process(&input, &[], &mut frames);
+
+		if block >= 8 {
+			ring.extend_from_slice(&frames);
+		}
+	}
+
+	let carrier = rms(&carrier);
+	let ring = rms(&ring);
+
+	assert!(carrier > 1e-3, "depth zero was silent: {carrier}");
+	assert!(
+		ring < carrier * 0.95,
+		"the depth did not reach the sound: {carrier} against {ring}"
+	);
+}
+
+#[test]
+fn the_modulation_nodes_play() {
+	for kind in ["osc:am", "osc:pm", "osc:fm"] {
+		let (graph, _) = modulation_graph(kind);
+
+		assert!(
+			render_blocks_of(&graph, 4)
+				.iter()
+				.any(|frame| frame[0].abs() > 1e-3),
+			"{kind} was silent"
+		);
+	}
+}
+
 #[test]
 fn an_envelope_plays_a_wavetable() {
 	let mut graph = Graph::new();

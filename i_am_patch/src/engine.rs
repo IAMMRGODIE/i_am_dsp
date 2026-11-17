@@ -9,7 +9,7 @@ use i_am_dsp::ProcessContext;
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer, PatchContext};
 use crate::compile::{CompileError, Plan, compile};
 use crate::graph::{Graph, ModulationMode, NodeId, SignalKind};
-use crate::nodes::{BlockNode, Constructor, make_with};
+use crate::nodes::{BlockNode, make_with};
 
 /// Why an engine could not be built.
 #[derive(Debug)]
@@ -206,17 +206,12 @@ impl Engine {
 				continue;
 			}
 
-			let from = steps[&edge.from.0];
 			let to = steps[&edge.to.0];
 
-			match nodes[from].constructor() {
-				Some(Constructor::Table(table)) => {
-					nodes[to].install(Box::new(i_am_dsp::prelude::TableOsc(table)));
-				}
-				Some(Constructor::Osc(oscillator)) => {
-					nodes[to].install(oscillator);
-				}
-				None => {}
+			if let Some(oscillator) =
+				crate::nodes::build_oscillator(&nodes, &steps, graph, edge.from.0)
+			{
+				nodes[to].install(oscillator);
 			}
 		}
 

@@ -308,7 +308,16 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 				graph
 					.get(*id)
 					.map(|instance| {
-						!matches!(instance.kind.id, "adsr" | "table:shape" | "osc:shape")
+						!matches!(
+							instance.kind.id,
+							"adsr"
+								| "table:shape"
+								| "osc:shape"
+								| "osc:am"
+								| "osc:rm"
+								| "osc:pm"
+								| "osc:fm"
+						)
 					})
 					.unwrap_or(true)
 			})
