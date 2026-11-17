@@ -1251,18 +1251,28 @@ impl BlockNode for ProductTableNode {
 
 /// Pushes the card's values into a freshly built table, whatever type each
 /// parameter declares.
+///
+/// A product's parameter ids carry the path from its processor (`oscillator.`
+/// for the voice's oscillator); the table is that oscillator alone, so the id is
+/// tried with the path stripped too.
 fn apply_params(table: &mut dyn Parameters, params: &BTreeMap<&'static str, f32>) {
 	for (name, value) in params {
-		if table.set_parameter(name, SetValue::Float(*value)) {
-			continue;
-		}
+		let oscillator = name.strip_prefix("oscillator.").unwrap_or(name);
+		let voice = name.strip_prefix("voice.").unwrap_or(name);
 
-		if table.set_parameter(name, SetValue::Int(*value as i32)) {
-			continue;
+		for id in [*name, oscillator, voice] {
+			if write_param(table, id, *value) {
+				break;
+			}
 		}
-
-		let _ = table.set_parameter(name, SetValue::Bool(*value > 0.5));
 	}
+}
+
+/// Writes one parameter, trying the value types the DSP might declare.
+fn write_param(table: &mut dyn Parameters, id: &str, value: f32) -> bool {
+	table.set_parameter(id, SetValue::Float(value))
+		|| table.set_parameter(id, SetValue::Int(value as i32))
+		|| table.set_parameter(id, SetValue::Bool(value > 0.5))
 }
 
 /// A warp node: no audio, only the strength and the mode.
@@ -1696,6 +1706,31 @@ mod voice_tests {
 
 		assert!((play(ModKind::Am, 0.0) - carrier).abs() < 1e-5);
 		assert!((play(ModKind::Am, 1.0) - carrier * (1.0 + carrier)).abs() < 1e-5);
+	}
+
+	/// The card's ids carry the product's path; the table is the oscillator
+	/// alone, so the path has to come off before the write.
+	#[test]
+	fn a_table_strips_the_processor_path() {
+		use i_am_dsp::prelude::{Value as ParamValue, WaveSlot};
+
+		let slot = Arc::new(std::sync::Mutex::new(WaveSlot::default()));
+		let mut table = OscTable::<2, _>(WaveFramesOsc::with_slot(slot));
+		let mut params = BTreeMap::new();
+
+		params.insert("oscillator.smooth_factor", 1.0);
+		apply_params(&mut table, &params);
+
+		let found = table
+			.get_parameters()
+			.into_iter()
+			.find(|parameter| parameter.identifier == "smooth_factor")
+			.expect("the parameter");
+
+		match found.value {
+			ParamValue::Float { value, .. } => assert!((value - 1.0).abs() < 1e-6),
+			_ => panic!("the smooth factor is not a float"),
+		}
 	}
 
 	/// A warp reads the carrier where the phase function points.
