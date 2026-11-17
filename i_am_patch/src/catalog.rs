@@ -109,14 +109,12 @@ fn kind_json(kind: &NodeDesc) -> Value {
 		let hero_name = sections.iter().find_map(|section| section.hero.clone());
 
 		for section in &mut sections {
-			section
-				.controls
-				.retain(|control| {
-					!matches!(
-						control.id.as_str(),
-						"gain" | "pitch" | "pitch_factor" | "pan"
-					)
-				});
+			section.controls.retain(|control| {
+				!matches!(
+					control.id.as_str(),
+					"gain" | "pitch" | "pitch_factor" | "pan"
+				)
+			});
 		}
 
 		sections.retain(|section| !section.controls.is_empty());
