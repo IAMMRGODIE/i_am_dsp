@@ -7,8 +7,8 @@ use std::sync::atomic::AtomicU32;
 
 use i_am_dsp::prelude::{
 	AdditiveOsc, Adsr, BendedSawGen, Effect, EqualTemperament, FmIntegral, Generator, Message,
-	NoteEvent, Oscillator, Parameter, Parameters, SetValue, TableBankOsc, TableOsc, Value,
-	WaveFramesOsc, WaveTable, bend_phase, mirror_phase, quantize_phase, sync_phase,
+	NoteEvent, OscTable, Oscillator, Parameter, Parameters, SetValue, TableBankOsc, TableOsc,
+	Value, WaveFramesOsc, WaveTable, bend_phase, mirror_phase, quantize_phase, sync_phase,
 };
 use i_am_plugin::Plugin;
 use i_am_synths::{CanvasOscillator, ScriptOscillator};
@@ -216,11 +216,11 @@ pub fn make_with(
 		"osc:rm" => Box::new(ModNode::new(ModKind::Rm, params)),
 		"osc:pm" => Box::new(ModNode::new(ModKind::Pm, params)),
 		"osc:fm" => Box::new(ModNode::new(ModKind::Fm, params)),
-		"osc:additive" => Box::new(ProductOscNode::new(|| {
-			Box::new(AdditiveOsc::<BendedSawGen, 64, 2>::new(
+		"table:additive" => Box::new(ProductTableNode::new(|| {
+			Box::new(OscTable::<2, _>(AdditiveOsc::<BendedSawGen, 64, 2>::new(
 				BendedSawGen::default(),
 				32,
-			))
+			)))
 		})),
 		"table:canvas" => {
 			let handle = slots.canvas(node);
@@ -229,32 +229,28 @@ pub fn make_with(
 				Box::new(CanvasOscillator::new(handle.clone()))
 			}))
 		}
-		"osc:spectrum" => {
+		"table:spectrum" => {
 			let handle = slots.spectrum(node);
 
-			Box::new(ProductOscNode::new(move || {
-				Box::new(TableBankOsc::new(handle.feed()))
+			Box::new(ProductTableNode::new(move || {
+				Box::new(OscTable::<2, _>(TableBankOsc::new(handle.feed())))
 			}))
 		}
-		"osc:script" => {
+		"table:script" => {
 			let handle = slots.script(node);
 
-			Box::new(ProductOscNode::new(move || {
-				Box::new(ScriptOscillator::new(rate, handle.clone()))
+			Box::new(ProductTableNode::new(move || {
+				Box::new(OscTable::<2, _>(ScriptOscillator::new(
+					rate,
+					handle.clone(),
+				)))
 			}))
 		}
-		"osc:canvas" => {
-			let handle = slots.canvas(node);
-
-			Box::new(ProductOscNode::new(move || {
-				Box::new(CanvasOscillator::new(handle.clone()))
-			}))
-		}
-		"osc:shapes" => {
+		"table:shapes" => {
 			let slot = slots.waves(node);
 
-			Box::new(ProductOscNode::new(move || {
-				Box::new(WaveFramesOsc::with_slot(slot.clone()))
+			Box::new(ProductTableNode::new(move || {
+				Box::new(OscTable::<2, _>(WaveFramesOsc::with_slot(slot.clone())))
 			}))
 		}
 		"warp:bend" => Box::new(WarpNode::new(WarpMode::Bend, "power", params)),
@@ -1178,33 +1174,6 @@ impl WaveTable for WarpedTable {
 		};
 
 		self.wave.sample(position.rem_euclid(1.0), channel)
-	}
-}
-
-/// A product's oscillator, handed to an envelope as a constructor.
-///
-/// The factory is called once per install, so a node that reads a slot (a
-/// wavetable the page imported, say) can still be wired into more than one
-/// envelope.
-struct ProductOscNode {
-	factory: Box<dyn Fn() -> Box<dyn Oscillator<2> + Send + Sync> + Send + Sync>,
-}
-
-impl ProductOscNode {
-	fn new(
-		factory: impl Fn() -> Box<dyn Oscillator<2> + Send + Sync> + Send + Sync + 'static,
-	) -> Self {
-		Self {
-			factory: Box::new(factory),
-		}
-	}
-}
-
-impl BlockNode for ProductOscNode {
-	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], _: &mut [Buffer]) {}
-
-	fn constructor_spec(&self) -> Option<ConstructorSpec> {
-		Some(ConstructorSpec::Osc((self.factory)()))
 	}
 }
 

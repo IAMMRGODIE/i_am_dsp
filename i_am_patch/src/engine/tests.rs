@@ -332,8 +332,13 @@ fn the_modulation_nodes_play() {
 }
 
 #[test]
-fn a_product_oscillator_plays() {
-	for kind in ["osc:additive", "osc:spectrum", "osc:script", "osc:canvas"] {
+fn a_product_table_plays() {
+	for kind in [
+		"table:additive",
+		"table:spectrum",
+		"table:script",
+		"table:canvas",
+	] {
 		let mut graph = Graph::new();
 		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
 		let oscillator = graph.add_node(kind, (0.0, 100.0)).expect("osc");
@@ -369,7 +374,7 @@ fn a_canvas_table_plays_through_the_envelope() {
 fn a_shapes_oscillator_builds_without_a_table() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let oscillator = graph.add_node("osc:shapes", (0.0, 100.0)).expect("osc");
+	let oscillator = graph.add_node("table:shapes", (0.0, 100.0)).expect("osc");
 	let envelope = graph.add_node("adsr", (200.0, 0.0)).expect("adsr");
 	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
 

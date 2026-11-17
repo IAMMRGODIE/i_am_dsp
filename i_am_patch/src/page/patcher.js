@@ -477,11 +477,10 @@
   CARD_HEROES["warp:quantize"] = "patch-warp-quantize";
   CARD_HEROES["warp:remap"] = "patch-warp-remap";
   CARD_HEROES["adsr"] = "patch-envelope";
-  CARD_HEROES["osc:shapes"] = "patch-osc-shapes";
-  CARD_HEROES["osc:additive"] = "patch-osc-additive";
-  CARD_HEROES["osc:spectrum"] = "patch-osc-spectrum";
-  CARD_HEROES["osc:script"] = "patch-osc-script";
-  CARD_HEROES["osc:canvas"] = "patch-osc-canvas";
+  CARD_HEROES["table:shapes"] = "patch-osc-shapes";
+  CARD_HEROES["table:additive"] = "patch-osc-additive";
+  CARD_HEROES["table:spectrum"] = "patch-osc-spectrum";
+  CARD_HEROES["table:script"] = "patch-osc-script";
 
   // A source card's history comes from the engine's tap for that node, and a
   // tap exists only after it is asked for once.
@@ -2573,6 +2572,10 @@
   // wiring around them.
   function categoryOf(kind) {
     const id = kind.id;
+
+    // Splitters and mixers are the graph's routing, not effects and not
+    // generators: their own shelf keeps the list short.
+    if (id.startsWith("split:") || id.startsWith("mix:") || id === "mixer") return "Routing";
 
     if (id.startsWith("mod:")) return "Effect";
 
