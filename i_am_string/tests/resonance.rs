@@ -170,6 +170,10 @@ fn lifting_the_pedal_stops_a_pedalled_note() {
 	);
 }
 #[test]
+#[cfg_attr(
+	debug_assertions,
+	ignore = "an unoptimised build is not measured for speed; run with --release"
+)]
 fn the_whole_engine_runs_comfortably_faster_than_realtime() {
 	// Eight voices plus a bank of 88 sympathetic strings, which is a heavy
 	// chord. This is a guard against someone quietly making the model ten times
