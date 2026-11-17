@@ -168,6 +168,9 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 					});
 				}
 			}
+			// A table feeds an oscillator port through a table oscillator, so a
+			// card can be wired without a conversion node in between.
+			(SignalKind::Wavetable, SignalKind::Osc) => {}
 			(a, b) if a == b => {}
 			_ => {
 				return Err(CompileError::KindMismatch {
@@ -296,7 +299,20 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 		latency,
 		modulations: graph.modulations.clone(),
 		delays,
-		retrigger: group.into_iter().collect(),
+		retrigger: group
+			.into_iter()
+			// A note starts the voice group over, but the constructor nodes and
+			// the envelope of it must survive: rebuilding them would drop the
+			// oscillator the envelope already owns.
+			.filter(|id| {
+				graph
+					.get(*id)
+					.map(|instance| {
+						!matches!(instance.kind.id, "adsr" | "table:shape" | "osc:shape")
+					})
+					.unwrap_or(true)
+			})
+			.collect(),
 	})
 }
 

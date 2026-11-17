@@ -35,6 +35,8 @@ fn kind_json(kind: &NodeDesc) -> Value {
 				SignalKind::Midi => "midi",
 				SignalKind::Control => "control",
 				SignalKind::Audio(_) => "audio",
+				SignalKind::Wavetable => "wavetable",
+				SignalKind::Osc => "osc",
 			},
 			"optional": port.optional,
 		})

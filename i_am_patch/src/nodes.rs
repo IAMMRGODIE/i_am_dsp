@@ -2,7 +2,13 @@
 
 use std::collections::BTreeMap;
 
-use i_am_dsp::prelude::{Effect, Message, NoteEvent, Parameter, SetValue, Value};
+use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
+
+use i_am_dsp::prelude::{
+	Adsr, Effect, EqualTemperament, Generator, Message, NoteEvent, Oscillator, Parameter,
+	Parameters, SetValue, TableOsc, Value, WaveTable,
+};
 use i_am_plugin::Plugin;
 use std::sync::atomic::Ordering;
 
@@ -11,8 +17,26 @@ use crate::crossover::Crossover;
 use crate::modulation::SourceRuntime;
 use crate::sources::{SourceKind, SourceSettings, lfo_preset};
 
+/// What a constructor node hands the node that consumes it.
+pub enum Constructor {
+	/// A single-cycle table.
+	Table(Box<dyn WaveTable + Send + Sync>),
+	/// A running oscillator.
+	Osc(Box<dyn Oscillator<2> + Send + Sync>),
+}
+
 /// One node in the running graph.
 pub trait BlockNode: Send + Sync {
+	/// The table or oscillator this node builds, when it is a constructor.
+	fn constructor(&self) -> Option<Constructor> {
+		None
+	}
+
+	/// Takes the oscillator a downstream envelope asked for, when this node is one.
+	fn install(&mut self, _oscillator: Box<dyn Oscillator<2> + Send + Sync>) -> bool {
+		false
+	}
+
 	/// Processes one block: reads the inputs, writes the outputs.
 	fn process(&mut self, context: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]);
 
@@ -139,6 +163,9 @@ pub fn make_with(
 		}
 		"envelope" => Box::new(SourceNode::new(SourceKind::Envelope, rate, params, &[])),
 		"delay" => Box::new(Delay::new()),
+		"table:shape" => Box::new(TableShapeNode::new(params)),
+		"osc:shape" => Box::new(OscShapeNode::new(params)),
+		"adsr" => Box::new(AdsrNode::new(rate)),
 		kind if kind.starts_with("synth:") => {
 			use i_am_synths::{
 				AdditiveWeb, CanvasWeb, DrummerWeb, FittedWeb, SamplerWeb, ScriptWeb, ShapesWeb,
@@ -897,6 +924,146 @@ impl BlockNode for SourceNode {
 
 	fn midi_position(&self) -> Option<f32> {
 		self.runtime.midi_position()
+	}
+}
+
+/// The table a shape node plays, with its choice shared with the card.
+///
+/// The table is cloned into the oscillator tree, so a later shape change has to
+/// reach every copy: the choice lives in an atomic the node and every table read.
+struct ShapeTable {
+	shape: Arc<AtomicU32>,
+}
+
+impl Parameters for ShapeTable {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		Vec::new()
+	}
+
+	fn set_parameter(&mut self, _: &str, _: SetValue) -> bool {
+		false
+	}
+}
+
+impl WaveTable for ShapeTable {
+	fn sample(&self, t: f32, channel: usize) -> f32 {
+		use i_am_dsp::prelude::{NoiseWave, SawWave, SineWave, SquareWave, TriangleWave};
+
+		match self.shape.load(Ordering::Relaxed) {
+			1 => TriangleWave.sample(t, channel),
+			2 => SawWave.sample(t, channel),
+			3 => SquareWave.sample(t, channel),
+			4 => NoiseWave.sample(t, channel),
+			_ => SineWave.sample(t, channel),
+		}
+	}
+}
+
+/// A table node: no audio of its own, only the shape downstream reads.
+struct TableShapeNode {
+	shape: Arc<AtomicU32>,
+}
+
+impl TableShapeNode {
+	fn new(params: &BTreeMap<&'static str, f32>) -> Self {
+		Self {
+			shape: Arc::new(AtomicU32::new(param(params, "shape", 0.0) as u32)),
+		}
+	}
+}
+
+impl BlockNode for TableShapeNode {
+	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], _: &mut [Buffer]) {}
+
+	fn set_param(&mut self, name: &str, value: f32) {
+		if name == "shape" {
+			self.shape.store(value as u32, Ordering::Relaxed);
+		}
+	}
+
+	fn constructor(&self) -> Option<Constructor> {
+		Some(Constructor::Table(Box::new(ShapeTable {
+			shape: self.shape.clone(),
+		})))
+	}
+}
+
+/// An oscillator node: the same shape, played at the note's pitch.
+struct OscShapeNode {
+	shape: Arc<AtomicU32>,
+}
+
+impl OscShapeNode {
+	fn new(params: &BTreeMap<&'static str, f32>) -> Self {
+		Self {
+			shape: Arc::new(AtomicU32::new(param(params, "shape", 0.0) as u32)),
+		}
+	}
+}
+
+impl BlockNode for OscShapeNode {
+	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], _: &mut [Buffer]) {}
+
+	fn set_param(&mut self, name: &str, value: f32) {
+		if name == "shape" {
+			self.shape.store(value as u32, Ordering::Relaxed);
+		}
+	}
+
+	fn constructor(&self) -> Option<Constructor> {
+		Some(Constructor::Osc(Box::new(TableOsc(ShapeTable {
+			shape: self.shape.clone(),
+		}))))
+	}
+}
+
+/// The envelope that turns an oscillator and the block's notes into audio.
+struct AdsrNode {
+	rate: usize,
+	inner: Option<Adsr<Box<dyn Oscillator<2> + Send + Sync>, EqualTemperament, 2>>,
+}
+
+impl AdsrNode {
+	fn new(rate: usize) -> Self {
+		Self { rate, inner: None }
+	}
+}
+
+impl BlockNode for AdsrNode {
+	fn install(&mut self, oscillator: Box<dyn Oscillator<2> + Send + Sync>) -> bool {
+		self.inner = Some(Adsr::new(oscillator, EqualTemperament, self.rate));
+
+		true
+	}
+
+	fn set_param(&mut self, name: &str, value: f32) {
+		if let Some(inner) = &mut self.inner {
+			inner.set_parameter(name, SetValue::Float(value));
+		}
+	}
+
+	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
+		let Some(inner) = &mut self.inner else {
+			if let Some(Buffer::Audio(out)) = outputs.first_mut() {
+				out.clear();
+				out.frames = context.frames;
+			}
+
+			return;
+		};
+
+		if let Some(Buffer::Audio(out)) = outputs.first_mut() {
+			out.clear();
+			out.frames = context.frames;
+
+			for frame in 0..context.frames {
+				context.context.set_sample_offset(frame);
+				let samples = inner.generate(&mut context.context);
+
+				out.channels[0][frame] = samples[0];
+				out.channels[1][frame] = samples[1];
+			}
+		}
 	}
 }
 

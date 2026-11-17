@@ -9,7 +9,7 @@ use i_am_dsp::ProcessContext;
 use crate::block::{AudioBlock, BLOCK, BlockContext, Buffer, PatchContext};
 use crate::compile::{CompileError, Plan, compile};
 use crate::graph::{Graph, ModulationMode, NodeId, SignalKind};
-use crate::nodes::{BlockNode, make_with};
+use crate::nodes::{BlockNode, Constructor, make_with};
 
 /// Why an engine could not be built.
 #[derive(Debug)]
@@ -171,6 +171,7 @@ impl Engine {
 					SignalKind::Audio(_) => Buffer::Audio(AudioBlock::silent(BLOCK)),
 					SignalKind::Control => Buffer::Control(0.0),
 					SignalKind::Midi => Buffer::Midi,
+					SignalKind::Wavetable | SignalKind::Osc => Buffer::Control(0.0),
 				});
 			}
 			outputs.push(node_outputs);
@@ -185,12 +186,37 @@ impl Engine {
 					SignalKind::Audio(_) => Buffer::Audio(AudioBlock::silent(BLOCK)),
 					SignalKind::Control => Buffer::Control(0.0),
 					SignalKind::Midi => Buffer::Midi,
+					SignalKind::Wavetable | SignalKind::Osc => Buffer::Control(0.0),
 				});
 			}
 			inputs.push(node_inputs);
 
 			if kind.id == "out:audio" && output_step.is_none() {
 				output_step = Some(step);
+			}
+		}
+
+		// A constructor node hands its table or oscillator to the consumer. The
+		// envelope builds the running oscillator once; the constructor nodes keep
+		// only their parameters, which an atomic carries into every table copy.
+		for edge in &graph.edges {
+			let to_kind = graph.get(edge.to.0).map(|instance| instance.kind.id);
+
+			if to_kind != Some("adsr") || edge.to.1 != 1 {
+				continue;
+			}
+
+			let from = steps[&edge.from.0];
+			let to = steps[&edge.to.0];
+
+			match nodes[from].constructor() {
+				Some(Constructor::Table(table)) => {
+					nodes[to].install(Box::new(i_am_dsp::prelude::TableOsc(table)));
+				}
+				Some(Constructor::Osc(oscillator)) => {
+					nodes[to].install(oscillator);
+				}
+				None => {}
 			}
 		}
 

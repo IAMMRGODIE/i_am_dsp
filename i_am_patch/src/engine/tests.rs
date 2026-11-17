@@ -224,6 +224,107 @@ fn a_negative_modulation_does_not_blow_up() {
 }
 
 #[test]
+fn an_envelope_plays_a_wavetable() {
+	let mut graph = Graph::new();
+	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+	let table = graph.add_node("table:shape", (0.0, 100.0)).expect("table");
+	let envelope = graph.add_node("adsr", (100.0, 0.0)).expect("adsr");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+
+	graph.connect((midi, 0), (envelope, 0));
+	graph.connect((table, 0), (envelope, 1));
+	graph.connect((envelope, 0), (out, 0));
+
+	let peak = render(&graph);
+
+	assert!(peak > 1e-3, "the envelope was silent: {peak}");
+}
+
+#[test]
+fn an_oscillator_plays_without_a_table_node() {
+	let mut graph = Graph::new();
+	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+	let oscillator = graph.add_node("osc:shape", (0.0, 100.0)).expect("osc");
+	let envelope = graph.add_node("adsr", (100.0, 0.0)).expect("adsr");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+
+	graph.connect((midi, 0), (envelope, 0));
+	graph.connect((oscillator, 0), (envelope, 1));
+	graph.connect((envelope, 0), (out, 0));
+
+	assert!(render(&graph) > 1e-3);
+}
+
+#[test]
+fn the_table_node_shares_its_shape_with_the_oscillator() {
+	let mut graph = Graph::new();
+	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+	let table = graph.add_node("table:shape", (0.0, 100.0)).expect("table");
+	let envelope = graph.add_node("adsr", (100.0, 0.0)).expect("adsr");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+
+	graph.connect((midi, 0), (envelope, 0));
+	graph.connect((table, 0), (envelope, 1));
+	graph.connect((envelope, 0), (out, 0));
+
+	let mut engine = Engine::new(&graph, 48_000).expect("the graph builds");
+	let input = vec![[0.0f32; 2]; BLOCK];
+	let mut frames = vec![[0.0f32; 2]; BLOCK];
+
+	for block in 0..8 {
+		let events = if block == 0 {
+			vec![note_event(60)]
+		} else {
+			vec![]
+		};
+
+		engine.process(&input, &events, &mut frames);
+	}
+
+	// A sine spends time away from its peak, a square sits on it.
+	let fill = |frames: &[[f32; 2]]| {
+		let peak = frames
+			.iter()
+			.map(|frame| frame[0].abs())
+			.fold(0.0f32, f32::max);
+		let rms = (frames.iter().map(|frame| frame[0] * frame[0]).sum::<f32>()
+			/ frames.len() as f32)
+			.sqrt();
+
+		rms / peak.max(1e-6)
+	};
+	let sine = fill(&frames);
+
+	assert!(sine < 0.8, "a sine should not fill its peak: {sine}");
+
+	assert!(engine.set_param(table, "shape", 3.0));
+
+	// One block carries the change into the node, the next one plays it.
+	engine.process(&input, &[], &mut frames);
+	engine.process(&input, &[], &mut frames);
+
+	let square = fill(&frames);
+
+	assert!(square > 0.9, "the square did not reach the table: {square}");
+}
+
+#[test]
+fn an_audio_edge_cannot_feed_a_constructor_port() {
+	use crate::compile::{CompileError, compile};
+
+	let mut graph = Graph::new();
+	let audio = graph.add_node("input:audio", (0.0, 0.0)).expect("audio");
+	let envelope = graph.add_node("adsr", (100.0, 0.0)).expect("adsr");
+
+	graph.connect((audio, 0), (envelope, 1));
+
+	assert!(matches!(
+		compile(&graph),
+		Err(CompileError::KindMismatch { .. })
+	));
+}
+
+#[test]
 fn a_synth_node_plays() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");

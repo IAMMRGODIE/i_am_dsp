@@ -17,6 +17,10 @@ pub enum SignalKind {
 	Audio(Channels),
 	/// One value at the control rate.
 	Control,
+	/// A single-cycle table, read wherever a phase points.
+	Wavetable,
+	/// A running oscillator, played at a note's pitch.
+	Osc,
 }
 
 /// How many channels an audio port carries.
@@ -142,6 +146,8 @@ const fn choice_param(
 
 /// The LFO and table shapes, in the order the sources play them.
 const SHAPES: &[&str] = &["Sine", "Triangle", "Saw", "Square"];
+/// The shapes the oscillator and table nodes play.
+const CONSTRUCTOR_SHAPES: &[&str] = &["Sine", "Triangle", "Saw", "Square", "Noise"];
 /// What the MIDI source follows.
 const MIDI_MODES: &[&str] = &["Note", "Velocity"];
 
@@ -251,6 +257,35 @@ const BUILTINS: &[NodeDesc] = &[
 		outputs: &[optional("audio", AUDIO)],
 		latency: 0,
 		params: &[],
+	},
+	NodeDesc {
+		id: "table:shape",
+		name: "Wavetable",
+		inputs: &[],
+		outputs: &[port("wave", SignalKind::Wavetable)],
+		latency: 0,
+		params: &[choice_param("shape", 0.0, 4.0, CONSTRUCTOR_SHAPES)],
+	},
+	NodeDesc {
+		id: "osc:shape",
+		name: "Oscillator",
+		inputs: &[],
+		outputs: &[port("osc", SignalKind::Osc)],
+		latency: 0,
+		params: &[choice_param("shape", 0.0, 4.0, CONSTRUCTOR_SHAPES)],
+	},
+	NodeDesc {
+		id: "adsr",
+		name: "Envelope",
+		inputs: &[port("midi", SignalKind::Midi), port("osc", SignalKind::Osc)],
+		outputs: &[port("audio", AUDIO)],
+		latency: 0,
+		params: &[
+			log_param("attack_time", 0.01, 0.001, 10.0),
+			log_param("decay_time", 0.2, 0.001, 10.0),
+			param("sustain_level", 0.7, 0.0, 1.0),
+			log_param("release_time", 0.3, 0.001, 10.0),
+		],
 	},
 	NodeDesc {
 		id: "voice:in",
