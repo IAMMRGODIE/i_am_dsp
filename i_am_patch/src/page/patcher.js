@@ -3715,6 +3715,23 @@
       }
 
       if (id !== null && key) {
+        // The voice group is copied per note, so a control on one side of its
+        // boundary is a different value on the other: the compiler rejects the
+        // link, and the page says why before posting it.
+        const voice = patch.voice || [];
+        const targetInside = voice.includes(id);
+        const sourceInside = voice.includes(drag.id);
+
+        if (targetInside !== sourceInside) {
+          showStatus(
+            targetInside
+              ? "A control outside the VOICE group cannot modulate a voice node: move the source inside the group."
+              : "A control inside the VOICE group cannot modulate a node outside it: move the source outside the group.",
+          );
+
+          return;
+        }
+
         const depth = defaultDepth(kindOf(nodeOf(id).kind), key);
 
         op({ op: "modulate", from: [drag.id, drag.index], to: [id, key], depth });

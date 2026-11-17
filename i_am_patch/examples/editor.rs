@@ -225,8 +225,8 @@ fn spawn_audio(shared: Shared) {
 							Some(engine)
 						}
 						Err(error) => {
-							eprintln!("the demo graph does not play: {error:?}");
-							*shared.error.lock().expect("error") = Some(format!("{error:?}"));
+							eprintln!("the demo graph does not play: {error}");
+							*shared.error.lock().expect("error") = Some(error.to_string());
 							None
 						}
 					};
@@ -238,8 +238,8 @@ fn spawn_audio(shared: Shared) {
 							Some(poly)
 						}
 						Err(error) => {
-							eprintln!("the demo graph does not play: {error:?}");
-							*shared.error.lock().expect("error") = Some(format!("{error:?}"));
+							eprintln!("the demo graph does not play: {error}");
+							*shared.error.lock().expect("error") = Some(error.to_string());
 							None
 						}
 					};

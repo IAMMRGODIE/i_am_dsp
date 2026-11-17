@@ -28,6 +28,16 @@ impl From<CompileError> for EngineError {
 	}
 }
 
+impl std::fmt::Display for EngineError {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Compile(error) => error.fmt(formatter),
+			Self::UnknownKind(kind) => write!(formatter, "the catalog has no {kind} node"),
+			Self::NoVoiceGroup => write!(formatter, "the graph has no voice group"),
+		}
+	}
+}
+
 /// A short ring that holds one edge back, so a diamond's paths meet.
 struct DelayLine {
 	buffer: Vec<[f32; 2]>,
