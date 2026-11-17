@@ -619,11 +619,33 @@ impl ModalString {
 		// The scratch vector is reused: a string steps once per sample, and an
 		// allocation here would be one per sample per string.
 		self.free.clear();
+
 		for port in &self.ports {
-			let mut free = 0.0;
-			for (mode, weight) in self.modes.iter().zip(port.weights.iter()) {
-				free += weight * (mode.c * mode.q + mode.d * mode.v);
+			let mut lanes = f32x4::ZERO;
+			let mut index = 0;
+
+			// Four modes at a time: the bank is one flat array by design, so the
+			// lanes are gathered rather than read straight through.
+			while index + 4 <= self.modes.len() {
+				let modes = &self.modes[index..index + 4];
+				let c = f32x4::from([modes[0].c, modes[1].c, modes[2].c, modes[3].c]);
+				let d = f32x4::from([modes[0].d, modes[1].d, modes[2].d, modes[3].d]);
+				let q = f32x4::from([modes[0].q, modes[1].q, modes[2].q, modes[3].q]);
+				let v = f32x4::from([modes[0].v, modes[1].v, modes[2].v, modes[3].v]);
+				let weights = f32x4::from(&port.weights[index..index + 4]);
+
+				lanes += weights * (c * q + d * v);
+				index += 4;
 			}
+
+			let mut free = lanes.reduce_add();
+
+			while index < self.modes.len() {
+				let mode = &self.modes[index];
+				free += port.weights[index] * (mode.c * mode.q + mode.d * mode.v);
+				index += 1;
+			}
+
 			self.free.push(free);
 		}
 
@@ -651,7 +673,65 @@ impl ModalString {
 		// Pass three: advance every mode with the force it saw, and read the
 		// bridge force off the mode displacements.
 		let mut bridge = 0.0;
-		for (mode, shaped) in self.modes.iter_mut().zip(self.shaped_force.iter()) {
+		let mut index = 0;
+
+		while index + 4 <= self.modes.len() {
+			let modes = &self.modes[index..index + 4];
+			let shaped = [
+				self.shaped_force[index],
+				self.shaped_force[index + 1],
+				self.shaped_force[index + 2],
+				self.shaped_force[index + 3],
+			];
+			let mut wake = [0.0f32; 4];
+
+			for lane in 0..4 {
+				wake[lane] = if modes[lane].awake || shaped[lane] != 0.0 {
+					1.0
+				} else {
+					0.0
+				};
+			}
+
+			let mask = f32x4::from(wake);
+			let keep = f32x4::splat(1.0) - mask;
+			let q = f32x4::from([modes[0].q, modes[1].q, modes[2].q, modes[3].q]);
+			let v = f32x4::from([modes[0].v, modes[1].v, modes[2].v, modes[3].v]);
+			let a = f32x4::from([modes[0].a, modes[1].a, modes[2].a, modes[3].a]);
+			let b = f32x4::from([modes[0].b, modes[1].b, modes[2].b, modes[3].b]);
+			let c = f32x4::from([modes[0].c, modes[1].c, modes[2].c, modes[3].c]);
+			let d = f32x4::from([modes[0].d, modes[1].d, modes[2].d, modes[3].d]);
+			let e = f32x4::from([modes[0].e, modes[1].e, modes[2].e, modes[3].e]);
+			let f = f32x4::from([modes[0].f, modes[1].f, modes[2].f, modes[3].f]);
+			let weight = f32x4::from([
+				modes[0].bridge,
+				modes[1].bridge,
+				modes[2].bridge,
+				modes[3].bridge,
+			]);
+			let force = f32x4::from(shaped);
+			let next_q = mask * (a * q + b * v + e * force) + keep * q;
+			let next_v = mask * (c * q + d * v + f * force) + keep * v;
+
+			bridge += (weight * next_q * mask).reduce_add();
+
+			let qs = next_q.to_array();
+			let vs = next_v.to_array();
+
+			for lane in 0..4 {
+				let mode = &mut self.modes[index + lane];
+				mode.q = qs[lane];
+				mode.v = vs[lane];
+				mode.awake = mode.q.abs() > mode.quiet_q || mode.v.abs() > mode.quiet_v;
+			}
+
+			index += 4;
+		}
+
+		for (mode, shaped) in self.modes[index..]
+			.iter_mut()
+			.zip(self.shaped_force[index..].iter())
+		{
 			// A sleeping mode still has to wake if something is pushing on it.
 			// With no force and nothing left to say, it is skipped whole, which
 			// is both faster than computing it and the reason it never reaches

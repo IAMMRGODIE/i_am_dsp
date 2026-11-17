@@ -7,6 +7,9 @@ use super::*;
 /// decay rate is six orders of magnitude below the sample rate. Writing it as a
 /// direct form recurrence instead would lose the decay entirely in `f32`.
 ///
+/// The bank is stepped four modes at a time: the lanes are gathered out of this
+/// one array, which keeps the layout below and still vectorises the update.
+///
 /// The modes live in one array of these rather than in a set of parallel arrays,
 /// which is not the layout the shape of the arithmetic suggests. It was tried
 /// the other way and measured: the bank is the hottest loop in the crate, eight
