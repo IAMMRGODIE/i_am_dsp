@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
-	AdditiveOsc, Adsr, EqualTemperament, Generator, GeneratorEffect, Oscillator, ParamMap, Parameter,
-	Parameters, RhaiFreqGen, RhaiScript, SetValue,
+	AdditiveOsc, Adsr, EqualTemperament, Generator, GeneratorEffect, Oscillator, ParamMap,
+	Parameter, Parameters, RhaiFreqGen, RhaiScript, SetValue,
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
