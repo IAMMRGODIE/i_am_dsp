@@ -21,25 +21,7 @@ use crate::sources::{SourceKind, SourceSettings, lfo_preset};
 
 /// Whether a kind builds a table or an oscillator instead of running audio.
 pub(crate) fn is_constructor(kind: &str) -> bool {
-	matches!(
-		kind,
-		"table:shape"
-			| "table:canvas"
-			| "table:shapes"
-			| "table:additive"
-			| "table:spectrum"
-			| "table:script"
-			| "osc:shape"
-			| "osc:am"
-			| "osc:rm"
-			| "osc:pm"
-			| "osc:fm"
-			| "warp:bend"
-			| "warp:mirror"
-			| "warp:sync"
-			| "warp:quantize"
-			| "warp:remap"
-	)
+	crate::graph::is_constructor_kind(kind)
 }
 
 /// What a constructor node hands the node that consumes it.

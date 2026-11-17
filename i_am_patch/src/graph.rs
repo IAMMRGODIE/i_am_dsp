@@ -151,6 +151,32 @@ const CONSTRUCTOR_SHAPES: &[&str] = &["Sine", "Triangle", "Saw", "Square", "Nois
 /// What the MIDI source follows.
 const MIDI_MODES: &[&str] = &["Note", "Velocity"];
 
+/// Whether a kind builds a table or an oscillator instead of running audio.
+///
+/// A constructor has no side effect of its own, so the voice group counts it as
+/// part of the voice it feeds rather than as a node between the boundaries.
+pub fn is_constructor_kind(kind: &str) -> bool {
+	matches!(
+		kind,
+		"table:shape"
+			| "table:canvas"
+			| "table:shapes"
+			| "table:additive"
+			| "table:spectrum"
+			| "table:script"
+			| "osc:shape"
+			| "osc:am"
+			| "osc:rm"
+			| "osc:pm"
+			| "osc:fm"
+			| "warp:bend"
+			| "warp:mirror"
+			| "warp:sync"
+			| "warp:quantize"
+			| "warp:remap"
+	)
+}
+
 /// One node kind.
 #[derive(Debug, Clone)]
 pub struct NodeDesc {

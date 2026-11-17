@@ -391,6 +391,22 @@ pub fn voice_group(graph: &Graph) -> BTreeSet<NodeId> {
 			}
 		}
 
+		// The tables and oscillators that feed a voice node are part of the
+		// voice too: every voice builds its own copy, so their parameters are
+		// per-note rather than shared.
+		for edge in &graph.edges {
+			if group.contains(&edge.to.0)
+				&& !group.contains(&edge.from.0)
+				&& graph
+					.get(edge.from.0)
+					.map(|node| crate::graph::is_constructor_kind(node.kind.id))
+					.unwrap_or(false)
+			{
+				group.insert(edge.from.0);
+				changed = true;
+			}
+		}
+
 		if !changed {
 			break;
 		}
@@ -438,6 +454,35 @@ mod tests {
 			compile(&graph),
 			Err(CompileError::KindMismatch { .. })
 		));
+	}
+
+	#[test]
+	fn a_table_that_feeds_a_voice_node_is_in_the_voice() {
+		use crate::graph::Graph;
+
+		let mut graph = Graph::new();
+		let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+		let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
+		let table = graph.add_node("table:shape", (0.0, 100.0)).expect("table");
+		let envelope = graph.add_node("adsr", (150.0, 0.0)).expect("adsr");
+		let voice_out = graph
+			.add_node("voice:out", (300.0, 0.0))
+			.expect("voice out");
+		let out = graph.add_node("out:audio", (400.0, 0.0)).expect("out");
+
+		graph.connect((midi, 0), (voice_in, 0));
+		graph.connect((voice_in, 0), (envelope, 0));
+		graph.connect((table, 0), (envelope, 1));
+		graph.connect((envelope, 0), (voice_out, 0));
+		graph.connect((voice_out, 0), (out, 0));
+
+		let group = super::voice_group(&graph);
+
+		assert!(
+			group.contains(&envelope),
+			"the envelope is not in the voice"
+		);
+		assert!(group.contains(&table), "the table stayed outside the voice");
 	}
 
 	#[test]
