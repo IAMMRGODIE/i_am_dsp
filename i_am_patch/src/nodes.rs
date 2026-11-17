@@ -222,6 +222,13 @@ pub fn make_with(
 				32,
 			))
 		})),
+		"table:canvas" => {
+			let handle = slots.canvas(node);
+
+			Box::new(ProductTableNode::new(move || {
+				Box::new(CanvasOscillator::new(handle.clone()))
+			}))
+		}
 		"osc:spectrum" => {
 			let handle = slots.spectrum(node);
 
@@ -1198,6 +1205,27 @@ impl BlockNode for ProductOscNode {
 
 	fn constructor_spec(&self) -> Option<ConstructorSpec> {
 		Some(ConstructorSpec::Osc((self.factory)()))
+	}
+}
+
+/// A product's table, handed to the node that reads it.
+struct ProductTableNode {
+	factory: Box<dyn Fn() -> Box<dyn WaveTable + Send + Sync> + Send + Sync>,
+}
+
+impl ProductTableNode {
+	fn new(factory: impl Fn() -> Box<dyn WaveTable + Send + Sync> + Send + Sync + 'static) -> Self {
+		Self {
+			factory: Box::new(factory),
+		}
+	}
+}
+
+impl BlockNode for ProductTableNode {
+	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], _: &mut [Buffer]) {}
+
+	fn constructor_spec(&self) -> Option<ConstructorSpec> {
+		Some(ConstructorSpec::Table((self.factory)()))
 	}
 }
 

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
 	Adsr, EqualTemperament, Generator, GeneratorEffect, MultiStereoGenerators, Node, Oscillator,
-	ParamMap, Parameter, Parameters, SetValue, StereoGenerator,
+	ParamMap, Parameter, Parameters, SetValue, StereoGenerator, WaveTable,
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
@@ -318,6 +318,12 @@ impl Oscillator<2> for CanvasOscillator {
 		{
 			self.multi.generators = pages;
 		}
+	}
+}
+
+impl WaveTable for CanvasOscillator {
+	fn sample(&self, t: f32, channel: usize) -> f32 {
+		self.multi.play_at(1.0, t, [0.0; 2])[channel]
 	}
 }
 

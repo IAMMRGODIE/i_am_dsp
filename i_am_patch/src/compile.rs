@@ -317,6 +317,7 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 								| "osc:rm"
 								| "osc:pm"
 								| "osc:fm"
+								| "table:canvas"
 								| "osc:shapes"
 								| "osc:additive"
 								| "osc:spectrum"

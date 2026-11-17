@@ -275,6 +275,14 @@ const BUILTINS: &[NodeDesc] = &[
 		params: &[choice_param("shape", 0.0, 4.0, CONSTRUCTOR_SHAPES)],
 	},
 	NodeDesc {
+		id: "table:canvas",
+		name: "Canvas",
+		inputs: &[],
+		outputs: &[port("wave", SignalKind::Wavetable)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
 		id: "osc:shapes",
 		name: "Shapes",
 		inputs: &[],
