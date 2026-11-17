@@ -60,6 +60,13 @@ mod modes;
 use modes::*;
 use wide::f32x4;
 
+/// Whether to drive the bank four modes at a time.
+///
+/// The lanes pay off in a release build; without inlining the wrapper's calls
+/// cost more than the four-wide arithmetic saves, so a debug build (and its
+/// performance test) keeps the plain loop.
+pub(crate) const LANES: bool = !cfg!(debug_assertions);
+
 /// The exact state transition of a damped oscillator over one sample.
 fn transition(frequency: f64, sigma: f64, t: f64) -> (f32, f32, f32, f32) {
 	let omega = std::f64::consts::TAU * frequency;
@@ -621,6 +628,17 @@ impl ModalString {
 		self.free.clear();
 
 		for port in &self.ports {
+			if !LANES {
+				let mut free = 0.0;
+
+				for (mode, weight) in self.modes.iter().zip(port.weights.iter()) {
+					free += weight * (mode.c * mode.q + mode.d * mode.v);
+				}
+
+				self.free.push(free);
+				continue;
+			}
+
 			let mut lanes = f32x4::ZERO;
 			let mut index = 0;
 
@@ -675,9 +693,10 @@ impl ModalString {
 		let mut bridge = 0.0;
 		let mut index = 0;
 
-		while index + 4 <= self.modes.len() {
-			let modes = &self.modes[index..index + 4];
-			let shaped = [
+		if LANES {
+			while index + 4 <= self.modes.len() {
+				let modes = &self.modes[index..index + 4];
+				let shaped = [
 				self.shaped_force[index],
 				self.shaped_force[index + 1],
 				self.shaped_force[index + 2],
@@ -726,6 +745,7 @@ impl ModalString {
 			}
 
 			index += 4;
+			}
 		}
 
 		for (mode, shaped) in self.modes[index..]
