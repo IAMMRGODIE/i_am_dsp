@@ -1441,7 +1441,7 @@
     };
 
     var post = function () {
-      var body = JSON.stringify(frames);
+      var body = JSON.stringify(spectrum.frames);
 
       // The product page owns one spectrum, so its POST has no node. A patch
       // card shares the page with many, and its state carries the route to use.
@@ -1459,6 +1459,13 @@
     /// Paints the bars the pointer passed over since the last event, not just
     /// the one under it: a fast drag draws a line instead of a picket fence.
     var edit = function (event) {
+      // The page's poll replaces the pages while this hero stays wired, so the
+      // arrays are read at gesture time: an edit must not post the copy the
+      // hero was wired with back over newer pages.
+      frames = spectrum.frames;
+      selected = Math.min(selected, frames.length - 1);
+      frame = frames[selected] || frame;
+
       var at = point(event);
       var count = frame.levels.length;
       var index = Math.max(0, Math.min(count - 1,

@@ -1330,11 +1330,13 @@
       .then((state) => {
         if (!state || !state.frames) return;
 
-        entry.context.spectrum = {
-          generation: state.generation,
-          frames: state.frames,
-          page: 0,
-        };
+        // The hero's handlers hold this object, so its pages are replaced in
+        // place: a fresh object would leave them editing the old snapshot and
+        // posting it back over the new one.
+        const holder = entry.context.spectrum || { page: 0 };
+        holder.generation = state.generation;
+        holder.frames = state.frames;
+        entry.context.spectrum = holder;
 
         if (entry.card.repaintHero) entry.card.repaintHero();
       })
@@ -1959,6 +1961,12 @@
         String(Math.max(0.2, Math.min(w / baseWidth(node), h / baseHeight(node)))),
       );
       entry.host.classList.toggle("compact", w < 430);
+
+      // The pages live outside the parameter map, so they can change without a
+      // graph change: keep this card's copy current or its next edit would post
+      // a stale snapshot back over them.
+      if (isProductCard(kind, "spectrum")) refreshSpectrum(entry);
+
       return entry.host;
     }
 
@@ -3958,6 +3966,7 @@
   // One small request says whether anything moved, and the graph itself is only
   // read when it did.
   let patchRevision = -1;
+  let spectrumTick = 0;
 
   setInterval(async () => {
     if (busy()) return;
@@ -3967,6 +3976,16 @@
 
       serverError = state.error || "";
       paintStatus();
+
+      // The drawn pages are not part of the graph, so a page edited in another
+      // window does not move the revision: ask for them on a slow tick.
+      if (++spectrumTick >= 8) {
+        spectrumTick = 0;
+
+        for (const entry of Object.values(cards)) {
+          if (entry && entry.kind && isProductCard(entry.kind, "spectrum")) refreshSpectrum(entry);
+        }
+      }
 
       if (state.revision === patchRevision) return;
 
