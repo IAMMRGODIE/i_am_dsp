@@ -6,6 +6,9 @@ description = "Physical modelling of plucked, struck and bowed strings."
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+# The mode bank vectorises four partials at a time; this is the same SIMD
+# wrapper the effects use, so there is one way the workspace does SIMD.
+wide = "1.7.0"
 
 [dev-dependencies]
 

@@ -64,7 +64,7 @@ cargo bundle -p i_am_effects_bundle --no-vst3         # 只要 .clap
 | `i_am_effects/`、`i_am_synths/` | 产品注册与面板选项 |
 | `i_am_patch/`、`i_am_patch_product/` | 图模型、编译、块引擎、patcher 页面 |
 | `i_am_rack/` | Multipass：分频、模块、调制矩阵、页面 |
-| `i_am_string/` | 物理建模弦（独立 crate，无依赖） |
+| `i_am_string/` | 物理建模弦（只依赖 `wide`，不依赖 `i_am_dsp`） |
 | `*_bundle/` | 只放 `export_plugin!`，不放实现 |
 | `i_am_bundler/` | `.clap` / `.vst3` 打包 |
 

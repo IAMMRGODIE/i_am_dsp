@@ -58,6 +58,7 @@ use config::*;
 mod modes;
 
 use modes::*;
+use wide::f32x4;
 
 /// The exact state transition of a damped oscillator over one sample.
 fn transition(frequency: f64, sigma: f64, t: f64) -> (f32, f32, f32, f32) {
@@ -73,6 +74,26 @@ fn transition(frequency: f64, sigma: f64, t: f64) -> (f32, f32, f32, f32) {
 		(decay * -omega * omega * sine / damped) as f32,
 		(decay * (cosine - ratio * sine)) as f32,
 	)
+}
+
+/// `dst += src * gain`, four lanes at a time.
+///
+/// The mode shapes and the force they carry are both flat arrays, so the sum a
+/// contact adds is a contiguous multiply-add rather than a walk over the bank.
+fn saxpy(dst: &mut [f32], src: &[f32], gain: f32) {
+	let lanes = f32x4::splat(gain);
+	let mut index = 0;
+
+	while index + 4 <= dst.len() {
+		let sum = f32x4::from(&dst[index..index + 4]) + f32x4::from(&src[index..index + 4]) * lanes;
+		dst[index..index + 4].copy_from_slice(&sum.to_array());
+		index += 4;
+	}
+
+	while index < dst.len() {
+		dst[index] += src[index] * gain;
+		index += 1;
+	}
 }
 
 /// A single physical string, as a bank of modes with any number of ports.
@@ -621,9 +642,7 @@ impl ModalString {
 				continue;
 			}
 			let force = port.solve(free, port.conductance, dt);
-			for (shaped, weight) in self.shaped_force.iter_mut().zip(port.weights.iter()) {
-				*shaped += weight * force;
-			}
+			saxpy(&mut self.shaped_force, &port.weights, force);
 			if !port.law.is_active() {
 				port.active = false;
 			}
