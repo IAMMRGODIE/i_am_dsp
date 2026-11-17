@@ -14,6 +14,8 @@
 //! between zero (felt lifted, string free to ring on) and one (felt resting on
 //! the string), which is set from the key and the pedal together.
 
+use wide::f32x4;
+
 /// A two pole resonator with an adjustable decay rate.
 #[derive(Clone, Copy, Debug)]
 struct Resonator {
@@ -108,9 +110,64 @@ impl SympatheticString {
 			self.silent = false;
 		}
 
-		let mut sum = 0.0;
-		for partial in &mut self.partials {
-			sum += partial.process(x);
+		// The partials of one string do not talk to each other, so four of them
+		// run in one vector: the recurrence is the same three multiply-adds.
+		let mut lanes = f32x4::ZERO;
+		let mut index = 0;
+
+		while index + 4 <= self.partials.len() {
+			let partials = &self.partials[index..index + 4];
+			let a1 = f32x4::from([
+				partials[0].a1,
+				partials[1].a1,
+				partials[2].a1,
+				partials[3].a1,
+			]);
+			let a2 = f32x4::from([
+				partials[0].a2,
+				partials[1].a2,
+				partials[2].a2,
+				partials[3].a2,
+			]);
+			let gain = f32x4::from([
+				partials[0].gain,
+				partials[1].gain,
+				partials[2].gain,
+				partials[3].gain,
+			]);
+			let y1 = f32x4::from([
+				partials[0].y1,
+				partials[1].y1,
+				partials[2].y1,
+				partials[3].y1,
+			]);
+			let y2 = f32x4::from([
+				partials[0].y2,
+				partials[1].y2,
+				partials[2].y2,
+				partials[3].y2,
+			]);
+			let y = gain * f32x4::splat(x) - a1 * y1 - a2 * y2;
+
+			lanes += y;
+
+			let next = y.to_array();
+			let previous = y1.to_array();
+
+			for lane in 0..4 {
+				let partial = &mut self.partials[index + lane];
+				partial.y2 = previous[lane];
+				partial.y1 = next[lane];
+			}
+
+			index += 4;
+		}
+
+		let mut sum = lanes.reduce_add();
+
+		while index < self.partials.len() {
+			sum += self.partials[index].process(x);
+			index += 1;
 		}
 
 		if sum.abs() < SILENCE && x.abs() < SILENCE {
