@@ -1070,6 +1070,26 @@
 
     if (!hero) return;
 
+    // A repaint replaces the hero's svg, and the editor's listeners go with it.
+    // Watch the box and wire whatever the repaint puts there.
+    if (!entry.canvasObserver) {
+      entry.canvasObserver = new MutationObserver(() => {
+        if (!entry.host || !entry.host.isConnected) {
+          entry.canvasObserver.disconnect();
+          return;
+        }
+
+        wireCanvasCard(entry);
+      });
+      entry.canvasObserver.observe(hero, { childList: true });
+    }
+
+    const svg = hero.querySelector("svg");
+
+    if (!svg || svg.__canvasWired) return;
+
+    svg.__canvasWired = true;
+
     IAmCard.wire(hero, "canvas", entry.node.params, {
       canvas: entry.context.canvas,
       set: (id, value) => {
