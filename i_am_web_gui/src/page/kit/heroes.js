@@ -66,7 +66,14 @@
             repaint: markDirty,
             set: setControl,
             post: function (body) {
-              var path = hero.kind === "filtertable" ? "/filter-table" : "/history";
+              // Each hero edits its own product state, and each product answers
+              // on its own route: sending the spectrum's pages to /history both
+              // dropped the edit and left the sound on the old tables.
+              var kind = hero.kind || "";
+              var path = kind.indexOf("filter") !== -1 ? "/filter-table"
+                : kind.indexOf("spectrum") !== -1 ? "/spectrum"
+                : kind.indexOf("canvas") !== -1 ? "/canvas"
+                : "/history";
               fetch(path, { method: "POST", body: body }).catch(function () {});
             },
             import: function (body, window, page, mode, slice) {
