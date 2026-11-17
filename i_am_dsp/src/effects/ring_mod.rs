@@ -126,7 +126,8 @@ impl Effect<2> for RingMod {
 			let carrier = if mode == 2 {
 				sidechain
 			} else {
-				let phase = crate::generators::wavetable::wrap01(self.phase + channel as f32 * offset);
+				let phase =
+					crate::generators::wavetable::wrap01(self.phase + channel as f32 * offset);
 				carrier(self.shape, phase)
 			};
 
