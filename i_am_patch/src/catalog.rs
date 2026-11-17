@@ -137,6 +137,9 @@ fn kind_json(kind: &NodeDesc) -> Value {
 		let sections = i_am_web_gui::sections(&crate::graph::adsr_parameters());
 
 		hero = sections.iter().find_map(|section| section.hero.clone());
+		// The envelope page holds nine knobs in a row: the card needs the room a
+		// product face gives them, or the row is cut off.
+		face = Some((700.0, 380.0));
 		header = ADSR_HEADER;
 		switches = ADSR_SWITCHES
 			.iter()
