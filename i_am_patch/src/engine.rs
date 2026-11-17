@@ -99,8 +99,11 @@ pub struct Engine {
 	latency: usize,
 	tempo: Option<f32>,
 	position: Option<f32>,
+	/// The value each parameter ended a block at, so a parameter that did not
+	/// move is not written into its node again.
+	applied: Vec<Vec<f32>>,
 	/// Reused across blocks so the audio path does not allocate.
-	updates: Vec<(&'static str, f32, f32)>,
+	updates: Vec<(usize, &'static str, f32, f32)>,
 	done: Vec<bool>,
 	events: Vec<NoteEvent>,
 }
@@ -168,6 +171,7 @@ impl Engine {
 			latency: 0,
 			tempo: None,
 			position: None,
+			applied: Vec::new(),
 			updates: Vec::with_capacity(16),
 			done: Vec::new(),
 			events: Vec::with_capacity(16),
@@ -237,6 +241,8 @@ impl Engine {
 		lines.resize_with(order_len, Vec::new);
 		outputs.resize_with(order_len, Vec::new);
 		inputs.resize_with(order_len, Vec::new);
+		self.applied.clear();
+		self.applied.resize_with(order_len, Vec::new);
 
 		let mut output_step = None;
 
@@ -273,6 +279,9 @@ impl Engine {
 			outputs[step] = node_outputs;
 			controls.push(vec![0.0; kind.outputs.len()]);
 			base.push(instance.params.clone());
+			// NaN means "never written": it never equals a value, so the first
+			// block writes every parameter once.
+			self.applied[step] = vec![f32::NAN; instance.params.len()];
 			points.push(instance.points.clone());
 			velocity_points.push(instance.velocity_points.clone());
 
@@ -616,6 +625,9 @@ impl Engine {
 					&self.slots,
 				) {
 					self.nodes[step] = node;
+					// A fresh node starts at its defaults: every parameter has to
+					// be written into it again.
+					self.applied[step].fill(f32::NAN);
 				}
 
 				self.controls[step].fill(0.0);
@@ -691,7 +703,7 @@ impl Engine {
 		for step in 0..self.order.len() {
 			updates.clear();
 
-			for (name, base) in &self.base[step] {
+			for (index, (name, base)) in self.base[step].iter().enumerate() {
 				let name = *name;
 				let mut offset_start = 0.0;
 				let mut offset_end = 0.0;
@@ -749,11 +761,19 @@ impl Engine {
 					_ => (*base + offset_start, *base + offset_end),
 				};
 
-				updates.push((name, start, end));
+				// Nothing drives it and it has not moved: writing it again would
+				// cost a parameter-map write per block for nothing.
+				if start == end && self.applied[step][index] == end {
+					continue;
+				}
+
+				updates.push((index, name, start, end));
 			}
 
-			for &(name, start, end) in &updates {
+			for &(index, name, start, end) in &updates {
 				self.nodes[step].set_param_block(name, start, end, frames);
+				// The block ends at the value the ramp reached.
+				self.applied[step][index] = end;
 			}
 		}
 
