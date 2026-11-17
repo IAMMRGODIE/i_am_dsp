@@ -3715,19 +3715,32 @@
       }
 
       if (id !== null && key) {
-        // The voice group is copied per note, so a control on one side of its
-        // boundary is a different value on the other: the compiler rejects the
-        // link, and the page says why before posting it.
+        // A source that modulates a voice node joins the voice group itself, so
+        // everything else it drives has to be in the group too; the compiler
+        // rejects the old link otherwise.
         const voice = patch.voice || [];
         const targetInside = voice.includes(id);
         const sourceInside = voice.includes(drag.id);
 
-        if (targetInside !== sourceInside) {
-          showStatus(
-            targetInside
-              ? "A control outside the VOICE group cannot modulate a voice node: move the source inside the group."
-              : "A control inside the VOICE group cannot modulate a node outside it: move the source outside the group.",
+        if (targetInside && !sourceInside) {
+          const outside = patch.mods.filter(
+            (mod) => mod.from[0] === drag.id && !voice.includes(mod.to[0]),
           );
+
+          if (outside.length) {
+            const other = nodeOf(outside[0].to[0]);
+            const name = (other && kindOf(other.kind).name) || "a node";
+
+            showStatus(
+              "The source would join the VOICE group, but it also modulates " +
+                name +
+                " outside it: move that node inside the group, or use another source.",
+            );
+
+            return;
+          }
+        } else if (!targetInside && sourceInside) {
+          showStatus("A control inside the VOICE group cannot modulate a node outside it.");
 
           return;
         }
