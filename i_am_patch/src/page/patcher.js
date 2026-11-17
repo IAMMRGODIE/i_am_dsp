@@ -309,7 +309,9 @@
   // their own metadata; these nodes have no product, so the page draws what the
   // node is set to: the table, the phase map, the modulation, the envelope.
   function patchSvg(content) {
-    return '<svg viewBox="0 0 520 160" preserveAspectRatio="none">' + content + '</svg>';
+    // `mcard-graph` makes the svg take the hero's full box; without it the
+    // waveform keeps its own aspect and the box's lower half stays empty.
+    return '<svg class="mcard-graph" viewBox="0 0 520 160" preserveAspectRatio="none">' + content + '</svg>';
   }
 
   function patchValue(values, name, fallback) {
@@ -325,6 +327,22 @@
     }
 
     return path;
+  }
+
+  /// The sample function of a node that is a plain table, or nothing.
+  function patchSourceShape(source) {
+    if (!source) return null;
+
+    const kind = source.kind;
+    const shape = Math.round((source.params && source.params.shape) || 0);
+
+    if (kind === "table:shape" || kind === "osc:shape") {
+      return function (t) {
+        return patchShapeValue(shape, t);
+      };
+    }
+
+    return null;
   }
 
   function patchShapeValue(shape, t) {
@@ -357,16 +375,19 @@
     ) + '<div class="hero-label" style="left:2%;top:2%">' + shapes[shape] + '</div>';
   }
 
-  function patchWarpHero(mode, values) {
+  /// The table a warp reads, sampled through the warp: the actual waveform, not
+  /// the phase map that produced it.
+  function patchWarpHero(mode, values, context) {
     var amount = patchValue(values, "amount", 0);
     var power = Math.max(patchValue(values, "power", 1), 0.25);
     var ratio = Math.max(patchValue(values, "ratio", 1), 1);
     var steps = Math.max(patchValue(values, "steps", 1), 1);
+    var shape = patchSourceShape(context && context.source(0)) ||
+      function (t) { return patchShapeValue(0, t); };
     var points = [];
-    var diagonal = [];
 
-    for (var i = 0; i <= 200; i++) {
-      var t = i / 200;
+    for (var i = 0; i <= 240; i++) {
+      var t = i / 240;
       var folded = 1 - Math.abs(2 * t - 1);
       var warped = mode === "bend" ? Math.pow(t, power)
         : mode === "mirror" ? t + (folded - t) * amount
@@ -374,46 +395,52 @@
         : mode === "quantize" ? Math.floor(t * steps) / steps
         : t + (0.5 + 0.5 * Math.sin(t * Math.PI * 2) - t) * amount;
 
-      points.push([20 + t * 480, 148 - warped * 126]);
-      diagonal.push([20 + t * 480, 148 - t * 126]);
+      points.push([20 + t * 480, 80 - shape(warped) * 56]);
     }
 
     var names = { bend: "BEND", mirror: "MIRROR", sync: "SYNC", quantize: "QUANTIZE", remap: "REMAP" };
 
     return patchSvg(
-      '<path d="' + patchTrace(diagonal) + '" fill="none" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
       '<path d="' + patchTrace(points) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>'
     ) + '<div class="hero-label" style="left:2%;top:2%">' + names[mode] + '</div>';
   }
 
-  function patchModHero(mode, values) {
+  function patchFrac(t) {
+    return t - Math.floor(t);
+  }
+
+  /// The two tables a modulation reads, combined the way the node combines them.
+  function patchModHero(mode, values, context) {
     var depth = patchValue(values, "depth", 0);
     var ratio = Math.max(patchValue(values, "ratio", 1), 1);
+    var sine = function (t) { return Math.sin(t * Math.PI * 2); };
+    var carrier = patchSourceShape(context && context.source(0)) || sine;
+    var modulator = patchSourceShape(context && context.source(1)) || sine;
     var points = [];
-    var carrier = [];
+    var steps = 480;
+    var integral = 0;
 
-    for (var i = 0; i <= 400; i++) {
-      var t = i / 400 * 2;
-      var angle = t * Math.PI * 2;
-      var modulator = Math.sin(angle * ratio);
+    for (var i = 0; i <= steps; i++) {
+      var t = i / steps * 2;
+      var m = modulator(patchFrac(t * ratio));
       var value;
 
-      if (mode === "am") value = Math.sin(angle) * (1 + depth * modulator);
-      else if (mode === "rm") value = Math.sin(angle) * (1 - depth + depth * modulator);
-      else if (mode === "pm") value = Math.sin(angle + depth * modulator);
+      if (mode === "am") value = carrier(patchFrac(t)) * (1 + depth * m);
+      else if (mode === "rm") value = carrier(patchFrac(t)) * (1 - depth + depth * m);
+      else if (mode === "pm") value = carrier(patchFrac(t + depth * m));
       else {
-        var integral = (1 - Math.cos(angle * ratio)) / (2 * Math.PI * ratio);
-        value = Math.sin(angle + depth * integral * Math.PI * 2);
+        integral += m * (2 / steps);
+        value = carrier(patchFrac(t + depth * integral));
       }
 
-      points.push([20 + i / 400 * 480, 80 - value * 50]);
-      carrier.push([20 + i / 400 * 480, 80 - Math.sin(angle) * 50]);
+      points.push([20 + i / steps * 480, 80 - value * 56]);
     }
 
     var names = { am: "AM", rm: "RM", pm: "PM", fm: "FM" };
 
     return patchSvg(
-      '<path d="' + patchTrace(carrier) + '" fill="none" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
+      '<line x1="20" y1="80" x2="500" y2="80" stroke="#2f2f2f" stroke-dasharray="3 5"/>' +
       '<path d="' + patchTrace(points) + '" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>'
     ) + '<div class="hero-label" style="left:2%;top:2%">' + names[mode] + " · " + depth.toFixed(2) + '</div>';
   }
@@ -458,15 +485,15 @@
 
   if (window.IAmCard) {
     IAmCard.registerHero("patch-wavetable", patchTableHero);
-    IAmCard.registerHero("patch-warp-bend", function (values) { return patchWarpHero("bend", values); });
-    IAmCard.registerHero("patch-warp-mirror", function (values) { return patchWarpHero("mirror", values); });
-    IAmCard.registerHero("patch-warp-sync", function (values) { return patchWarpHero("sync", values); });
-    IAmCard.registerHero("patch-warp-quantize", function (values) { return patchWarpHero("quantize", values); });
-    IAmCard.registerHero("patch-warp-remap", function (values) { return patchWarpHero("remap", values); });
-    IAmCard.registerHero("patch-mod-am", function (values) { return patchModHero("am", values); });
-    IAmCard.registerHero("patch-mod-rm", function (values) { return patchModHero("rm", values); });
-    IAmCard.registerHero("patch-mod-pm", function (values) { return patchModHero("pm", values); });
-    IAmCard.registerHero("patch-mod-fm", function (values) { return patchModHero("fm", values); });
+    IAmCard.registerHero("patch-warp-bend", function (values, context) { return patchWarpHero("bend", values, context); });
+    IAmCard.registerHero("patch-warp-mirror", function (values, context) { return patchWarpHero("mirror", values, context); });
+    IAmCard.registerHero("patch-warp-sync", function (values, context) { return patchWarpHero("sync", values, context); });
+    IAmCard.registerHero("patch-warp-quantize", function (values, context) { return patchWarpHero("quantize", values, context); });
+    IAmCard.registerHero("patch-warp-remap", function (values, context) { return patchWarpHero("remap", values, context); });
+    IAmCard.registerHero("patch-mod-am", function (values, context) { return patchModHero("am", values, context); });
+    IAmCard.registerHero("patch-mod-rm", function (values, context) { return patchModHero("rm", values, context); });
+    IAmCard.registerHero("patch-mod-pm", function (values, context) { return patchModHero("pm", values, context); });
+    IAmCard.registerHero("patch-mod-fm", function (values, context) { return patchModHero("fm", values, context); });
     IAmCard.registerHero("patch-envelope", patchEnvelopeHero);
     // The envelope's shape page draws the oscillator it is actually fed, not a
     // fixed sine: the source's kind and parameters decide the picture.
@@ -482,7 +509,7 @@
 
       const mode = kind.indexOf("osc:") === 0 ? kind.slice(4) : "";
 
-      if (["am", "rm", "pm", "fm"].includes(mode)) return patchModHero(mode, params);
+      if (["am", "rm", "pm", "fm"].includes(mode)) return patchModHero(mode, params, context);
 
       if (kind.indexOf("table:") === 0) {
         const product = kind.slice(6);
@@ -680,7 +707,7 @@
       return entry.host;
     }
 
-    const context = { rate: 48000 };
+    const context = contextOf(node);
     const meta = Object.fromEntries((kind.param_meta || []).map((item) => [item.name, item]));
     const specs = (kind.params || []).map(([id, fallback]) => {
       // The catalog carries the range the DSP itself declares; the fallbacks
@@ -889,6 +916,15 @@
           return upstream ? { kind: upstream.kind, params: upstream.params || {} } : null;
         },
       });
+
+      // What feeds one of this node's inputs, read when the picture is painted.
+      context.source = (port) => {
+        const edge = patch.edges.find(
+          (candidate) => candidate.to[0] === node.id && candidate.to[1] === port,
+        );
+
+        return edge ? nodeOf(edge.from[0]) : null;
+      };
 
       cardContexts.set(node.id, context);
     }
@@ -2075,6 +2111,19 @@
     table: [640, 340],
     pitch: [600, 320],
     midi: [600, 320],
+    // The constructor cards draw one waveform and a knob or two: a tall card
+    // leaves the hero's lower half empty.
+    "table:shape": [280, 200],
+    "table:canvas": [280, 200],
+    "warp:bend": [280, 200],
+    "warp:mirror": [280, 200],
+    "warp:sync": [280, 200],
+    "warp:quantize": [280, 200],
+    "warp:remap": [280, 200],
+    "osc:am": [280, 230],
+    "osc:rm": [280, 230],
+    "osc:pm": [280, 230],
+    "osc:fm": [280, 230],
     "synth:additive": [300, 210],
     mixer: [280, 190],
     "split:ms": [280, 170],
