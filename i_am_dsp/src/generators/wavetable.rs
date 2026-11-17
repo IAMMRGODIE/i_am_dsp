@@ -10,6 +10,14 @@ lazy_static::lazy_static! {
 	static ref SINE_TABLE: Vec<f32> = (0..256).map(|i| (i as f32 / 256.0 * 2.0 * PI).sin()).collect();
 }
 
+/// Wraps a phase into `0..1`.
+///
+/// `f32::rem_euclid` goes through `fmod`, a library call; an oscillator does this
+/// once or twice per sample per voice, so a floor and a subtract is worth it.
+pub(crate) fn wrap01(value: f32) -> f32 {
+	value - value.floor()
+}
+
 /// A trait for wave tables that can be used by oscillators or be used as LFO.
 ///
 /// Note that `Vec<f32>` and `RingBuffer<f32>` are also implemented for this trait.
@@ -95,7 +103,7 @@ impl<T: WaveTable, const CHANNELS: usize> Oscillator<CHANNELS> for TableOsc<T> {
 		let mut output = [0.0; CHANNELS];
 
 		for i in 0..CHANNELS {
-			let t = (time * frequency + phase[i]).rem_euclid(1.0);
+			let t = wrap01(time * frequency + phase[i]);
 			output[i] = self.0.sample(t, i);
 		}
 

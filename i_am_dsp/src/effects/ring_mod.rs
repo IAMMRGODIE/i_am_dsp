@@ -126,7 +126,7 @@ impl Effect<2> for RingMod {
 			let carrier = if mode == 2 {
 				sidechain
 			} else {
-				let phase = (self.phase + channel as f32 * offset).rem_euclid(1.0);
+				let phase = crate::generators::wavetable::wrap01(self.phase + channel as f32 * offset);
 				carrier(self.shape, phase)
 			};
 
@@ -138,7 +138,9 @@ impl Effect<2> for RingMod {
 		}
 
 		// The phase runs in every mode, so switching back does not jump.
-		self.phase = (self.phase + self.rate.max(0.0) / self.sample_rate).rem_euclid(1.0);
+		self.phase = crate::generators::wavetable::wrap01(
+			self.phase + self.rate.max(0.0) / self.sample_rate,
+		);
 
 		for (channel, sample) in samples.iter_mut().enumerate() {
 			*sample = dry[channel] * (1.0 - mix) + wet[channel] * mix;

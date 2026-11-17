@@ -583,7 +583,7 @@ impl<
 					// wrapping it keeps f32 resolution on a note held for minutes;
 					// a sampler reads its position from the time and stays absolute.
 					if !self.oscillator.absolute_time() {
-						t = t.rem_euclid(1.0);
+						t = crate::generators::wavetable::wrap01(t);
 					}
 
 					playing_note.last_phase[i] = t;

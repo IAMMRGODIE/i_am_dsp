@@ -571,7 +571,7 @@ impl Oscillator<2> for WaveFramesOsc {
 		let mut output = [0.0; 2];
 
 		for (channel, value) in output.iter_mut().enumerate() {
-			let t = (frequency * time + phase[channel]).rem_euclid(1.0);
+			let t = super::wrap01(frequency * time + phase[channel]);
 
 			*value = bank.sample(t, from, to, blend, self.max_harmonic, self.x_fade);
 		}

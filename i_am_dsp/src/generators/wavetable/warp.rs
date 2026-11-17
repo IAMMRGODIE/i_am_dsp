@@ -213,7 +213,7 @@ impl<Wave: WaveTable, Warper: Warp> WarpTable<Wave, Warper> {
 
 impl<Wave: WaveTable, Warper: Warp> WaveTable for WarpTable<Wave, Warper> {
 	fn sample(&self, t: f32, channel: usize) -> f32 {
-		let position = self.warper.apply(t).rem_euclid(1.0);
+		let position = super::wrap01(self.warper.apply(t));
 
 		self.wave.sample(position, channel)
 	}

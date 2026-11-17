@@ -388,7 +388,7 @@ impl<const CHANNELS: usize, A: WaveTable, B: WaveTable, C: WaveTable, D: WaveTab
 		let mut output = [0.0; CHANNELS];
 
 		for i in 0..CHANNELS {
-			let t = (time * frequency + phase[i]).rem_euclid(1.0);
+			let t = super::wrap01(time * frequency + phase[i]);
 			output[i] = self.sample(t, i);
 		}
 
@@ -562,7 +562,7 @@ impl<Carrier: WaveTable, Modulator: WaveTable, const CHANNELS: usize> Oscillator
 		let mut shifted = phase;
 
 		for (channel, value) in shifted.iter_mut().enumerate() {
-			let position = (time * frequency * ratio + phase[channel]).rem_euclid(1.0);
+			let position = super::wrap01(time * frequency * ratio + phase[channel]);
 
 			*value += self.depth * self.integral.at(position);
 		}
@@ -625,8 +625,8 @@ impl<Carrier: WaveTable, Warper: Warp> WarpOsc<Carrier, Warper> {
 
 	/// One sample of the warped table at an offset in seconds.
 	fn sample_at(&self, frequency: f32, time: f32, phase: f32, channel: usize) -> f32 {
-		let t = (time * frequency + phase).rem_euclid(1.0);
-		let warped = self.warper.apply(t).rem_euclid(1.0);
+		let t = super::wrap01(time * frequency + phase);
+		let warped = super::wrap01(self.warper.apply(t));
 
 		self.carrier.0.sample(warped, channel)
 	}

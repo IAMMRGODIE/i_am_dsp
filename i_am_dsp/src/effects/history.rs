@@ -274,7 +274,7 @@ impl<const CHANNELS: usize> HistoryEffect<CHANNELS> {
 			return 1.0;
 		}
 
-		let x = position.rem_euclid(1.0) as f32;
+		let x = (position - position.floor()) as f32;
 		let at = x * (TABLE - 1) as f32;
 		let index = at.floor() as usize;
 		let fraction = at - index as f32;
