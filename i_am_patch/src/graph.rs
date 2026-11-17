@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use i_am_dsp::prelude::{Parameter, Value};
+use i_am_dsp::prelude::{Parameter, Parameters, Value};
 
 /// What flows through a port.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -415,19 +415,6 @@ const BUILTINS: &[NodeDesc] = &[
 		params: &[param("amount", 0.0, 0.0, 1.0)],
 	},
 	NodeDesc {
-		id: "adsr",
-		name: "ADSR",
-		inputs: &[port("midi", SignalKind::Midi), port("osc", SignalKind::Osc)],
-		outputs: &[port("audio", AUDIO)],
-		latency: 0,
-		params: &[
-			log_param("attack_time", 0.01, 0.001, 10.0),
-			log_param("decay_time", 0.2, 0.001, 10.0),
-			param("sustain_level", 0.7, 0.0, 1.0),
-			log_param("release_time", 0.3, 0.001, 10.0),
-		],
-	},
-	NodeDesc {
 		id: "voice:in",
 		name: "Voice In",
 		inputs: &[port("midi", SignalKind::Midi)],
@@ -614,6 +601,7 @@ pub fn catalog() -> &'static [NodeDesc] {
 	CATALOG.get_or_init(|| {
 		let mut kinds = BUILTINS.to_vec();
 		kinds.extend(module_catalog());
+		kinds.push(adsr_catalog());
 		kinds.extend(synth_catalog());
 		kinds
 	})
@@ -675,6 +663,42 @@ fn module_catalog() -> Vec<NodeDesc> {
 }
 
 /// One kind per synth product, with a notes input and the product's schema.
+/// The envelope node's controls: the products' own ADSR, envelope and voice.
+pub fn adsr_parameters() -> Vec<Parameter> {
+	use i_am_dsp::prelude::{Adsr, EqualTemperament, SineWave, TableOsc};
+
+	Adsr::<TableOsc<SineWave>, EqualTemperament, 2>::new(
+		TableOsc(SineWave),
+		EqualTemperament,
+		48_000,
+	)
+	.get_parameters()
+}
+
+/// The envelope node: the products' ADSR controls, with the graph's ports.
+fn adsr_catalog() -> NodeDesc {
+	let mut params: Vec<ParamDesc> = Vec::new();
+
+	for parameter in adsr_parameters() {
+		let name: &'static str = Box::leak(parameter.identifier.clone().into_boxed_str());
+
+		if let Some(desc) = parameter_desc(name, &parameter) {
+			params.push(desc);
+		}
+	}
+
+	NodeDesc {
+		id: "adsr",
+		name: "ADSR",
+		inputs: Box::leak(
+			vec![port("midi", SignalKind::Midi), port("osc", SignalKind::Osc)].into_boxed_slice(),
+		),
+		outputs: Box::leak(vec![port("audio", AUDIO)].into_boxed_slice()),
+		latency: 0,
+		params: Box::leak(params.into_boxed_slice()),
+	}
+}
+
 fn synth_catalog() -> Vec<NodeDesc> {
 	let mut kinds = Vec::new();
 

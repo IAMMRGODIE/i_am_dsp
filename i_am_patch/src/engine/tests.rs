@@ -223,7 +223,7 @@ fn a_negative_modulation_does_not_blow_up() {
 	assert!(mean.abs() < 0.01, "the output has DC: {mean}");
 }
 
-fn modulation_graph(kind: &str) -> (Graph, crate::graph::NodeId) {
+fn modulation_graph(kind: &str) -> (Graph, crate::graph::NodeId, crate::graph::NodeId) {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
 	let carrier = graph
@@ -242,7 +242,7 @@ fn modulation_graph(kind: &str) -> (Graph, crate::graph::NodeId) {
 	graph.connect((oscillator, 0), (envelope, 1));
 	graph.connect((envelope, 0), (out, 0));
 
-	(graph, oscillator)
+	(graph, oscillator, envelope)
 }
 
 fn render_blocks_of(graph: &Graph, blocks: usize) -> Vec<[f32; 2]> {
@@ -270,16 +270,21 @@ fn a_ring_modulation_follows_its_depth() {
 	let rms = |frames: &[[f32; 2]]| {
 		(frames.iter().map(|frame| frame[0] * frame[0]).sum::<f32>() / frames.len() as f32).sqrt()
 	};
-	let (graph, oscillator) = modulation_graph("osc:rm");
+	let (graph, oscillator, envelope) = modulation_graph("osc:rm");
 	let mut engine = Engine::new(&graph, 48_000).expect("the graph builds");
 	let input = vec![[0.0f32; 2]; BLOCK];
 	let mut frames = vec![[0.0f32; 2]; BLOCK];
 
+	// A steady note, so the two measurements differ by the ring alone.
+	assert!(engine.set_param(envelope, "random_phase", 0.0));
+	assert!(engine.set_param(envelope, "attack_time", 0.001));
+	assert!(engine.set_param(envelope, "decay_time", 0.001));
+	assert!(engine.set_param(envelope, "sustain_level", 1.0));
 	assert!(engine.set_param(oscillator, "depth", 0.0));
 
 	let mut carrier = Vec::new();
 
-	for block in 0..6 {
+	for block in 0..8 {
 		let events = if block == 0 {
 			vec![note_event(60)]
 		} else {
@@ -288,7 +293,7 @@ fn a_ring_modulation_follows_its_depth() {
 
 		engine.process(&input, &events, &mut frames);
 
-		if block >= 4 {
+		if block >= 6 {
 			carrier.extend_from_slice(&frames);
 		}
 	}
@@ -299,10 +304,10 @@ fn a_ring_modulation_follows_its_depth() {
 
 	let mut ring = Vec::new();
 
-	for block in 6..10 {
+	for block in 8..12 {
 		engine.process(&input, &[], &mut frames);
 
-		if block >= 8 {
+		if block >= 10 {
 			ring.extend_from_slice(&frames);
 		}
 	}
@@ -320,7 +325,7 @@ fn a_ring_modulation_follows_its_depth() {
 #[test]
 fn the_modulation_nodes_play() {
 	for kind in ["osc:am", "osc:pm", "osc:fm"] {
-		let (graph, _) = modulation_graph(kind);
+		let (graph, _, _) = modulation_graph(kind);
 
 		assert!(
 			render_blocks_of(&graph, 4)

@@ -131,6 +131,32 @@ fn kind_json(kind: &NodeDesc) -> Value {
 		}
 	}
 
+	// The envelope node borrows the products' envelope and voice pages: the same
+	// controls, heroes and one Sync switch, without a product around them.
+	if kind.id == "adsr" {
+		let sections = i_am_web_gui::sections(&crate::graph::adsr_parameters());
+
+		hero = sections.iter().find_map(|section| section.hero.clone());
+		header = ADSR_HEADER;
+		switches = ADSR_SWITCHES
+			.iter()
+			.map(|row| json!({ "control": row.control, "on": row.on, "off": row.off }))
+			.collect();
+
+		for section in &sections {
+			for control in &section.controls {
+				if ADSR_HIDDEN.contains(&control.id.as_str()) {
+					continue;
+				}
+
+				controls.push(serde_json::to_value(control).unwrap_or(Value::Null));
+			}
+		}
+
+		grouped = sections_json(&sections, ADSR_HIDDEN);
+		pages = pages_json(ADSR_PAGES, &sections);
+	}
+
 	// A source with a Sync switch trades its free rate for beats.
 	switches = match kind.id {
 		"lfo" | "random" | "table" => vec![json!({
@@ -201,6 +227,43 @@ fn sections_json(sections: &[i_am_web_gui::Section], hidden: &[&str]) -> Vec<Val
 		})
 		.collect()
 }
+
+/// The envelope node's pages: the products' envelope and voice, no product page.
+const ADSR_PAGES: &[i_am_web_gui::Page] = &[
+	i_am_web_gui::Page::new("Envelope", &["Envelope"]),
+	i_am_web_gui::Page::new("Voice", &["Voice"]),
+];
+
+/// The envelope node keeps the sync switch in its header, like a product face.
+const ADSR_HEADER: &[&str] = &["sync"];
+
+/// The per-stage sync toggles stay the host's: the face has one for the envelope.
+const ADSR_HIDDEN: &[&str] = &[
+	"delay.sync",
+	"attack.sync",
+	"hold.sync",
+	"decay.sync",
+	"release.sync",
+];
+
+/// The envelope's one Sync switch trades the free lengths for musical ones.
+const ADSR_SWITCHES: &[i_am_web_gui::Switch] = &[i_am_web_gui::Switch::new(
+	"sync",
+	&[
+		"delay.beats",
+		"attack.beats",
+		"hold.beats",
+		"decay.beats",
+		"release.beats",
+	],
+	&[
+		"delay_time",
+		"attack_time",
+		"hold_time",
+		"decay_time",
+		"release_time",
+	],
+)];
 
 /// The pages a product splits into, each naming the sections it shows.
 fn pages_json(pages: &[i_am_web_gui::Page], sections: &[i_am_web_gui::Section]) -> Vec<Value> {
