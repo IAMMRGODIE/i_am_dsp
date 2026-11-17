@@ -53,6 +53,18 @@
   // card's hero, with the live trace and the playhead on top.
   const SOURCE_KINDS = ["lfo", "envelope", "random", "table", "pitch", "midi"];
 
+  /// A table node draws a product's table page, so the product's own wiring
+  /// (imports, hero editors, routes) has to reach it the same way.
+  function tableProduct(kind) {
+    return kind && typeof kind.id === "string" && kind.id.startsWith("table:")
+      ? kind.id.slice("table:".length)
+      : "";
+  }
+
+  function isProductCard(kind, product) {
+    return kind.id === "synth:" + product || tableProduct(kind) === product;
+  }
+
   // A source card's trace outlives the card. A rebuild happens on every
   // parameter change, and a history kept on the entry would restart the picture
   // from nothing under the hand.
@@ -791,6 +803,7 @@
   const IMPORT_ROUTES = {
     "synth:sampler": { path: "sampler", hint: "Load a sample: click or drop a .wav" },
     "synth:shapes": { path: "waves", hint: "Build the table from a .wav: click or drop a file" },
+    "table:shapes": { path: "waves", hint: "Build the table from a .wav: click or drop a file" },
     "mod:convolver": { path: "ir", hint: "Load an impulse response: click or drop a file" },
   };
 
@@ -902,7 +915,7 @@
         const current = state();
 
         if (kind.id === "mod:convolver") return current.ir;
-        if (kind.id === "synth:shapes") return current.waves;
+        if (kind.id === "synth:shapes" || tableProduct(kind) === "shapes") return current.waves;
 
         return current.sample;
       },
@@ -1032,7 +1045,7 @@
   /// The Canvas node's drawing is not a parameter: the product keeps it, and
   /// the card asks for it the way the product page does.
   function refreshCanvas(entry) {
-    if (!entry || entry.kind.id !== "synth:canvas") return;
+    if (!entry || !isProductCard(entry.kind, "canvas")) return;
 
     fetch("/canvas?node=" + entry.node.id, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
@@ -1051,7 +1064,7 @@
   /// A canvas hero on a patch card edits this node's drawing and morph, not a
   /// page-wide canvas, so its writes carry the node id.
   function wireCanvasCard(entry) {
-    if (!entry || entry.kind.id !== "synth:canvas" || !entry.context.canvas) return;
+    if (!entry || !isProductCard(entry.kind, "canvas") || !entry.context.canvas) return;
     const hero = entry.card && entry.card.querySelector(".mcard-hero");
 
     if (!hero) return;
@@ -1086,7 +1099,7 @@
   /// The Spectrum node's pages are outside the parameter map too: the card
   /// asks the product's route and the editor writes them back to the same node.
   function refreshSpectrum(entry) {
-    if (!entry || entry.kind.id !== "synth:spectrum") return;
+    if (!entry || !isProductCard(entry.kind, "spectrum")) return;
 
     fetch("/spectrum?node=" + entry.node.id, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
@@ -1107,7 +1120,7 @@
   /// A spectrum hero on a patch card edits this node's pages and morph, not a
   /// page-wide spectrum, so its writes carry the node id.
   function wireSpectrumCard(entry) {
-    if (!entry || entry.kind.id !== "synth:spectrum" || !entry.context.spectrum) return;
+    if (!entry || !isProductCard(entry.kind, "spectrum") || !entry.context.spectrum) return;
     const hero = entry.card && entry.card.querySelector(".mcard-hero");
 
     if (!hero) return;
@@ -1515,7 +1528,7 @@
   /// card asks for it through the node's route and shows it in the panel and
   /// the hero.
   function refreshScript(entry) {
-    if (!entry || entry.kind.id !== "synth:script") return;
+    if (!entry || !isProductCard(entry.kind, "script")) return;
 
     fetch("/script?node=" + entry.node.id, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
@@ -1784,7 +1797,7 @@
         // take the focus away from the control being dragged.
         op({ op: "param", id: node.id, key: identifier, value }, false);
 
-        if (kind.id === "synth:script" && entry) {
+        if (isProductCard(kind, "script") && entry) {
           clearTimeout(entry.scriptTimer);
           entry.scriptTimer = setTimeout(() => refreshScript(entry), 150);
         }
@@ -1823,7 +1836,7 @@
     host.appendChild(scale);
     entry = { host, key, kindId: node.kind, context, card, node, kind, samples: null, phase: null };
 
-    if (kind.id === "synth:canvas") {
+    if (isProductCard(kind, "canvas")) {
       const repaint = card.repaintHero;
 
       card.repaintHero = function (values) {
@@ -1839,7 +1852,7 @@
     // A node that already holds a file shows it as soon as the card is built,
     // not only right after the drop that loaded it.
     if (IMPORT_ROUTES[kind.id]) refreshImport(entry, IMPORT_ROUTES[kind.id].path);
-    if (kind.id === "synth:spectrum") {
+    if (isProductCard(kind, "spectrum")) {
       const repaint = card.repaintHero;
 
       card.repaintHero = function (values) {
@@ -1857,7 +1870,7 @@
       refreshDrummer(entry);
     }
 
-    if (kind.id === "synth:script") {
+    if (isProductCard(kind, "script")) {
       refreshScript(entry);
     }
 

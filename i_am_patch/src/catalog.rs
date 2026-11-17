@@ -107,6 +107,7 @@ fn kind_json(kind: &NodeDesc) -> Value {
 		hero = sections.iter().find_map(|section| section.hero.clone());
 		accent = faceplate.accent;
 		title = Some(faceplate.title.to_string());
+		script = faceplate.script;
 		// Wide enough for a hero and the table's own knobs, without the room the
 		// product's other pages need.
 		face = Some((560.0, 360.0));
