@@ -275,6 +275,22 @@ const BUILTINS: &[NodeDesc] = &[
 		params: &[choice_param("shape", 0.0, 4.0, CONSTRUCTOR_SHAPES)],
 	},
 	NodeDesc {
+		id: "osc:shapes",
+		name: "Shapes",
+		inputs: &[],
+		outputs: &[port("osc", SignalKind::Osc)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
+		id: "osc:additive",
+		name: "Additive",
+		inputs: &[],
+		outputs: &[port("osc", SignalKind::Osc)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
 		id: "osc:am",
 		name: "AM",
 		inputs: &[

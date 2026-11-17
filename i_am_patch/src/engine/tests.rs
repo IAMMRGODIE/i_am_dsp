@@ -332,6 +332,21 @@ fn the_modulation_nodes_play() {
 }
 
 #[test]
+fn a_product_oscillator_plays() {
+	let mut graph = Graph::new();
+	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+	let oscillator = graph.add_node("osc:additive", (0.0, 100.0)).expect("osc");
+	let envelope = graph.add_node("adsr", (200.0, 0.0)).expect("adsr");
+	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
+
+	graph.connect((midi, 0), (envelope, 0));
+	graph.connect((oscillator, 0), (envelope, 1));
+	graph.connect((envelope, 0), (out, 0));
+
+	assert!(render(&graph) > 1e-3);
+}
+
+#[test]
 fn a_warp_between_tables_plays() {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
