@@ -104,21 +104,27 @@ fn kind_json(kind: &NodeDesc) -> Value {
 				.filter(|section| !matches!(section.name.as_deref(), Some("Envelope" | "Voice")))
 				.collect();
 
+		let hidden = faceplate.hidden.unwrap_or(&[]);
+
 		hero = sections.iter().find_map(|section| section.hero.clone());
 		accent = faceplate.accent;
 		title = Some(faceplate.title.to_string());
 		script = faceplate.script;
-		// Wide enough for a hero and the table's own knobs, without the room the
-		// product's other pages need.
-		face = Some((560.0, 360.0));
+		// The product's own face size: the table pages were laid out for it, and
+		// Additive and Script need the width for their rows.
+		face = Some(faceplate.size);
 
 		for section in &sections {
 			for control in &section.controls {
+				if hidden.contains(&control.id.as_str()) {
+					continue;
+				}
+
 				controls.push(serde_json::to_value(control).unwrap_or(Value::Null));
 			}
 		}
 
-		grouped = sections_json(&sections, &[]);
+		grouped = sections_json(&sections, hidden);
 		pages = sections
 			.iter()
 			.map(|section| {
