@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
-	AdditiveOsc, Adsr, EqualTemperament, Generator, GeneratorEffect, ParamMap, Parameter,
+	AdditiveOsc, Adsr, EqualTemperament, Generator, GeneratorEffect, Oscillator, ParamMap, Parameter,
 	Parameters, RhaiFreqGen, RhaiScript, SetValue,
 };
 use i_am_dsp::{ProcessContext, Processor};
@@ -445,6 +445,73 @@ impl Generator<2> for ScriptedVoice {
 		}
 
 		output
+	}
+}
+
+/// The scripted oscillator as a patch constructor: the compiled script, reloaded
+/// when the page applies a new one.
+pub struct ScriptOscillator {
+	oscillator: AdditiveOsc<RhaiFreqGen, 64, 2>,
+	feed: Arc<ScriptFeed>,
+	generation: u64,
+}
+
+impl ScriptOscillator {
+	/// The script the handle currently holds.
+	pub fn new(rate: usize, handle: ScriptHandle) -> Self {
+		let feed = handle.0.clone();
+		feed.set_preview(|preview| preview.rate = rate);
+		let generation = feed.generation();
+		let mut oscillator = AdditiveOsc::new(RhaiFreqGen::new(rate), 32);
+
+		if let Some(script) = feed.current_script() {
+			oscillator.freq_gen_mut().load_compiled(script);
+			oscillator.recaculate_ratio();
+		}
+
+		Self {
+			oscillator,
+			feed,
+			generation,
+		}
+	}
+}
+
+impl Oscillator<2> for ScriptOscillator {
+	fn play_at(&self, frequency: f32, time: f32, phase: [f32; 2]) -> [f32; 2] {
+		self.oscillator.play_at(frequency, time, phase)
+	}
+
+	fn set_pitch(&mut self, frequency: f32, sample_rate: usize) {
+		self.oscillator.set_pitch(frequency, sample_rate);
+	}
+
+	fn absolute_time(&self) -> bool {
+		self.oscillator.absolute_time()
+	}
+
+	fn sync(&mut self) {
+		if self.feed.changed(&mut self.generation)
+			&& let Some(script) = self.feed.current_script()
+		{
+			self.oscillator.freq_gen_mut().load_compiled(script);
+			self.oscillator.recaculate_ratio();
+		}
+
+		match self.oscillator.freq_gen_mut().get_eval_error() {
+			Ok(()) => self.feed.clear_eval_error(),
+			Err(error) => self.feed.set_eval_error(error.to_string()),
+		}
+	}
+}
+
+impl Parameters for ScriptOscillator {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		self.oscillator.get_parameters()
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		self.oscillator.set_parameter(identifier, value)
 	}
 }
 

@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
-	Adsr, EqualTemperament, Generator, GeneratorEffect, MultiStereoGenerators, Node, ParamMap,
-	Parameter, Parameters, SetValue, StereoGenerator,
+	Adsr, EqualTemperament, Generator, GeneratorEffect, MultiStereoGenerators, Node, Oscillator,
+	ParamMap, Parameter, Parameters, SetValue, StereoGenerator,
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
@@ -279,6 +279,55 @@ impl Generator<2> for CanvasVoice {
 	fn generate(&mut self, process_context: &mut Box<dyn ProcessContext>) -> [f32; 2] {
 		self.sync();
 		self.voice.generate(process_context)
+	}
+}
+
+/// The canvas oscillator as a patch constructor: the drawing, refreshed when
+/// the page sends a new one.
+pub struct CanvasOscillator {
+	multi: MultiStereoGenerators,
+	feed: Arc<CanvasFeed>,
+	generation: u64,
+}
+
+impl CanvasOscillator {
+	/// The drawing the handle currently holds.
+	pub fn new(handle: CanvasHandle) -> Self {
+		let feed = handle.0.clone();
+		let mut multi = MultiStereoGenerators::new();
+		multi.generators = parse_canvas(&feed.text()).unwrap_or_default();
+		multi.smooth_factor = 0.0;
+		let generation = feed.generation();
+
+		Self {
+			multi,
+			feed,
+			generation,
+		}
+	}
+}
+
+impl Oscillator<2> for CanvasOscillator {
+	fn play_at(&self, frequency: f32, time: f32, phase: [f32; 2]) -> [f32; 2] {
+		self.multi.play_at(frequency, time, phase)
+	}
+
+	fn sync(&mut self) {
+		if self.feed.changed(&mut self.generation)
+			&& let Ok(pages) = parse_canvas(&self.feed.text())
+		{
+			self.multi.generators = pages;
+		}
+	}
+}
+
+impl Parameters for CanvasOscillator {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		self.multi.get_parameters()
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		self.multi.set_parameter(identifier, value)
 	}
 }
 

@@ -86,14 +86,14 @@ mod spectrum;
 mod strings;
 
 pub use additive::{AdditiveWeb, additive_faceplate};
-pub use canvas::{CanvasHandle, CanvasWeb, canvas_faceplate, canvas_shape};
+pub use canvas::{CanvasHandle, CanvasOscillator, CanvasWeb, canvas_faceplate, canvas_shape};
 pub use drummer::{DrummerHandle, DrummerWeb, faceplate as drummer_faceplate};
 pub use feed::VoiceFeed;
 pub use fitted::{FittedWeb, faceplate as fitted_faceplate};
 pub use sampler::{
 	SamplerWeb, edit_slices, generate_slices, import_sample, sample_preview, sampler_faceplate,
 };
-pub use script::{ScriptHandle, ScriptWeb, script_faceplate};
+pub use script::{ScriptHandle, ScriptOscillator, ScriptWeb, script_faceplate};
 pub use shapes::{ShapesWeb, edit_waves, import_waves, shapes_faceplate, waves_preview};
 pub use spectrum::{SpectrumHandle, SpectrumWeb, spectrum_faceplate};
 pub use strings::{StringWeb, faceplate};

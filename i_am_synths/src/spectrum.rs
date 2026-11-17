@@ -140,6 +140,11 @@ impl SpectrumHandle {
 		Self(SpectralFeed::new(default_pages()))
 	}
 
+	/// The feed the oscillator reads.
+	pub fn feed(&self) -> Arc<SpectralFeed> {
+		self.0.clone()
+	}
+
 	/// The route's GET answer.
 	pub fn state_json(&self) -> String {
 		let frames = self.0.frames();
