@@ -26,6 +26,13 @@ pub trait WaveTable: Parameters + Send {
 	///
 	/// t in the range [0, 1]
 	fn sample(&self, t: f32, channel: usize) -> f32;
+
+	/// Lets a table that renders off the audio thread pick up new pages.
+	///
+	/// The default does nothing: a table built from its own parameters is
+	/// already current. The drawn spectrum renders on a worker, so it has to be
+	/// told, and every adapter between it and the voice has to pass it on.
+	fn sync(&mut self) {}
 }
 
 /// An oscillator that can be used to generate audio signals.
@@ -109,6 +116,10 @@ impl<T: WaveTable, const CHANNELS: usize> Oscillator<CHANNELS> for TableOsc<T> {
 
 		output
 	}
+
+	fn sync(&mut self) {
+		self.0.sync();
+	}
 }
 
 /// A wrapper for an ossillator to use it as a wavetable.
@@ -125,12 +136,73 @@ impl<const CHANNELS: usize, O: Oscillator<CHANNELS>> Parameters for OscTable<CHA
 }
 
 impl<const CHANNELS: usize, O: Oscillator<CHANNELS> + Send> WaveTable for OscTable<CHANNELS, O> {
+	fn sync(&mut self) {
+		self.0.sync();
+	}
+
 	fn sample(&self, t: f32, _: usize) -> f32 {
 		if CHANNELS == 0 {
 			return 0.0;
 		}
 
 		self.0.play_at(1.0, t, [0.0; CHANNELS]).iter().sum::<f32>() / CHANNELS as f32
+	}
+}
+
+#[cfg(test)]
+mod adapter_tests {
+	use super::*;
+	use std::sync::Arc;
+	use std::sync::atomic::{AtomicUsize, Ordering};
+
+	struct Counter(Arc<AtomicUsize>);
+
+	impl Parameters for Counter {
+		fn get_parameters(&self) -> Vec<Parameter> {
+			Vec::new()
+		}
+
+		fn set_parameter(&mut self, _: &str, _: crate::prelude::SetValue) -> bool {
+			false
+		}
+	}
+
+	impl WaveTable for Counter {
+		fn sample(&self, _: f32, _: usize) -> f32 {
+			0.0
+		}
+
+		fn sync(&mut self) {
+			self.0.fetch_add(1, Ordering::Relaxed);
+		}
+	}
+
+	impl<const CHANNELS: usize> Oscillator<CHANNELS> for Counter {
+		fn play_at(&self, _: f32, _: f32, _: [f32; CHANNELS]) -> [f32; CHANNELS] {
+			[0.0; CHANNELS]
+		}
+
+		fn sync(&mut self) {
+			self.0.fetch_add(1, Ordering::Relaxed);
+		}
+	}
+
+	/// A table under an oscillator, and an oscillator under a table: the drawn
+	/// spectrum sits at the bottom of one of these and only notices new pages
+	/// through its sync, so neither adapter may swallow it.
+	#[test]
+	fn both_adapters_pass_the_sync_on() {
+		let table = Arc::new(AtomicUsize::new(0));
+		let mut oscillator: TableOsc<Counter> = TableOsc(Counter(table.clone()));
+
+		Oscillator::<2>::sync(&mut oscillator);
+		assert_eq!(table.load(Ordering::Relaxed), 1);
+
+		let wrapped = Arc::new(AtomicUsize::new(0));
+		let mut table = OscTable::<2, _>(Counter(wrapped.clone()));
+
+		table.sync();
+		assert_eq!(wrapped.load(Ordering::Relaxed), 1);
 	}
 }
 
