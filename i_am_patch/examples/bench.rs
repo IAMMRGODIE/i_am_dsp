@@ -44,7 +44,12 @@ fn run(name: &str, graph: &Graph, blocks: usize, events: &[(usize, NoteEvent)]) 
 
 	for block in 0..blocks {
 		due.clear();
-		due.extend(events.iter().filter(|(at, _)| *at == block).map(|(_, event)| event.clone()));
+		due.extend(
+			events
+				.iter()
+				.filter(|(at, _)| *at == block)
+				.map(|(_, event)| event.clone()),
+		);
 		poly.process(&input, &due, &mut out);
 	}
 
@@ -90,7 +95,9 @@ fn envelope_graph(table: &str) -> (Graph, NodeId) {
 	let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
 	let table = graph.add_node(table, (0.0, 100.0)).expect("table");
 	let envelope = graph.add_node("adsr", (150.0, 0.0)).expect("adsr");
-	let voice_out = graph.add_node("voice:out", (300.0, 0.0)).expect("voice out");
+	let voice_out = graph
+		.add_node("voice:out", (300.0, 0.0))
+		.expect("voice out");
 	let out = graph.add_node("out:audio", (400.0, 0.0)).expect("out");
 
 	graph.connect((midi, 0), (voice_in, 0));
@@ -126,7 +133,9 @@ fn gains(count: usize) -> Graph {
 		previous = (gain, 0);
 	}
 
-	let out = graph.add_node("out:audio", (100.0 * (count + 1) as f32, 0.0)).expect("out");
+	let out = graph
+		.add_node("out:audio", (100.0 * (count + 1) as f32, 0.0))
+		.expect("out");
 	graph.connect(previous, (out, 0));
 
 	graph
@@ -137,12 +146,18 @@ fn chain_graph() -> Graph {
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
 	let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
-	let carrier = graph.add_node("table:shape", (0.0, 100.0)).expect("carrier");
-	let modulator = graph.add_node("table:shape", (0.0, 220.0)).expect("modulator");
+	let carrier = graph
+		.add_node("table:shape", (0.0, 100.0))
+		.expect("carrier");
+	let modulator = graph
+		.add_node("table:shape", (0.0, 220.0))
+		.expect("modulator");
 	let warp = graph.add_node("warp:sync", (120.0, 220.0)).expect("warp");
 	let fm = graph.add_node("osc:fm", (220.0, 100.0)).expect("fm");
 	let envelope = graph.add_node("adsr", (320.0, 0.0)).expect("adsr");
-	let voice_out = graph.add_node("voice:out", (420.0, 0.0)).expect("voice out");
+	let voice_out = graph
+		.add_node("voice:out", (420.0, 0.0))
+		.expect("voice out");
 	let out = graph.add_node("out:audio", (520.0, 0.0)).expect("out");
 
 	graph.connect((midi, 0), (voice_in, 0));
@@ -164,7 +179,9 @@ fn product_graph(kind: &str) -> Graph {
 	let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
 	let synth = graph.add_node(kind, (150.0, 0.0)).expect("synth");
 	let filter = graph.add_node("mod:filter", (300.0, 0.0)).expect("filter");
-	let voice_out = graph.add_node("voice:out", (450.0, 0.0)).expect("voice out");
+	let voice_out = graph
+		.add_node("voice:out", (450.0, 0.0))
+		.expect("voice out");
 	let out = graph.add_node("out:audio", (550.0, 0.0)).expect("out");
 
 	graph.connect((midi, 0), (voice_in, 0));
@@ -185,7 +202,12 @@ fn main() {
 	run_engine("32 gains", &gains(32), BLOCKS);
 
 	let (table_graph, _) = envelope_graph("table:shape");
-	run("envelope, shape table", &table_graph, BLOCKS, &[(0, note(60))]);
+	run(
+		"envelope, shape table",
+		&table_graph,
+		BLOCKS,
+		&[(0, note(60))],
+	);
 
 	run("envelope, chain", &chain_graph(), BLOCKS, &[(0, note(60))]);
 
@@ -193,17 +215,43 @@ fn main() {
 	run("envelope, shapes table", &shapes, BLOCKS, &[(0, note(60))]);
 
 	let (additive_table, _) = envelope_graph("table:additive");
-	run("envelope, additive table", &additive_table, BLOCKS, &[(0, note(60))]);
+	run(
+		"envelope, additive table",
+		&additive_table,
+		BLOCKS,
+		&[(0, note(60))],
+	);
 
 	let (spectrum, _) = envelope_graph("table:spectrum");
-	run("envelope, spectrum table", &spectrum, BLOCKS, &[(0, note(60))]);
+	run(
+		"envelope, spectrum table",
+		&spectrum,
+		BLOCKS,
+		&[(0, note(60))],
+	);
 
-	run("synth:additive", &product_graph("synth:additive"), BLOCKS, &[(0, note(60))]);
-	run("synth:shapes", &product_graph("synth:shapes"), BLOCKS, &[(0, note(60))]);
-	run("synth:spectrum", &product_graph("synth:spectrum"), BLOCKS, &[(0, note(60))]);
+	run(
+		"synth:additive",
+		&product_graph("synth:additive"),
+		BLOCKS,
+		&[(0, note(60))],
+	);
+	run(
+		"synth:shapes",
+		&product_graph("synth:shapes"),
+		BLOCKS,
+		&[(0, note(60))],
+	);
+	run(
+		"synth:spectrum",
+		&product_graph("synth:spectrum"),
+		BLOCKS,
+		&[(0, note(60))],
+	);
 
 	// Eight voices at once: the group is built once per note.
-	let eight: Vec<(usize, NoteEvent)> = (0..8).map(|index| (index, note(48 + index * 3))).collect();
+	let eight: Vec<(usize, NoteEvent)> =
+		(0..8).map(|index| (index, note(48 + index * 3))).collect();
 	run("envelope, eight voices", &table_graph, BLOCKS, &eight);
 
 	// A note every eighth of a second: the per-note cost, not the steady state.
