@@ -67,6 +67,9 @@ pub struct PlayingNote<const CHANNELS: usize> {
 	pub(crate) pan_factors: Vec<f32>,
 	pub(crate) last_time: f32,
 	pub(crate) last_phase: Vec<f32>,
+	/// The frequency each unison was last tuned to, so a still pitch does not
+	/// re-tune the oscillator every sample.
+	pub(crate) pitch_applied: Vec<f32>,
 	/// The per-unison table, rebuilt when any of the cached controls move.
 	pub(crate) unison_voices: Vec<UnisonVoice<CHANNELS>>,
 	pub(crate) unison_controls: Option<UnisonControls>,

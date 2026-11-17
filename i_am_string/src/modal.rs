@@ -90,6 +90,8 @@ pub struct ModalString {
 	damper_applied: f32,
 	/// Scratch space: the force seen by each mode, in mode shape units.
 	shaped_force: Vec<f32>,
+	/// Scratch space: each contact's free velocity this sample.
+	free: Vec<f32>,
 	/// Samples since the coefficients were last rebuilt, to cap the rebuild rate.
 	since_rebuild: u32,
 	/// How far the pitch is currently shifted, as a frequency multiplier.
@@ -295,6 +297,7 @@ impl ModalString {
 			damper: 1.0,
 			damper_applied: f32::NAN,
 			shaped_force: Vec::new(),
+			free: Vec::new(),
 			since_rebuild: 0,
 			pitch_ratio: 1.0,
 			pitch_applied: f32::NAN,
@@ -592,25 +595,32 @@ impl ModalString {
 		// along under the bow for ever without a flyback and makes no sound -
 		// measured, a bowed violin stuck for ninety four percent of the period
 		// with a bridge force eighty six percent static.
-		let mut forces = Vec::with_capacity(self.ports.len());
+		// The scratch vector is reused: a string steps once per sample, and an
+		// allocation here would be one per sample per string.
+		self.free.clear();
 		for port in &self.ports {
 			let mut free = 0.0;
 			for (mode, weight) in self.modes.iter().zip(port.weights.iter()) {
 				free += weight * (mode.c * mode.q + mode.d * mode.v);
 			}
-			forces.push((free, port.conductance));
+			self.free.push(free);
 		}
 
 		// Pass two: solve each contact. Ports share the modes but not the
 		// solver, exactly as they shared the delay lines before.
 		let dt = self.dt;
-		self.shaped_force.clear();
-		self.shaped_force.resize(self.modes.len(), 0.0);
-		for (port, (free, conductance)) in self.ports.iter_mut().zip(forces) {
+
+		if self.shaped_force.len() != self.modes.len() {
+			self.shaped_force.resize(self.modes.len(), 0.0);
+		}
+
+		self.shaped_force.fill(0.0);
+
+		for (port, free) in self.ports.iter_mut().zip(self.free.iter().copied()) {
 			if !port.active {
 				continue;
 			}
-			let force = port.solve(free, conductance, dt);
+			let force = port.solve(free, port.conductance, dt);
 			for (shaped, weight) in self.shaped_force.iter_mut().zip(port.weights.iter()) {
 				*shaped += weight * force;
 			}

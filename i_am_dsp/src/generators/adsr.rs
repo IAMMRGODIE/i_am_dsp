@@ -361,6 +361,8 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 		}
 
 		playing_note.unison_voices = voices;
+		playing_note.pitch_applied.clear();
+		playing_note.pitch_applied.resize(unisons, f32::NAN);
 		playing_note.unison_controls = Some(UnisonControls {
 			detune: self.unison_detune,
 			bend: self.unison_bend,
@@ -493,6 +495,7 @@ impl<
 						phase_start: phases,
 						pan_factors,
 						last_phase: vec![0.0; self.unisons],
+						pitch_applied: vec![f32::NAN; self.unisons],
 						unison_voices: Vec::new(),
 						unison_controls: None,
 						last_time: 0.0,
@@ -588,7 +591,13 @@ impl<
 
 					playing_note.last_phase[i] = t;
 
-					self.oscillator.set_pitch(frequency, self.sample_rate);
+					// The oscillator keeps the pitch until it is told otherwise, so
+					// a static note tunes it once instead of once per sample.
+					if playing_note.pitch_applied[i] != frequency {
+						self.oscillator.set_pitch(frequency, self.sample_rate);
+						playing_note.pitch_applied[i] = frequency;
+					}
+
 					let samples = self.oscillator.play_at(
 						1.0,
 						t,
