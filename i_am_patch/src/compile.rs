@@ -168,9 +168,11 @@ pub fn compile(graph: &Graph) -> Result<Plan, CompileError> {
 					});
 				}
 			}
-			// A table feeds an oscillator port through a table oscillator, so a
-			// card can be wired without a conversion node in between.
+			// A table feeds an oscillator port through a table oscillator, and an
+			// oscillator feeds a table port through the other adapter: a card can
+			// be wired without a conversion node in between.
 			(SignalKind::Wavetable, SignalKind::Osc) => {}
+			(SignalKind::Osc, SignalKind::Wavetable) => {}
 			(a, b) if a == b => {}
 			_ => {
 				return Err(CompileError::KindMismatch {

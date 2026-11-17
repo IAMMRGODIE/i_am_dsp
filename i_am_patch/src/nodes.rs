@@ -1466,6 +1466,14 @@ pub(crate) fn build_table_node(
 
 	match nodes.get(step)?.constructor_spec()? {
 		ConstructorSpec::Table(table) => Some(table),
+		// An oscillator port feeding a table port is read through the inverse
+		// adapter: the table is the oscillator's cycle at 1 Hz.
+		ConstructorSpec::Osc(oscillator) => Some(Box::new(OscTable::<2, _>(oscillator))),
+		ConstructorSpec::Mod { .. } => {
+			let oscillator = build_oscillator(nodes, steps, graph, id)?;
+
+			Some(Box::new(OscTable::<2, _>(oscillator)))
+		}
 		ConstructorSpec::Warp { mode, amount } => {
 			let wave = build_table_node(nodes, steps, graph, table_source(graph, id, 0)?)?;
 			let curve = if matches!(mode, WarpMode::Remap) {
@@ -1482,7 +1490,6 @@ pub(crate) fn build_table_node(
 				curve,
 			}))
 		}
-		_ => None,
 	}
 }
 
