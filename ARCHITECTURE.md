@@ -202,6 +202,24 @@ PluginMain::new()  ── param_map = processor.param_map() ──► 宿主参�
 **不变量**：这张表从插件创建到销毁必须是同一张。采样率变化时重建的是 `Paramed` 里的 DSP 对象
 （`EffectProcessor::activate`），表本身不动——否则宿主的自动化会写进一张没人读的新表。
 
+### 3.6 块间参数平滑（feature `smoothing`）
+
+VST3 经 `clap-wrapper` 送进来的参数自动化**每块只有最后一个点**，画成曲线的自动化到了 DSP 就是
+一级级台阶；台阶落在 gain 或截止频率上，就是咔哒声。规避放在包装层
+（`i_am_plugin/src/smoothing.rs`），DSP 完全不知情：
+
+- 插件在 `Plugin::SMOOTHED_PARAMETERS` 里点名参数和时长
+  （`SmoothedParameter::new("gain", 20.0)`），`web_plugin!` 用 `smoothed = &[...]` 传进去；
+  只有开了 `smoothing` feature 才生效。
+- 每个样本、在这块的参数事件应用**之后**、DSP 读参数**之前**，包装层读一次原子值：它不等于自己
+  上次写下的数，就说明有人（宿主或界面）写了新目标，于是把「交给 DSP 的数」在 N 个样本里线性走过去。
+  N 只由时长和采样率算出：20 ms @ 48 kHz = 960 个样本。放在这个位置是因为 VST3 的目标正是在块首
+  那一刻写进来的，早一步就看不到它，晚一步 DSP 已经读到跳变了。
+- 平滑写回的是 `AtomicValue` 里的 `AtomicF32`，**不碰 changed 标志**——否则宿主自己的自动化会
+  被回灌成每样本一个参数事件。
+- 代价是那个参数最多滞后一个 ramp 时长，所以只点名连续参数；开关与波形选择写进去会表现得像卡顿。
+- `reset()` 丢掉正在走的 ramp、直接对齐目标：重置是断点，不该从上次的位置滑过来。
+
 ## 4. 宿主层：`i_am_plugin`
 
 ### 4.1 `Plugin` trait

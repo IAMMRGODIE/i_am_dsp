@@ -63,6 +63,14 @@ Linux 的嵌入只支持 X11，Wayland 下打开编辑器会报错。
 不过由于事件约定的不同，`clap_wrapper` 导出的 vst3 的参数自动化似乎是每 block update 一次而不是
 每 sample update 一次，可以说非常的坏了.
 
+为此在包装层加了一个可选的 `smoothing` feature：插件点名几个连续参数（`Plugin::SMOOTHED_PARAMETERS`，
+`web_plugin!` 里是 `smoothed = &[...]`），包装层就会把每块的跳变按样本摊平，按钮式的参数
+不受影响。代价是被点名的参数最多滞后一个 ramp 时长。做法与边界见 [ARCHITECTURE.md](ARCHITECTURE.md) 的 3.6。
+
+```bash
+cargo bundle -p i_am_effects_bundle --features vst3,smoothing
+```
+
 ## 贡献
 
 开 PR 就行，顺便我们用的是 `cargo clippy`，所以交上来的时候记得清掉 clippy warning，还有 cargo doc 的 warning.

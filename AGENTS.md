@@ -165,6 +165,9 @@ node tools/preview/preview.mjs patch          # patcher 的实时编辑器
 - **只有 Windows 的后端在真机上验证过**：`wry` 后端按平台分三份（Windows WebView2、Linux WebKitGTK、
   macOS WKWebView），Linux/macOS 的代码齐全但没在真机跑过。动非 Windows 的部分时，别假设它能编过。
   Linux 上页面的事件循环靠宿主的 `clap_plugin_timer`（`Editor::pump`），没有 timer 的宿主上页面只会画一帧。
+- **参数平滑（`smoothing`）只在包装层**：`i_am_plugin/src/smoothing.rs` 每个样本把点名的参数朝目标走一步，
+  按声明时长走完；只对 `Plugin::SMOOTHED_PARAMETERS`（`web_plugin!` 的 `smoothed = &[...]`）里的连续参数生效。
+  别在 DSP 里再补一套，两套叠加就是两次滞后；也别把开关/波形选择写进去，那会让一次点击看起来卡住。
 - **WebView2 需要可写 profile**：默认 `%LOCALAPPDATA%\i_am_plugin_wry\WebView2-v2`；
   打不开先看 `%TEMP%\i_am_plugin_wry\last-error.log` 与 `open.log`。
 - **denormal**：包装层每个 `process` 都会调 `enable_flush_to_zero()`；自己接音频线程时要自己调。
