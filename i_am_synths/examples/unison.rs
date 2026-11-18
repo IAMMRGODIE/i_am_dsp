@@ -143,6 +143,69 @@ fn measure(mut voice: Box<dyn Generator<2>>, rate: usize, note: usize) -> f64 {
 	start.elapsed().as_secs_f64() * 1000.0 / SECONDS as f64
 }
 
+/// One period of a sine, as a power-of-two table the read path can mask into.
+const TABLE: usize = 2048;
+
+fn table() -> Vec<f32> {
+	(0..TABLE)
+		.map(|index| {
+			(std::f32::consts::TAU * index as f32 / TABLE as f32).sin()
+		})
+		.collect()
+}
+
+/// The Catmull-Rom the frames read with, copied here so the example can time it.
+fn cubic(t: f32, values: [f32; 4]) -> f32 {
+	let c0 = values[1];
+	let c1 = 0.5 * (values[2] - values[0]);
+	let c2 = values[0] - 2.5 * values[1] + 2.0 * values[2] - 0.5 * values[3];
+	let c3 = 0.5 * (values[3] - values[0]) + 1.5 * (values[1] - values[2]);
+
+	c0 + t * (c1 + t * (c2 + t * c3))
+}
+
+/// Nanoseconds per read for the two interpolations, from the same table walks.
+fn read_cost(reads: u32) -> (f64, f64) {
+	let table = table();
+	let mask = TABLE - 1;
+	let mut cubic_sum = 0.0f32;
+	let start = Instant::now();
+
+	for index in 0..reads {
+		let phase = (index as f32 * 0.618_034).fract();
+		let position = phase * TABLE as f32;
+		let at = position as usize;
+		let before = table[at.wrapping_sub(1) & mask];
+		let now = table[at & mask];
+		let next = table[(at + 1) & mask];
+		let after = table[(at + 2) & mask];
+
+		cubic_sum += cubic(position - at as f32, [before, now, next, after]);
+	}
+
+	let cubic_ns = start.elapsed().as_secs_f64() * 1e9 / reads as f64;
+	let mut linear_sum = 0.0f32;
+	let start = Instant::now();
+
+	for index in 0..reads {
+		let phase = (index as f32 * 0.618_034).fract();
+		let position = phase * TABLE as f32;
+		let at = position as usize;
+		let now = table[at & mask];
+		let next = table[(at + 1) & mask];
+		let t = position - at as f32;
+
+		linear_sum += now + (next - now) * t;
+	}
+
+	let linear_ns = start.elapsed().as_secs_f64() * 1e9 / reads as f64;
+
+	// Keep the compiler from proving the sums unused.
+	std::hint::black_box((cubic_sum, linear_sum));
+
+	(cubic_ns, linear_ns)
+}
+
 fn shade(value: f64, peak: f64) -> char {
 	let levels = [' ', '░', '▒', '▓', '█'];
 	let ratio = if peak > 0.0 { value / peak } else { 0.0 };
@@ -152,6 +215,13 @@ fn shade(value: f64, peak: f64) -> char {
 }
 
 fn main() {
+	let (cubic_read, linear_read) = read_cost(20_000_000);
+
+	println!(
+		"one {TABLE}-point read: cubic {cubic_read:.1} ns, linear {linear_read:.1} ns",
+	);
+	println!();
+
 	let columns = [
 		"sine", "triangle", "frames", "band", "morph", "all", "live",
 	];

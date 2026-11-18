@@ -475,6 +475,13 @@ pub struct WaveFramesOsc {
 	premix_key: Option<(u64, usize, usize, u32)>,
 	/// Samples since the morph last differed from the premix's.
 	since_premix: u32,
+	/// The bank the last sync read. A voice plays from this, so it never locks
+	/// the slot or clones an arc once per copy per sample.
+	bank_cache: Option<Arc<WaveBank>>,
+	/// The frame pair the morph sat between at the last sync.
+	frames_cache: (usize, usize, f32),
+	/// Whether the premix matches the morph of the last sync.
+	premix_ready: bool,
 }
 
 /// How many samples a moved morph waits before the morphed table is rebuilt.
@@ -507,6 +514,9 @@ impl WaveFramesOsc {
 			premix: None,
 			premix_key: None,
 			since_premix: 0,
+			bank_cache: None,
+			frames_cache: (0, 0, 0.0),
+			premix_ready: false,
 		}
 	}
 
@@ -546,13 +556,33 @@ impl WaveFramesOsc {
 		self.premix_key = Some(key);
 	}
 
-	/// The morphed levels, when they match the morph being played.
-	fn premixed(&self, bank: &WaveBank, from: usize, to: usize, blend: f32) -> Option<&FrameLevels> {
-		if self.premix_key == Some((bank.id(), from, to, blend.to_bits())) {
-			self.premix.as_ref()
-		} else {
-			None
+	/// Plays one sample from a bank and a frame pair the caller already looked
+	/// up, reading the morphed copy when it is current.
+	#[allow(clippy::too_many_arguments)]
+	fn play_at_bank(
+		&self,
+		bank: &WaveBank,
+		from: usize,
+		to: usize,
+		blend: f32,
+		premixed: bool,
+		frequency: f32,
+		time: f32,
+		phase: [f32; 2],
+	) -> [f32; 2] {
+		let levels = if premixed { self.premix.as_ref() } else { None };
+		let mut output = [0.0; 2];
+
+		for (channel, value) in output.iter_mut().enumerate() {
+			let t = super::wrap01(frequency * time + phase[channel]);
+
+			*value = match levels {
+				Some(levels) => sample_levels(levels, t, self.max_harmonic, self.x_fade),
+				None => bank.sample(t, from, to, blend, self.max_harmonic, self.x_fade),
+			};
 		}
+
+		output
 	}
 
 	/// The slot the imported table lives in.
@@ -673,26 +703,30 @@ impl Parameters for WaveFramesOsc {
 
 impl Oscillator<2> for WaveFramesOsc {
 	fn sync(&mut self) {
+		// One slot read and one frame pair a sample, shared by every copy.
 		let bank = self.bank();
+		self.frames_cache = self.frames_in_play(&bank);
 		self.refresh_premix(&bank);
+
+		let (from, to, blend) = self.frames_cache;
+		self.premix_ready = self.premix_key == Some((bank.id(), from, to, blend.to_bits()));
+		self.bank_cache = Some(bank);
 	}
 
 	fn play_at(&self, frequency: f32, time: f32, phase: [f32; 2]) -> [f32; 2] {
-		let bank = self.bank();
-		let (from, to, blend) = self.frames_in_play(&bank);
-		let premixed = self.premixed(&bank, from, to, blend);
-		let mut output = [0.0; 2];
+		// The sync of this sample did the slot lookup and the frame pair; a copy
+		// only reads. A caller that never syncs (a test, an LFO) gets the slow
+		// path, which looks both up here.
+		let Some(bank) = self.bank_cache.as_deref() else {
+			let bank = self.bank();
+			let (from, to, blend) = self.frames_in_play(&bank);
 
-		for (channel, value) in output.iter_mut().enumerate() {
-			let t = super::wrap01(frequency * time + phase[channel]);
+			return self.play_at_bank(&bank, from, to, blend, false, frequency, time, phase);
+		};
 
-			*value = match premixed {
-				Some(levels) => sample_levels(levels, t, self.max_harmonic, self.x_fade),
-				None => bank.sample(t, from, to, blend, self.max_harmonic, self.x_fade),
-			};
-		}
+		let (from, to, blend) = self.frames_cache;
 
-		output
+		self.play_at_bank(bank, from, to, blend, self.premix_ready, frequency, time, phase)
 	}
 
 	fn set_pitch(&mut self, frequency: f32, sample_rate: usize) {
