@@ -158,6 +158,7 @@ mod log;
 mod main_thread;
 mod plugin;
 mod shared;
+mod state_guard;
 
 /// The GUI-neutral processor plumbing: an effect and the parameter map a host
 /// and the interface both read.

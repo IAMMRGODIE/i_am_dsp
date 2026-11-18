@@ -29,6 +29,9 @@ pub struct PluginMain<P: Plugin> {
 
 	pub(crate) param_map: ParamMap,
 	pub(crate) processor: Pin<Box<P>>,
+	/// The handover the state extension uses to reach the processor while the
+	/// audio thread is rendering.
+	pub(crate) state_guard: std::sync::Arc<crate::state_guard::StateGuard>,
 	/// The host, kept so the plugin can tell it when the latency moves.
 	///
 	/// The handle is valid for as long as the plugin lives: `new_main_thread` receives it from
@@ -40,7 +43,10 @@ pub struct PluginMain<P: Plugin> {
 	pub(crate) parent: Option<ParentWindow>,
 	/// The open GUI, if it is open.
 	pub(crate) editor: Option<Box<dyn Editor<P>>>,
-	pub(crate) message_receivers: Vec<Receiver<P::Message>>,
+	/// Where the editors send the messages the user makes: one channel, so the audio
+	/// thread applies them all and a product never sees two threads at once.
+	pub(crate) message_sender: crossbeam_channel::Sender<P::Message>,
+	pub(crate) message_receiver: std::sync::Arc<crossbeam_channel::Receiver<P::Message>>,
 	/// True while `open` is inside the editor's own open call.
 	///
 	/// WebView2 pumps the host's message loop while it creates its controller, so
@@ -87,11 +93,17 @@ impl<P: Plugin> PluginMain<P> {
 			return Err(PluginError::Message("No parent window provided"));
 		};
 
-		let Some(mut editor) = self.processor.editor() else {
+		// Building the editor reads the product's parameters; the audio thread holds
+		// the same processor, so the read happens in a handover window. The window is
+		// only this call: the window itself is created below, after the handover ends.
+		let editor = {
+			let _handover = self.state_guard.take();
+			self.processor.editor()
+		};
+		let Some(mut editor) = editor else {
 			return Err(PluginError::Message("This plug-in has no GUI"));
 		};
 
-		let (message_sender, message_receiver) = crossbeam_channel::unbounded();
 		let context = EditorContext {
 			parent,
 			size: self.window_size,
@@ -100,7 +112,7 @@ impl<P: Plugin> PluginMain<P> {
 			scale_factor: self.scale_set.then(|| self.scale_value()),
 			title: self.title.clone(),
 			resizable: self.resize_hints.is_some(),
-			messages: message_sender,
+			messages: self.message_sender.clone(),
 		};
 
 		self.opening = true;
@@ -120,13 +132,12 @@ impl<P: Plugin> PluginMain<P> {
 		}
 
 		crate::log::note("gui.open: editor opened");
-		self.finish_open(editor, message_receiver)
+		self.finish_open(editor)
 	}
 
 	fn finish_open(
 		&mut self,
 		mut editor: Box<dyn Editor<P>>,
-		message_receiver: crossbeam_channel::Receiver<P::Message>,
 	) -> Result<(), PluginError> {
 		if self.close_requested {
 			self.reset_pending();
@@ -163,9 +174,6 @@ impl<P: Plugin> PluginMain<P> {
 			self.hide_requested = false;
 		}
 
-		// Only a GUI that is actually running has messages worth collecting; a failed
-		// open leaves no receiver behind for it.
-		self.message_receivers.push(message_receiver);
 		self.editor = Some(editor);
 		self.start_editor_timer();
 		crate::log::note("gui.open: done");
@@ -201,7 +209,8 @@ impl<P: Plugin> PluginMain<P> {
 			editor.close();
 			crate::log::note("gui.close: editor closed");
 		}
-		self.message_receivers.clear();
+		// The channel outlives the editor: a message already in flight is still
+		// applied by the audio thread on its next block.
 	}
 
 	/// Hide the plugin GUI, keeping it ready to be shown again.

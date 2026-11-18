@@ -135,6 +135,9 @@ impl<P: Plugin> PluginStateImpl for PluginMain<P> {
 		let mut buf = vec![];
 		input.read_to_end(&mut buf)?;
 		let params: Vec<i_am_dsp::prelude::Parameter> = from_binary(buf)?;
+		// The audio thread renders with the same processor: ask it to stand aside for
+		// this block (or to stop rendering) before touching `P`.
+		let _handover = self.state_guard.take();
 		// SAFETY: the processor is pinned inside the `PluginMain` box for as long as the
 		// plugin lives, and we never move `P` out of it, so unwrapping the pin is sound.
 		let processor = unsafe { self.processor.as_mut().get_unchecked_mut() };
@@ -148,6 +151,12 @@ impl<P: Plugin> PluginStateImpl for PluginMain<P> {
 					param.value.to_set_value(),
 					std::sync::atomic::Ordering::SeqCst,
 				);
+				let Some(val) = self.param_map.get(
+					&param.identifier	
+				)else { 
+					continue; 
+				};
+				val.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 			}
 		}
 		Ok(())
@@ -157,13 +166,21 @@ impl<P: Plugin> PluginStateImpl for PluginMain<P> {
 		// SAFETY: the processor is pinned inside the PluginMain box for as long as
 		// the plugin lives, and we never move P out of it, so unwrapping the pin is
 		// sound.
-		let processor = unsafe { self.processor.as_mut().get_unchecked_mut() };
+		// The audio thread renders with the same processor: ask it to stand aside for
+		// this block (or to stop rendering) before touching `P`.
+		let params = {
+			let _handover = self.state_guard.take();
+			// SAFETY: the processor is pinned inside the `PluginMain` box for as long
+			// as the plugin lives, and we never move `P` out of it.
+			let processor = unsafe { self.processor.as_mut().get_unchecked_mut() };
 
-		// A host can save between a knob move and the next process block; the map
-		// has the new value but the effect has not read it yet.
-		processor.sync_params();
+			// A host can save between a knob move and the next process block; the map
+			// has the new value but the effect has not read it yet.
+			processor.sync_params();
 
-		let params = processor.get_parameters();
+			processor.get_parameters()
+		};
+
 		let binary = to_binary(&params)?;
 		output.write_all(&binary)?;
 		Ok(())

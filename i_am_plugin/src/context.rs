@@ -217,6 +217,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			event_receiver,
 			param_map: main_thread.processor.param_map(),
 			latency: main_thread.latency.publisher(),
+			state_guard: main_thread.state_guard.clone(),
+			message_receiver: main_thread.message_receiver.clone(),
 			_phantom: std::marker::PhantomData,
 		})
 	}
@@ -271,9 +273,50 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		// The host owns this thread, so it may not have flushed subnormals for us: a decaying
 		// reverb or convolution tail would then run an order of magnitude slower on x86.
 		i_am_dsp::enable_flush_to_zero();
+
+		// The main thread is saving or loading the project and has taken the
+		// processor: this block is silence, and `P` is not touched at all.
+		if self.state_guard.audio_should_yield() {
+			let frames = audio.frames_count() as usize;
+
+			for mut output_port in audio.output_ports() {
+				match output_port.channels()? {
+					SampleType::F32(inner) | SampleType::Both(inner, _) => {
+						for ptr in inner.raw_data() {
+							for index in 0..frames {
+								// SAFETY: the host's channel buffer holds `frames` samples.
+								unsafe {
+									*ptr.add(index) = 0.0;
+								}
+							}
+						}
+					}
+					SampleType::F64(inner) => {
+						for ptr in inner.raw_data() {
+							for index in 0..frames {
+								// SAFETY: see the F32 arm above.
+								unsafe {
+									*ptr.add(index) = 0.0;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			self.samples_processed += frames as u64;
+
+			return Ok(ProcessStatus::Continue);
+		}
 		// SAFETY: `activate` stored the address of the `P` owned by the still-alive and
 		// pinned `PluginMain`, so the pointer is valid and the value is never moved.
 		let processor = unsafe { &mut *(self.processor as *mut P) };
+
+		// The user's own actions reach the product here, on the thread that owns it.
+		while let Ok(message) = self.message_receiver.try_recv() {
+			i_am_dsp::prelude::Processor::on_message(&*processor, message);
+		}
+
 		self.temp_buffer_1.clear();
 		self.temp_buffer_2.clear();
 		self.temp_buffer_3.clear();

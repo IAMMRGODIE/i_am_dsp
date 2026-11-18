@@ -54,6 +54,7 @@ impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> {
 		_: &'a Self::Shared<'a>,
 	) -> Result<Self::MainThread<'a>, PluginError> {
 		let options = P::window_options();
+		let (message_sender, message_receiver) = crossbeam_channel::unbounded();
 		let processor = P::new();
 		let param_map = processor.param_map();
 		// The plugin starts at the latency it reports before it has processed anything, which
@@ -72,12 +73,14 @@ impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> {
 			resize_hints: options.resize_hints,
 			param_map,
 			processor: Box::pin(processor),
+			state_guard: std::sync::Arc::new(crate::state_guard::StateGuard::new()),
 			host: Some(host),
 			latency,
 			parent: None,
 			editor: None,
 			editor_timer: None,
-			message_receivers: vec![],
+			message_sender: message_sender.clone(),
+			message_receiver: std::sync::Arc::new(message_receiver),
 			opening: false,
 			close_requested: false,
 			parent_dirty: false,

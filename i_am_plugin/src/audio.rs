@@ -37,6 +37,12 @@ pub struct AudioProcessor<'a, P: Plugin> {
 	/// Where the audio thread publishes the latency it is running at, for the main thread to
 	/// hand to the host.
 	pub(crate) latency: LatencyPublisher,
+	/// The handover the state extension uses: while the main thread holds it, this
+	/// side must not touch the processor at all.
+	pub(crate) state_guard: std::sync::Arc<crate::state_guard::StateGuard>,
+	/// The editor messages to apply, sent from the main thread and applied here so a
+	/// product's `on_message` only ever runs on the audio thread.
+	pub(crate) message_receiver: std::sync::Arc<crossbeam_channel::Receiver<P::Message>>,
 	pub(crate) _phantom: std::marker::PhantomData<P>,
 }
 
@@ -98,22 +104,8 @@ impl<P: Plugin> PluginMainThread<'_, ()> for PluginMain<P> {
 			self.notify_latency_changed();
 		}
 
-		self.message_receivers.retain_mut(|inner| {
-			loop {
-				match inner.try_recv() {
-					Ok(message) => {
-						self.processor.on_message(message);
-					}
-					Err(crossbeam_channel::TryRecvError::Empty) => {
-						break;
-					}
-					Err(crossbeam_channel::TryRecvError::Disconnected) => {
-						return false;
-					}
-				}
-			}
-			true
-		});
+		// Editor messages are applied by the audio thread, which owns the processor:
+		// nothing to drain here.
 
 		// CLAP only calls this after the plugin asks for it. Renewing keeps a
 		// main-thread tick alive, so a latency published by the audio thread is
