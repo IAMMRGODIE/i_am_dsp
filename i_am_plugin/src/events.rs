@@ -386,7 +386,11 @@ pub(crate) fn handle_param_mod_event(param: &ParamModEvent, param_map: &ParamMap
 
 pub(crate) fn sync_params(output_parameter_changes: &mut OutputEvents, param_map: &ParamMap) {
 	for (index, val) in param_map.iter().enumerate() {
-		if val.is_chanegd() {
+		if !val.take_changed(std::sync::atomic::Ordering::SeqCst) {
+			continue;
+		}
+
+		{
 			let Some(stable_id) = param_map.query_stable_id(index) else {
 				continue;
 			};
@@ -424,8 +428,6 @@ pub(crate) fn sync_params(output_parameter_changes: &mut OutputEvents, param_map
 				Default::default(),
 			));
 			let _ = output_parameter_changes.try_push(ParamGestureEndEvent::new(0, id));
-
-			val.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 		}
 	}
 }

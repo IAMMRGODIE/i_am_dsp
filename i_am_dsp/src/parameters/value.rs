@@ -156,6 +156,21 @@ impl AtomicValue {
 		Ok(self.load(fetch_order))
 	}
 
+	/// Takes the changed flag: returns whether it was set and clears it, in one
+	/// atomic step.
+	///
+	/// Reading it and clearing it separately loses a write that lands between the
+	/// two: the interface writes the flag from its own thread while the audio
+	/// thread reports the change to the host.
+	pub fn take_changed(&self, order: Ordering) -> bool {
+		match self {
+			Self::Bool { changed: c, .. } => c.swap(false, order),
+			Self::Float { changed: c, .. } => c.swap(false, order),
+			Self::Int { changed: c, .. } => c.swap(false, order),
+			Self::Nothing => false,
+		}
+	}
+
 	/// Sets the changed flag with the given ordering.
 	pub fn set_changed(&self, changed: bool, order: Ordering) {
 		match self {
