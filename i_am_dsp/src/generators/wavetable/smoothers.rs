@@ -137,6 +137,10 @@ impl WaveTable for WaveTableSmoother {
 	fn sample(&self, t: f32, channel: usize) -> f32 {
 		sample_tables(&self.tables, self.smooth_factor, t, channel)
 	}
+
+	fn is_mono(&self) -> bool {
+		self.tables.iter().all(|table| table.is_mono())
+	}
 }
 
 impl WaveTableSmoother {

@@ -27,6 +27,15 @@ pub trait WaveTable: Parameters + Send {
 	/// t in the range [0, 1]
 	fn sample(&self, t: f32, channel: usize) -> f32;
 
+	/// Whether both channels read the same sample.
+	///
+	/// True by default: no table in this crate uses the channel, so a voice can
+	/// read it once for a copy instead of once per channel. A table that really
+	/// differs per channel has to say so, or one side would be wrong.
+	fn is_mono(&self) -> bool {
+		true
+	}
+
 	/// Lets a table that renders off the audio thread pick up new pages.
 	///
 	/// The default does nothing: a table built from its own parameters is
@@ -108,6 +117,15 @@ impl<T: WaveTable, const CHANNELS: usize> Oscillator<CHANNELS> for TableOsc<T> {
 
 	fn play_at(&self, frequency: f32, time: f32, phase: [f32; CHANNELS]) -> [f32; CHANNELS] {
 		let mut output = [0.0; CHANNELS];
+
+		// A mono table read at one phase is the same on both sides: one read
+		// then feeds them all.
+		if CHANNELS > 0 && phase.iter().all(|value| value.to_bits() == phase[0].to_bits()) && self.0.is_mono() {
+			let value = self.0.sample(wrap01(time * frequency + phase[0]), 0);
+			output = [value; CHANNELS];
+
+			return output;
+		}
 
 		for i in 0..CHANNELS {
 			let t = wrap01(time * frequency + phase[i]);

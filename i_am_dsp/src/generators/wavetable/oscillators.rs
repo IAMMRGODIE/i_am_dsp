@@ -719,6 +719,10 @@ impl WaveTable for Box<dyn WaveTable + Send + Sync> {
 		self.as_mut().sync();
 	}
 
+	fn is_mono(&self) -> bool {
+		self.as_ref().is_mono()
+	}
+
 	fn sample(&self, t: f32, channel: usize) -> f32 {
 		self.as_ref().sample(t, channel)
 	}
@@ -737,6 +741,10 @@ impl Parameters for Box<dyn WaveTable + Send + Sync> {
 impl WaveTable for Box<dyn WaveTable> {
 	fn sync(&mut self) {
 		self.as_mut().sync();
+	}
+
+	fn is_mono(&self) -> bool {
+		self.as_ref().is_mono()
 	}
 
 	fn sample(&self, t: f32, channel: usize) -> f32 {
