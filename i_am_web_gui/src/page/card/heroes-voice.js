@@ -1355,10 +1355,10 @@
 
     for (var q = 0; q <= 256; q++) {
       var index = q % 256;
-      // Each page is scaled to full scale, so the picture is too: the wave the
-      // voice plays is the drawn one times the page's gain.
-      var value = first[index] * gainOf(from) * (1 - blend) +
-        second[index] * gainOf(to) * blend;
+      // The points are the drawn wave normalised to its own peak, and each page
+      // plays at full scale: the picture is that normalised wave, unsealed by
+      // the page's gain, which only says how far the table was turned.
+      var value = first[index] * (1 - blend) + second[index] * blend;
 
       path += (q ? " L " : "M ") + (20 + q / 256 * 480).toFixed(1) + " " +
         (39 - value * 27).toFixed(1);

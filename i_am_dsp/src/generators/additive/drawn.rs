@@ -250,13 +250,16 @@ fn build_bank(frames: &[SpectralFrame], previous: Option<&PageBank>) -> PageBank
 			})
 			.collect();
 
-		// A page plays at full scale: the peak is read from the finished table,
-		// not from the picture, which can step over a bright page's peak.
+		// A page plays at full scale: the peak is the waveform's own, read from
+		// the finished table. The pair the table returns is the wave and its
+		// quadrature, and the voice plays a rotation of the two, which is that
+		// same wave shifted in time: its peak is the wave's peak, while the
+		// quadrature of a bright wave peaks far higher and is never heard.
 		let peak = (0..PEAK_POINTS).fold(0.0f32, |peak, point| {
 			let phase = point as f32 / PEAK_POINTS as f32;
-			let (left, right) = table.play(phase, f32::INFINITY);
+			let (wave, _) = table.play(phase, f32::INFINITY);
 
-			peak.max(left.abs()).max(right.abs())
+			peak.max(wave.abs())
 		});
 
 		gains.push(if peak > 1e-6 { 1.0 / peak } else { 1.0 });
@@ -675,12 +678,14 @@ mod tests {
 		let loud = SpectralFrame::new(vec![1.0; DRAWN_PARTIALS], vec![0.0; DRAWN_PARTIALS]);
 		let quiet = SpectralFrame::new(vec![0.2; DRAWN_PARTIALS], vec![0.0; DRAWN_PARTIALS]);
 		let bank = build_bank(&[loud, quiet], None);
+		// The played wave is the first of the pair; the second is its quadrature,
+		// which the voice rotates into the same wave and never hears on its own.
 		let peak = |page: usize| {
 			(0..2048).fold(0.0f32, |peak, point| {
 				let phase = point as f32 / 2048.0;
-				let (left, right) = bank.sample(page, phase, f32::INFINITY);
+				let (wave, _) = bank.sample(page, phase, f32::INFINITY);
 
-				peak.max(left.abs()).max(right.abs())
+				peak.max(wave.abs())
 			})
 		};
 
