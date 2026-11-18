@@ -573,6 +573,19 @@ impl WaveFramesOsc {
 		let levels = if premixed { self.premix.as_ref() } else { None };
 		let mut output = [0.0; 2];
 
+		// Both channels usually start at the same phase, and a frame is mono:
+		// one read then feeds both channels. A random phase per channel, or any
+		// future stereo frame, takes the two-read path below.
+		if phase[0].to_bits() == phase[1].to_bits() {
+			let t = super::wrap01(frequency * time + phase[0]);
+			let value = match levels {
+				Some(levels) => sample_levels(levels, t, self.max_harmonic, self.x_fade),
+				None => bank.sample(t, from, to, blend, self.max_harmonic, self.x_fade),
+			};
+
+			return [value, value];
+		}
+
 		for (channel, value) in output.iter_mut().enumerate() {
 			let t = super::wrap01(frequency * time + phase[channel]);
 
