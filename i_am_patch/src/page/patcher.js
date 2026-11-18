@@ -1335,6 +1335,7 @@
         // posting it back over the new one.
         const holder = entry.context.spectrum || { page: 0 };
         holder.generation = state.generation;
+        holder.gain = state.gain;
         holder.frames = state.frames;
         entry.context.spectrum = holder;
 

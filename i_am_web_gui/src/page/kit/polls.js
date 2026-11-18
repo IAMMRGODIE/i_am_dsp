@@ -447,6 +447,7 @@
         if (!spectrumState) spectrumState = { generation: 0, page: 0, frames: null };
 
         spectrumState.generation = state.generation;
+        spectrumState.gain = state.gain;
         spectrumState.frames = state.frames;
         spectrumState.page = Math.min(spectrumState.page || 0, state.frames.length - 1);
         markDirty();

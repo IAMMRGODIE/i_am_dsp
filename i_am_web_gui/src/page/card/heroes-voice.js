@@ -1376,7 +1376,10 @@
       '<line x1="20" y1="136" x2="500" y2="136" stroke="#2c2c2c"/>'
     ) +
       '<div class="hero-label" style="top:2%">SPECTRUM \u00b7 ' + frame.levels.length +
-        ' PARTIALS</div>' +
+        ' PARTIALS' +
+        (state && state.gain && state.gain < 0.999
+          ? ' \u00b7 \u00d7' + state.gain.toFixed(2)
+          : '') + '</div>' +
       '<div class="hero-label" style="top:2%; left:auto; right:10px">' + page +
         ' \u00b7 MORPH ' + Math.round(morph * 100) + '%</div>' +
       '<div class="hero-actions">' +

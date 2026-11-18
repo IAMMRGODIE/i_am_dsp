@@ -12,7 +12,7 @@ use std::{
 	f32::consts::PI,
 	sync::{
 		Arc, Condvar, Mutex,
-		atomic::{AtomicBool, AtomicU64, Ordering},
+		atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 	},
 	thread::{self, JoinHandle},
 };
@@ -115,6 +115,9 @@ impl Default for SpectralFrame {
 pub struct SpectralFeed {
 	frames: Mutex<Arc<Vec<SpectralFrame>>>,
 	generation: AtomicU64,
+	/// The scale the published bank plays at, as bits: the pages can be loud
+	/// enough together that the bank has to be turned down to stay in range.
+	gain: AtomicU32,
 }
 
 impl SpectralFeed {
@@ -123,6 +126,7 @@ impl SpectralFeed {
 		Arc::new(Self {
 			frames: Mutex::new(Arc::new(frames)),
 			generation: AtomicU64::new(0),
+			gain: AtomicU32::new(1.0f32.to_bits()),
 		})
 	}
 
@@ -146,6 +150,16 @@ impl SpectralFeed {
 	/// Moves whenever the pages change.
 	pub fn generation(&self) -> u64 {
 		self.generation.load(Ordering::Acquire)
+	}
+
+	/// The scale the published bank plays at, for a page that shows it.
+	pub fn gain(&self) -> f32 {
+		f32::from_bits(self.gain.load(Ordering::Acquire))
+	}
+
+	/// Records the scale of the bank the renderer just published.
+	pub(crate) fn set_gain(&self, gain: f32) {
+		self.gain.store(gain.to_bits(), Ordering::Release);
 	}
 }
 
@@ -172,6 +186,11 @@ impl PageBank {
 	/// One period of a page, for the editor to draw.
 	pub fn curve(&self, page: usize) -> Option<&[f32]> {
 		self.curves.get(page).map(Vec::as_slice)
+	}
+
+	/// The scale that keeps the loudest page at full scale.
+	pub fn gain(&self) -> f32 {
+		self.gain
 	}
 
 	/// Reads one page at a phase of its fundamental.
@@ -240,13 +259,9 @@ fn build_bank(frames: &[SpectralFrame], previous: Option<&PageBank>) -> PageBank
 	});
 	let gain = if peak > 1.0 { 1.0 / peak } else { 1.0 };
 
-	if gain < 1.0 {
-		for curve in &mut curves {
-			for value in curve.iter_mut() {
-				*value *= gain;
-			}
-		}
-	}
+	// The pictures stay as drawn and the scale rides beside them: a page reused
+	// from the previous bank already carries that bank's shape, and scaling a
+	// reused picture again would compound the last edit's scale into it.
 
 	PageBank {
 		frames: frames.to_vec(),
@@ -262,6 +277,8 @@ struct RendererShared {
 	ready_generation: AtomicU64,
 	wake: Condvar,
 	alive: AtomicBool,
+	/// Where the published bank's scale is recorded for the page.
+	feed: Option<Arc<SpectralFeed>>,
 }
 
 /// Renders the drawn pages into tables away from the audio thread.
@@ -276,12 +293,28 @@ impl SpectrumRenderer {
 	/// The first set is built here, on the thread that constructs the plug-in,
 	/// because a voice that starts silent would be a bug the user can hear.
 	pub fn new(frames: Vec<SpectralFrame>) -> Arc<Self> {
+		Self::with_feed(frames, None)
+	}
+
+	/// A renderer that also records the scale of each bank it publishes on the
+	/// feed the page reads, so the editor can show it.
+	pub fn with_feed(
+		frames: Vec<SpectralFrame>,
+		feed: Option<Arc<SpectralFeed>>,
+	) -> Arc<Self> {
+		let bank = Arc::new(build_bank(&frames, None));
+
+		if let Some(feed) = &feed {
+			feed.set_gain(bank.gain());
+		}
+
 		let shared = Arc::new(RendererShared {
 			pending: Mutex::new(None),
-			ready: Mutex::new(Some(Arc::new(build_bank(&frames, None)))),
+			ready: Mutex::new(Some(bank)),
 			ready_generation: AtomicU64::new(1),
 			wake: Condvar::new(),
 			alive: AtomicBool::new(true),
+			feed,
 		});
 
 		let worker = shared.clone();
@@ -371,6 +404,10 @@ fn render(shared: Arc<RendererShared>) {
 
 		let bank = Arc::new(build_bank(&frames, last.as_deref()));
 		last = Some(bank.clone());
+
+		if let Some(feed) = &shared.feed {
+			feed.set_gain(bank.gain());
+		}
 
 		if let Ok(mut ready) = shared.ready.lock() {
 			*ready = Some(bank);
@@ -478,7 +515,10 @@ impl TableBankOsc {
 	pub fn new(feed: Arc<SpectralFeed>) -> Self {
 		let params = DrawnSpectrum::new(feed);
 		let feed_generation = params.feed().generation();
-		let renderer = SpectrumRenderer::new((*params.feed().frames()).clone());
+		let renderer = SpectrumRenderer::with_feed(
+			(*params.feed().frames()).clone(),
+			Some(params.feed().clone()),
+		);
 		let (seen, bank) = match renderer.current() {
 			Some((generation, bank)) => (generation, Some(bank)),
 			None => (0, None),
