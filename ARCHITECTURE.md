@@ -2,7 +2,8 @@
 
 > 状态：workspace 14 个 crate、约 8.4 万行 Rust（另有约 1.5 万行网页面板 HTML/JS/CSS）、694 个 `#[test]`；
 > CLAP ✅、VST3 ✅（经 `clap-wrapper`）；界面为 WebView2 网页面板；已产出 `I Am Effects Web`、
-> `I Am Synths`、`I Am Patch` 三个可加载插件，`I Am Multipass`（`i_am_rack`）已内嵌导出、尚未单独打包。
+> `I Am Synths`、`I Am Patch` 三个可加载插件，`I Am Multipass`（`i_am_rack`）自己就带 `export_plugin!`，
+> `cargo bundle -p i_am_rack --features vst3` 可单独打包。
 >
 > 本文描述代码**现在是什么样**。要做什么见根目录的 `patcher-design.md`、`multipass-rack-design.md`、
 > `bundle-ui-ux-design.md`、`bpm-sync-research.md`、`drummer-roadmap.md`。
@@ -586,7 +587,9 @@ features（`i_am_dsp/Cargo.toml`）：`layout`（布局元数据）、`string`�
 ## 10. 已知边界与待办
 
 - **WebView2 仅 Windows**；其他平台是编译得过、打开报错的 stub。
-- **无 SIMD**、**无动态端口**、**无侧链自动声明**（侧链靠 `INPUT_PORTS` 手工列出，音频侧走 `other`）。
+- **SIMD 只到 `wide` 那几处**（filter、convolver、additive、`i_am_string` 的模态与共鸣）；逐样本的 biquad 仍是标量，
+  按时间 4 个样本一组的转置形式没有做（`effects/filter/process.rs` 里只有一行注释）。
+- **无动态端口**、**无侧链自动声明**（侧链靠 `INPUT_PORTS` 手工列出，音频侧走 `other`）。
 - **参数同步是 O(n)/块**，没有变化队列；参数特别多的产品（rack、patcher）靠「少量宿主参数 + 序列化状态」把 n 压住。
 - **standalone 只是 demo**，不是完整应用；两条 standalone 线拿不到宿主 tempo（见 `bpm-sync-research.md`）。
 - **AU 只导出符号**，打包与验证未做。
@@ -594,7 +597,7 @@ features（`i_am_dsp/Cargo.toml`）：`layout`（布局元数据）、`string`�
 - **UI 共享到「卡片布局」为止**：产品页的页面级编辑器（sampler/IR/脚本等）是产品页专属，
   不抽进共享层；卡片页与产品页共享描述、控件、hero 和 `faceCard` 布局语义（见 5.5）。
 - **无 CI**；测试是本地 `cargo test` + clippy。
-- README 里的 TODO 仍成立：完善 README/example、视觉化、SIMD、物理建模扩展、`i_am_effects` 收尾。
+- 上面这些是**产品级**缺口；库级别「要做什么」见 [README.MD](README.MD) 的 TODO，两边都写「现在缺什么」，不是愿望单。
 
 ---
 

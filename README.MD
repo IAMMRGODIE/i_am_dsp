@@ -4,16 +4,14 @@
 
 ## TODO
 
-- [x] 用 crates.io 上的 `iced_baseview` 替换本地的 `iced_baseview` 依赖
-- [ ] 完善 README
-- [ ] 完善 example
-- [ ] 视觉效果器
-- [x] BPM sync
-- [ ] 更完善的 SIMD 支持
-- [ ] 多写一点例子
-- [ ] 物理建模（如果我有精力研究的话）
-- [ ] 做完 `i_am_effects`
-- [ ] 跨平台支持（现在只支持 windows）
+- [ ] **非 Windows 的编辑器**。DSP 与 `.clap` / `.vst3` 打包在其他平台都能编译，只有面板不行：现在唯一的载体是
+  WebView2。要落地就给 `i_am_plugin` 的 `Editor` 换载体（`vendor/wry` 里已有 webkitgtk / WKWebView 后端）。
+- [ ] **参数变化队列**。宿主参数每块 O(n) 扫一遍 `ParamMap`；现在靠「少量宿主参数 + 序列化状态」把 n 压住，
+  参数再多一点的产品就会撞上这条。
+- [ ] **AU 的打包与验证**。`PluginAuExt` 只导出符号，没打包过，也没在 Logic 里跑过。
+- [ ] **页面拖动的手势事件**。页面改参数只写原子，不发 `ParamGestureBegin/End`，宿主不会为手动调整暂停自动化。
+- [ ] **侧链的自动声明**。侧链端口靠 `INPUT_PORTS` 手工列出，宿主不知道哪条是侧链。
+- [ ] **README**：最小可跑示例（现在只有构建与打包说明）、`i_am_effects` 里各产品的一句话功能表。
 
 ## 一个警告
 
@@ -56,9 +54,13 @@ clap_wrapper::export_auv2!();
 
 哦对了现在有一个打包工具了在 [i_am_bundler](./i_am_bundler/README.md) 那边，还做了安装，应该会方便些
 
+打包工具是基于前面提到的 [clap_wrapper](https://docs.rs/clap-wrapper/latest/clap_wrapper/) 的
+不过由于事件约定的不同，`clap_wrapper` 导出的 vst3 的参数自动化似乎是每 block update 一次而不是
+每 sample update 一次，可以说非常的坏了.
+
 ## 贡献
 
-开 PR 就行，顺便我们用的是 `cargo clippy`，所以交上来的时候记得清掉 clippy warning.
+开 PR 就行，顺便我们用的是 `cargo clippy`，所以交上来的时候记得清掉 clippy warning，还有 cargo doc 的 warning.
 
 ## 开源协议
 
