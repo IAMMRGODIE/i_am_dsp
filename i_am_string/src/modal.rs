@@ -747,8 +747,51 @@ impl ModalString {
 			mode.awake = mode.q.abs() > mode.quiet_q || mode.v.abs() > mode.quiet_v;
 		}
 		// The phantoms have no external force; they ring on what they were
-		// given and put their own force on the bridge.
-		for mode in &mut self.phantoms {
+		// given and put their own force on the bridge. They step four at a time
+		// like the bank above.
+		let mut index = 0;
+
+		while index + 4 <= self.phantoms.len() {
+			let modes = &self.phantoms[index..index + 4];
+			let mut wake = [0.0f32; 4];
+
+			for lane in 0..4 {
+				wake[lane] = if modes[lane].awake { 1.0 } else { 0.0 };
+			}
+
+			let mask = f32x4::from(wake);
+			let keep = f32x4::splat(1.0) - mask;
+			let q = f32x4::from([modes[0].q, modes[1].q, modes[2].q, modes[3].q]);
+			let v = f32x4::from([modes[0].v, modes[1].v, modes[2].v, modes[3].v]);
+			let a = f32x4::from([modes[0].a, modes[1].a, modes[2].a, modes[3].a]);
+			let b = f32x4::from([modes[0].b, modes[1].b, modes[2].b, modes[3].b]);
+			let c = f32x4::from([modes[0].c, modes[1].c, modes[2].c, modes[3].c]);
+			let d = f32x4::from([modes[0].d, modes[1].d, modes[2].d, modes[3].d]);
+			let weight = f32x4::from([
+				modes[0].bridge,
+				modes[1].bridge,
+				modes[2].bridge,
+				modes[3].bridge,
+			]);
+			let next_q = mask * (a * q + b * v) + keep * q;
+			let next_v = mask * (c * q + d * v) + keep * v;
+
+			bridge += (weight * next_q * mask).reduce_add();
+
+			let qs = next_q.to_array();
+			let vs = next_v.to_array();
+
+			for lane in 0..4 {
+				let mode = &mut self.phantoms[index + lane];
+				mode.q = qs[lane];
+				mode.v = vs[lane];
+				mode.awake = mode.q.abs() > mode.quiet_q || mode.v.abs() > mode.quiet_v;
+			}
+
+			index += 4;
+		}
+
+		for mode in &mut self.phantoms[index..] {
 			if !mode.awake {
 				continue;
 			}
