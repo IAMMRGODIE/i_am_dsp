@@ -162,9 +162,11 @@ node tools/preview/preview.mjs patch          # patcher 的实时编辑器
   `ParamMap::set("imported", SetValue::Serialized(...))` 会**返回 false 且什么都不发生**。
   页面要传表/采样/曲线，照 sampler / shapes 的做法用 `Arc<Mutex<...>>` 槽交给音频线程，
   存档时再从槽里拷进参数（见 `I Am Modal` 的 `TableSlot`）。
-- **只有 Windows 的后端在真机上验证过**：`wry` 后端按平台分三份（Windows WebView2、Linux WebKitGTK、
-  macOS WKWebView），Linux/macOS 的代码齐全但没在真机跑过。动非 Windows 的部分时，别假设它能编过。
+- **只有 macOS 的后端没验证过**：`wry` 后端按平台分三份（Windows WebView2、Linux WebKitGTK、
+  macOS WKWebView）。Windows 与 Linux 都跑过（Linux 是 WSL2 + WSLg 的 Kali，`cargo run -p i_am_plugin
+  --example wry_standalone` 能开窗、页面报 ready），macOS 只是代码齐全。
   Linux 上页面的事件循环靠宿主的 `clap_plugin_timer`（`Editor::pump`），没有 timer 的宿主上页面只会画一帧。
+  WSL 里跑 GUI 要 `GDK_BACKEND=x11`（WSLg 默认 Wayland），并注意 `wsl.exe` 在受限沙箱里会 `ACCESSDENIED`。
 - **参数平滑（`smoothing`）只在包装层**：`i_am_plugin/src/smoothing.rs` 每个样本把点名的参数朝目标走一步，
   按声明时长走完；只对 `Plugin::SMOOTHED_PARAMETERS`（`web_plugin!` 的 `smoothed = &[...]`）里的连续参数生效。
   别在 DSP 里再补一套，两套叠加就是两次滞后；也别把开关/波形选择写进去，那会让一次点击看起来卡住。

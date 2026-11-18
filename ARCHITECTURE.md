@@ -286,8 +286,8 @@ trait Editor<P: Plugin> {
 | Linux | WebKitGTK | 嵌进宿主的 X11 窗口（Wayland 不支持嵌入，直接报错） | 我们，从宿主的 GUI timer 调 `Editor::pump` |
 | macOS | WKWebView | 作为宿主 `NSView` 的 subview | 宿主的 NSApplication |
 
-Windows 是唯一在真机上跑过的；Linux 与 macOS 的后端代码齐全，但**没有在真机上验证过**，
-其余平台仍是报错的 stub。
+Windows 与 Linux 都在真机上跑过（Linux 是 WSL2 + WSLg 里的 Kali：X11 嵌入、页面加载、IPC 都通）；
+macOS 的后端代码齐全，但**没有在真机上验证过**。其余平台仍是报错的 stub。
 
 ### 4.4 宿主扩展
 
@@ -615,8 +615,9 @@ features（`i_am_dsp/Cargo.toml`）：`layout`（布局元数据）、`string`�
 
 ## 10. 已知边界与待办
 
-- **只有一个后端在真机上跑过**：Windows 的 WebView2 之外，Linux（WebKitGTK，仅 X11）与 macOS（WKWebView）
-  的后端已经写好，但**没有真机验证**；再往外的平台是编译得过、打开报错的 stub。Linux 上页面靠宿主的
+- **macOS 的后端没有真机验证**：Windows（WebView2）与 Linux（WebKitGTK，仅 X11，已在 WSLg 里跑通
+  `cargo run -p i_am_plugin --example wry_standalone`：页面加载、IPC 都通）之外，macOS 的 WKWebView
+  路径只是代码齐全；再往外的平台是编译得过、打开报错的 stub。Linux 上页面靠宿主的
   `clap_plugin_timer` 才有自己的事件循环，宿主不提供 timer 扩展时页面只会画一帧。
 - **SIMD 只到 `wide` 那几处**（filter、convolver、additive、`i_am_string` 的模态与共鸣）；逐样本的 biquad 仍是标量，
   按时间 4 个样本一组的转置形式没有做（`effects/filter/process.rs` 里只有一行注释）。
