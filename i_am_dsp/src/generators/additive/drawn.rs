@@ -697,6 +697,16 @@ mod tests {
 		assert!(peak(1) > 0.9, "the quiet page was not brought up: {}", peak(1));
 	}
 
+	/// The classic saw page peaks near 1.85 and plays at about half scale; the
+	/// scale is the wave's peak, not its quadrature's (which is far higher).
+	#[test]
+	fn the_saw_page_plays_near_full_scale() {
+		let bank = build_bank(&[SpectralFrame::saw()], None);
+		let gain = bank.gains()[0];
+
+		assert!(gain > 0.45 && gain < 0.65, "the saw page plays at {gain}");
+	}
+
 	/// A page becomes a band limited table and a picture of one period.
 	#[test]
 	fn a_page_builds_a_table_and_its_picture() {
