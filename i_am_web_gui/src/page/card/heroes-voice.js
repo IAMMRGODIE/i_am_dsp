@@ -1347,13 +1347,18 @@
       return cache.pages[page];
     };
 
+    var gains = state.gains || [];
+    var gainOf = function (page) { return gains[page] || 1; };
     var first = pointsOf(from);
     var second = pointsOf(to);
     var path = "";
 
     for (var q = 0; q <= 256; q++) {
       var index = q % 256;
-      var value = first[index] * (1 - blend) + second[index] * blend;
+      // Each page is scaled to full scale, so the picture is too: the wave the
+      // voice plays is the drawn one times the page's gain.
+      var value = first[index] * gainOf(from) * (1 - blend) +
+        second[index] * gainOf(to) * blend;
 
       path += (q ? " L " : "M ") + (20 + q / 256 * 480).toFixed(1) + " " +
         (39 - value * 27).toFixed(1);
@@ -1377,8 +1382,8 @@
     ) +
       '<div class="hero-label" style="top:2%">SPECTRUM \u00b7 ' + frame.levels.length +
         ' PARTIALS' +
-        (state && state.gain && state.gain < 0.999
-          ? ' \u00b7 \u00d7' + state.gain.toFixed(2)
+        (Math.abs(gainOf(selected) - 1) > 0.005
+          ? ' \u00b7 \u00d7' + gainOf(selected).toFixed(2)
           : '') + '</div>' +
       '<div class="hero-label" style="top:2%; left:auto; right:10px">' + page +
         ' \u00b7 MORPH ' + Math.round(morph * 100) + '%</div>' +

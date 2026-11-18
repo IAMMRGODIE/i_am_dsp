@@ -12,7 +12,7 @@ use std::{
 	f32::consts::PI,
 	sync::{
 		Arc, Condvar, Mutex,
-		atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+		atomic::{AtomicBool, AtomicU64, Ordering},
 	},
 	thread::{self, JoinHandle},
 };
@@ -115,9 +115,9 @@ impl Default for SpectralFrame {
 pub struct SpectralFeed {
 	frames: Mutex<Arc<Vec<SpectralFrame>>>,
 	generation: AtomicU64,
-	/// The scale the published bank plays at, as bits: the pages can be loud
-	/// enough together that the bank has to be turned down to stay in range.
-	gain: AtomicU32,
+	/// The scale each published page plays at: a page is brought to full scale
+	/// so a morph across pages keeps its level.
+	gains: Mutex<Vec<f32>>,
 }
 
 impl SpectralFeed {
@@ -126,7 +126,7 @@ impl SpectralFeed {
 		Arc::new(Self {
 			frames: Mutex::new(Arc::new(frames)),
 			generation: AtomicU64::new(0),
-			gain: AtomicU32::new(1.0f32.to_bits()),
+			gains: Mutex::new(Vec::new()),
 		})
 	}
 
@@ -152,14 +152,20 @@ impl SpectralFeed {
 		self.generation.load(Ordering::Acquire)
 	}
 
-	/// The scale the published bank plays at, for a page that shows it.
-	pub fn gain(&self) -> f32 {
-		f32::from_bits(self.gain.load(Ordering::Acquire))
+	/// The scale each published page plays at, for a page that shows it.
+	pub fn gains(&self) -> Vec<f32> {
+		self.gains
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.clone()
 	}
 
 	/// Records the scale of the bank the renderer just published.
-	pub(crate) fn set_gain(&self, gain: f32) {
-		self.gain.store(gain.to_bits(), Ordering::Release);
+	pub(crate) fn set_gains(&self, gains: Vec<f32>) {
+		*self
+			.gains
+			.lock()
+			.unwrap_or_else(|error| error.into_inner()) = gains;
 	}
 }
 
@@ -168,13 +174,10 @@ pub struct PageBank {
 	frames: Vec<SpectralFrame>,
 	pages: Vec<Arc<Wavetable>>,
 	curves: Vec<Vec<f32>>,
-	/// The scale that keeps the loudest drawn page at full scale.
-	///
-	/// The bank is scaled, not each page: a morph moves through the pages as
-	/// drawn, and normalising every page on its own would flatten that relation.
-	/// A bank that already peaks below full scale is left alone, so a quiet
-	/// drawing stays quiet.
-	gain: f32,
+	/// The scale each page plays at: every page is brought to full scale, so a
+	/// page drawn with a few quiet partials and a page drawn with every partial
+	/// at full both peak at one and a morph between them keeps its level.
+	gains: Vec<f32>,
 }
 
 impl PageBank {
@@ -188,16 +191,17 @@ impl PageBank {
 		self.curves.get(page).map(Vec::as_slice)
 	}
 
-	/// The scale that keeps the loudest page at full scale.
-	pub fn gain(&self) -> f32 {
-		self.gain
+	/// The scale each page plays at.
+	pub fn gains(&self) -> &[f32] {
+		&self.gains
 	}
 
 	/// Reads one page at a phase of its fundamental.
 	fn sample(&self, page: usize, phase: f32, max_harmonic: f32) -> (f32, f32) {
 		let (left, right) = self.pages[page].play(phase, max_harmonic);
+		let gain = self.gains[page];
 
-		(left * self.gain, right * self.gain)
+		(left * gain, right * gain)
 	}
 }
 
@@ -212,15 +216,20 @@ const PEAK_POINTS: usize = 2048;
 fn build_bank(frames: &[SpectralFrame], previous: Option<&PageBank>) -> PageBank {
 	let mut pages: Vec<Arc<Wavetable>> = Vec::with_capacity(frames.len());
 	let mut curves: Vec<Vec<f32>> = Vec::with_capacity(frames.len());
+	let mut gains: Vec<f32> = Vec::with_capacity(frames.len());
 
 	for (index, frame) in frames.iter().enumerate() {
 		if let Some(previous) = previous
 			&& previous.frames.get(index) == Some(frame)
-			&& let (Some(table), Some(curve)) =
-				(previous.pages.get(index), previous.curves.get(index))
+			&& let (Some(table), Some(curve), Some(gain)) = (
+				previous.pages.get(index),
+				previous.curves.get(index),
+				previous.gains.get(index),
+			)
 		{
 			pages.push(table.clone());
 			curves.push(curve.clone());
+			gains.push(*gain);
 			continue;
 		}
 
@@ -241,33 +250,25 @@ fn build_bank(frames: &[SpectralFrame], previous: Option<&PageBank>) -> PageBank
 			})
 			.collect();
 
-		pages.push(Arc::new(table));
-		curves.push(curve);
-	}
-
-	// The peak is read from the finished tables, not from the pictures: a picture
-	// can step over a peak of a bright page.
-	let peak = pages.iter().fold(0.0f32, |peak, table| {
-		let table_peak = (0..PEAK_POINTS).fold(0.0f32, |peak, point| {
+		// A page plays at full scale: the peak is read from the finished table,
+		// not from the picture, which can step over a bright page's peak.
+		let peak = (0..PEAK_POINTS).fold(0.0f32, |peak, point| {
 			let phase = point as f32 / PEAK_POINTS as f32;
 			let (left, right) = table.play(phase, f32::INFINITY);
 
 			peak.max(left.abs()).max(right.abs())
 		});
 
-		peak.max(table_peak)
-	});
-	let gain = if peak > 1.0 { 1.0 / peak } else { 1.0 };
-
-	// The pictures stay as drawn and the scale rides beside them: a page reused
-	// from the previous bank already carries that bank's shape, and scaling a
-	// reused picture again would compound the last edit's scale into it.
+		gains.push(if peak > 1e-6 { 1.0 / peak } else { 1.0 });
+		pages.push(Arc::new(table));
+		curves.push(curve);
+	}
 
 	PageBank {
 		frames: frames.to_vec(),
 		pages,
 		curves,
-		gain,
+		gains,
 	}
 }
 
@@ -305,7 +306,7 @@ impl SpectrumRenderer {
 		let bank = Arc::new(build_bank(&frames, None));
 
 		if let Some(feed) = &feed {
-			feed.set_gain(bank.gain());
+			feed.set_gains(bank.gains().to_vec());
 		}
 
 		let shared = Arc::new(RendererShared {
@@ -406,7 +407,7 @@ fn render(shared: Arc<RendererShared>) {
 		last = Some(bank.clone());
 
 		if let Some(feed) = &shared.feed {
-			feed.set_gain(bank.gain());
+			feed.set_gains(bank.gains().to_vec());
 		}
 
 		if let Ok(mut ready) = shared.ready.lock() {
@@ -685,11 +686,10 @@ mod tests {
 
 		assert!(peak(0) <= 1.001, "the loud page left the table: {}", peak(0));
 		assert!(peak(0) > 0.9, "the loud page was over-attenuated: {}", peak(0));
-		assert!(
-			(peak(1) / peak(0) - 0.2).abs() < 0.02,
-			"the quiet page lost its level: {}",
-			peak(1) / peak(0)
-		);
+		// Each page is brought to full scale, so a quiet drawing plays as loud as
+		// a crowded one and a morph between them keeps its level.
+		assert!(peak(1) <= 1.001, "the quiet page left the table: {}", peak(1));
+		assert!(peak(1) > 0.9, "the quiet page was not brought up: {}", peak(1));
 	}
 
 	/// A page becomes a band limited table and a picture of one period.

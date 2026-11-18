@@ -91,9 +91,9 @@ pub(crate) fn spectrum_route(
 	if request.method == "GET" && request.path == "/spectrum" {
 		let frames = feed.frames();
 		let body = format!(
-			"{{\"generation\":{},\"gain\":{},\"frames\":{}}}",
+			"{{\"generation\":{},\"gains\":{},\"frames\":{}}}",
 			feed.generation(),
-			feed.gain(),
+			serde_json::to_string(&feed.gains()).expect("the scales serialize as JSON"),
 			serde_json::to_string(&*frames).expect("the pages serialize as JSON")
 		);
 
@@ -151,9 +151,9 @@ impl SpectrumHandle {
 		let frames = self.0.frames();
 
 		format!(
-			"{{\"generation\":{},\"gain\":{},\"frames\":{}}}",
+			"{{\"generation\":{},\"gains\":{},\"frames\":{}}}",
 			self.0.generation(),
-			self.0.gain(),
+			serde_json::to_string(&self.0.gains()).expect("the scales serialize as JSON"),
 			serde_json::to_string(&*frames).expect("the pages serialize as JSON")
 		)
 	}
@@ -329,7 +329,10 @@ mod tests {
 		let frames = state["frames"].clone();
 
 		assert!(frames.as_array().is_some_and(|frames| !frames.is_empty()));
-		assert!(state["gain"].is_number(), "the page has to see the bank's scale");
+		assert!(
+			state["gains"].is_array(),
+			"the page has to see each page's scale"
+		);
 
 		let result = handle.set_json(&frames.to_string());
 
