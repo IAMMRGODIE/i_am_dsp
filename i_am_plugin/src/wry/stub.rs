@@ -22,17 +22,17 @@ impl<P: Plugin> WryEditor<P> {
 		}
 	}
 
-	/// Ignored on this platform; see the Windows implementation.
+	/// Ignored on this platform; see the platform implementations.
 	pub fn with_data_directory(self, _path: impl Into<std::path::PathBuf>) -> Self {
 		self
 	}
 
-	/// Ignored on this platform; see the Windows implementation.
+	/// Ignored on this platform; see the platform implementations.
 	pub fn with_url(self, _url: impl Into<String>) -> Self {
 		self
 	}
 
-	/// Ignored on this platform; see the Windows implementation.
+	/// Ignored on this platform; see the platform implementations.
 	pub fn with_custom_protocol(
 		self,
 		_name: impl Into<String>,
@@ -41,7 +41,7 @@ impl<P: Plugin> WryEditor<P> {
 		self
 	}
 
-	/// Ignored on this platform; see the Windows implementation.
+	/// Ignored on this platform; see the platform implementations.
 	pub fn with_custom_protocol_request(
 		self,
 		_name: impl Into<String>,
@@ -53,15 +53,15 @@ impl<P: Plugin> WryEditor<P> {
 
 impl<P: Plugin> Editor<P> for WryEditor<P> {
 	fn open(&mut self, _context: EditorContext<P>) -> Result<(), EditorError> {
-		Err("the wry backend is only implemented on Windows".into())
+		Err("the wry backend has no implementation for this platform".into())
 	}
 
 	fn show(&mut self) -> Result<(), EditorError> {
-		Err("the wry backend is only implemented on Windows".into())
+		Err("the wry backend has no implementation for this platform".into())
 	}
 
 	fn hide(&mut self) -> Result<(), EditorError> {
-		Err("the wry backend is only implemented on Windows".into())
+		Err("the wry backend has no implementation for this platform".into())
 	}
 
 	fn close(&mut self) {}

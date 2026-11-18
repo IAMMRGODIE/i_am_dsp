@@ -135,10 +135,7 @@ impl<P: Plugin> PluginMain<P> {
 		self.finish_open(editor)
 	}
 
-	fn finish_open(
-		&mut self,
-		mut editor: Box<dyn Editor<P>>,
-	) -> Result<(), PluginError> {
+	fn finish_open(&mut self, mut editor: Box<dyn Editor<P>>) -> Result<(), PluginError> {
 		if self.close_requested {
 			self.reset_pending();
 			crate::log::note("gui.open: host closed while opening");
@@ -461,6 +458,12 @@ impl<P: Plugin> PluginTimerImpl for PluginMain<P> {
 		}
 		if self.opening {
 			return;
+		}
+
+		// A toolkit that runs on the host's main loop has to be advanced from a
+		// main-thread callback, and this timer is the only one the wrapper owns.
+		if let Some(editor) = self.editor.as_mut() {
+			editor.pump();
 		}
 
 		let Some(parent) = self.parent else {

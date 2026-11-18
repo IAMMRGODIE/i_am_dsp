@@ -47,6 +47,24 @@ windows-sys = { version = "0.61", features = [
 	"Win32_UI_WindowsAndMessaging",
 ] }
 
+# Linux embeds a WebKitGTK view in the host's X11 window. wry does the view,
+# but the GTK side of the deal is the caller's: this crate has to initialise GTK
+# on the GUI thread and advance its loop from the host's timer, so gtk is a
+# direct dependency here rather than an implementation detail of wry.
+[target.'cfg(target_os = "linux")'.dependencies]
+wry = { version = "0.57.2", default-features = false, features = [
+	"os-webview",
+	"x11",
+] }
+gtk = "0.18"
+# Measuring the host's window: the same X11 client library wry already loads.
+x11-dl = "2.21"
+
+# macOS embeds a WKWebView as a subview of the host's NSView; no toolkit of our
+# own is involved, so the plain builder is all this needs.
+[target.'cfg(target_os = "macos")'.dependencies]
+wry = { version = "0.57.2", default-features = false }
+
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.61", features = [
 	"Win32_Foundation",

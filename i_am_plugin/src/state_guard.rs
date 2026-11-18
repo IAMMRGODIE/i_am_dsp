@@ -116,6 +116,8 @@ mod tests {
 		assert!(started.elapsed() < WAIT / 2);
 
 		drop(handover);
-		audio_thread.join().expect("the audio thread saw the request");
+		audio_thread
+			.join()
+			.expect("the audio thread saw the request");
 	}
 }

@@ -12,7 +12,7 @@
 
 #[cfg(not(windows))]
 fn main() {
-	eprintln!("the wry backend is only implemented on Windows");
+	eprintln!("this smoke test is Windows-only; the backend also runs on Linux and macOS");
 }
 
 #[cfg(windows)]

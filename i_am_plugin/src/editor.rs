@@ -87,11 +87,74 @@ pub fn client_size(parent: ParentWindow) -> Option<(f64, f64)> {
 		}
 	}
 
-	#[cfg(not(windows))]
+	#[cfg(target_os = "linux")]
+	{
+		client_size_x11(parent)
+	}
+
+	#[cfg(not(any(windows, target_os = "linux")))]
 	{
 		let _ = parent;
 		None
 	}
+}
+
+/// The client area of the host's X11 window.
+///
+/// The display connection is opened once per thread and kept for the life of the
+/// process: the GUI timer asks this every 33 ms, and an X connection per tick would
+/// be absurd. It is never closed, which is what a plug-in gets for not owning its
+/// own lifetime.
+#[cfg(target_os = "linux")]
+fn client_size_x11(parent: ParentWindow) -> Option<(f64, f64)> {
+	use raw_window_handle::RawWindowHandle;
+	use x11_dl::xlib;
+
+	struct X11 {
+		xlib: xlib::Xlib,
+		display: *mut xlib::Display,
+	}
+
+	thread_local! {
+		static DISPLAY: std::cell::RefCell<Option<X11>> = const { std::cell::RefCell::new(None) };
+	}
+
+	let window = match parent.as_raw() {
+		RawWindowHandle::Xlib(handle) => handle.window,
+		_ => return None,
+	};
+
+	DISPLAY.with(|slot| {
+		let mut slot = slot.borrow_mut();
+
+		if slot.is_none() {
+			let xlib = xlib::Xlib::open().ok()?;
+
+			// SAFETY: a null display name asks for the one in DISPLAY, which is the
+			// connection the host's window belongs to.
+			let display = unsafe { (xlib.XOpenDisplay)(std::ptr::null()) };
+
+			if display.is_null() {
+				return None;
+			}
+
+			*slot = Some(X11 { xlib, display });
+		}
+
+		let x11 = slot.as_ref()?;
+		let mut attributes: xlib::XWindowAttributes = unsafe { std::mem::zeroed() };
+
+		// SAFETY: the display is open and the window belongs to the host, which keeps
+		// it alive for as long as the editor may ask.
+		if unsafe { (x11.xlib.XGetWindowAttributes)(x11.display, window, &mut attributes) } == 0 {
+			return None;
+		}
+
+		let width = attributes.width as f64;
+		let height = attributes.height as f64;
+
+		(width > 0.0 && height > 0.0).then_some((width, height))
+	})
 }
 
 impl HasWindowHandle for ParentWindow {
@@ -210,4 +273,12 @@ pub trait Editor<P: Plugin>: 'static {
 		let _ = size;
 		Ok(())
 	}
+
+	/// Advance the toolkit's own event loop, when this process has to.
+	///
+	/// The wrapper calls this from the host's GUI timer, which is the only
+	/// main-thread callback a plug-in owns. A backend on a toolkit that runs its own
+	/// loop -- Win32, AppKit -- has nothing to do here; GTK does, because a plug-in
+	/// never owns the host's main loop and WebKitGTK will not paint without one.
+	fn pump(&mut self) {}
 }

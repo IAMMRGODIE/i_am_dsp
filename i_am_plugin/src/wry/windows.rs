@@ -25,7 +25,9 @@ use wry::dpi::{PhysicalPosition, PhysicalSize};
 /// COM already initialized on this thread with another apartment model.
 const RPC_E_CHANGED_MODE: i32 = 0x8001_0106u32 as i32;
 
-use super::{ProtocolRequest, ProtocolResponse};
+use super::{
+	ProtocolRequest, ProtocolResponse, install_panic_hook, panic_payload, report_error, to_wry,
+};
 
 /// What turns an IPC string from the page into a processor message.
 type IpcMapper<P> = Box<dyn Fn(&str) -> Option<<P as crate::Processor>::Message>>;
@@ -377,44 +379,6 @@ fn process_is_alive(pid: u32) -> bool {
 	true
 }
 
-/// Record why an editor could not open, where a host's log cannot be read.
-///
-/// A DAW swallows the error a plug-in's GUI open returns, so the blank window gives no
-/// clue. The error log lives in the temp directory and is capped by the log module.
-fn report_error(error: &EditorError) {
-	eprintln!("i_am_plugin_wry: WebView2 editor failed: {error}");
-	crate::log::error(&format!("error: {error}"));
-}
-
-/// Record panic messages (including ones that happen on WebView2 threads) in
-/// the same log the open path writes. A host cannot show a Rust panic, and a
-/// panic crossing the host's FFI boundary is a crash.
-fn install_panic_hook() {
-	static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-
-	ONCE.get_or_init(|| {
-		let previous = std::panic::take_hook();
-		std::panic::set_hook(Box::new(move |info| {
-			let location = info
-				.location()
-				.map(|location| format!("{}:{}", location.file(), location.line()))
-				.unwrap_or_default();
-			note(&format!("panic: {info} at {location}"));
-			previous(info);
-		}));
-	});
-}
-
-fn panic_payload(payload: &(dyn std::any::Any + Send)) -> String {
-	if let Some(message) = payload.downcast_ref::<&str>() {
-		(*message).to_string()
-	} else if let Some(message) = payload.downcast_ref::<String>() {
-		message.clone()
-	} else {
-		"non-string panic".to_string()
-	}
-}
-
 /// A GUI that draws a plug-in's editor as an HTML page in a WebView2 control.
 ///
 /// The page sends strings to the processor with:
@@ -618,28 +582,6 @@ impl<P: Plugin> WryEditor<P> {
 		}
 
 		note("close: done");
-	}
-}
-
-/// Turn one of our protocol answers into what wry's protocol callback returns.
-fn to_wry(response: ProtocolResponse) -> wry::http::Response<std::borrow::Cow<'static, [u8]>> {
-	let built = wry::http::Response::builder()
-		.status(response.status)
-		.header(wry::http::header::CONTENT_TYPE, response.content_type)
-		// A plug-in's page is embedded in the binary, and a host that keeps the
-		// browser cache from an older version would run yesterday's script against
-		// today's routes. Nothing here is worth caching.
-		.header(wry::http::header::CACHE_CONTROL, "no-store")
-		.body(response.body.into());
-
-	// An invalid response used to panic inside the WebView2 protocol callback;
-	// a panic crossing that FFI boundary takes the host down. Fall back instead.
-	match built {
-		Ok(response) => response,
-		Err(_) => wry::http::Response::builder()
-			.status(500)
-			.body(std::borrow::Cow::Borrowed(&[][..]))
-			.expect("a fixed empty response is well formed"),
 	}
 }
 

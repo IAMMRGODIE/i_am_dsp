@@ -151,10 +151,8 @@ impl<P: Plugin> PluginStateImpl for PluginMain<P> {
 					param.value.to_set_value(),
 					std::sync::atomic::Ordering::SeqCst,
 				);
-				let Some(val) = self.param_map.get(
-					&param.identifier	
-				)else { 
-					continue; 
+				let Some(val) = self.param_map.get(&param.identifier) else {
+					continue;
 				};
 				val.set_changed(false, std::sync::atomic::Ordering::SeqCst);
 			}
