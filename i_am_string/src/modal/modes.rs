@@ -133,11 +133,7 @@ impl Port {
 		// string does and four below the waveguide's own solver; asking for more
 		// does not make the answer better, it makes the solver fall through to
 		// the bracketed phase, which costs sixty four iterations of a felt law.
-		// A hair, not a nanometre: the contact law is solved to a millionth of
-		// a metre per second, which is far below anything a string does, and a
-		// tighter target only makes the solver fall through to the bracketed
-		// phase, which costs sixty four iterations of the friction table.
-		let tolerance = 1e-7 * (1.0 + free.abs());
+		let tolerance = crate::solver_tolerance() * (1.0 + free.abs());
 
 		let mut v = warm.clamp(lo, hi);
 		let mut best = v;

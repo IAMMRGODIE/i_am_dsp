@@ -8,6 +8,14 @@ use i_am_dsp_derive::Parameters;
 
 use i_am_string::prelude as strings;
 
+/// Sets the string contact solver's tolerance, relative to the free velocity.
+///
+/// The engine's own default is a millionth of a metre per second: what a
+/// measurement of what tighter solving costs needs is a way in.
+pub fn set_solver_tolerance(tolerance: f32) {
+	i_am_string::set_solver_tolerance(tolerance);
+}
+
 use crate::{Generator, NoteEvent};
 
 /// The presets, in menu order.

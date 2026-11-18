@@ -70,6 +70,29 @@ mod delay;
 mod dispersion;
 
 pub mod contact;
+
+use std::sync::atomic::{AtomicU32, Ordering};
+
+/// An override for the contact solver's tolerance, for a caller measuring what
+/// solving tighter costs. Normal play leaves it unset, which reads as the
+/// default below.
+static SOLVER_TOLERANCE: AtomicU32 = AtomicU32::new(0);
+
+/// Sets the contact solver's tolerance, relative to the free velocity.
+///
+/// The default is a millionth of a metre per second on top of the free
+/// velocity, which is far below anything a string does; a solver asks for it
+/// once per Newton iteration, so the default is also the cheap end.
+pub fn set_solver_tolerance(tolerance: f32) {
+	SOLVER_TOLERANCE.store(tolerance.to_bits(), Ordering::Relaxed);
+}
+
+pub(crate) fn solver_tolerance() -> f32 {
+	match SOLVER_TOLERANCE.load(Ordering::Relaxed) {
+		0 => 1e-7,
+		bits => f32::from_bits(bits),
+	}
+}
 pub mod core;
 pub mod engine;
 pub mod fit;
