@@ -154,6 +154,13 @@ pub struct PageBank {
 	frames: Vec<SpectralFrame>,
 	pages: Vec<Arc<Wavetable>>,
 	curves: Vec<Vec<f32>>,
+	/// The scale that keeps the loudest drawn page at full scale.
+	///
+	/// The bank is scaled, not each page: a morph moves through the pages as
+	/// drawn, and normalising every page on its own would flatten that relation.
+	/// A bank that already peaks below full scale is left alone, so a quiet
+	/// drawing stays quiet.
+	gain: f32,
 }
 
 impl PageBank {
@@ -169,9 +176,14 @@ impl PageBank {
 
 	/// Reads one page at a phase of its fundamental.
 	fn sample(&self, page: usize, phase: f32, max_harmonic: f32) -> (f32, f32) {
-		self.pages[page].play(phase, max_harmonic)
+		let (left, right) = self.pages[page].play(phase, max_harmonic);
+
+		(left * self.gain, right * self.gain)
 	}
 }
+
+/// How many points the pages' peak is read at.
+const PEAK_POINTS: usize = 2048;
 
 /// Builds the pages' band limited tables and pictures, reusing the pages that
 /// did not change since the previous bank.
@@ -214,10 +226,33 @@ fn build_bank(frames: &[SpectralFrame], previous: Option<&PageBank>) -> PageBank
 		curves.push(curve);
 	}
 
+	// The peak is read from the finished tables, not from the pictures: a picture
+	// can step over a peak of a bright page.
+	let peak = pages.iter().fold(0.0f32, |peak, table| {
+		let table_peak = (0..PEAK_POINTS).fold(0.0f32, |peak, point| {
+			let phase = point as f32 / PEAK_POINTS as f32;
+			let (left, right) = table.play(phase, f32::INFINITY);
+
+			peak.max(left.abs()).max(right.abs())
+		});
+
+		peak.max(table_peak)
+	});
+	let gain = if peak > 1.0 { 1.0 / peak } else { 1.0 };
+
+	if gain < 1.0 {
+		for curve in &mut curves {
+			for value in curve.iter_mut() {
+				*value *= gain;
+			}
+		}
+	}
+
 	PageBank {
 		frames: frames.to_vec(),
 		pages,
 		curves,
+		gain,
 	}
 }
 
@@ -590,6 +625,31 @@ mod tests {
 
 	fn oscillator(frames: Vec<SpectralFrame>) -> TableBankOsc {
 		TableBankOsc::new(SpectralFeed::new(frames))
+	}
+
+	/// A page drawn at full on every partial must not leave the table above full
+	/// scale, and a quieter page keeps its relation to the loud one.
+	#[test]
+	fn a_loud_page_is_scaled_to_full_scale() {
+		let loud = SpectralFrame::new(vec![1.0; DRAWN_PARTIALS], vec![0.0; DRAWN_PARTIALS]);
+		let quiet = SpectralFrame::new(vec![0.2; DRAWN_PARTIALS], vec![0.0; DRAWN_PARTIALS]);
+		let bank = build_bank(&[loud, quiet], None);
+		let peak = |page: usize| {
+			(0..2048).fold(0.0f32, |peak, point| {
+				let phase = point as f32 / 2048.0;
+				let (left, right) = bank.sample(page, phase, f32::INFINITY);
+
+				peak.max(left.abs()).max(right.abs())
+			})
+		};
+
+		assert!(peak(0) <= 1.001, "the loud page left the table: {}", peak(0));
+		assert!(peak(0) > 0.9, "the loud page was over-attenuated: {}", peak(0));
+		assert!(
+			(peak(1) / peak(0) - 0.2).abs() < 0.02,
+			"the quiet page lost its level: {}",
+			peak(1) / peak(0)
+		);
 	}
 
 	/// A page becomes a band limited table and a picture of one period.
