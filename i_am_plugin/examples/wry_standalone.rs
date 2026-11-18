@@ -1,27 +1,33 @@
 //! A live smoke test for the wry editor.
 //!
-//! It creates a plain Win32 parent window (the part a CLAP host would own), puts a
-//! [WryEditor] inside it with a small HTML page, pumps the window's messages for a
-//! few seconds, and prints every string the page sends back over IPC. The page posts
-//! "ready" as it loads and a button posts more, which is the whole path a real
-//! plug-in GUI would use.
+//! It creates a plain parent window (the part a CLAP host would own), puts a
+//! [WryEditor] inside it with a small HTML page, pumps messages for a few seconds, and
+//! prints every string the page sends back over IPC. The page posts "ready" as it
+//! loads, which is the whole path a real plug-in GUI would use.
 //!
-//! Run: cargo run -p i_am_plugin --example standalone
+//! Run: cargo run -p i_am_plugin --example wry_standalone
 //!
-//! A window opens for six seconds and closes itself.
+//! Windows builds a Win32 window and pumps its message loop; Linux builds an X11 window
+//! and pumps GTK, which is the pair the editor needs there. A window opens for a few
+//! seconds and closes itself.
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn main() {
-	eprintln!("this smoke test is Windows-only; the backend also runs on Linux and macOS");
+	eprintln!("this smoke test runs on Windows and Linux; the backend also has a macOS path");
 }
 
 #[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-	imp::main()
+	windows::main()
+}
+
+#[cfg(target_os = "linux")]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+	linux::main()
 }
 
 #[cfg(windows)]
-mod imp {
+mod windows {
 	use std::ffi::c_void;
 	use std::time::{Duration, Instant};
 
@@ -284,6 +290,177 @@ mod imp {
 			println!("closed; the page reported ready = {ready}");
 			Ok(())
 		}
+	}
+}
+
+/// The Linux runner.
+///
+/// The host's part is an X11 window instead of an HWND, and the event loop is GTK's:
+/// a plug-in never owns its host's loop, so the same `gtk::main_iteration_do` the
+/// editor's `pump` calls is what drives the page here.
+#[cfg(target_os = "linux")]
+mod linux {
+	use std::time::{Duration, Instant};
+
+	use i_am_dsp::prelude::{ParamMap, Parameter, Parameters, SetValue};
+	use i_am_dsp::{NoteEvent, ProcessContext};
+	use i_am_plugin::wry::WryEditor;
+	use i_am_plugin::{Descriptor, Editor, EditorContext, ParentWindow, Plugin, WindowSize};
+	use raw_window_handle::{RawWindowHandle, XlibWindowHandle};
+
+	const HTML: &str = r#"<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>i_am_plugin + wry</title>
+<style>
+  html, body { height: 100%; margin: 0; color: #ececf1; font-family: ui-sans-serif, system-ui, sans-serif;
+    background: radial-gradient(circle at 30% 20%, #22223b, #0b0b12 70%); display: grid; place-items: center; }
+  h1 { font-size: 30px; margin: 0 0 10px; }
+  h1 span { color: #a78bfa; }
+  p { color: #9ca3af; font-size: 14px; }
+</style></head>
+<body>
+<main>
+  <h1>i_am_plugin <span>&times;</span> wry</h1>
+  <p>this page is a plug-in editor embedded through the Editor seam</p>
+</main>
+<script>
+  if (window.ipc && window.ipc.postMessage) { window.ipc.postMessage('ready'); }
+</script>
+</body>
+</html>
+"#;
+
+	/// The message type the page produces.
+	#[derive(Clone, Debug)]
+	pub struct Message(pub String);
+
+	impl i_am_plugin::Message for Message {
+		fn from_note_event(_: NoteEvent) -> Self {
+			Self(String::new())
+		}
+
+		fn note_event(&self) -> Option<NoteEvent> {
+			None
+		}
+
+		fn tick(_: Instant) -> Self {
+			Self(String::new())
+		}
+	}
+
+	/// A processor with nothing to process: this example is about the editor seam.
+	pub struct Demo;
+
+	impl Parameters for Demo {
+		fn get_parameters(&self) -> Vec<Parameter> {
+			Vec::new()
+		}
+
+		fn set_parameter(&mut self, _: &str, _: SetValue) -> bool {
+			false
+		}
+	}
+
+	impl i_am_plugin::Processor for Demo {
+		type Message = Message;
+
+		fn delay(&self) -> usize {
+			0
+		}
+
+		fn process(&mut self, _: &mut [f32; 2], _: &[[f32; 2]], _: &mut Box<dyn ProcessContext>) {}
+
+		fn on_message(&self, _: Self::Message) {}
+	}
+
+	impl Plugin for Demo {
+		const DESCRIPTOR: Descriptor = Descriptor::new("dev.i-am-dsp.wry.linux", "I Am Wry Linux");
+		const HAS_GUI: bool = true;
+
+		fn new() -> Self {
+			Self
+		}
+
+		fn param_map(&self) -> ParamMap {
+			ParamMap::default()
+		}
+
+		fn editor(&self) -> Option<Box<dyn Editor<Self>>> {
+			Some(Box::new(WryEditor::new(HTML, |body| {
+				Some(Message(body.to_owned()))
+			})))
+		}
+	}
+
+	pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+		// wry builds on GTK, and a plug-in does not own the main loop: both are the
+		// caller's job on Linux.
+		if !gtk::is_initialized() {
+			gtk::init()?;
+		}
+
+		let xlib = x11_dl::xlib::Xlib::open()?;
+
+		// SAFETY: a null display name asks for the one in DISPLAY. Every pointer below
+		// comes from that connection and is used while it is open.
+		let display = unsafe { (xlib.XOpenDisplay)(std::ptr::null()) };
+		if display.is_null() {
+			return Err("no X display; is an X server (WSLg) running?".into());
+		}
+
+		let screen = unsafe { (xlib.XDefaultScreen)(display) };
+		let root = unsafe { (xlib.XRootWindow)(display, screen) };
+		let window = unsafe { (xlib.XCreateSimpleWindow)(display, root, 0, 0, 800, 600, 0, 0, 0) };
+
+		// SAFETY: the window was just created on this connection.
+		unsafe {
+			(xlib.XMapWindow)(display, window);
+			(xlib.XFlush)(display);
+		}
+
+		let parent = ParentWindow::new(RawWindowHandle::Xlib(XlibWindowHandle::new(window)));
+		let (sender, receiver) = crossbeam_channel::unbounded::<Message>();
+		let mut editor = Demo.editor().expect("the demo plug-in has an editor");
+
+		editor.open(EditorContext {
+			parent,
+			size: WindowSize::new(760.0, 540.0),
+			scale_factor: Some(1.0),
+			title: "i_am_plugin + wry".to_string(),
+			resizable: true,
+			messages: sender,
+		})?;
+
+		println!("editor opened; pumping GTK for eight seconds");
+
+		let deadline = Instant::now() + Duration::from_secs(8);
+		let mut ready = false;
+
+		while Instant::now() < deadline {
+			while gtk::events_pending() {
+				gtk::main_iteration_do(false);
+			}
+
+			while let Ok(message) = receiver.try_recv() {
+				println!("ipc: {}", message.0);
+
+				if message.0 == "ready" {
+					ready = true;
+				}
+			}
+
+			std::thread::sleep(Duration::from_millis(8));
+		}
+
+		editor.close();
+
+		// SAFETY: the connection is still open and the window belongs to it.
+		unsafe {
+			(xlib.XDestroyWindow)(display, window);
+		}
+
+		println!("closed; the page reported ready = {ready}");
+		Ok(())
 	}
 }
 
