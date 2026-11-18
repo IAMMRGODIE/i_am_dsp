@@ -162,7 +162,9 @@ node tools/preview/preview.mjs patch          # patcher 的实时编辑器
   `ParamMap::set("imported", SetValue::Serialized(...))` 会**返回 false 且什么都不发生**。
   页面要传表/采样/曲线，照 sampler / shapes 的做法用 `Arc<Mutex<...>>` 槽交给音频线程，
   存档时再从槽里拷进参数（见 `I Am Modal` 的 `TableSlot`）。
-- **WebView2 仅 Windows**：其他平台能编译、只是打开编辑器会报错。不要在非 Windows 上加半套实现。
+- **只有 Windows 的后端在真机上验证过**：`wry` 后端按平台分三份（Windows WebView2、Linux WebKitGTK、
+  macOS WKWebView），Linux/macOS 的代码齐全但没在真机跑过。动非 Windows 的部分时，别假设它能编过。
+  Linux 上页面的事件循环靠宿主的 `clap_plugin_timer`（`Editor::pump`），没有 timer 的宿主上页面只会画一帧。
 - **WebView2 需要可写 profile**：默认 `%LOCALAPPDATA%\i_am_plugin_wry\WebView2-v2`；
   打不开先看 `%TEMP%\i_am_plugin_wry\last-error.log` 与 `open.log`。
 - **denormal**：包装层每个 `process` 都会调 `enable_flush_to_zero()`；自己接音频线程时要自己调。

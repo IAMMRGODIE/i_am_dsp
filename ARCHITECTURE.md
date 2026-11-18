@@ -1,7 +1,8 @@
 # i_am_dsp — 架构文档
 
 > 状态：workspace 14 个 crate、约 8.4 万行 Rust（另有约 1.5 万行网页面板 HTML/JS/CSS）、694 个 `#[test]`；
-> CLAP ✅、VST3 ✅（经 `clap-wrapper`）；界面为 WebView2 网页面板；已产出 `I Am Effects Web`、
+> CLAP ✅、VST3 ✅（经 `clap-wrapper`）；界面是网页面板（Windows 走 WebView2、Linux 走 WebKitGTK、
+> macOS 走 WKWebView）；已产出 `I Am Effects Web`、
 > `I Am Synths`、`I Am Patch` 三个可加载插件，`I Am Multipass`（`i_am_rack`）自己就带 `export_plugin!`，
 > `cargo bundle -p i_am_rack --features vst3` 可单独打包。
 >
@@ -51,7 +52,7 @@ DSP 对象（Effect / Generator）
 | `i_am_dsp_derive` | 1.4k | `#[derive(Parameters)]` 过程宏 | `i_am_dsp_derive/src/lib.rs` |
 | `i_am_string` | 6.3k | 物理建模弦（拨/击/弓），波导与模态两种弦核 | `i_am_string/src/lib.rs` |
 | `i_am_dsp` | 39.4k | DSP 核心：`Effect`/`Generator`/`Processor`、参数、时间线、效果与音源库、工具 | `i_am_dsp/src/lib.rs` |
-| `i_am_plugin` | 5.1k | CLAP/VST3 包装、线程模型、宿主扩展（params/state/latency/gui/timer）、Editor 接缝、WebView2 后端 | `i_am_plugin/src/lib.rs` |
+| `i_am_plugin` | 5.1k | CLAP/VST3 包装、线程模型、宿主扩展（params/state/latency/gui/timer）、Editor 接缝、WebView 后端（WebView2 / WebKitGTK / WKWebView） | `i_am_plugin/src/lib.rs` |
 | `i_am_web_gui` | 2.2k | 网页面板：faceplate、JSON 路由、IPC、Scope 遥测 | `i_am_web_gui/src/lib.rs` |
 | `i_am_effects` | 8.4k | 38 个效果器产品 | `i_am_effects/src/lib.rs` |
 | `i_am_synths` | 5.4k | 9 个合成器产品 | `i_am_synths/src/lib.rs` |
@@ -228,7 +229,7 @@ PluginMain::new()  ── param_map = processor.param_map() ──► 宿主参�
        │ 宿主 timer：跟窗口几何
        ▼
 ┌────────────────────────────┐
-│ Editor<P>（WebView2）       │  宿主给的 HWND + crossbeam Sender
+│ Editor<P>（WebView）        │  宿主给的 HWND / X11 window / NSView
 │  页面 → ipc.postMessage     │
 └────────────────────────────┘
 ```
@@ -238,7 +239,8 @@ PluginMain::new()  ── param_map = processor.param_map() ──► 宿主参�
 - GUI 消息不直接进 DSP：页面 → channel → `on_main_thread` → `P::on_message`。
   参数**不走**这条路：页面直接写 `ParamMap` 的原子，音频线程下一个块自己读。
 - WebView2 创建时会泵宿主的消息循环，可能重入 `show`/`hide`/`destroy`；`opening` 等标志把它们
-  变成待办队列，防止开出第二个编辑器。
+  变成待办队列，防止开出第二个编辑器。GTK 版反过来：它不泵别人的循环，而是要别人泵它的
+  （`Editor::pump`，从宿主的 GUI timer 里调）。
 
 ### 4.3 Editor 接缝
 
@@ -253,12 +255,21 @@ trait Editor<P: Plugin> {
     fn set_parent(&mut self, parent: ParentWindow) -> Result<(), EditorError> { Ok(()) }
     fn set_scale_factor(&mut self, f: f64) -> Result<(), EditorError> { Ok(()) }
     fn set_size(&mut self, size: WindowSize) -> Result<(), EditorError> { Ok(()) }
+    fn pump(&mut self) {}
 }
 ```
 
 `EditorContext` 里只有跨工具包的东西：`ParentWindow`（`raw-window-handle` 裸句柄）、逻辑尺寸、
-缩放、标题、可缩放、以及 `Sender<P::Message>`。`i_am_plugin::wry` 是唯一的实现（WebView2，
-仅 Windows；其他平台是报错的 stub）。
+缩放、标题、可缩放、以及 `Sender<P::Message>`。`i_am_plugin::wry` 是唯一的实现，按平台分三个后端：
+
+| 平台 | 引擎 | 窗口 | 谁来泵事件循环 |
+| --- | --- | --- | --- |
+| Windows | WebView2 | 自己建的子 HWND，宿主窗口是它的父窗口 | 宿主的消息循环（我们挂一个 Win32 timer 跟尺寸） |
+| Linux | WebKitGTK | 嵌进宿主的 X11 窗口（Wayland 不支持嵌入，直接报错） | 我们，从宿主的 GUI timer 调 `Editor::pump` |
+| macOS | WKWebView | 作为宿主 `NSView` 的 subview | 宿主的 NSApplication |
+
+Windows 是唯一在真机上跑过的；Linux 与 macOS 的后端代码齐全，但**没有在真机上验证过**，
+其余平台仍是报错的 stub。
 
 ### 4.4 宿主扩展
 
@@ -268,7 +279,7 @@ trait Editor<P: Plugin> {
 | state | `PluginStateImpl` | 保存 = `to_binary(Vec<Parameter>)`（ciborium）；载入时 `Serialized` 交给 `set_parameter`，普通值写回 map |
 | latency | `LatencyPublisher` → `LatencyWatch` | 音频线程发布，主线程发现变化后调 `host_latency.changed()`（clack 的绑定没覆盖这个调用，故经 `clap-sys` 直接取 `clap_host` 的函数指针） |
 | gui | `PluginGuiImpl` | 打开/关闭/缩放/重设父窗口，全部转发给 `Editor` |
-| timer | `PluginTimerImpl` | 宿主支持 timer 时用来跟窗口尺寸 |
+| timer | `PluginTimerImpl` | 宿主支持 timer 时跟窗口尺寸；Linux 上还负责推进 GTK 循环（`Editor::pump`） |
 
 ### 4.5 导出
 
@@ -586,7 +597,9 @@ features（`i_am_dsp/Cargo.toml`）：`layout`（布局元数据）、`string`�
 
 ## 10. 已知边界与待办
 
-- **WebView2 仅 Windows**；其他平台是编译得过、打开报错的 stub。
+- **只有一个后端在真机上跑过**：Windows 的 WebView2 之外，Linux（WebKitGTK，仅 X11）与 macOS（WKWebView）
+  的后端已经写好，但**没有真机验证**；再往外的平台是编译得过、打开报错的 stub。Linux 上页面靠宿主的
+  `clap_plugin_timer` 才有自己的事件循环，宿主不提供 timer 扩展时页面只会画一帧。
 - **SIMD 只到 `wide` 那几处**（filter、convolver、additive、`i_am_string` 的模态与共鸣）；逐样本的 biquad 仍是标量，
   按时间 4 个样本一组的转置形式没有做（`effects/filter/process.rs` 里只有一行注释）。
 - **无动态端口**、**无侧链自动声明**（侧链靠 `INPUT_PORTS` 手工列出，音频侧走 `other`）。

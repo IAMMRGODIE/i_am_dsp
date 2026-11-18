@@ -4,8 +4,9 @@
 
 ## TODO
 
-- [ ] **非 Windows 的编辑器**。DSP 与 `.clap` / `.vst3` 打包在其他平台都能编译，只有面板不行：现在唯一的载体是
-  WebView2。要落地就给 `i_am_plugin` 的 `Editor` 换载体（`vendor/wry` 里已有 webkitgtk / WKWebView 后端）。
+- [ ] **Linux / macOS 的面板验证**。后端已经按平台写好了（Linux 走 WebKitGTK、嵌进宿主的 X11 窗口；
+  macOS 走 WKWebView、作为宿主 `NSView` 的 subview），但只在 Windows 上真机跑过。Linux 上页面的事件循环
+  靠宿主的 `clap_plugin_timer`，没有 timer 的宿主页面只会画一帧；Wayland 不支持嵌入，后端会直接报错。
 - [ ] **参数变化队列**。宿主参数每块 O(n) 扫一遍 `ParamMap`；现在靠「少量宿主参数 + 序列化状态」把 n 压住，
   参数再多一点的产品就会撞上这条。
 - [ ] **AU 的打包与验证**。`PluginAuExt` 只导出符号，没打包过，也没在 Logic 里跑过。
@@ -51,6 +52,10 @@ clap_wrapper::export_auv2!();
 ```
 
 来导出 Au 的 Symbol 了，之后你还是要参考 Au 的文档去打包，不过目前我也没试过（
+
+界面是网页面板：Windows 用 WebView2（系统自带），Linux 用 WebKitGTK（要装开发包：
+`libwebkit2gtk-4.1-dev`、`libgtk-3-dev`、`pkg-config`），macOS 用系统自带的 WKWebView。
+Linux 的嵌入只支持 X11，Wayland 下打开编辑器会报错。
 
 哦对了现在有一个打包工具了在 [i_am_bundler](./i_am_bundler/README.md) 那边，还做了安装，应该会方便些
 
