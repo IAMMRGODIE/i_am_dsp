@@ -353,11 +353,13 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 				};
 			}
 
-			voices.push(UnisonVoice {
-				frequency,
-				blend,
-				gains,
-			});
+			let mut weight = [0.0; CHANNELS];
+
+			for (channel, weight) in weight.iter_mut().enumerate() {
+				*weight = blend * gains[channel];
+			}
+
+			voices.push(UnisonVoice { frequency, weight });
 		}
 
 		playing_note.unison_voices = voices;
@@ -614,8 +616,7 @@ impl<
 					);
 
 					for (channel, output_samples) in output_samples.iter_mut().enumerate() {
-						*output_samples +=
-							samples[channel] * unison_gain * voice.blend * voice.gains[channel];
+						*output_samples += samples[channel] * unison_gain * voice.weight[channel];
 					}
 				}
 				playing_note.last_time = time;

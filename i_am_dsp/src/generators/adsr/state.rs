@@ -39,8 +39,9 @@ impl EnvelopeTimes {
 #[derive(Clone, Copy)]
 pub(crate) struct UnisonVoice<const CHANNELS: usize> {
 	pub(super) frequency: f32,
-	pub(super) blend: f32,
-	pub(super) gains: [f32; CHANNELS],
+	/// `blend * gains`: the unison blend and the pan do not move inside a block,
+	/// so the mix reads one factor instead of multiplying three together.
+	pub(super) weight: [f32; CHANNELS],
 }
 
 /// The control values the unison table was built from.
