@@ -68,6 +68,12 @@ pub struct PlayingNote<const CHANNELS: usize> {
 	pub(crate) pan_factors: Vec<f32>,
 	pub(crate) last_time: f32,
 	pub(crate) last_phase: Vec<f32>,
+	/// Each copy's frequency at the current pitch.
+	pub(crate) frequencies: Vec<f32>,
+	/// Each copy's phase step per sample, `frequency / rate`.
+	pub(crate) steps: Vec<f32>,
+	/// The pitch the copies were last computed for; NaN forces a recompute.
+	pub(crate) pitch_last: f32,
 	/// The frequency each unison was last tuned to, so a still pitch does not
 	/// re-tune the oscillator every sample.
 	pub(crate) pitch_applied: Vec<f32>,

@@ -24,6 +24,12 @@ mod state;
 
 use state::*;
 
+/// How often a carried phase is rebuilt from the note's absolute time.
+///
+/// One block: carrying the phase is what saves a multiply per copy, and 64
+/// samples of f32 accumulation is far below anything the ear can place.
+const PHASE_RESYNC: usize = 64;
+
 /// A warper to play an oscillator with ADSR envelope.
 ///
 /// Adsr supports Midi Events, but cannot distinguish the note'channel.
@@ -363,6 +369,8 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 		}
 
 		playing_note.unison_voices = voices;
+		// The detune moved, so the copies' frequencies are stale.
+		playing_note.pitch_last = f32::NAN;
 		playing_note.pitch_applied.clear();
 		playing_note.pitch_applied.resize(unisons, f32::NAN);
 		playing_note.unison_controls = Some(UnisonControls {
@@ -502,6 +510,9 @@ impl<
 						phase_start: phases,
 						pan_factors,
 						last_phase: vec![0.0; self.unisons],
+						frequencies: Vec::new(),
+						steps: Vec::new(),
+						pitch_last: f32::NAN,
 						pitch_applied: vec![f32::NAN; self.unisons],
 						unison_voices: Vec::new(),
 						unison_controls: None,
@@ -583,27 +594,51 @@ impl<
 				let pitch = self.pitch_factor * playing_note.current_pitch_factor;
 				let elapsed = time - playing_note.last_time;
 				let unison_gain = gain / unisons as f32;
+				let absolute = self.oscillator.absolute_time();
+
+				// The pitch moves far less often than a sample: when it has not,
+				// the copies' frequencies and steps are the ones the last sample
+				// computed, and no copy has to be re-tuned.
+				if playing_note.pitch_last != pitch {
+					if playing_note.frequencies.len() != unisons {
+						playing_note.frequencies.resize(unisons, 0.0);
+						playing_note.steps.resize(unisons, 0.0);
+					}
+
+					let rate = self.sample_rate as f32;
+
+					for i in 0..unisons {
+						let frequency = playing_note.unison_voices[i].frequency * pitch;
+						playing_note.frequencies[i] = frequency;
+						playing_note.steps[i] = frequency / rate;
+
+						if playing_note.pitch_applied[i] != frequency {
+							self.oscillator.set_pitch(frequency, self.sample_rate);
+							playing_note.pitch_applied[i] = frequency;
+						}
+					}
+
+					playing_note.pitch_last = pitch;
+				}
+
+				// A phase carried forward is one add a copy, but f32 loses the
+				// fraction over minutes; the absolute read puts it back periodically.
+				let resync = playing_note.count % PHASE_RESYNC == 0;
 
 				for i in 0..unisons {
 					let voice = playing_note.unison_voices[i];
-					let frequency = voice.frequency * pitch;
-					let mut t = frequency * elapsed + playing_note.last_phase[i];
+					let frequency = playing_note.frequencies[i];
+					let t = if absolute {
+						frequency * elapsed + playing_note.last_phase[i]
+					} else if resync {
+						crate::generators::wavetable::wrap01(frequency * time)
+					} else {
+						let next = playing_note.last_phase[i] + playing_note.steps[i];
 
-					// A table oscillator only reads the fraction of the phase, so
-					// wrapping it keeps f32 resolution on a note held for minutes;
-					// a sampler reads its position from the time and stays absolute.
-					if !self.oscillator.absolute_time() {
-						t = crate::generators::wavetable::wrap01(t);
-					}
+						if next >= 1.0 { next - 1.0 } else { next }
+					};
 
 					playing_note.last_phase[i] = t;
-
-					// The oscillator keeps the pitch until it is told otherwise, so
-					// a static note tunes it once instead of once per sample.
-					if playing_note.pitch_applied[i] != frequency {
-						self.oscillator.set_pitch(frequency, self.sample_rate);
-						playing_note.pitch_applied[i] = frequency;
-					}
 
 					let samples = self.oscillator.play_at(
 						1.0,
