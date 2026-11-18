@@ -93,6 +93,35 @@ fn frames(
 	voice
 }
 
+/// The same voice with its morph moving, the way a hand sweeps it.
+fn measure_moving(unisons: usize, rate: usize, note: usize) -> f64 {
+	let mut voice = frames(unisons, rate, note, 0.0, 0.0);
+	let mut context = Ctx::new(rate);
+	context.events.push(NoteEvent::NoteOn {
+		channel: 0,
+		note,
+		velocity: 0.8,
+	});
+	let mut context: Box<dyn ProcessContext> = Box::new(context);
+	let frames = rate * SECONDS;
+	let start = Instant::now();
+
+	for frame in 0..frames {
+		if frame % 64 == 0 {
+			let sweep = (frame as f32 / frames as f32 * 8.0).fract();
+			voice.oscillator.set_smooth_factor(sweep);
+		}
+
+		if frame == 1 {
+			context.clear_events();
+		}
+
+		let _ = voice.generate(&mut context);
+	}
+
+	start.elapsed().as_secs_f64() * 1000.0 / SECONDS as f64
+}
+
 fn measure(mut voice: Box<dyn Generator<2>>, rate: usize, note: usize) -> f64 {
 	let mut context = Ctx::new(rate);
 	context.events.push(NoteEvent::NoteOn {
@@ -124,7 +153,7 @@ fn shade(value: f64, peak: f64) -> char {
 
 fn main() {
 	let columns = [
-		"sine", "triangle", "frames", "band", "morph", "all",
+		"sine", "triangle", "frames", "band", "morph", "all", "live",
 	];
 	let unisons = [1usize, 2, 4, 8, 16, 32];
 	let mut grid = vec![vec![0.0f64; columns.len()]; unisons.len()];
@@ -136,6 +165,7 @@ fn main() {
 		grid[row][3] = measure(Box::new(frames(count, RATE, 96, 0.0, 0.0)), RATE, 96);
 		grid[row][4] = measure(Box::new(frames(count, RATE, 48, 0.5, 0.0)), RATE, 48);
 		grid[row][5] = measure(Box::new(frames(count, RATE, 96, 0.5, 0.5)), RATE, 96);
+		grid[row][6] = measure_moving(count, RATE, 48);
 	}
 
 	let peak = grid.iter().flatten().fold(0.0f64, |peak, value| peak.max(*value));
@@ -177,6 +207,32 @@ fn main() {
 
 		println!();
 	}
+
+	// What it would cost to keep a morphed copy of the pages: the two frames'
+	// band-limited levels mixed once per block, which is what a premix would pay
+	// while a hand is moving the morph.
+	let levels = 4096;
+	let mut morphed = vec![0.0f32; levels];
+	let mut other = (0..levels).map(|index| index as f32).collect::<Vec<f32>>();
+	let blocks = RATE * SECONDS / 64;
+	let start = Instant::now();
+
+	for _ in 0..blocks {
+		for (slot, value) in morphed.iter_mut().zip(other.iter_mut()) {
+			*slot += (*value - *slot) * 0.37;
+		}
+	}
+
+	let premix = start.elapsed().as_secs_f64() * 1000.0 / SECONDS as f64;
+
+	println!();
+	println!(
+		"premix of {levels} level samples, rebuilt every 64-sample block: {premix:.1} ms per second of audio"
+	);
+	println!(
+		"  -> frames at 32 copies, one read + premix: {:.1} ms/s (two reads: 81.3, two reads + morph: 139.4)",
+		premix + 81.3
+	);
 
 	// The fixed part: what one copy costs when the note is alone says how much of
 	// the total is per copy and how much is the note's own bookkeeping.

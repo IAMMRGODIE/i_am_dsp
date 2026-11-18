@@ -94,11 +94,29 @@ fn classic_frames() -> Vec<Vec<f32>> {
 
 /// One frame at every band limit: level k keeps the partials up to 1024 >> k
 /// and is stored with 2048 >> k samples.
+#[derive(Clone)]
 struct FrameLevels {
 	levels: Vec<Vec<f32>>,
 }
 
 impl FrameLevels {
+	/// Sets these levels to `base + (other - base) * blend`, reusing the buffers.
+	fn assign_blend(&mut self, base: &Self, other: &Self, blend: f32) {
+		if self.levels.len() != base.levels.len() {
+			self.levels = base.levels.clone();
+		}
+
+		for (index, target) in self.levels.iter_mut().enumerate() {
+			let base = &base.levels[index];
+			let other = &other.levels[index];
+			target.resize(base.len(), 0.0);
+
+			for (slot, (a, b)) in target.iter_mut().zip(base.iter().zip(other.iter())) {
+				*slot = a + (b - a) * blend;
+			}
+		}
+	}
+
 	fn build(frame: &[f32]) -> Self {
 		// Level zero is the frame itself: it holds every partial it can.
 		let mut levels = vec![frame.to_vec()];
@@ -326,6 +344,33 @@ impl WaveBank {
 	}
 }
 
+/// Reads one band-limited level set at a phase, with the edge crossfade.
+fn sample_levels(levels: &FrameLevels, phase: f32, max_harmonic: f32, fade: f32) -> f32 {
+	if max_harmonic < 1.0 {
+		return 0.0;
+	}
+
+	let value = levels.play(phase, max_harmonic);
+	let width = (fade * 0.25).clamp(0.0, 0.25);
+
+	if width <= 0.0 {
+		return value;
+	}
+
+	let p = phase - phase.floor();
+
+	if p < 1.0 - width {
+		return value;
+	}
+
+	let samples = width * WAVE_FRAME_LEN as f32;
+	let position = (p - (1.0 - width)) * WAVE_FRAME_LEN as f32;
+	let blend = ((position + 1.0) / (samples + 1.0)).clamp(0.0, 1.0);
+	let head = levels.play(position / WAVE_FRAME_LEN as f32, max_harmonic);
+
+	value * (1.0 - blend) + head * blend
+}
+
 /// Reads a frame at a new length with linear interpolation.
 fn resample(frame: &[f32], len: usize) -> Vec<f32> {
 	if frame.len() == len {
@@ -423,7 +468,21 @@ pub struct WaveFramesOsc {
 	smooth_factor: f32,
 	x_fade: f32,
 	max_harmonic: f32,
+	/// A morphed copy of the frames' band-limited levels, refreshed at most once
+	/// per block while the morph moves: a copy then reads one table, not two.
+	premix: Option<FrameLevels>,
+	/// The morph the premix was built for.
+	premix_key: Option<(u64, usize, usize, u32)>,
+	/// Samples since the morph last differed from the premix's.
+	since_premix: u32,
 }
+
+/// How many samples a moved morph waits before the morphed table is rebuilt.
+///
+/// One block is about a millisecond: fast enough that a hand moving the morph
+/// never hears the copy lag, slow enough that a sweep costs far less than the
+/// second table read it removes.
+const PREMIX_BLOCKS: u32 = 64;
 
 impl Default for WaveFramesOsc {
 	fn default() -> Self {
@@ -445,6 +504,54 @@ impl WaveFramesOsc {
 			smooth_factor: 0.0,
 			x_fade: 0.0,
 			max_harmonic: f32::INFINITY,
+			premix: None,
+			premix_key: None,
+			since_premix: 0,
+		}
+	}
+
+	/// Keeps the morphed table in step with the morph, at most once a block.
+	fn refresh_premix(&mut self, bank: &WaveBank) {
+		let (from, to, blend) = self.frames_in_play(bank);
+		// The bank is part of the key: a new imported table with the same morph
+		// must not read the old one's levels.
+		let key = (bank.id(), from, to, blend.to_bits());
+
+		if self.premix_key == Some(key) {
+			self.since_premix = 0;
+			return;
+		}
+
+		self.since_premix += 1;
+
+		if self.since_premix < PREMIX_BLOCKS {
+			return;
+		}
+
+		self.since_premix = 0;
+
+		let last = bank.levels.len() - 1;
+		let from = from.min(last);
+		let to = to.min(last);
+
+		match &mut self.premix {
+			Some(premix) => premix.assign_blend(&bank.levels[from], &bank.levels[to], blend),
+			None => {
+				let mut premix = bank.levels[from].clone();
+				premix.assign_blend(&bank.levels[from], &bank.levels[to], blend);
+				self.premix = Some(premix);
+			}
+		}
+
+		self.premix_key = Some(key);
+	}
+
+	/// The morphed levels, when they match the morph being played.
+	fn premixed(&self, bank: &WaveBank, from: usize, to: usize, blend: f32) -> Option<&FrameLevels> {
+		if self.premix_key == Some((bank.id(), from, to, blend.to_bits())) {
+			self.premix.as_ref()
+		} else {
+			None
 		}
 	}
 
@@ -565,15 +672,24 @@ impl Parameters for WaveFramesOsc {
 }
 
 impl Oscillator<2> for WaveFramesOsc {
+	fn sync(&mut self) {
+		let bank = self.bank();
+		self.refresh_premix(&bank);
+	}
+
 	fn play_at(&self, frequency: f32, time: f32, phase: [f32; 2]) -> [f32; 2] {
 		let bank = self.bank();
 		let (from, to, blend) = self.frames_in_play(&bank);
+		let premixed = self.premixed(&bank, from, to, blend);
 		let mut output = [0.0; 2];
 
 		for (channel, value) in output.iter_mut().enumerate() {
 			let t = super::wrap01(frequency * time + phase[channel]);
 
-			*value = bank.sample(t, from, to, blend, self.max_harmonic, self.x_fade);
+			*value = match premixed {
+				Some(levels) => sample_levels(levels, t, self.max_harmonic, self.x_fade),
+				None => bank.sample(t, from, to, blend, self.max_harmonic, self.x_fade),
+			};
 		}
 
 		output
@@ -640,6 +756,32 @@ mod tests {
 		assert!(table.play_at(110.0, 0.0, [0.0, 0.0])[0].abs() < 1e-6);
 		table.set_smooth_factor(1.0);
 		assert!((table.play_at(110.0, 0.0, [0.0, 0.0])[0] + 0.5).abs() < 1e-6);
+	}
+
+	/// The morphed copy a moving hand hears is the same table, read once.
+	#[test]
+	fn a_premixed_page_matches_the_two_frame_read() {
+		let mut osc = WaveFramesOsc::new();
+		osc.set_smooth_factor(0.37);
+		osc.set_pitch(880.0, 48_000);
+
+		let exact: Vec<f32> = (0..256)
+			.map(|index| osc.play_at(1.0, index as f32 / 256.0, [0.0; 2])[0])
+			.collect();
+
+		for _ in 0..(PREMIX_BLOCKS + 2) {
+			crate::prelude::Oscillator::<2>::sync(&mut osc);
+		}
+
+		for (index, exact) in exact.iter().enumerate() {
+			let phase = index as f32 / 256.0;
+			let premixed = osc.play_at(1.0, phase, [0.0; 2])[0];
+
+			assert!(
+				(premixed - exact).abs() < 1e-3,
+				"{premixed} != {exact} at {phase}"
+			);
+		}
 	}
 
 	/// A bright frame played high loses its top partials instead of folding them
