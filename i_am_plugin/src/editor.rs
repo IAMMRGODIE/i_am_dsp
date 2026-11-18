@@ -161,8 +161,9 @@ pub struct EditorContext<P: Plugin> {
 	pub resizable: bool,
 	/// Where the editor sends the messages the user makes.
 	///
-	/// The other end is drained on the host's main thread and handed to
-	/// [Processor::on_message](i_am_dsp::Processor::on_message).
+	/// The other end is drained on the audio thread and handed to
+	/// [Processor::on_message](i_am_dsp::Processor::on_message) there, so a product's
+	/// message handling never runs next to its own rendering.
 	pub messages: Sender<P::Message>,
 }
 
