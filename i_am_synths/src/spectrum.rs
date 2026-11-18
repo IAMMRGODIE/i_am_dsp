@@ -321,6 +321,21 @@ mod tests {
 		);
 	}
 
+	/// The product's first bank publishes the scale its pages play at; the default
+	/// saw and square are near full scale, not turned down to nothing.
+	#[test]
+	fn the_default_pages_publish_a_sane_scale() {
+		let handle = SpectrumHandle::new();
+		let feed = handle.feed();
+		let _voice = i_am_dsp::prelude::TableBankOsc::new(feed.clone());
+		let gains = feed.gains();
+
+		assert_eq!(gains.len(), 2, "{gains:?}");
+		// RMS, so the saw keeps its body instead of being turned down to its crest.
+		assert!(gains[0] > 0.7 && gains[0] < 0.9, "{gains:?}");
+		assert!(gains[1] > 0.8 && gains[1] < 1.0, "{gains:?}");
+	}
+
 	#[test]
 	fn a_spectrum_handle_round_trips_the_pages() {
 		let handle = SpectrumHandle::new();
