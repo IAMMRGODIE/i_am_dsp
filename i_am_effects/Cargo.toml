@@ -11,6 +11,13 @@ edition = "2024"
 # A library only: no `clap_entry`, so it can be linked into a plug-in.
 crate-type = ["rlib"]
 
+[features]
+default = []
+# Ramps the parameters a product names in its `smoothed = ...` list between blocks
+# instead of stepping them. Off by default: it trades a short parameter delay for the
+# absence of steps, and only some parameters want that.
+smoothing = ["i_am_plugin/smoothing"]
+
 [dependencies]
 i_am_dsp = { workspace = true }
 i_am_dsp_derive = { workspace = true }

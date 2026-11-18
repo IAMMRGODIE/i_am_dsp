@@ -17,6 +17,11 @@
 /// sections to tabs with `pages = &[...]`, and `hidden = &[...]` keeps a
 /// parameter off the face while the host still sees it.
 ///
+/// `smoothed = &[SmoothedParameter::new("gain", 20.0)]` names the parameters the
+/// wrapper ramps between blocks instead of stepping them; it only takes effect with
+/// `i_am_plugin`'s `smoothing` feature. Name continuous parameters there (gain,
+/// cutoff, mix), never a switch.
+///
 /// ```ignore
 /// web_plugin!(
 ///     FilterWeb,
@@ -31,7 +36,7 @@
 /// ```
 #[macro_export]
 macro_rules! web_plugin {
-	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, pages = $pages:expr)? $(, hidden = $hidden:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)? $(, tags = $tags:expr)? $(, telemetry = $telemetry:expr)? $(, clear = $clear:literal)?) => {
+	($name:ident, $effect:ty, $build:expr, $id:literal, $title:literal, $size:expr, $accent:literal $(, mode = $mode:literal)? $(, visible = $visible:expr)? $(, header = $header:expr)? $(, switches = $switches:expr)? $(, pages = $pages:expr)? $(, hidden = $hidden:expr)? $(, ports = $ports:expr)? $(, midi = $midi:expr)? $(, tags = $tags:expr)? $(, telemetry = $telemetry:expr)? $(, clear = $clear:literal)? $(, smoothed = $smoothed:expr)?) => {
 		#[doc = concat!("The ", $title, " plug-in, with a web faceplate.")]
 		pub struct $name {
 			processor: i_am_plugin::processor::EffectProcessor<$effect>,
@@ -162,6 +167,8 @@ macro_rules! web_plugin {
 				$(.with_tags($tags))?;
 
 			const HAS_GUI: bool = true;
+
+			$(const SMOOTHED_PARAMETERS: &'static [i_am_plugin::SmoothedParameter] = $smoothed;)?
 
 			$(const INPUT_PORTS: &'static [i_am_plugin::AudioPort] = $ports;)?
 			$(const INPUT_MIDI_PORTS: &'static [i_am_plugin::MidiPort] = $midi;)?

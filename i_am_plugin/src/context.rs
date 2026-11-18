@@ -203,6 +203,15 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 
 		let ptr = main_thread.processor.as_ref().get_ref() as *const P as usize;
 		let (event_sender, event_receiver) = crossbeam_channel::unbounded();
+		let param_map = main_thread.processor.param_map();
+
+		// The ramps are built here, on the main thread: the audio thread only walks them.
+		#[cfg(feature = "smoothing")]
+		let smoothing = crate::smoothing::Smoothing::new(
+			&param_map,
+			config.sample_rate as usize,
+			P::SMOOTHED_PARAMETERS,
+		);
 
 		Ok(AudioProcessor {
 			processor: ptr,
@@ -215,7 +224,9 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			samples_processed: 0,
 			event_sender,
 			event_receiver,
-			param_map: main_thread.processor.param_map(),
+			param_map,
+			#[cfg(feature = "smoothing")]
+			smoothing,
 			latency: main_thread.latency.publisher(),
 			state_guard: main_thread.state_guard.clone(),
 			message_receiver: main_thread.message_receiver.clone(),
@@ -231,6 +242,8 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		// A reset drops the timeline: the host has to tell us where we are again.
 		self.clock = BeatClock::new(self.sample_rate);
 		self.samples_processed = 0;
+		#[cfg(feature = "smoothing")]
+		self.smoothing.resync();
 		// SAFETY: `activate` stored the address of the `P` owned by the still-alive and
 		// pinned `PluginMain`, so the pointer is valid and the value is never moved.
 		let processor = unsafe { &mut *(self.processor as *mut P) };
@@ -489,6 +502,11 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			// Also advances the musical clock to this sample.
 			context_took.set_sample_offset(i);
 			let mut context_in = Box::new(context_took) as Box<dyn ProcessContext>;
+
+			// After the events of this sample and before the DSP reads a parameter:
+			// the ramp is what the product sees, not the host's raw jump.
+			#[cfg(feature = "smoothing")]
+			self.smoothing.tick();
 
 			processor.process(&mut output_temp, &self.temp_buffer_3, &mut context_in);
 

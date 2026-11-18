@@ -116,7 +116,10 @@ web_plugin!(
 	"iamdsp.effects.gain.web",
 	"I Am Gain",
 	(360.0, 230.0),
-	"#35c77a"
+	"#35c77a",
+	// The one continuous control on the face: a host's automation of it arrives one
+	// step per block behind clap-wrapper, and a step in a gain is a click.
+	smoothed = &[i_am_plugin::SmoothedParameter::new("gain", 20.0)]
 );
 
 /// The controls each distortion mode reads; the page hides the rest.

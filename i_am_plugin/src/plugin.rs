@@ -38,6 +38,23 @@ pub trait Plugin: Processor {
 	/// returns an editor; leave it alone for a plug-in that has no interface.
 	const HAS_GUI: bool = false;
 
+	/// The parameters the wrapper ramps between blocks, with how long each ramp takes.
+	///
+	/// A VST3 host behind `clap-wrapper` reports parameter automation once per block:
+	/// the shim keeps the last automation point of a block and drops the rest. A ramp
+	/// drawn in the host's automation lane therefore arrives as a staircase, one step
+	/// per block, and a step in a gain or a cutoff is audible as a click.
+	///
+	/// A parameter named here is not handed to the DSP in one jump: the wrapper keeps
+	/// the last value it wrote and walks it to the new target over the given time. The
+	/// DSP still reads a plain number out of the same atomic, so a product needs no
+	/// change beyond this list.
+	///
+	/// Only takes effect with this crate's `smoothing` feature. Name continuous
+	/// parameters here (gain, cutoff, mix); a switch or a waveform choice must not be
+	/// smoothed, and a parameter the product itself writes is best left alone too.
+	const SMOOTHED_PARAMETERS: &'static [SmoothedParameter] = &[];
+
 	/// Create a new instance of the plugin.
 	fn new() -> Self;
 
@@ -103,6 +120,29 @@ pub trait Plugin: Processor {
 	/// to `false` keeps the report to that first number.
 	fn reports_latency_changes(&self) -> bool {
 		true
+	}
+}
+
+/// One parameter the wrapper ramps between blocks, with how long the ramp takes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SmoothedParameter {
+	/// The identifier of the parameter, as `Parameters` declares it.
+	pub identifier: &'static str,
+	/// How long a jump to a new value takes, in milliseconds.
+	///
+	/// A block is one step of this ramp, so the time is rounded to whole blocks: at
+	/// 48 kHz and 64 frames per block, 20 ms is fifteen steps. Zero (or a negative
+	/// number) means no smoothing for this parameter.
+	pub time_ms: f32,
+}
+
+impl SmoothedParameter {
+	/// A smoothed parameter with its ramp time, in milliseconds.
+	pub const fn new(identifier: &'static str, time_ms: f32) -> Self {
+		Self {
+			identifier,
+			time_ms,
+		}
 	}
 }
 

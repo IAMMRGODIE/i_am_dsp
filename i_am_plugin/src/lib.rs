@@ -158,6 +158,8 @@ mod log;
 mod main_thread;
 mod plugin;
 mod shared;
+#[cfg(feature = "smoothing")]
+mod smoothing;
 mod state_guard;
 
 /// The GUI-neutral processor plumbing: an effect and the parameter map a host
@@ -177,7 +179,7 @@ pub use descriptor::{AudioPort, Descriptor, MidiPort, Tag};
 pub use editor::{Editor, EditorContext, EditorError, ParentWindow};
 pub use factory::{PluginSetSource, SetEntry, SetEntryPoint};
 pub use main_thread::PluginMain;
-pub use plugin::{Plugin, PluginAuExt, WindowOptions, WindowSize};
+pub use plugin::{Plugin, PluginAuExt, SmoothedParameter, WindowOptions, WindowSize};
 
 /// The resize hints a [WindowOptions] carries, re-exported so a plug-in can describe
 /// a resizable window without also depending on `clack-extensions`.

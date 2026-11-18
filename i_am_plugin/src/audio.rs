@@ -34,6 +34,9 @@ pub struct AudioProcessor<'a, P: Plugin> {
 	pub(crate) event_sender: Sender<(usize, i_am_dsp::NoteEvent)>,
 	pub(crate) event_receiver: Receiver<(usize, i_am_dsp::NoteEvent)>,
 	pub(crate) param_map: ParamMap,
+	/// The block to block ramps of the parameters the plug-in declared as smoothed.
+	#[cfg(feature = "smoothing")]
+	pub(crate) smoothing: crate::smoothing::Smoothing,
 	/// Where the audio thread publishes the latency it is running at, for the main thread to
 	/// hand to the host.
 	pub(crate) latency: LatencyPublisher,

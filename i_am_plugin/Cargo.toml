@@ -9,6 +9,12 @@ default = []
 # library by linking clap-wrapper and the VST3 SDK into it.
 # Off by default: turning it on needs a C++ toolchain and a longer first build.
 vst3 = ["dep:clap-wrapper", "clap-wrapper/vst3", "clap-wrapper/parallel"]
+# Ramps a parameter over a few blocks instead of handing the DSP a jump. A VST3 host
+# behind clap-wrapper delivers one value per block, so an automation ramp reaches the
+# plug-in as a staircase and every step is a small click; smoothing turns the steps
+# back into a line at the cost of a short delay on that parameter. Only the parameters
+# a plug-in names in `Plugin::SMOOTHED_PARAMETERS` are touched.
+smoothing = []
 
 [dependencies]
 clack-extensions = { version = "0.1.1", features = [
@@ -30,6 +36,9 @@ clap-wrapper = { version = "0.3.1", optional = true, default-features = false }
 [dev-dependencies]
 # A CLAP host, for the probe that loads a built library and asks it what it has.
 clack-host = "0.1.1"
+# The smoothing tests need a real parameter table, and the table is what the derive
+# macro builds.
+i_am_dsp_derive = { workspace = true }
 
 # The WebView2 editor backend (formerly the i_am_plugin_wry crate). It lives
 # here so a plug-in crate only depends on one plugin package. The non-Windows
