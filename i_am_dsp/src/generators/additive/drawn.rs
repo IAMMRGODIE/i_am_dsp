@@ -208,6 +208,10 @@ impl PageBank {
 /// How many points the pages' peak is read at.
 const PEAK_POINTS: usize = 2048;
 
+/// The RMS a page is brought to: the RMS of a full scale sine, so a single
+/// partial drawn at full level plays at full level.
+const RMS_TARGET: f32 = std::f32::consts::FRAC_1_SQRT_2;
+
 /// Builds the pages' band limited tables and pictures, reusing the pages that
 /// did not change since the previous bank.
 ///
@@ -250,19 +254,31 @@ fn build_bank(frames: &[SpectralFrame], previous: Option<&PageBank>) -> PageBank
 			})
 			.collect();
 
-		// A page plays at full scale: the peak is the waveform's own, read from
-		// the finished table. The pair the table returns is the wave and its
-		// quadrature, and the voice plays a rotation of the two, which is that
-		// same wave shifted in time: its peak is the wave's peak, while the
-		// quadrature of a bright wave peaks far higher and is never heard.
-		let peak = (0..PEAK_POINTS).fold(0.0f32, |peak, point| {
+		// A page is normalised by its RMS, not by its peak. A drawn spectrum
+		// with a narrow spike has a peak far above the wave's energy, and that
+		// spike is mostly stepped over at playback: peak normalisation then
+		// turns the page down to almost nothing while the spike is never heard.
+		// The pair the table returns is the wave and its quadrature; the voice
+		// plays a rotation of the two, which is that wave shifted in time, so
+		// both are read here.
+		let sum_of_squares = (0..PEAK_POINTS).fold(0.0f32, |sum, point| {
 			let phase = point as f32 / PEAK_POINTS as f32;
 			let (wave, _) = table.play(phase, f32::INFINITY);
 
-			peak.max(wave.abs())
+			sum + wave * wave
 		});
+		let rms = (sum_of_squares / PEAK_POINTS as f32).sqrt();
+		// A page whose crest is extreme can now peak above full scale; that is
+		// what keeps its body audible, and the voice's gain stage and the host's
+		// float path have the headroom for it. A page with a sane crest lands at
+		// or below full scale.
+		let gain = if rms > 1e-6 {
+			RMS_TARGET / rms
+		} else {
+			1.0
+		};
 
-		gains.push(if peak > 1e-6 { 1.0 / peak } else { 1.0 });
+		gains.push(gain);
 		pages.push(Arc::new(table));
 		curves.push(curve);
 	}
@@ -671,40 +687,44 @@ mod tests {
 		TableBankOsc::new(SpectralFeed::new(frames))
 	}
 
-	/// A page drawn at full on every partial must not leave the table above full
-	/// scale, and a quieter page keeps its relation to the loud one.
+	/// Every page is brought to the same RMS whatever its crest: a page drawn
+	/// with every partial at full has a spike far above its body, and normalising
+	/// by that spike used to turn the page down to almost nothing.
 	#[test]
-	fn a_loud_page_is_scaled_to_full_scale() {
+	fn pages_are_brought_to_one_rms() {
 		let loud = SpectralFrame::new(vec![1.0; DRAWN_PARTIALS], vec![0.0; DRAWN_PARTIALS]);
 		let quiet = SpectralFrame::new(vec![0.2; DRAWN_PARTIALS], vec![0.0; DRAWN_PARTIALS]);
 		let bank = build_bank(&[loud, quiet], None);
-		// The played wave is the first of the pair; the second is its quadrature,
-		// which the voice rotates into the same wave and never hears on its own.
-		let peak = |page: usize| {
-			(0..2048).fold(0.0f32, |peak, point| {
+		let rms = |page: usize| {
+			let mut sum = 0.0f32;
+
+			for point in 0..2048 {
 				let phase = point as f32 / 2048.0;
 				let (wave, _) = bank.sample(page, phase, f32::INFINITY);
+				sum += wave * wave;
+			}
 
-				peak.max(wave.abs())
-			})
+			(sum / 2048.0).sqrt()
 		};
+		let target = std::f32::consts::FRAC_1_SQRT_2;
 
-		assert!(peak(0) <= 1.001, "the loud page left the table: {}", peak(0));
-		assert!(peak(0) > 0.9, "the loud page was over-attenuated: {}", peak(0));
-		// Each page is brought to full scale, so a quiet drawing plays as loud as
-		// a crowded one and a morph between them keeps its level.
-		assert!(peak(1) <= 1.001, "the quiet page left the table: {}", peak(1));
-		assert!(peak(1) > 0.9, "the quiet page was not brought up: {}", peak(1));
+		for page in 0..2 {
+			assert!(
+				(rms(page) - target).abs() < 0.1,
+				"page {page} plays at rms {}",
+				rms(page)
+			);
+		}
 	}
 
-	/// The classic saw page peaks near 1.85 and plays at about half scale; the
-	/// scale is the wave's peak, not its quadrature's (which is far higher).
+	/// The classic saw is scaled by its RMS, not by its spike: it lands near
+	/// full scale instead of being turned down to the crest.
 	#[test]
-	fn the_saw_page_plays_near_full_scale() {
+	fn the_saw_page_plays_at_its_body() {
 		let bank = build_bank(&[SpectralFrame::saw()], None);
 		let gain = bank.gains()[0];
 
-		assert!(gain > 0.45 && gain < 0.65, "the saw page plays at {gain}");
+		assert!(gain > 0.7 && gain < 0.9, "the saw page plays at {gain}");
 	}
 
 	/// A page becomes a band limited table and a picture of one period.
