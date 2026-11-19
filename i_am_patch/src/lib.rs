@@ -126,13 +126,13 @@ pub const MACRO_COUNT: usize = 64;
 /// a control signal — so the whole modulation path is the one a page knob already
 /// uses, and a voice copy reads the same bank without being told.
 #[derive(Clone, Debug)]
-pub struct Macros(std::sync::Arc<[std::sync::atomic::AtomicU32; MACRO_COUNT]>);
+pub struct Macros(std::sync::Arc<[portable_atomic::AtomicF32; MACRO_COUNT]>);
 
 impl Macros {
 	/// An all-zero pad.
 	pub fn new() -> Self {
 		Self(std::sync::Arc::new(std::array::from_fn(|_| {
-			std::sync::atomic::AtomicU32::new(0.0f32.to_bits())
+			portable_atomic::AtomicF32::new(0.0)
 		})))
 	}
 
@@ -140,17 +140,14 @@ impl Macros {
 	pub fn get(&self, index: usize) -> f32 {
 		self.0
 			.get(index)
-			.map(|slot| f32::from_bits(slot.load(std::sync::atomic::Ordering::Relaxed)))
+			.map(|slot| slot.load(std::sync::atomic::Ordering::Relaxed))
 			.unwrap_or(0.0)
 	}
 
 	/// Writes one macro, clamped to the range a control signal carries.
 	pub fn set(&self, index: usize, value: f32) {
 		if let Some(slot) = self.0.get(index) {
-			slot.store(
-				value.clamp(0.0, 1.0).to_bits(),
-				std::sync::atomic::Ordering::Relaxed,
-			);
+			slot.store(value.clamp(0.0, 1.0), std::sync::atomic::Ordering::Relaxed);
 		}
 	}
 }

@@ -14,6 +14,9 @@ i_am_effects = { workspace = true }
 i_am_plugin = { workspace = true }
 i_am_synths = { workspace = true }
 i_am_web_gui = { workspace = true }
+# The macro pad is a plain array of atomics; i_am_dsp already builds on the same
+# crate, and AtomicF32 keeps a value in one type instead of bit-casting a u32.
+portable-atomic = { version = "1.15.0", features = ["float"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 

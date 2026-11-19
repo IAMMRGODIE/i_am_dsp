@@ -475,7 +475,8 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   加参数，所以表在构造时定死，图里用多少算多少。图里的 `macro` 节点（Control）只带一个 `index`（1..64），
   输出一根 control 线，接调制就是普通源。宏值**不进图**：产品每块把宿主/页面写进 `ParamMap` 的原子
   拷进 `Slots::macros()`（`pull_macros`，只写动过的），节点直接读那块 pad——voice 的拷贝读同一份，
-  所以不欠"三处一起改"那条账。
+  所以不欠"三处一起改"那条账。卡片上那枚 **Value** 旋钮不是图参数：拖动走 `POST /macro`，
+  和宿主写的是同一个原子，所以页面拧一下等于拉了一段自动化。
 - 控制源只有一份实现：图节点（`nodes.rs` 的 `SourceNode`）是 `SourceRuntime` 的适配器，
   参数映射到 `SourceSettings`，值、相位、同步频率、随机流和平滑都与 rack 的 slot 一致；
   `source_dsp.rs` 放两者共用的底层形状与系数。

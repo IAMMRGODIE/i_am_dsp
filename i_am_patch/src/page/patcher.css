@@ -275,3 +275,7 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
   fill:rgba(224,122,47,.08); stroke:var(--accent); stroke-width:1;
   stroke-dasharray:4 4; pointer-events:none;
 }
+
+/* A macro's host value: the track is the range, the fill is where it sits. */
+.macro-track{fill:var(--raised)}
+.macro-fill{fill:var(--accent)}

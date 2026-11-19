@@ -31,6 +31,40 @@
   const cards = {};
   const pagesOf = {};
 
+  // The host's macro values, read from /macros. A macro card draws the one its
+  // index names; dragging it writes the atomics a host writes, so a drag is
+  // automation rather than a graph edit.
+  let macroValues = new Array(64).fill(0);
+  let macroPending = null;
+  let macroTimer = null;
+
+  function queueMacro(index, value) {
+    macroPending = { index, value };
+
+    if (macroTimer) return;
+    macroTimer = setTimeout(flushMacro, 30);
+  }
+
+  function flushMacro() {
+    macroTimer = null;
+    const pending = macroPending;
+    macroPending = null;
+
+    if (!pending) return;
+
+    fetch("/macro?index=" + pending.index + "&value=" + pending.value, { method: "POST" })
+      .catch(() => {});
+  }
+
+  async function readMacros() {
+    try {
+      const answer = await (await fetch("/macros", { cache: "no-store" })).json();
+      if (answer && Array.isArray(answer.values)) macroValues = answer.values.slice(0, 64);
+    } catch {
+      // The next tick tries again.
+    }
+  }
+
   function sourceName(id) {
     const source = nodeOf(id);
     const kind = source ? kindOf(source.kind) : null;
@@ -724,10 +758,20 @@
   function genericCard(node, kind, w, h) {
     let entry = cards[node.id];
     const mods = modsOf(node.id);
+
+    // A macro's value is a host parameter, not a graph one: the card carries a
+    // control for it anyway, and an edit of that control goes to /macro, the same
+    // atomic a host writes. It is in the rebuild key so a host-driven move shows.
+    const macroIndex = kind.id === "macro"
+      ? Math.min(64, Math.max(1, Math.round(node.params.index ?? 1)))
+      : 0;
+    const macroLevel = macroIndex ? (macroValues[macroIndex - 1] || 0) : 0;
+
     const key = JSON.stringify([
       mods.map((mod) => [mod.slot, mod.to[1], Math.round(mod.depth * 1000), mod.mode]),
       node.points || [],
       node.params,
+      macroLevel,
     ]);
 
     if (entry && (entry.key !== key || entry.kindId !== node.kind)) {
@@ -800,6 +844,22 @@
       });
     });
 
+    // The macro's value rides beside the node's own parameters: it is a host
+    // parameter, so it is written through /macro and never through `op param`.
+    if (macroIndex) {
+      specs.push({
+        id: "value",
+        label: "Value",
+        kind: "float",
+        min: 0,
+        max: 1,
+        default: macroLevel,
+        log: false,
+        step: 0.01,
+        choices: null,
+      });
+    }
+
     const host = document.createElement("div");
     host.className = "card-host";
     const scale = document.createElement("div");
@@ -815,9 +875,21 @@
       header: GENERIC_HEADER[kind.id] || [],
       switches: kind.switches || [],
       controls: specs,
-      values: { ...node.params, points: JSON.stringify((node.points || []).map((point) => (Array.isArray(point) ? point : [point.time, point.value, point.bend || 0]))) },
+      values: {
+        ...node.params,
+        ...(macroIndex ? { value: macroLevel } : {}),
+        points: JSON.stringify((node.points || []).map((point) => (Array.isArray(point) ? point : [point.time, point.value, point.bend || 0]))),
+      },
       context,
       onEdit: (identifier, value) => {
+        // The macro value is not in the graph: it goes to the host parameter the
+        // node names, so a drag lands in the automation lane the host reads.
+        if (macroIndex && identifier === "value") {
+          macroValues[macroIndex - 1] = value;
+          queueMacro(macroIndex, value);
+          return;
+        }
+
         op({ op: "param", id: node.id, key: identifier, value }, false);
       },
     });
@@ -1977,6 +2049,7 @@
     // back in.
     const context = contextOf(node);
     const importRoute = IMPORT_ROUTES[kind.id];
+
     const card = IAmCard.faceCard({
       face: kind,
       values: node.params,
@@ -2809,6 +2882,7 @@
         row.appendChild(el("rect", { x: 6, y: y - 13, width: BASE_W - 12, height: 18, fill: "transparent" }));
         group.appendChild(row);
       });
+
     }
   }
 
@@ -3961,6 +4035,7 @@
   startScopes();
 
   load();
+  readMacros().then(draw);
 
   // The graph changes from outside the page too: the host restores its saved
   // state, another client posts text, the fitting route writes parameters back.
@@ -3986,6 +4061,14 @@
         for (const entry of Object.values(cards)) {
           if (entry && entry.kind && isProductCard(entry.kind, "spectrum")) refreshSpectrum(entry);
         }
+
+        // A host moving a macro does not touch the graph, so it has no revision:
+        // the values are read on this slow tick and a card is redrawn only when one
+        // of them moved.
+        const before = macroValues.join(",");
+        await readMacros();
+
+        if (!drag && macroValues.join(",") !== before) draw();
       }
 
       if (state.revision === patchRevision) return;

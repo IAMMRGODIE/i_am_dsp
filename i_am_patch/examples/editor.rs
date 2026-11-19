@@ -454,6 +454,49 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			})
 			.to_string(),
 		),
+		// The page's macro controls: the same routes the product answers, so the
+		// standalone editor shows the same bar a host-driven instance does. The pad
+		// the nodes read is the one every rebuild keeps.
+		("GET", "/macros") => {
+			let values: Vec<f32> = (0..i_am_patch::MACRO_COUNT)
+				.map(|index| shared.slots.macros().get(index))
+				.collect();
+
+			(
+				"200 OK",
+				"application/json",
+				json!({ "values": values }).to_string(),
+			)
+		}
+		("POST", path) if path == "/macro" || path.starts_with("/macro?") => {
+			let query = path.split_once('?').map(|(_, query)| query).unwrap_or("");
+			let value = |name: &str| {
+				query
+					.split('&')
+					.find_map(|pair| pair.strip_prefix(name))
+					.and_then(|value| value.strip_prefix('='))
+			};
+
+			let index = value("index").and_then(|value| value.parse::<usize>().ok());
+			let level = value("value").and_then(|value| value.parse::<f32>().ok());
+
+			match (index, level) {
+				(Some(index), Some(level)) if (1..=i_am_patch::MACRO_COUNT).contains(&index) => {
+					shared.slots.macros().set(index - 1, level);
+
+					(
+						"200 OK",
+						"application/json",
+						json!({ "ok": true }).to_string(),
+					)
+				}
+				_ => (
+					"200 OK",
+					"application/json",
+					json!({ "ok": false, "error": "index and value" }).to_string(),
+				),
+			}
+		}
 		("GET", "/text") => (
 			"200 OK",
 			"application/json",
