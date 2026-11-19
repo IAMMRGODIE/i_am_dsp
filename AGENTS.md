@@ -26,6 +26,10 @@ cargo run -p i_am_dsp --features standalone           # egui + cpal 实时 demo
 - `Cargo.lock` 被 gitignore（唯一例外是 `i_am_plugin/tests/set_library/Cargo.lock`）。
 - `tools/` 下的 Python 脚本是校准/分析工具，不参与构建。
 - 没有 CI；「跑过测试 + clippy 干净」就是本仓库的验证标准。
+- **feature 组合也要能过**：`cargo check --workspace --all-features --all-targets` 和
+  `cargo clippy --workspace --all-features` 必须干净。但 `cargo test --workspace --all-features`
+  链接不过：`vst3` 会把 clap-wrapper 的静态库带进测试/示例这类非 cdylib 二进制，它们缺
+  `clap_entry` 数据符号（只有 `*_bundle` 里有）。测默认 features，打包测 `cargo bundle`。
 
 ## 打包
 

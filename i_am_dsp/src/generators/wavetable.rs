@@ -82,7 +82,15 @@ pub trait Oscillator<const CHANNELS: usize>: Parameters {
 
 	#[cfg(feature = "real_time_demo")]
 	/// Draws the wave table for the oscillator in the demo UI.
-	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String);
+	///
+	/// The default says so instead of drawing nothing: an adapter around another
+	/// oscillator (a canvas, a script) has no wave table of its own to show, and a
+	/// missing method here used to make the whole workspace fail to build with
+	/// `real_time_demo` on.
+	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
+		let _ = id_prefix;
+		ui.label("nothing");
+	}
 }
 
 /// A wrapper for a wavetable to use it as an oscillator with default demo UI.
