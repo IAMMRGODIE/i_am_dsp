@@ -505,6 +505,16 @@ const BUILTINS: &[NodeDesc] = &[
 		],
 	},
 	NodeDesc {
+		id: "macro",
+		name: "Macro",
+		// No input: the value comes from the host's parameter table, and the port
+		// is what a modulation link reads.
+		inputs: &[],
+		outputs: &[port("control", SignalKind::Control)],
+		latency: 0,
+		params: &[step_param("index", 1.0, 1.0, 64.0, 1.0)],
+	},
+	NodeDesc {
 		id: "random",
 		name: "Random",
 		inputs: &[],

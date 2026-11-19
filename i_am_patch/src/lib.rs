@@ -109,6 +109,58 @@ pub type Scripts = std::sync::Arc<
 	>,
 >;
 
+/// How many macro controls a patcher offers its host.
+///
+/// A plug-in's parameter table is fixed when it is created and nothing may add a
+/// parameter later, so the pad is a fixed size: a graph uses as many of them as it
+/// likes, and the unused ones cost a slot in the host's automation list and nothing
+/// else. Sixty-four is what a page can show in a column and a host can list without
+/// becoming a modal dialog.
+pub const MACRO_COUNT: usize = 64;
+
+/// The macro values a host automates, shared with the nodes that read them.
+///
+/// The values live beside the graph rather than in it: a graph parameter is what a
+/// page draws and what a voice copies, and a macro is neither. The product pumps the
+/// host's parameter table into this pad each block, and the `macro` node reads it as
+/// a control signal — so the whole modulation path is the one a page knob already
+/// uses, and a voice copy reads the same bank without being told.
+#[derive(Clone, Debug)]
+pub struct Macros(std::sync::Arc<[std::sync::atomic::AtomicU32; MACRO_COUNT]>);
+
+impl Macros {
+	/// An all-zero pad.
+	pub fn new() -> Self {
+		Self(std::sync::Arc::new(std::array::from_fn(|_| {
+			std::sync::atomic::AtomicU32::new(0.0f32.to_bits())
+		})))
+	}
+
+	/// One macro's value, 0..1; a missing index reads as zero.
+	pub fn get(&self, index: usize) -> f32 {
+		self.0
+			.get(index)
+			.map(|slot| f32::from_bits(slot.load(std::sync::atomic::Ordering::Relaxed)))
+			.unwrap_or(0.0)
+	}
+
+	/// Writes one macro, clamped to the range a control signal carries.
+	pub fn set(&self, index: usize, value: f32) {
+		if let Some(slot) = self.0.get(index) {
+			slot.store(
+				value.clamp(0.0, 1.0).to_bits(),
+				std::sync::atomic::Ordering::Relaxed,
+			);
+		}
+	}
+}
+
+impl Default for Macros {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 /// What a page hands to the nodes: the things a graph parameter cannot carry.
 ///
 /// A fitted table, a sample, a wavetable and an impulse response are all
@@ -158,9 +210,16 @@ pub struct Slots {
 	scripts: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_synths::ScriptHandle>>,
 	>,
+	/// The host's macro values, read by the `macro` nodes.
+	macros: Macros,
 }
 
 impl Slots {
+	/// The host-driven macro values.
+	pub fn macros(&self) -> &Macros {
+		&self.macros
+	}
+
 	/// The fitted table of one node, created the first time it is asked for.
 	pub fn fitted(&self, node: u32) -> i_am_dsp::prelude::TableSlot {
 		self.fitted

@@ -61,16 +61,48 @@ macro_rules! product {
 
 		impl Parameters for $name {
 			fn get_parameters(&self) -> Vec<Parameter> {
-				// The graph is the state; it rides in a serialized parameter so the
-				// host's save and load carry it without a new extension.
-				vec![Parameter::new(
+				// The macros first: a host that restores a project writes them back
+				// through `set_parameter`, and a host that only automates them keeps
+				// its own lanes. Then the graph, which rides in a serialized parameter
+				// so the host's save and load carry it without a new extension.
+				let mut parameters = Vec::with_capacity(i_am_patch::MACRO_COUNT + 1);
+
+				for index in 0..i_am_patch::MACRO_COUNT {
+					let (Some(identifier), Some(atomic)) = (
+						self.0.shared.params.query_param_id(index),
+						self.0.shared.params.get_by_index(index),
+					) else {
+						continue;
+					};
+
+					let value = match atomic.load(Ordering::Relaxed) {
+						SetValue::Float(value) => value,
+						_ => 0.0,
+					};
+
+					parameters.push(Parameter::new(
+						identifier,
+						Value::Float {
+							value,
+							range: 0.0..=1.0,
+							logarithmic: false,
+						},
+					));
+				}
+
+				parameters.push(Parameter::new(
 					"patch",
 					Value::Serialized(self.0.shared.text().into_bytes()),
-				)]
+				));
+
+				parameters
 			}
 
 			fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
 				match (identifier, value) {
+					(name, value) if name.starts_with("macro") => {
+						self.0.shared.set_macro(name, value)
+					}
 					("patch", SetValue::Serialized(bytes)) => {
 						let Ok(text) = String::from_utf8(bytes) else {
 							return false;
@@ -91,6 +123,9 @@ macro_rules! product {
 				other: &[[f32; 2]],
 				context: &mut Box<dyn ProcessContext>,
 			) {
+				// The host's macro values reach the nodes here, before the block runs.
+				self.0.shared.pull_macros();
+
 				for event in context.events() {
 					self.0.body.push_event(event);
 				}
@@ -144,7 +179,7 @@ macro_rules! product {
 			}
 
 			fn param_map(&self) -> ParamMap {
-				ParamMap::default()
+				self.0.shared.params.clone()
 			}
 
 			fn window_options() -> WindowOptions {
@@ -322,8 +357,15 @@ mod tests {
 	use super::*;
 
 	fn patch_text(effect: &PatcherEffect) -> String {
+		// The macros come first in the table, so the graph is looked up by name:
+		// the parameter order is not part of what a test should pin.
 		let params = effect.get_parameters();
-		let Value::Serialized(bytes) = &params[0].value else {
+		let patch = params
+			.iter()
+			.find(|param| param.identifier == "patch")
+			.expect("the patch parameter");
+
+		let Value::Serialized(bytes) = &patch.value else {
 			panic!("the patch parameter is not serialized");
 		};
 

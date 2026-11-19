@@ -358,14 +358,15 @@ fn a_product_table_plays() {
 	}
 }
 
-
 #[test]
 fn an_edited_spectrum_page_reaches_a_playing_note() {
 	use i_am_dsp::prelude::SpectralFrame;
 
 	let mut graph = Graph::new();
 	let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
-	let table = graph.add_node("table:spectrum", (0.0, 100.0)).expect("table");
+	let table = graph
+		.add_node("table:spectrum", (0.0, 100.0))
+		.expect("table");
 	let envelope = graph.add_node("adsr", (200.0, 0.0)).expect("adsr");
 	let out = graph.add_node("out:audio", (300.0, 0.0)).expect("out");
 
@@ -1570,4 +1571,45 @@ fn a_logarithmic_parameter_moves_by_a_ratio() {
 		"{}",
 		block[BLOCK - 1][0]
 	);
+}
+
+/// A macro is a control source like any other: the host writes the pad, the node
+/// reads it, and the modulation link carries it to a parameter.
+#[test]
+fn a_macro_reaches_a_parameter_through_modulation() {
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+	let macro_node = graph.add_node("macro", (0.0, 100.0)).expect("macro");
+
+	graph.connect((input, 0), (gain, 0));
+	graph.connect((gain, 0), (out, 0));
+	// A quarter of the range: at full depth a macro would drive the gain to its
+	// ceiling for both ends, and the test would compare two saturated values.
+	graph.modulate((macro_node, 0), (gain, "gain"), 0.25);
+
+	let slots = crate::Slots::default();
+	let down = render_through(&graph, &slots, 0.0);
+	let up = render_through(&graph, &slots, 1.0);
+
+	assert!(down > 0.0, "the input reaches the output");
+	assert!(up > down * 1.1, "the macro moved the gain: {down} -> {up}");
+}
+
+fn render_through(graph: &Graph, slots: &crate::Slots, macro_value: f32) -> f32 {
+	slots.macros().set(0, macro_value);
+
+	let mut engine = Engine::new_with(graph, 48_000, slots).expect("the graph builds");
+	let input = vec![[0.5f32; 2]; BLOCK];
+	let mut frame = vec![[0.0f32; 2]; BLOCK];
+
+	// A modulation source that has no input of its own is read one block behind the
+	// first time: the engine holds the last step's value, so the second block is the
+	// first one that knows the macro.
+	for _ in 0..4 {
+		engine.process(&input, &[], &mut frame);
+	}
+
+	frame.iter().map(|sample| sample[0].abs()).sum::<f32>() / BLOCK as f32
 }

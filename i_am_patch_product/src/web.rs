@@ -2,6 +2,9 @@
 
 use std::collections::BTreeMap;
 
+use std::sync::atomic::Ordering;
+
+use i_am_dsp::prelude::SetValue;
 use i_am_patch::graph::{Graph, NodeId};
 use i_am_patch::scope::Scope;
 use i_am_plugin::wry::{ProtocolRequest, ProtocolResponse};
@@ -17,6 +20,46 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 		("GET", "/status") => Some(ProtocolResponse::json(
 			json!({ "error": shared.error() }).to_string(),
 		)),
+		// The host's macro controls, for the page: it reads them here and writes
+		// them through the same atomics a host does, so a drag is automation.
+		("GET", "/macros") => {
+			let values: Vec<f32> = (0..i_am_patch::MACRO_COUNT)
+				.map(|index| {
+					shared
+						.params
+						.get_by_index(index)
+						.and_then(|param| match param.load(Ordering::Relaxed) {
+							SetValue::Float(value) => Some(value),
+							_ => None,
+						})
+						.unwrap_or(0.0)
+				})
+				.collect();
+
+			Some(ProtocolResponse::json(
+				json!({ "values": values }).to_string(),
+			))
+		}
+		("POST", "/macro") => {
+			let index = query_value(request, "index")
+				.and_then(|value| value.parse::<usize>().ok())
+				.filter(|index| (1..=i_am_patch::MACRO_COUNT).contains(index));
+			let value = query_value(request, "value").and_then(|value| value.parse::<f32>().ok());
+
+			let Some((index, value)) = index.zip(value) else {
+				return Some(ProtocolResponse::json(
+					json!({ "ok": false, "error": "index and value" }).to_string(),
+				));
+			};
+
+			let ok = shared.params.set(
+				&format!("macro{index}"),
+				SetValue::Float(value.clamp(0.0, 1.0)),
+				Ordering::SeqCst,
+			);
+
+			Some(ProtocolResponse::json(json!({ "ok": ok }).to_string()))
+		}
 		("POST", "/clear") => {
 			let node = request
 				.query

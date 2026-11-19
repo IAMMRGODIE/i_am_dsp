@@ -204,6 +204,10 @@ pub fn make_with(
 			b: param(params, "b", 1.0),
 		}),
 		"lfo" => Box::new(SourceNode::new(SourceKind::Lfo, rate, params, points)),
+		"macro" => Box::new(MacroNode {
+			macros: slots.macros().clone(),
+			index: macro_index(params),
+		}),
 		"random" => Box::new(SourceNode::new(SourceKind::Random, rate, params, &[])),
 		"table" => Box::new(SourceNode::new(SourceKind::Table, rate, params, &[])),
 		"pitch" => Box::new(SourceNode::new(SourceKind::Pitch, rate, params, &[])),
@@ -376,6 +380,39 @@ fn audio(inputs: &[Buffer], port: usize) -> AudioBlock {
 
 /// A node with no work of its own.
 struct Quiet;
+
+/// The zero-based macro a node follows, from its one-based `index` parameter.
+fn macro_index(params: &BTreeMap<&'static str, f32>) -> usize {
+	let index = param(params, "index", 1.0).round();
+	(index.clamp(1.0, crate::MACRO_COUNT as f32) as usize).saturating_sub(1)
+}
+
+/// One of the host's macros, as a control source.
+///
+/// The value is not a node parameter: the host owns it, the product pumps it into
+/// the pad, and a voice copy of this node reads the same pad. That is what keeps a
+/// macro out of the "copy the graph for the next voice" rules entirely.
+struct MacroNode {
+	/// The pad the product fills from the host's parameter table.
+	macros: crate::Macros,
+	/// Zero-based, from the node's `index` parameter.
+	index: usize,
+}
+
+impl BlockNode for MacroNode {
+	fn set_param(&mut self, name: &str, value: f32) {
+		if name == "index" {
+			let index = value.round() as i64;
+			self.index = index.clamp(1, crate::MACRO_COUNT as i64) as usize - 1;
+		}
+	}
+
+	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
+		if let Some(Buffer::Control(out)) = outputs.first_mut() {
+			*out = self.macros.get(self.index);
+		}
+	}
+}
 
 impl BlockNode for Quiet {
 	fn process(&mut self, _: &mut BlockContext, _: &[Buffer], _: &mut [Buffer]) {}

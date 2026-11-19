@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use i_am_dsp::prelude::NoteEvent;
+use i_am_dsp::prelude::{NoteEvent, ParamMap, SetValue, Value};
 use i_am_patch::block::BLOCK;
 use i_am_patch::compile::voice_group;
 use i_am_patch::engine::Engine;
@@ -37,6 +37,27 @@ pub struct PatcherShared {
 	/// The edits that move a control without changing the graph, drained by the
 	/// audio thread at the next block so the notes in flight keep playing.
 	pub edits: Mutex<Vec<i_am_patch::edit::Edit>>,
+	/// The host-facing macro parameters: the same sixty-four every instance.
+	///
+	/// A host cannot add a parameter later, so the table is built once and every
+	/// graph draws from it. The page writes it, the host writes it, and the audio
+	/// thread copies whatever it finds into the pad the `macro` nodes read.
+	pub params: ParamMap,
+}
+
+/// The host's macro controls: sixty-four floats, zero to one, always present.
+fn host_macro_map() -> ParamMap {
+	let entries = (1..=i_am_patch::MACRO_COUNT).map(|index| {
+		let value = Value::Float {
+			value: 0.0,
+			range: 0.0..=1.0,
+			logarithmic: false,
+		};
+
+		(format!("macro{index}"), Arc::new(value.to_atomic_value()))
+	});
+
+	ParamMap::new_with(entries.collect::<Vec<_>>())
 }
 
 /// One watched node and the rings its signal goes into.
@@ -64,11 +85,39 @@ impl Default for PatcherShared {
 			slots: Default::default(),
 			clear_requests: Mutex::new(Vec::new()),
 			edits: Mutex::new(Vec::new()),
+			params: host_macro_map(),
 		}
 	}
 }
 
 impl PatcherShared {
+	/// Copies the host's macro values into the pad the nodes read.
+	///
+	/// A host and a page both write the same atomics, so this is the one place the
+	/// two sides meet: sixty-four loads per block, and a store only for a value that
+	/// actually moved. The names are addressed by index because formatting a name
+	/// here would allocate on the audio thread.
+	pub fn pull_macros(&self) {
+		let macros = self.slots.macros();
+
+		for index in 0..i_am_patch::MACRO_COUNT {
+			let Some(param) = self.params.get_by_index(index) else {
+				continue;
+			};
+
+			if let SetValue::Float(value) = param.load(Ordering::Relaxed)
+				&& macros.get(index) != value
+			{
+				macros.set(index, value);
+			}
+		}
+	}
+
+	/// Writes one macro from its identifier, for a host restoring a project.
+	pub fn set_macro(&self, identifier: &str, value: SetValue) -> bool {
+		self.params.set(identifier, value, Ordering::SeqCst)
+	}
+
 	/// The current graph.
 	pub fn graph(&self) -> Graph {
 		self.graph.lock().expect("the graph lock").clone()
@@ -521,6 +570,66 @@ impl Default for UiState {
 mod tests {
 	use super::*;
 	use i_am_dsp::prelude::NoteEvent;
+
+	/// A host cannot add a parameter later, so the table is the same sixty-four
+	/// whatever the graph holds.
+	#[test]
+	fn a_host_sees_sixty_four_macros() {
+		let shared = PatcherShared::default();
+
+		assert_eq!(shared.params.len(), i_am_patch::MACRO_COUNT);
+		assert_eq!(shared.params.query_param_id(0), Some("macro1"));
+		assert_eq!(
+			shared.params.query_param_id(i_am_patch::MACRO_COUNT - 1),
+			Some("macro64")
+		);
+	}
+
+	/// The host writes an atomic and the audio thread copies it into the pad the
+	/// macro nodes read; that copy is the whole of the host path.
+	#[test]
+	fn a_host_value_reaches_the_pad() {
+		let shared = PatcherShared::default();
+		assert_eq!(shared.slots.macros().get(7), 0.0);
+
+		shared
+			.params
+			.set("macro8", SetValue::Float(0.75), Ordering::SeqCst);
+		shared.pull_macros();
+
+		assert_eq!(shared.slots.macros().get(7), 0.75);
+	}
+
+	/// The page takes the same path a host does, which is what makes a drag on the
+	/// page look like automation to the host.
+	#[test]
+	fn the_page_writes_a_macro_through_the_map() {
+		use i_am_plugin::wry::ProtocolRequest;
+
+		let shared = PatcherShared::default();
+		let request = ProtocolRequest {
+			method: "POST",
+			path: "/macro",
+			query: Some("index=3&value=0.5"),
+			body: &[],
+		};
+
+		let response = crate::web::route(&request, &shared).expect("the route answers");
+		assert_eq!(response.status, 200);
+
+		shared.pull_macros();
+		assert_eq!(shared.slots.macros().get(2), 0.5);
+
+		let read = ProtocolRequest {
+			method: "GET",
+			path: "/macros",
+			query: None,
+			body: &[],
+		};
+		let response = crate::web::route(&read, &shared).expect("the route answers");
+		let json: serde_json::Value = serde_json::from_slice(&response.body).expect("json");
+		assert_eq!(json["values"][2], 0.5);
+	}
 
 	/// The peak of the next blocks of output.
 	fn peak(body: &mut Body, blocks: usize) -> f32 {

@@ -471,13 +471,19 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   所以拖旋钮时正在响的音不会被重建掉。**`Poly::set_param` 必须同时改三处**：外层引擎、活着的 voices、
   以及 `voice_graph`（下一个音符的模板）；只改前两处时，下一个音符会从旧模板出生，听起来就是"参数自己跳回去了"。
   调制深度还要按 `Poly::voice_links` 的映射换算索引（voice 图只含组内的调制，行号和外层不一样）。
+- **宿主侧只有 64 个 macro 参数**（`macro1..macro64`，0..1，`i_am_patch::MACRO_COUNT`）：宿主不能事后
+  加参数，所以表在构造时定死，图里用多少算多少。图里的 `macro` 节点（Control）只带一个 `index`（1..64），
+  输出一根 control 线，接调制就是普通源。宏值**不进图**：产品每块把宿主/页面写进 `ParamMap` 的原子
+  拷进 `Slots::macros()`（`pull_macros`，只写动过的），节点直接读那块 pad——voice 的拷贝读同一份，
+  所以不欠"三处一起改"那条账。
 - 控制源只有一份实现：图节点（`nodes.rs` 的 `SourceNode`）是 `SourceRuntime` 的适配器，
   参数映射到 `SourceSettings`，值、相位、同步频率、随机流和平滑都与 rack 的 slot 一致；
   `source_dsp.rs` 放两者共用的底层形状与系数。
 - 宿主存档 = 一个 `Serialized` 参数 `"patch"`，内容是**行文本格式**（`node 1 synth:additive 100 0 decay_time=0.5`），
   可读、可被 agent 编辑；JSON 是真相，文本是投影。
 - 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`、`/sample?node=N`；页面编辑 bump generation，
-  音频线程在块边界重建引擎。
+  音频线程在块边界重建引擎。宏走 `GET /macros` 与 `POST /macro?index=&value=`，读写的就是宿主那组原子，
+  所以页面拖动在宿主眼里等同自动化。
 - 页面状态走 `Slots`（按节点 id：拟合表、采样、波表、冲激响应、画布、频谱页、鼓手
   click/samples/曲线、脚本）。图参数只有 f32，序列化的东西进不了图，所以页面 POST 到
   `/sample?node=N`（Modal）、`/sampler?node=N`（Sampler）、`/waves?node=N`（Shapes）、
