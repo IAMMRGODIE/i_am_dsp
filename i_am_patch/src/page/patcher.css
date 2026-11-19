@@ -146,14 +146,16 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 .menu-cat:hover{background:var(--raised)}
 .menu-arrow{color:var(--text3); font-size:10px}
 .menu-sub{
-  position:absolute; left:100%; top:0; display:none; min-width:190px;
-  max-height:70vh; overflow:auto; padding:4px;
+  /* Fixed, not absolute: the menu scrolls its own list, and a flyout anchored
+     inside a scroll box is clipped by it. The position is set per hover. */
+  position:fixed; left:0; top:0; display:none; min-width:190px;
+  max-height:70vh; overflow:auto; padding:4px; z-index:11;
   background:var(--card); border:1px solid var(--border); border-radius:6px;
   box-shadow:0 12px 34px rgba(0,0,0,.55);
 }
 .menu-cat:hover > .menu-sub{display:block}
-/* A flyout near the window's edge mirrors to the other side of the category. */
-.menu-sub.left{left:auto; right:100%}
+/* The flyout mirrors to the other side of the category when it would run off the
+   window; its position is set in viewport coordinates by placeFlyout. */
 .menu-item{
   display:block; width:100%; text-align:left; font:inherit; padding:5px 8px;
   border:0; border-radius:4px; background:transparent; color:var(--text1);

@@ -3022,9 +3022,6 @@
 
     if (!sub) return;
 
-    sub.classList.remove("left");
-    sub.style.top = "";
-
     // `mouseenter` can arrive before the hover rule has given the flyout a
     // layout, so measure it with a hidden box when it has none yet.
     const hidden = sub.offsetWidth === 0;
@@ -3043,14 +3040,18 @@
       sub.style.visibility = "";
     }
 
-    if (rect.right + width > window.innerWidth - 8 && rect.left - width >= 8) {
-      sub.classList.add("left");
+    // The flyout is fixed, so it is placed in viewport coordinates: it opens to
+    // the right of its row, mirrors when the right side is short, and rides up
+    // when the row is near the bottom.
+    let left = rect.right;
+
+    if (left + width > window.innerWidth - 8) {
+      left = Math.max(8, rect.left - width);
     }
 
-    // Vertical: slide the flyout up so it ends inside the window. A flyout
-    // taller than the window keeps its scroll box at the top instead.
-    const top = Math.min(0, window.innerHeight - 8 - height - rect.top);
+    const top = Math.max(8, Math.min(rect.top, window.innerHeight - 8 - height));
 
+    sub.style.left = `${left}px`;
     sub.style.top = `${top}px`;
   }
 
