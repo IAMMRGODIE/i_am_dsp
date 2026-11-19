@@ -134,6 +134,7 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
    nodes. */
 #menu{
   position:absolute; display:none; min-width:170px; z-index:10;
+  max-height:calc(100vh - 16px); overflow:auto;
   background:var(--card); border:1px solid var(--border); border-radius:6px;
   box-shadow:0 12px 34px rgba(0,0,0,.55); padding:4px; font-size:12px;
 }

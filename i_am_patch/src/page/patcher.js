@@ -2283,6 +2283,8 @@
     "out:audio": [260, 150],
     "voice:in": [260, 190],
     "voice:out": [260, 150],
+    // Two knobs and nothing else: the default card leaves half of it empty.
+    macro: [260, 175],
     // The source cards are wide like the rack's: a full-width hero and the
     // knobs in a row under it.
     lfo: [640, 340],
@@ -2984,12 +2986,30 @@
     menu.style.display = "block";
     menu.style.left = "0px";
     menu.style.top = "0px";
+    menu.style.maxHeight = "";
+
+    // The menu hangs inside the stage, which clips what leaves it: the window's
+    // size is not the limit that matters, the space this element has is. The
+    // pointer is in viewport coordinates, so the parent's origin comes off first.
+    const parent = menu.offsetParent || document.body;
+    const bounds = parent.getBoundingClientRect();
+    const left = clientX - bounds.left;
+    const top = clientY - bounds.top;
+
+    // Room below, room above: a menu pinned to the bottom of the stage would
+    // otherwise be a 140 px scroll box, so it flips up when that side is longer.
+    const below = bounds.height - top - 8;
+    const above = top - 8;
+    const flip = below < 260 && above > below;
+
+    menu.style.maxHeight = `${Math.max(140, flip ? above : below)}px`;
 
     const width = menu.offsetWidth;
     const height = menu.offsetHeight;
+    const y = flip ? top - height : top;
 
-    menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - width - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(clientY, window.innerHeight - height - 8))}px`;
+    menu.style.left = `${Math.max(8, Math.min(left, bounds.width - width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, bounds.height - height - 8))}px`;
   }
 
   /// Opens a category's flyout on the side of the window that has room.
@@ -4053,6 +4073,15 @@
       serverError = state.error || "";
       paintStatus();
 
+      // A host moving a macro does not touch the graph either, so it has no
+      // revision: the values are read every tick and a card is redrawn only when
+      // one of them moved. Reading them on the slow tick made a host's drag show
+      // up two seconds late.
+      const before = macroValues.join(",");
+      await readMacros();
+
+      if (!drag && macroValues.join(",") !== before) draw();
+
       // The drawn pages are not part of the graph, so a page edited in another
       // window does not move the revision: ask for them on a slow tick.
       if (++spectrumTick >= 8) {
@@ -4062,13 +4091,6 @@
           if (entry && entry.kind && isProductCard(entry.kind, "spectrum")) refreshSpectrum(entry);
         }
 
-        // A host moving a macro does not touch the graph, so it has no revision:
-        // the values are read on this slow tick and a card is redrawn only when one
-        // of them moved.
-        const before = macroValues.join(",");
-        await readMacros();
-
-        if (!drag && macroValues.join(",") !== before) draw();
       }
 
       if (state.revision === patchRevision) return;
