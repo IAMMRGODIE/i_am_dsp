@@ -2978,8 +2978,18 @@
     return "I/O";
   }
 
+  /// The flyout lifted out of the menu, and the timer that gives the pointer
+  /// time to travel from the row into it.
+  let flyout = null;
+  let flyoutTimer = null;
+
   function closeMenu() {
     menu.style.display = "none";
+
+    if (flyout) {
+      flyout.style.display = "none";
+      flyout = null;
+    }
   }
 
   function placeMenu(clientX, clientY) {
@@ -3017,42 +3027,58 @@
   /// A flyout that always opens right runs off the edge of a narrow window, so
   /// it mirrors when the right side is short and rides up when the category is
   /// near the bottom.
-  function placeFlyout(category) {
-    const sub = category.querySelector(".menu-sub");
+  /// Shows a category's flyout beside its row.
+  ///
+  /// The flyout is lifted out of the menu and parked on the body before it is
+  /// shown: the menu scrolls its own list, and anything that scrolls clips what
+  /// leaves it — a flyout opened near the bottom of the list would be cut in
+  /// half. From the body it can hang over the edge and still be seen.
+  function showFlyout(category) {
+    clearTimeout(flyoutTimer);
+
+    const sub = category.flyout;
 
     if (!sub) return;
 
-    // `mouseenter` can arrive before the hover rule has given the flyout a
-    // layout, so measure it with a hidden box when it has none yet.
-    const hidden = sub.offsetWidth === 0;
+    if (flyout && flyout !== sub) flyout.style.display = "none";
 
-    if (hidden) {
-      sub.style.visibility = "hidden";
-      sub.style.display = "block";
-    }
+    flyout = sub;
+    document.body.appendChild(sub);
+    sub.style.display = "block";
 
     const rect = category.getBoundingClientRect();
+    const margin = 8;
+
+    // Whatever the stylesheet says, a flyout may not be taller than the window:
+    // the rest is its own scroll box. This is set before measuring so the clamp
+    // below uses the height it will really have.
+    sub.style.maxHeight = `${Math.max(120, window.innerHeight - margin * 2)}px`;
+
     const width = sub.offsetWidth;
     const height = sub.offsetHeight;
 
-    if (hidden) {
-      sub.style.display = "";
-      sub.style.visibility = "";
-    }
-
-    // The flyout is fixed, so it is placed in viewport coordinates: it opens to
-    // the right of its row, mirrors when the right side is short, and rides up
-    // when the row is near the bottom.
+    // Placed in viewport coordinates: it opens to the right of its row, mirrors
+    // when that side is short, and rides up when the row is near the bottom.
     let left = rect.right;
 
-    if (left + width > window.innerWidth - 8) {
-      left = Math.max(8, rect.left - width);
+    if (left + width > window.innerWidth - margin) {
+      left = Math.max(margin, rect.left - width);
     }
 
-    const top = Math.max(8, Math.min(rect.top, window.innerHeight - 8 - height));
+    const top = Math.max(margin, Math.min(rect.top, window.innerHeight - margin - height));
 
     sub.style.left = `${left}px`;
     sub.style.top = `${top}px`;
+  }
+
+  /// Hides a flyout after a short grace, so the pointer can cross the gap
+  /// between the row and the flyout without it closing under the cursor.
+  function hideFlyout(sub) {
+    clearTimeout(flyoutTimer);
+
+    flyoutTimer = setTimeout(() => {
+      if (sub) sub.style.display = "none";
+    }, 160);
   }
 
   function menuButton(label, action) {
@@ -3248,6 +3274,13 @@
     };
 
     const render = (query) => {
+      // A lifted flyout lives on the body, so clearing the list does not take it
+      // with it.
+      if (flyout) {
+        flyout.remove();
+        flyout = null;
+      }
+
       list.innerHTML = "";
       list.classList.toggle("flat", !!query);
 
@@ -3287,7 +3320,11 @@
 
         const sub = document.createElement("div");
         sub.className = "menu-sub";
-        row.addEventListener("mouseenter", () => placeFlyout(row));
+        row.flyout = sub;
+        row.addEventListener("mouseenter", () => showFlyout(row));
+        row.addEventListener("mouseleave", () => hideFlyout(sub));
+        sub.addEventListener("mouseenter", () => clearTimeout(flyoutTimer));
+        sub.addEventListener("mouseleave", () => hideFlyout(sub));
 
         for (const kind of items) {
           sub.appendChild(menuButton(kind.name, () => pick(kind.id)));
@@ -4058,6 +4095,18 @@
   load();
   readMacros().then(draw);
 
+  // A host moving a macro does not touch the graph, so the revision poll below
+  // never sees it. The values are small enough to read on their own faster timer,
+  // and a card is redrawn only when one of them actually moved.
+  setInterval(async () => {
+    if (busy() || drag) return;
+
+    const before = macroValues.join(",");
+    await readMacros();
+
+    if (macroValues.join(",") !== before) draw();
+  }, 120);
+
   // The graph changes from outside the page too: the host restores its saved
   // state, another client posts text, the fitting route writes parameters back.
   // One small request says whether anything moved, and the graph itself is only
@@ -4073,15 +4122,6 @@
 
       serverError = state.error || "";
       paintStatus();
-
-      // A host moving a macro does not touch the graph either, so it has no
-      // revision: the values are read every tick and a card is redrawn only when
-      // one of them moved. Reading them on the slow tick made a host's drag show
-      // up two seconds late.
-      const before = macroValues.join(",");
-      await readMacros();
-
-      if (!drag && macroValues.join(",") !== before) draw();
 
       // The drawn pages are not part of the graph, so a page edited in another
       // window does not move the revision: ask for them on a slow tick.

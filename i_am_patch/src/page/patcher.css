@@ -153,9 +153,6 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
   background:var(--card); border:1px solid var(--border); border-radius:6px;
   box-shadow:0 12px 34px rgba(0,0,0,.55);
 }
-.menu-cat:hover > .menu-sub{display:block}
-/* The flyout mirrors to the other side of the category when it would run off the
-   window; its position is set in viewport coordinates by placeFlyout. */
 .menu-item{
   display:block; width:100%; text-align:left; font:inherit; padding:5px 8px;
   border:0; border-radius:4px; background:transparent; color:var(--text1);
