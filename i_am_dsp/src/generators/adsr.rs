@@ -924,8 +924,12 @@ impl<
 				if let Some(processor) = &self.note_effect {
 					processor(&mut output_samples, playing_note, self.sample_rate)
 				}
+				// `output_samples` already carries the envelope and the velocity: the
+				// copies were summed through `unison_gain`. Multiplying by `gain` again
+				// made both of them square, so a velocity of half was a quarter of the
+				// loudness and the attack curve was the attack applied twice.
 				for i in 0..CHANNELS {
-					output[i] += output_samples[i] * gain;
+					output[i] += output_samples[i];
 				}
 
 				playing_note.count += 1;
@@ -1482,10 +1486,9 @@ mod tests {
 			early > single * 0.8,
 			"the fade starts where the voice was: {early}"
 		);
-		// The existing gain path applies the envelope and the velocity twice — once
-		// when the copies are summed and once when the voice is — so a quarter of
-		// the velocity is a sixteenth of the loudness.
-		let expected = single * 0.25 * 0.25;
+		// The velocity is applied once, so a quarter of it is a quarter of the
+		// loudness.
+		let expected = single * 0.25;
 
 		assert!(
 			(late - expected).abs() < 0.02,
