@@ -567,6 +567,13 @@ input ─► LR4 分频 ─┬─ Low  ─► [串行模块…] ─► gain/pan/
 
 `StringEngine` 作为 generator 接入 `i_am_dsp`（`string_engine.rs`），String 产品就是它的面板。
 
+滑音与 legato（`glide_time` + `legato`）走的是「同一个声部被重新调音」：按在正在响的音上时 `take_over`
+接管那根弦、改 `note`，弦的能量不动，动的只是它的有效长度（读取比例）。两条约束让它站得住：每个 `Voice`
+记住出生时的调音 `tuned`，滑完停在 `base_ratio`（新音相对 `tuned`）而不是 1.0，所以连续滑几个音不会漂、
+音准也不会停在半路；总拉伸量则受 `GLIDE_LIMIT_CENTS`（240 cent，即波导 `BEND_HEADROOM` 的余量）限制，
+超出就当新音——波导的延迟线只预留了一个揉弦的余量、色散曲线按出生那个音拟合，模态组再往上拉会把顶部
+分音推过 Nyquist。滑音是等 cent 速率的，所以滑得越快、音程越大，滑得越急。
+
 ### 6.6 打包：`i_am_bundler`
 
 `cargo bundle -p <bundle-crate> [--features vst3] [--no-vst3]`（`.cargo/config.toml` 里的 alias）：

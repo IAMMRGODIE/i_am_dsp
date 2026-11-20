@@ -220,6 +220,18 @@ pub(super) struct Voice {
 	pub(super) vibrato_phase: f32,
 	/// The pitch ratio the last bend update settled on.
 	pub(super) ratio: f32,
+	/// The frequency the strings were built at, which a slide never changes:
+	/// the delay lines and the dispersion curve belong to this tuning.
+	pub(super) tuned: f32,
+	/// The ratio that sounds the note this voice is playing, against `tuned`.
+	/// One until a slide moves the note somewhere else.
+	pub(super) base_ratio: f32,
+	/// How far the string is being slid, in cents away from the note it is
+	/// tuned to. Zero when no slide is running.
+	pub(super) glide_cents: f32,
+	/// How fast the slide moves, in cents per second, and how long it has left.
+	pub(super) glide_rate: f32,
+	pub(super) glide_left: f32,
 	/// How many samples the note fades in over; zero leaves it alone.
 	pub(super) fade_in: u64,
 	/// Per channel DC blocker state, so every note loses its own static force.

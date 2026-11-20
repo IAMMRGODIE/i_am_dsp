@@ -199,6 +199,29 @@ pub struct StringInstrument {
 	#[id(display = "Vibrato Delay")]
 	#[layout(group = "Performance", order = 5, widget = knob)]
 	pub vibrato_delay: f32,
+	/// How long a note takes to slide in from the pitch of the one before it.
+	///
+	/// Zero is off. Anything else is portamento: a note pressed while another is
+	/// still sounding takes that string over, and the string slides to the new
+	/// pitch at a steady number of cents a second. The slide is limited to about a
+	/// whole tone, which is as far as the model can stretch a string without
+	/// detuning its top partials; past that the note is a note of its own.
+	#[range(min = 0.0, max = 2000.0)]
+	#[logarithmic]
+	#[unit(milliseconds)]
+	#[default(0.0)]
+	#[id(display = "Glide")]
+	#[layout(group = "Performance", order = 6, widget = knob)]
+	pub glide_time: f32,
+	/// Whether a note pressed on top of a sounding one takes its string over.
+	///
+	/// This is what a portamento is on a real instrument: the hand slides, so the
+	/// string keeps the energy the player put into it and only its speaking
+	/// length changes. Off by default, where every note is excited afresh.
+	#[default(false)]
+	#[id(display = "Legato")]
+	#[layout(group = "Performance", order = 7, widget = toggle)]
+	pub legato: bool,
 }
 
 impl StringInstrument {
@@ -228,6 +251,8 @@ impl StringInstrument {
 			vibrato_rate: 5.4,
 			vibrato_depth: 12.0,
 			vibrato_delay: 0.12,
+			glide_time: 0.0,
+			legato: false,
 		};
 		instrument.load_preset(0);
 		instrument
@@ -310,6 +335,9 @@ impl StringInstrument {
 			vibrato_depth: self.vibrato_depth,
 			vibrato_delay: self.vibrato_delay,
 			vibrato_onset: 0.14,
+			// The panel counts milliseconds; the engine works in seconds.
+			glide_time: self.glide_time / 1000.0,
+			legato: self.legato,
 		};
 		if self.engine.params() != &wanted {
 			// This also drops the cached dispersion filters, which is why it is

@@ -64,6 +64,16 @@ pub struct EngineParams {
 	pub vibrato_delay: f32,
 	/// How long the vibrato takes to reach full depth, in seconds.
 	pub vibrato_onset: f32,
+	/// How long a note takes to slide in from the pitch of the one before it,
+	/// in seconds. Zero starts every note on its own pitch.
+	pub glide_time: f32,
+	/// Whether a note pressed on top of a sounding one takes its string over.
+	///
+	/// That is what a portamento is on a real instrument: the hand slides, so
+	/// the string keeps vibrating and only its speaking length changes. A slide
+	/// the model cannot stretch to is a new note instead (see the engine's
+	/// `GLIDE_LIMIT_CENTS`).
+	pub legato: bool,
 }
 
 impl Default for EngineParams {
@@ -88,6 +98,8 @@ impl Default for EngineParams {
 			vibrato_depth: 12.0,
 			vibrato_delay: 0.12,
 			vibrato_onset: 0.14,
+			glide_time: 0.0,
+			legato: false,
 		}
 	}
 }

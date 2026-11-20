@@ -65,6 +65,16 @@ const SHORT_NOTE: f32 = 0.12;
 /// click, short enough that the bow still bites.
 const BOW_FADE_SECONDS: f32 = 0.08;
 
+/// How far a slide may stretch a string, in cents.
+///
+/// This is the waveguide's headroom: its delay lines are allotted that much
+/// slack and its dispersion curve is fitted for the note it was built as, so a
+/// slide past it would either fold back down or detune the top partials
+/// audibly. A slide further than this is a new note instead. The mode bank
+/// could take more once a retune learned to drop the partials it pushes over
+/// Nyquist.
+const GLIDE_LIMIT_CENTS: f32 = 240.0;
+
 /// How often the vibrato's pitch ratio is recomputed, in samples.
 ///
 /// Sixteen is three kilohertz at 48, far above the five hertz a hand can shake,
@@ -240,6 +250,15 @@ impl StringEngine {
 			return;
 		}
 		self.keys_held[note.min(127) as usize] = true;
+		let spec = self.preset.spec(note, velocity, &self.params);
+
+		// Legato: a note pressed on top of a sounding string takes that string
+		// over instead of exciting a new one. The hand slides, so the string is
+		// the same one and only its speaking length changes; a slide the model
+		// cannot stretch to falls through to a note of its own.
+		if self.params.legato && self.take_over(note, &spec) {
+			return;
+		}
 
 		// A note that starts in silence carries the string's static force as a
 		// step; starting the blocker on that step keeps it out of the thump.
@@ -253,7 +272,6 @@ impl StringEngine {
 		while self.voices.len() >= self.max_voices {
 			self.steal_voice();
 		}
-		let spec = self.preset.spec(note, velocity, &self.params);
 		// A bow needs none of this: it has its own rosin noise.
 		let scale = TARGET_FORCE * self.params.gain;
 		match spec.excitation {
@@ -371,7 +389,10 @@ impl StringEngine {
 			if voice.samples % BEND_INTERVAL == 0 || voice.samples == 1 {
 				let cents = Self::bend(voice, params, dt * BEND_INTERVAL as f32);
 
-				voice.ratio = 2f32.powf(cents / 1200.0);
+				// A slide leaves the string stretched after it has finished, so the
+				// ratio it settles on is the note's own; the vibrato and what is left
+				// of the slide are the offset from it.
+				voice.ratio = voice.base_ratio * 2f32.powf(cents / 1200.0);
 			}
 
 			let ratio = voice.ratio;
@@ -566,6 +587,11 @@ impl StringEngine {
 			// from the same place sounds like one hand playing all of them.
 			vibrato_phase: (note as f32 * 0.37).fract() * std::f32::consts::TAU,
 			ratio: 1.0,
+			tuned: spec.string.frequency,
+			base_ratio: 1.0,
+			glide_cents: 0.0,
+			glide_rate: 0.0,
+			glide_left: 0.0,
 			fade_in: if spec.excitation == Excitation::Bow {
 				(self.sample_rate * BOW_FADE_SECONDS) as u64
 			} else {
@@ -591,7 +617,60 @@ impl StringEngine {
 		let arrival = ((voice.age_seconds - params.vibrato_delay.max(0.0))
 			/ params.vibrato_onset.max(1e-4))
 		.clamp(0.0, 1.0);
-		params.vibrato_depth.clamp(0.0, 200.0) * arrival * voice.vibrato_phase.sin()
+		let vibrato = params.vibrato_depth.clamp(0.0, 200.0) * arrival * voice.vibrato_phase.sin();
+
+		// A slide is the other hand on the same string, and a finger moving at a
+		// steady pace covers equal cents in equal time.
+		if voice.glide_left > 0.0 {
+			voice.glide_left = (voice.glide_left - dt).max(0.0);
+			voice.glide_cents -= voice.glide_rate * dt;
+			if voice.glide_left <= 0.0 {
+				voice.glide_cents = 0.0;
+			}
+		}
+
+		vibrato + voice.glide_cents
+	}
+
+	/// Hand a sounding string over to `note`, if the model can stretch to it.
+	///
+	/// The newest string still ringing is the one a slide starts from; a string
+	/// that is already letting go is not taken over, because the felt is falling
+	/// on it. Taking the voice over is what makes this a portamento rather than
+	/// two notes on top of each other: the string keeps the energy the player
+	/// put into it, and only its speaking length changes.
+	fn take_over(&mut self, note: u8, spec: &VoiceSpec) -> bool {
+		let Some(index) = self.voices.iter().rposition(|voice| !voice.released) else {
+			return false;
+		};
+
+		let tuned = self.voices[index].tuned;
+		if self.voices[index].note == note || tuned <= 0.0 || spec.string.frequency <= 0.0 {
+			return false;
+		}
+
+		// How far the *string* has to be stretched, not how far the new note is
+		// from the last one: the string is still the one it was built as, and a
+		// chain of slides would creep past the headroom a step at a time.
+		let target = spec.string.frequency / tuned;
+		let stretch = 1200.0 * target.log2();
+		if !stretch.is_finite() || stretch.abs() > GLIDE_LIMIT_CENTS {
+			return false;
+		}
+
+		// Where the string is sounding now, so a note pressed during a slide
+		// starts from where the hand had got to rather than jumping.
+		let sounding =
+			self.voices[index].base_ratio * 2f32.powf(self.voices[index].glide_cents / 1200.0);
+		let glide = self.params.glide_time.max(0.001);
+		let voice = &mut self.voices[index];
+		voice.note = note;
+		voice.frequency = spec.string.frequency;
+		voice.base_ratio = target;
+		voice.glide_cents = 1200.0 * (sounding / target).log2();
+		voice.glide_left = glide;
+		voice.glide_rate = voice.glide_cents / glide;
+		true
 	}
 
 	/// Fit the dispersion filter for a note once, and reuse it afterwards.
