@@ -714,7 +714,12 @@ impl<
 					let frequency = playing_note.frequencies[i];
 					let t = if absolute {
 						frequency * elapsed + playing_note.last_phase[i]
-					} else if resync {
+					} else if resync && playing_note.glide_left == 0 {
+						// The absolute read assumes the pitch has been what it is now
+						// since the note started. That is false while a glide runs, and
+						// snapping to it would jump the phase — a click in the middle of
+						// every slide. The carried phase is the right one, and a glide is
+						// short enough that f32 drift cannot matter over it.
 						crate::generators::wavetable::wrap01(frequency * time)
 					} else {
 						let next = playing_note.last_phase[i] + playing_note.steps[i];
@@ -1172,6 +1177,44 @@ mod tests {
 		// Two 50 ms windows: 44 cycles each, so the count lands within 25 Hz.
 		assert!((frequency_of(&after[0..2_400]) - 880.0).abs() < 25.0);
 		assert!((frequency_of(&after[2_400..4_800]) - 880.0).abs() < 25.0);
+	}
+
+	/// A glide must not jump the phase: the absolute read that corrects f32 drift
+	/// assumes the pitch has been what it is now since the note started, which is
+	/// false while the pitch is sliding.
+	#[test]
+	fn a_glide_keeps_the_phase_continuous() {
+		let mut adsr = adsr();
+		adsr.glide_time = 50.0;
+		adsr.attack_time = 1.0;
+		adsr.random_phase = 0.0;
+
+		render(&mut adsr, 200, &[note_on(57)]);
+		render(&mut adsr, 1, &[crate::NoteEvent::ImmediateStop]);
+
+		let after = render(&mut adsr, 3_600, &[note_on(69)]);
+
+		// The gap between two upward zero crossings is one period, 55 samples at
+		// 880 Hz and twice that at 440. A phase jump makes one gap far outside that
+		// and the next one too short.
+		let mut crossings = Vec::new();
+
+		for index in 1..after.len() {
+			if after[index - 1] <= 0.0 && after[index] > 0.0 {
+				crossings.push(index);
+			}
+		}
+
+		assert!(crossings.len() > 20, "the note did not sound");
+
+		for pair in crossings.windows(2) {
+			let period = pair[1] - pair[0];
+
+			assert!(
+				(40..150).contains(&period),
+				"a period of {period} samples is a phase jump"
+			);
+		}
 	}
 
 	/// A caller that builds a fresh voice per note — the patcher — primes it with
