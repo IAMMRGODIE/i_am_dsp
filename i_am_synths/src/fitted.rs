@@ -13,7 +13,7 @@ use i_am_web_gui::{
 	percent_decode,
 };
 
-const SIZE: (f32, f32) = (760.0, 320.0);
+const SIZE: (f32, f32) = (760.0, 360.0);
 const TITLE: &str = "I Am Modal";
 const ACCENT: &str = "#5a7cd4";
 
