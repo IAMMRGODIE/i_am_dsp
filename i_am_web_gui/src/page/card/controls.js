@@ -228,7 +228,10 @@
       }
       event.preventDefault();
     });
-    dial.title = "Drag to change; right-click to type a value";
+    // The parameter's own sentence leads: what the range cannot say is what
+    // a person needs before the gesture, not after it.
+    var gesture = "Drag to change; right-click to type a value";
+    dial.title = spec.hint ? spec.hint + "\n\n" + gesture : gesture;
     dial.addEventListener("contextmenu", function (event) {
       // The modifiers belong to the modulation gestures below.
       if (event.altKey || event.ctrlKey || event.metaKey) return;
@@ -450,8 +453,15 @@
     return { el: select, set: set };
   }
 
+  /// The parameter's own sentence, when it declared one: a tooltip on the
+  /// control, which is where a person looks after the range has surprised them.
+  function hintOf(el, spec) {
+    if (spec.hint) el.title = spec.hint;
+    return el;
+  }
+
   function makeChoice(spec, value, onEdit, className) {
-    return makeChoiceHandle(spec, value, onEdit, className).el;
+    return hintOf(makeChoiceHandle(spec, value, onEdit, className).el, spec);
   }
 
   function makeSliderHandle(spec, value, onEdit) {
@@ -586,7 +596,7 @@
   }
 
   function makeToggle(spec, value, onEdit) {
-    return makeSwitch(spec, value, onEdit).el;
+    return hintOf(makeSwitch(spec, value, onEdit).el, spec);
   }
 
   /// The rack's source cards put a Sync pill in the header: a text button that

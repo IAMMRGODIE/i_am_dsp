@@ -266,6 +266,10 @@ pub(crate) fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 					Some(hero) => quote!(Some(std::borrow::Cow::Borrowed(#hero))),
 					None => quote!(None),
 				};
+				let hint = match &config.layout.hint {
+					Some(hint) => quote!(Some(std::borrow::Cow::Borrowed(#hint))),
+					None => quote!(None),
+				};
 				let layout = quote! {
 					i_am_dsp::prelude::ParamLayout {
 						group: #group,
@@ -275,6 +279,7 @@ pub(crate) fn impl_config(input: &DeriveInput) -> Result<TokenStream> {
 						bipolar: #bipolar,
 						step: #step,
 						hero: #hero,
+						hint: #hint,
 					}
 				};
 

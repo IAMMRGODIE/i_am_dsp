@@ -876,6 +876,7 @@ impl ModalString {
 	/// Build the per-sample coefficients for every mode.
 	fn rebuild_modes(&mut self) {
 		let t = self.dt as f64;
+		let nyquist = 0.5 / t;
 		let modal_mass = self.modal_mass;
 		// A felt resting on the string is a loss that is proportional to how
 		// fast the string is moving under it, so it costs every partial the same
@@ -896,6 +897,26 @@ impl ModalString {
 			// tension does to a string: the tuning stretches but the ratios
 			// between the partials hold.
 			let frequency = mode.frequency as f64 * bend;
+
+			// A partial a slide has pushed past Nyquist cannot be played: it
+			// would fold back down and be heard as an inharmonic whine. It is
+			// dropped instead, which is what a string whose length put it out of
+			// the audible band would do, and the next rebuild picks it up again
+			// if the slide comes back under the limit.
+			if frequency >= nyquist {
+				mode.q = 0.0;
+				mode.v = 0.0;
+				mode.a = 1.0;
+				mode.b = 0.0;
+				mode.c = 0.0;
+				mode.d = 1.0;
+				mode.e = 0.0;
+				mode.f = 0.0;
+				mode.awake = false;
+				continue;
+			}
+			mode.awake = true;
+
 			let omega = std::f64::consts::TAU * frequency;
 			// The exact solution below is the underdamped one, and its state
 			// transition is only guaranteed to be a contraction while the decay

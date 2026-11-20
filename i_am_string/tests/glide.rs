@@ -60,8 +60,14 @@ fn peak_in(samples: &[f32], low: f32, high: f32, step: f32) -> f32 {
 
 /// A cello whose vibrato is off, so a window of it rings at one pitch.
 fn cello(glide: f32, legato: bool) -> StringEngine {
+	cello_on(Core::Modal, glide, legato)
+}
+
+/// The same, on a chosen string model.
+fn cello_on(core: Core, glide: f32, legato: bool) -> StringEngine {
 	let mut engine = StringEngine::new(FS);
 	engine.set_preset(Preset::Cello);
+	engine.params_mut().core = core;
 	engine.params_mut().strings = 1;
 	engine.params_mut().vibrato_depth = 0.0;
 	// Measure the string, not the soundboard colouring over it.
@@ -129,17 +135,48 @@ fn a_legato_note_takes_the_string_over_and_arrives() {
 }
 
 #[test]
-fn a_slide_too_far_to_stretch_is_a_note_of_its_own() {
-	let mut engine = cello(0.3, true);
+fn the_mode_bank_slides_a_fifth_and_arrives() {
+	let mut engine = cello_on(Core::Modal, 0.3, true);
 	engine.note_on(60, 0.8);
 	render(&mut engine, 0.4);
 
-	// A fifth is far past what the model can retune a string by.
 	engine.note_on(67, 0.8);
+	assert_eq!(engine.active_voices(), 1, "the mode bank refused a fifth");
+
+	render(&mut engine, 0.5);
+	let late = render(&mut engine, 0.25);
+	let wanted = note_frequency(67.0);
+	let peak = peak_in(&late, wanted * 0.94, wanted * 1.06, 0.5);
+	println!("a fifth on the mode bank: {peak:.1} Hz, wanted {wanted:.1}");
+	assert!(
+		(peak - wanted).abs() < 5.0,
+		"the slide did not arrive: {peak:.1} Hz against {wanted:.1}"
+	);
+}
+
+#[test]
+fn the_waveguide_will_not_go_past_a_tone() {
+	let mut engine = cello_on(Core::Waveguide, 0.3, true);
+	engine.note_on(60, 0.8);
+	render(&mut engine, 0.4);
+
+	// The delay lines are only allotted a vibrato's worth of headroom.
+	engine.note_on(67, 0.8);
+	assert_eq!(engine.active_voices(), 2, "the waveguide stretched a fifth");
+}
+
+#[test]
+fn the_mode_bank_will_not_go_past_an_octave() {
+	let mut engine = cello_on(Core::Modal, 0.3, true);
+	engine.note_on(60, 0.8);
+	render(&mut engine, 0.4);
+
+	// A ninth is past the octave a mode bank will stretch to.
+	engine.note_on(74, 0.8);
 	assert_eq!(
 		engine.active_voices(),
 		2,
-		"the far note took the string over"
+		"the mode bank stretched past an octave"
 	);
 }
 

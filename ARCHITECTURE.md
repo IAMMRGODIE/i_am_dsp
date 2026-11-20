@@ -392,7 +392,8 @@ web_plugin!(
 - **描述**：`Faceplate` + 参数 `#[layout]` → `sections()` → `face_json`；patch 的节点目录
   （`i_am_patch/src/catalog.rs`）读的是同一份 sections/pages/heroes，不再各自拼字段。
 - **控件**：两边都调用 `IAmCard.controlHandle / switchHandle / choiceHandle / sliderHandle`，
-  没有第二套旋钮实现。
+  没有第二套旋钮实现。参数可以用 `#[layout(hint = "...")]` 给控件挂一句话，页面把它变成 `title`
+  （tooltip）；范围说不清的事——比如滑音能滑多远——就写在那里，而不是让用户自己试出来。
 - **hero**：两边都调用 `IAmCard.hero(kind, values, context)`，产品页只负责把 live 数据
   （scope/spectrum/meter/IR…）放进 context 并轮询。
 
@@ -568,11 +569,13 @@ input ─► LR4 分频 ─┬─ Low  ─► [串行模块…] ─► gain/pan/
 `StringEngine` 作为 generator 接入 `i_am_dsp`（`string_engine.rs`），String 产品就是它的面板。
 
 滑音与 legato（`glide_time` + `legato`）走的是「同一个声部被重新调音」：按在正在响的音上时 `take_over`
-接管那根弦、改 `note`，弦的能量不动，动的只是它的有效长度（读取比例）。两条约束让它站得住：每个 `Voice`
-记住出生时的调音 `tuned`，滑完停在 `base_ratio`（新音相对 `tuned`）而不是 1.0，所以连续滑几个音不会漂、
-音准也不会停在半路；总拉伸量则受 `GLIDE_LIMIT_CENTS`（240 cent，即波导 `BEND_HEADROOM` 的余量）限制，
-超出就当新音——波导的延迟线只预留了一个揉弦的余量、色散曲线按出生那个音拟合，模态组再往上拉会把顶部
-分音推过 Nyquist。滑音是等 cent 速率的，所以滑得越快、音程越大，滑得越急。
+接管那根弦、改 `note`，弦的能量不动，动的只是它的有效长度（读取比例）。每个 `Voice` 记住出生时的调音
+`tuned`，滑完停在 `base_ratio`（新音相对 `tuned`）而不是 1.0，所以连续滑几个音不会漂、音准也不会停在半路。
+
+能滑多远按模型分：波导 `WAVEGUIDE_GLIDE_CENTS = 240`（`BEND_HEADROOM` 的余量，延迟线只有这么多、
+色散曲线又是按出生那个音拟合的），模态组 `MODAL_GLIDE_CENTS = 1200`（它没有延迟线可耗尽，重调就是给每个
+分音重新算频率，滑过 Nyquist 的分音在 `rebuild_modes` 里直接丢弃而不是折回成别名）。超出就当成新音。
+滑音是等 cent 速率的，所以音程越大滑得越急。
 
 ### 6.6 打包：`i_am_bundler`
 

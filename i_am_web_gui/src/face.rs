@@ -216,6 +216,8 @@ pub struct Control {
 	pub order: Option<u16>,
 	/// The names of a choice parameter's values.
 	pub choices: Option<Vec<String>>,
+	/// A sentence for the control's tooltip, when the parameter declares one.
+	pub hint: Option<String>,
 }
 
 /// A group of controls, and the picture that group shows above them.
@@ -369,6 +371,7 @@ fn control(parameter: &Parameter) -> Option<Control> {
 		choices: meta
 			.choices
 			.map(|choices| choices.iter().map(|choice| (*choice).to_string()).collect()),
+		hint: layout.hint.as_ref().map(|hint| hint.to_string()),
 	})
 }
 
@@ -633,6 +636,11 @@ fn control_json(out: &mut String, control: &Control) {
 		}
 		None => out.push_str("null"),
 	};
+	out.push_str(",\"hint\":");
+	match &control.hint {
+		Some(hint) => string(out, hint),
+		None => out.push_str("null"),
+	}
 	out.push('}');
 }
 

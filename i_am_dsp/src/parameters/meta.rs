@@ -187,6 +187,13 @@ pub struct ParamLayout {
 	/// parameters name none is drawn as controls and nothing else, and one that
 	/// names something the host cannot draw is too.
 	pub hero: Option<std::borrow::Cow<'static, str>>,
+	/// A sentence for a host that can show one when the pointer rests on the
+	/// control, for what the value means and where it stops.
+	///
+	/// For the things a range cannot say: a slide that the instrument only
+	/// allows over a tone, a knob whose effect needs another knob moved first,
+	/// a quantity measured rather than chosen.
+	pub hint: Option<std::borrow::Cow<'static, str>>,
 }
 
 #[cfg(feature = "layout")]
@@ -238,6 +245,12 @@ impl ParamLayout {
 	/// about a "transfer" curve, and whichever host draws it decides how.
 	pub fn hero(mut self, hero: &'static str) -> Self {
 		self.hero = Some(std::borrow::Cow::Borrowed(hero));
+		self
+	}
+
+	/// A sentence for the control's tooltip, when the host shows one.
+	pub fn hint(mut self, hint: &'static str) -> Self {
+		self.hint = Some(std::borrow::Cow::Borrowed(hint));
 		self
 	}
 

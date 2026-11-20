@@ -203,15 +203,23 @@ pub struct StringInstrument {
 	///
 	/// Zero is off. Anything else is portamento: a note pressed while another is
 	/// still sounding takes that string over, and the string slides to the new
-	/// pitch at a steady number of cents a second. The slide is limited to about a
-	/// whole tone, which is as far as the model can stretch a string without
-	/// detuning its top partials; past that the note is a note of its own.
+	/// pitch at a steady number of cents a second.
+	///
+	/// How far one string will stretch depends on the model: about a whole tone
+	/// on the waveguide, whose delay lines are only allotted a vibrato's worth of
+	/// slack, and an octave on the mode bank. Past that the note is a note of its
+	/// own, with its own attack, rather than a slide.
 	#[range(min = 0.0, max = 2000.0)]
 	#[logarithmic]
 	#[unit(milliseconds)]
 	#[default(0.0)]
 	#[id(display = "Glide")]
-	#[layout(group = "Performance", order = 6, widget = knob)]
+	#[layout(
+		group = "Performance",
+		order = 6,
+		widget = knob,
+		hint = "How long a note slides in from the one before it. One string stretches about a tone on the waveguide and an octave on the mode bank; a longer interval starts a new note instead, with its own attack."
+	)]
 	pub glide_time: f32,
 	/// Whether a note pressed on top of a sounding one takes its string over.
 	///

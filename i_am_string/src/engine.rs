@@ -65,15 +65,22 @@ const SHORT_NOTE: f32 = 0.12;
 /// click, short enough that the bow still bites.
 const BOW_FADE_SECONDS: f32 = 0.08;
 
-/// How far a slide may stretch a string, in cents.
+/// How far a slide may stretch the waveguide, in cents.
 ///
-/// This is the waveguide's headroom: its delay lines are allotted that much
-/// slack and its dispersion curve is fitted for the note it was built as, so a
-/// slide past it would either fold back down or detune the top partials
-/// audibly. A slide further than this is a new note instead. The mode bank
-/// could take more once a retune learned to drop the partials it pushes over
-/// Nyquist.
-const GLIDE_LIMIT_CENTS: f32 = 240.0;
+/// The delay lines are allotted a vibrato's worth of slack (`BEND_HEADROOM`)
+/// and the dispersion curve is fitted for the note the string was built as, so
+/// a slide past this would either fold back down or detune the top partials
+/// audibly. A slide further than this is a new note instead.
+const WAVEGUIDE_GLIDE_CENTS: f32 = 240.0;
+
+/// How far a slide may stretch the mode bank, in cents.
+///
+/// A mode bank has no delay lines to run out of: retuning it rescales every
+/// partial, and the ones a slide pushes past Nyquist are dropped rather than
+/// aliased. What limits the slide is the instrument's character rather than
+/// the buffer: an octave of stretch is already a note whose partial ratios
+/// belong to a much shorter string.
+const MODAL_GLIDE_CENTS: f32 = 1200.0;
 
 /// How often the vibrato's pitch ratio is recomputed, in samples.
 ///
@@ -654,7 +661,11 @@ impl StringEngine {
 		// chain of slides would creep past the headroom a step at a time.
 		let target = spec.string.frequency / tuned;
 		let stretch = 1200.0 * target.log2();
-		if !stretch.is_finite() || stretch.abs() > GLIDE_LIMIT_CENTS {
+		let limit = match self.params.core {
+			Core::Waveguide => WAVEGUIDE_GLIDE_CENTS,
+			Core::Modal => MODAL_GLIDE_CENTS,
+		};
+		if !stretch.is_finite() || stretch.abs() > limit {
 			return false;
 		}
 

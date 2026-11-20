@@ -421,6 +421,7 @@ pub(crate) struct ParamLayoutConfig {
 	pub(crate) bipolar: bool,
 	pub(crate) step: Option<f64>,
 	pub(crate) hero: Option<String>,
+	pub(crate) hint: Option<String>,
 }
 
 #[cfg(feature = "layout")]
@@ -505,6 +506,23 @@ pub(crate) fn parse_layout_attribute(attr: &Attribute) -> Result<ParamLayoutConf
 					));
 				}
 			}
+		} else if meta.path.is_ident("hint") {
+			let val: Lit = meta.value()?.parse()?;
+			match val {
+				Lit::Str(inner) => {
+					let value = inner.value();
+					if value.trim().is_empty() {
+						return Err(Error::new_spanned(attr, "A hint must not be empty"));
+					}
+					layout.hint = Some(value);
+				}
+				_ => {
+					return Err(Error::new_spanned(
+						attr,
+						"Invalid literal for hint, expected a string",
+					));
+				}
+			}
 		} else if meta.path.is_ident("bipolar") {
 			layout.bipolar = true;
 		} else if meta.path.is_ident("step") {
@@ -523,7 +541,7 @@ pub(crate) fn parse_layout_attribute(attr: &Attribute) -> Result<ParamLayoutConf
 		} else {
 			return Err(Error::new_spanned(
 				attr,
-				"unknown layout option: expected group, order, widget, size, bipolar or step",
+				"unknown layout option: expected group, order, widget, size, hint, bipolar or step",
 			));
 		}
 
