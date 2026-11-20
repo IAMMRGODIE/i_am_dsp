@@ -214,6 +214,19 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	#[id(display = "Start Phase")]
 	#[layout(group = "Voice", order = 6, widget = knob)]
 	pub phase_start: f32,
+	/// How long a new note slides from the pitch of the one before it.
+	///
+	/// Zero is off: a note starts at its own pitch. Anything else is portamento, and
+	/// the slide is exponential in frequency — linear in pitch — which is what makes
+	/// a long glide sound even. The slider is appended to the struct rather than
+	/// inserted between the older parameters so a host that addresses them by
+	/// position keeps its saved automation.
+	#[range(min = 0.0, max = 2000.0)]
+	#[unit(milliseconds)]
+	#[default(0.0)]
+	#[id(display = "Glide")]
+	#[layout(group = "Voice", order = 8, widget = knob)]
+	pub glide_time: f32,
 
 	/// The stage lengths in milliseconds this block runs at: the free values, or what the
 	/// tempo makes of them for the stages that are syncing.
@@ -229,6 +242,20 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	/// Note: this field will **not** be saved in the preset file.
 	#[skip]
 	pub note_effect: Option<NoteProcessor<CHANNELS>>,
+
+	/// The pitch each channel's last note started at, for the glide.
+	///
+	/// A frequency, not a note number: the tuning system decides what a note means,
+	/// so the glide has to slide between the pitches the oscillator really played.
+	#[skip]
+	last_pitch: [f32; 16],
+	/// The note a caller asked the next one to glide from, per channel.
+	///
+	/// A voice that is rebuilt for every note — the patcher does that — cannot rely
+	/// on `last_pitch`, because its instance is new. It primes the one it is about to
+	/// start instead.
+	#[skip]
+	pending_from: [Option<usize>; 16],
 
 	#[cfg(feature = "real_time_demo")]
 	#[skip]
@@ -279,8 +306,11 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 			random_pan: 1.0,
 			random_phase_by_channel: false,
 			phase_start: 0.0,
+			glide_time: 0.0,
 			times: EnvelopeTimes::DEFAULT,
 			note_effect: None,
+			last_pitch: [f32::NAN; 16],
+			pending_from: [None; 16],
 
 			#[cfg(feature = "real_time_demo")]
 			history: core::array::from_fn(|_| RingBuffer::new(4096)),
@@ -453,6 +483,11 @@ impl<
 		"ADSRed Generator"
 	}
 
+	fn glide_from(&mut self, channel: u8, note: usize) {
+		let channel = (channel as usize).min(15);
+		self.pending_from[channel] = Some(note);
+	}
+
 	fn generate(
 		&mut self,
 		process_context: &mut Box<dyn crate::ProcessContext>,
@@ -503,6 +538,41 @@ impl<
 						}
 					});
 
+					// The glide starts from the pitch of the previous note, in the same
+					// channel. A caller that rebuilt the voice for this note primed the
+					// pitch it should come from; otherwise the last note this instance
+					// played is the one to slide away from.
+					let channel_index = (*channel as usize).min(15);
+					let target = self.tuning_sys.get_frequency(note.note as f32);
+					let from = self.pending_from[channel_index]
+						.take()
+						.map(|note| self.tuning_sys.get_frequency(note as f32))
+						.or_else(|| {
+							let last = self.last_pitch[channel_index];
+
+							last.is_finite().then_some(last)
+						});
+					let (pitch_factor, glide_step, glide_left) = match from {
+						Some(from)
+							if self.glide_time > 0.0
+								&& from > 0.0
+								&& target > 0.0
+								&& (from - target).abs() > 0.01 =>
+						{
+							let samples = (self.glide_time / 1000.0 * self.sample_rate as f32)
+								.round()
+								.max(1.0) as u32;
+
+							(
+								from / target,
+								(target / from).powf(1.0 / samples as f32),
+								samples,
+							)
+						}
+						_ => (1.0, 1.0, 0),
+					};
+					self.last_pitch[channel_index] = target;
+
 					let playing_note = PlayingNote {
 						note,
 						count: 0,
@@ -517,7 +587,9 @@ impl<
 						unison_voices: Vec::new(),
 						unison_controls: None,
 						last_time: 0.0,
-						current_pitch_factor: 1.0,
+						current_pitch_factor: pitch_factor,
+						glide_step,
+						glide_left,
 						channel: *channel,
 					};
 					self.note_playing
@@ -589,6 +661,18 @@ impl<
 					|| playing_note.unison_controls != Some(controls)
 				{
 					self.rebuild_unisons(playing_note);
+				}
+
+				// A glide walks the factor towards 1.0, one multiplication a sample: the
+				// frequency moves by a constant ratio, which is a constant number of
+				// cents, so the slide sounds even.
+				if playing_note.glide_left > 0 {
+					playing_note.glide_left -= 1;
+					playing_note.current_pitch_factor = if playing_note.glide_left == 0 {
+						1.0
+					} else {
+						playing_note.current_pitch_factor * playing_note.glide_step
+					};
 				}
 
 				let pitch = self.pitch_factor * playing_note.current_pitch_factor;
@@ -862,6 +946,7 @@ pub(crate) fn bend(t: f32, bend: f32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::ProcessContext;
 	use crate::generators::wavetable::{SineWave, TableOsc};
 
 	type TestAdsr = Adsr<TableOsc<SineWave>, EqualTemperament, 2>;
@@ -974,5 +1059,135 @@ mod tests {
 		adsr.pan = 1.0;
 		assert_eq!(adsr.pan_position(1.0), 1.0);
 		assert_eq!(adsr.pan_position(-1.0), 0.5);
+	}
+	/// A process context that hands the same event list to the one sample it drives.
+	struct OneSample {
+		infos: ProcessInfos,
+		queue: Vec<crate::NoteEvent>,
+	}
+
+	impl ProcessContext for OneSample {
+		fn infos(&self) -> &ProcessInfos {
+			&self.infos
+		}
+
+		fn next_event(&mut self) -> Option<crate::NoteEvent> {
+			None
+		}
+
+		fn send_event(&mut self, _: crate::NoteEvent) {}
+
+		fn clear_events(&mut self) {
+			self.queue.clear();
+		}
+
+		fn events(&self) -> &[crate::NoteEvent] {
+			&self.queue
+		}
+	}
+
+	fn note_on(note: usize) -> crate::NoteEvent {
+		crate::NoteEvent::NoteOn {
+			channel: 0,
+			note,
+			velocity: 1.0,
+		}
+	}
+
+	/// Renders `samples` samples, delivering `events` on the first one.
+	fn render(adsr: &mut TestAdsr, samples: usize, events: &[crate::NoteEvent]) -> Vec<f32> {
+		let mut output = Vec::with_capacity(samples);
+
+		for index in 0..samples {
+			let mut context: Box<dyn ProcessContext> = Box::new(OneSample {
+				infos: infos_with_tempo(120.0),
+				queue: if index == 0 {
+					events.to_vec()
+				} else {
+					Vec::new()
+				},
+			});
+
+			output.push(adsr.generate(&mut context)[0]);
+		}
+
+		output
+	}
+
+	/// The frequency a window of a sine spends its zero crossings on.
+	fn frequency_of(window: &[f32]) -> f32 {
+		let crossings = window
+			.windows(2)
+			.filter(|pair| pair[0] <= 0.0 && pair[1] > 0.0)
+			.count();
+
+		crossings as f32 * 48_000.0 / window.len() as f32
+	}
+
+	/// Playing A4 and then A5, with a glide of 50 ms: the second note has to walk
+	/// from 440 Hz to 880 Hz instead of jumping, and land exactly on it.
+	#[test]
+	fn a_glide_slides_from_the_previous_note() {
+		let mut adsr = adsr();
+		adsr.glide_time = 50.0;
+		adsr.attack_time = 1.0;
+		adsr.random_phase = 0.0;
+
+		let first = render(&mut adsr, 3_000, &[note_on(57)]);
+		// A 25 ms window is eleven cycles of A4, so the count is within a few Hz.
+		assert!((frequency_of(&first[1_200..2_400]) - 440.0).abs() < 40.0);
+
+		// The note before is stopped, so only the new one is in the mix; the glide
+		// still starts from where it was.
+		render(&mut adsr, 1, &[crate::NoteEvent::ImmediateStop]);
+
+		let after = render(&mut adsr, 3_600, &[note_on(69)]);
+		let early = frequency_of(&after[0..600]);
+		let late = frequency_of(&after[2_400..3_600]);
+		println!(
+			"glide: early {early} mid {} late {late}",
+			frequency_of(&after[600..1_200])
+		);
+
+		assert!(
+			early > 440.0 && early < 600.0,
+			"the first 12 ms are still near A4: {early}"
+		);
+		assert!((late - 880.0).abs() < 40.0, "50 ms in, it is A5: {late}");
+	}
+
+	/// Glide zero is the old behaviour: the second note starts at its own pitch.
+	#[test]
+	fn a_zero_glide_starts_at_the_new_note() {
+		let mut adsr = adsr();
+		adsr.glide_time = 0.0;
+		adsr.attack_time = 1.0;
+		adsr.random_phase = 0.0;
+
+		render(&mut adsr, 200, &[note_on(57)]);
+		render(&mut adsr, 1, &[crate::NoteEvent::ImmediateStop]);
+
+		let after = render(&mut adsr, 4_800, &[note_on(69)]);
+
+		// Two 50 ms windows: 44 cycles each, so the count lands within 25 Hz.
+		assert!((frequency_of(&after[0..2_400]) - 880.0).abs() < 25.0);
+		assert!((frequency_of(&after[2_400..4_800]) - 880.0).abs() < 25.0);
+	}
+
+	/// A caller that builds a fresh voice per note — the patcher — primes it with
+	/// the note the slide starts from, and gets the same glide.
+	#[test]
+	fn a_primed_voice_glides_from_the_note_it_was_told() {
+		let mut adsr = adsr();
+		adsr.glide_time = 50.0;
+		adsr.attack_time = 1.0;
+		adsr.random_phase = 0.0;
+
+		adsr.glide_from(0, 57);
+
+		let after = render(&mut adsr, 3_600, &[note_on(69)]);
+
+		assert!(frequency_of(&after[0..600]) < 600.0);
+		assert!((frequency_of(&after[2_400..3_600]) - 880.0).abs() < 40.0);
 	}
 }

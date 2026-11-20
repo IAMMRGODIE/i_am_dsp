@@ -67,6 +67,13 @@ pub trait Processor: Parameters + Send + Sync + 'static {
 	/// it mutably at the same time; state the two sides share has to be behind
 	/// interior mutability.
 	fn on_message(&self, message: Self::Message);
+
+	/// Tells the processor the note the next one should glide from.
+	///
+	/// A caller that builds a fresh voice for every note — the patcher does — has to
+	/// hand the previous note to the new instance, because the voice inside it has
+	/// never seen one. Most processors do not glide and ignore this.
+	fn glide_from(&mut self, _channel: u8, _note: usize) {}
 }
 
 impl<P: Processor> Processor for crate::prelude::Paramed<P> {
@@ -156,6 +163,10 @@ impl<G: Generator<CHANNELS>, const CHANNELS: usize> Effect<CHANNELS>
 
 	fn delay(&self) -> usize {
 		0
+	}
+
+	fn glide_from(&mut self, channel: u8, note: usize) {
+		self.0.glide_from(channel, note);
 	}
 }
 

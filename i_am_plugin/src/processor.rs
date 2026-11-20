@@ -167,5 +167,9 @@ impl<E: Effect<2> + Parameters + Send + Sync + 'static> i_am_dsp::Processor for 
 		self.effect.process(samples, &sides, process_context);
 	}
 
+	fn glide_from(&mut self, channel: u8, note: usize) {
+		self.effect.glide_from(channel, note);
+	}
+
 	fn on_message(&self, _: EffectMessage) {}
 }

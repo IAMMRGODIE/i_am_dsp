@@ -82,6 +82,10 @@ pub struct PlayingNote<const CHANNELS: usize> {
 	pub(crate) unison_controls: Option<UnisonControls>,
 	/// The current pitch factor of the oscillator, used for pitch shifting.
 	pub current_pitch_factor: f32,
+	/// How much the pitch factor moves per sample while a glide runs.
+	pub(crate) glide_step: f32,
+	/// Samples left in the glide; zero when the note sits at its own pitch.
+	pub(crate) glide_left: u32,
 }
 
 pub(crate) type NoteProcessor<const CHANNELS: usize> =

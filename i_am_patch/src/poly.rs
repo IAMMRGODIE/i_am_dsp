@@ -83,6 +83,11 @@ pub struct Poly {
 	voice_plan: crate::compile::Plan,
 	/// Engines from retired voices, kept for the next note to build into.
 	spare: Vec<Engine>,
+	/// The last note each channel played, so the next one can glide from it.
+	///
+	/// A voice is a new engine, and the synth inside it has never seen a note, so
+	/// this is the memory the glide needs.
+	last_note: [Option<usize>; 16],
 }
 
 impl Poly {
@@ -262,6 +267,7 @@ impl Poly {
 			voices: Vec::new(),
 			voice_plan,
 			spare: Vec::new(),
+			last_note: [None; 16],
 		})
 	}
 
@@ -474,7 +480,7 @@ impl Poly {
 						voice.release_age = 0;
 					}
 				}
-				NoteEvent::NoteOn { note, .. } => {
+				NoteEvent::NoteOn { channel, note, .. } => {
 					// A repeated note-on retriggers its own voice: some hosts send
 					// duplicates, and every extra voice runs the whole group.
 					if let Some(position) = self.voices.iter().position(|voice| voice.note == *note)
@@ -506,6 +512,16 @@ impl Poly {
 								scripts.insert(node, script);
 							}
 						}
+
+						// The envelope inside this voice has never seen a note, so the
+						// note to glide from comes from the voice before it.
+						let channel = (*channel as usize).min(15);
+
+						if let Some(previous) = self.last_note[channel] {
+							engine.glide_from(channel as u8, previous);
+						}
+
+						self.last_note[channel] = Some(*note);
 
 						self.voices.push(Voice {
 							engine,

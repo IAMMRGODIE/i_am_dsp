@@ -123,6 +123,13 @@ pub trait BlockNode: Send + Sync {
 
 	/// Drops the tail a reverb or delay is holding, for the card's clear button.
 	fn clear_tail(&mut self) {}
+
+	/// Tells the node the note the next one should glide from.
+	///
+	/// A voice engine is built fresh for every note, so the envelope inside a synth
+	/// node has never seen the note before it; the voice hands it over here just
+	/// before the note-on reaches the node.
+	fn glide_from(&mut self, _channel: u8, _note: usize) {}
 }
 
 /// What kind of value a parameter takes, from its declared value.
@@ -1617,6 +1624,10 @@ impl<P: Default + Plugin> SynthNode<P> {
 impl<P: Default + Plugin> BlockNode for SynthNode<P> {
 	fn script_source(&self) -> Option<std::sync::Arc<dyn i_am_effects::ScriptSource>> {
 		self.script.clone()
+	}
+
+	fn glide_from(&mut self, channel: u8, note: usize) {
+		self.inner.glide_from(channel, note);
 	}
 
 	fn set_param(&mut self, name: &str, value: f32) {

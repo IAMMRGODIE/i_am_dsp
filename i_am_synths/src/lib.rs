@@ -50,6 +50,10 @@ macro_rules! synth_processor {
 			fn on_message(&self, message: Self::Message) {
 				i_am_dsp::Processor::on_message(&self.processor, message);
 			}
+
+			fn glide_from(&mut self, channel: u8, note: usize) {
+				i_am_dsp::Processor::glide_from(&mut self.processor, channel, note);
+			}
 		}
 	};
 }

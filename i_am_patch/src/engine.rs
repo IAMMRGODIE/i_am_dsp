@@ -110,6 +110,16 @@ pub struct Engine {
 
 impl Engine {
 	/// Compiles a graph and builds its nodes.
+	/// Hands the previous note to every node, for the voices that glide.
+	///
+	/// A patcher voice is a fresh engine per note, so a synth's envelope has no
+	/// memory of the note before it: this is how the voice passes it on.
+	pub fn glide_from(&mut self, channel: u8, note: usize) {
+		for node in &mut self.nodes {
+			node.glide_from(channel, note);
+		}
+	}
+
 	/// Drops the tail the node with this id is holding.
 	pub fn clear_tail(&mut self, node: u32) {
 		if let Some(step) = self.steps.get(&NodeId(node)) {

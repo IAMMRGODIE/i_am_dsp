@@ -140,6 +140,13 @@ pub trait Effect<const CHANNELS: usize = 2>: Send + Sync + Parameters {
 	/// audio thread, so it must only clear state that is already allocated.
 	fn clear_tail(&mut self) {}
 
+	/// Tells the effect the note the next one should glide from.
+	///
+	/// A voice that is rebuilt for every note — the patcher does that — has no memory
+	/// of the note before it, so the caller primes the instance it is about to start.
+	/// An effect that does not glide ignores this, which is why it defaults to nothing.
+	fn glide_from(&mut self, _channel: u8, _note: usize) {}
+
 	/// Returns the name of the effect.
 	///
 	/// Used to identify the effect in the real-time demo.
@@ -166,6 +173,13 @@ pub trait Generator<const CHANNELS: usize = 2>: Send + Sync + Parameters {
 	///
 	/// `process_context` contains information about the process, like sample rate, tempo, etc.
 	fn generate(&mut self, process_context: &mut Box<dyn ProcessContext>) -> [f32; CHANNELS];
+
+	/// Tells the generator the note the next one should glide from.
+	///
+	/// The patcher builds a fresh voice for every note, so the envelope inside it
+	/// cannot remember the note before it; the caller primes the new instance with
+	/// the note the slide starts from. A generator that does not glide ignores this.
+	fn glide_from(&mut self, _channel: u8, _note: usize) {}
 
 	#[cfg(feature = "real_time_demo")]
 	#[cfg_attr(docsrs, doc(cfg(feature = "real_time_demo")))]
