@@ -434,6 +434,12 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 一个采样只提供自己那个音；其余键在播放时按对数音高从它派生（`derive`，导入时自动打开），
 所以单采样也能弹音阶。`transpose`（-24..+24 半音）整体移调，用来修拟合时差一个八度的采样。
 
+滑音（`glide_time` + `glide_mode`）把「同一个音的部分挂在另一个音高上」这件事分成两种说法：
+**Stretch** 只让分音频率跟着走，那正是手指沿弦滑动做的事——弦长变了、阻尼没变；**Couple** 让两段衰减和
+电平也一起从起始音走到目标音，表里存着目标音附近的音时，音色才会随音高一起到达（单采样的表只有一种音色，
+两种模式在那里等价）。音高是乘性的，所以每个振荡器的相位增量按 `RETUNE_INTERVAL`（16 样本）重算、状态不动，
+滑音因此没有相位断点；被推过 Nyquist 的分音钉在 Nyquist 上而不是折回，一个停在顶上的分音听不见，别名听得见。
+
 表**不走参数表**：`Value::Serialized` 在 `ParamMap` 里是 `AtomicValue::Nothing`，界面线程写不进去。
 路由把表放进 `TableSlot`（与音频线程共享），乐器每弹一个音从槽里取；存档前 `sync_params` 再把槽
 拷进 `imported` 参数，所以工程里仍然带着这张表。

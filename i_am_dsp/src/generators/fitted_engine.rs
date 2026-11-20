@@ -108,6 +108,16 @@ pub struct FittedInstrument {
 	cached: Option<(u64, Arc<fitted::Instrument>)>,
 	#[skip]
 	slot: TableSlot,
+	/// The note each channel played last, so the next one can slide from it.
+	#[skip]
+	last_note: [Option<u8>; 16],
+	/// The note a caller asked the next one to slide from.
+	///
+	/// The patcher builds a fresh instrument for every note, so the instance that
+	/// is about to play has no memory of the note before it; the caller primes it
+	/// here, exactly as it does for the envelope's glide.
+	#[skip]
+	pending_from: [Option<u8>; 16],
 	/// A table the user imported. Saved with the plug-in state.
 	#[serde]
 	#[id(display = "Imported Table")]
@@ -164,6 +174,34 @@ pub struct FittedInstrument {
 	#[id(display = "Release")]
 	#[layout(group = "Voice", order = 2, widget = knob)]
 	pub release: f32,
+	/// How long a new note slides in from the pitch of the one before it.
+	///
+	/// Zero is off. Anything else is portamento: the note starts at the pitch of
+	/// the note before it on the same channel and arrives at its own, moving in
+	/// log frequency so the slide sounds even rather than slowing at the top.
+	///
+	/// The parameter is appended to the struct rather than inserted between the
+	/// older ones, so a host that addresses them by position keeps its saved
+	/// automation.
+	#[range(min = 0.0, max = 2000.0)]
+	#[logarithmic]
+	#[unit(milliseconds)]
+	#[default(0.0)]
+	#[id(display = "Glide")]
+	#[layout(group = "Voice", order = 8, widget = knob)]
+	pub glide_time: f32,
+	/// What the slide does to the partials.
+	///
+	/// Stretch moves only the tuning, which is what a finger sliding along a
+	/// string does. Couple takes the decay and the level with it, so a table that
+	/// holds the notes around the one being played arrives at the timbre of the
+	/// note it ends on. A table fitted from one recording has one timbre, and the
+	/// two settings agree there.
+	#[default(0)]
+	#[choices("Stretch", "Couple")]
+	#[id(display = "Glide Mode")]
+	#[layout(group = "Voice", order = 9, widget = choice)]
+	pub glide_mode: i32,
 }
 
 impl Default for FittedInstrument {
@@ -181,6 +219,10 @@ impl Default for FittedInstrument {
 			width: 0.4,
 			derive: false,
 			transpose: 0,
+			glide_time: 0.0,
+			glide_mode: 0,
+			last_note: [None; 16],
+			pending_from: [None; 16],
 			slot: TableSlot::default(),
 		}
 	}
@@ -202,11 +244,24 @@ impl FittedInstrument {
 		}
 	}
 
-	fn start(&mut self, note: u8, velocity: f32) {
+	fn start(&mut self, note: u8, velocity: f32, channel: u8) {
+		let channel = (channel as usize).min(15);
 		if self.playing.len() >= MAX_VOICES {
 			self.playing.remove(0);
 		}
 		let shaped = bend(velocity.clamp(0.0, 1.0), self.velocity_curve) * self.gain;
+
+		// Where the slide starts: the note a caller primed, or the one this
+		// channel played last. Only the sounding pitch matters, so a transposed
+		// key glides by the interval the player heard.
+		let played = self.played(note);
+		let from = self.pending_from[channel]
+			.take()
+			.or(self.last_note[channel])
+			.map(|from| self.played(from))
+			.filter(|from| self.glide_time > 0.0 && *from != played);
+		self.last_note[channel] = Some(note);
+
 		let custom = if self.instrument == 5 {
 			self.custom()
 		} else {
@@ -223,15 +278,37 @@ impl FittedInstrument {
 			},
 			_ => fitted::instrument(),
 		};
-		self.playing.push(Playing {
-			voice: fitted::Voice::start_from(
+
+		let voice = match from {
+			Some(from) => fitted::Voice::start_sliding(
 				table,
-				self.played(note),
+				played,
+				velocity.clamp(0.0, 1.0),
+				shaped,
+				self.sample_rate,
+				self.derive,
+				fitted::Slide {
+					from,
+					seconds: self.glide_time / 1000.0,
+					mode: if self.glide_mode == 1 {
+						fitted::Glide::Couple
+					} else {
+						fitted::Glide::Stretch
+					},
+				},
+			),
+			None => fitted::Voice::start_from(
+				table,
+				played,
 				velocity.clamp(0.0, 1.0),
 				shaped,
 				self.sample_rate,
 				self.derive,
 			),
+		};
+
+		self.playing.push(Playing {
+			voice,
 			note,
 			fade: 1.0,
 			releasing: false,
@@ -382,6 +459,10 @@ fn same(left: &[f32], right: &[f32]) -> bool {
 }
 
 impl Generator<2> for FittedInstrument {
+	fn glide_from(&mut self, channel: u8, note: usize) {
+		self.pending_from[(channel as usize).min(15)] = Some(to_table(note));
+	}
+
 	fn generate(&mut self, process_context: &mut Box<dyn crate::ProcessContext>) -> [f32; 2] {
 		let rate = process_context.infos().sample_rate as f32;
 		if rate > 0.0 && (rate - self.sample_rate).abs() > 0.5 {
@@ -393,7 +474,11 @@ impl Generator<2> for FittedInstrument {
 		process_context.clear_events();
 		for event in &events {
 			match event {
-				NoteEvent::NoteOn { note, velocity, .. } => self.start(to_table(*note), *velocity),
+				NoteEvent::NoteOn {
+					note,
+					velocity,
+					channel,
+				} => self.start(to_table(*note), *velocity, *channel),
 				NoteEvent::NoteOff { note, .. } | NoteEvent::Stop { note, .. } => {
 					self.release(to_table(*note))
 				}
@@ -490,6 +575,45 @@ mod tests {
 			peak = peak.max(voice.next_sample().abs());
 		}
 		assert!(peak > 1e-4, "the fitted table is silent");
+	}
+
+	#[test]
+	fn a_note_slides_from_the_one_before_it() {
+		let mut instrument = FittedInstrument::new(48_000);
+		instrument.glide_time = 500.0;
+		instrument.start(57, 1.0, 0);
+		assert_eq!(
+			instrument.playing[0].voice.pitch_ratio(),
+			1.0,
+			"the first note has nothing to slide from"
+		);
+
+		instrument.start(69, 1.0, 0);
+		let ratio = instrument.playing[1].voice.pitch_ratio();
+		println!("an octave up starts at {ratio:.3}");
+		assert!(
+			(ratio - 0.5).abs() < 1e-3,
+			"the second note did not start on the first: {ratio:.3}"
+		);
+	}
+
+	#[test]
+	fn a_primed_note_slides_from_the_note_it_was_told() {
+		let mut instrument = FittedInstrument::new(48_000);
+		instrument.glide_time = 200.0;
+		instrument.glide_from(0, 45);
+		instrument.start(69, 1.0, 0);
+		// Two octaves below 69 is a quarter of its frequency.
+		let ratio = instrument.playing[0].voice.pitch_ratio();
+		assert!((ratio - 0.25).abs() < 1e-3, "started at {ratio:.3}");
+	}
+
+	#[test]
+	fn glide_is_off_until_it_is_asked_for() {
+		let mut instrument = FittedInstrument::new(48_000);
+		instrument.start(57, 1.0, 0);
+		instrument.start(69, 1.0, 0);
+		assert_eq!(instrument.playing[1].voice.pitch_ratio(), 1.0);
 	}
 
 	#[test]

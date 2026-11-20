@@ -417,18 +417,80 @@ struct Oscillator {
 	cos: f32,
 	sin: f32,
 	decay: f32,
+	/// The phase advance per sample at the note's own pitch, in radians. Kept so
+	/// a moved pitch rebuilds the increment instead of approximating it.
+	step: f32,
+	/// The increment at the note's own pitch, restored when a glide lands, so
+	/// the note ends exactly tuned rather than one rounding away from it.
+	base: (f32, f32),
+	/// What the decay is heading for, and the factor it moves by each sample
+	/// while a glide ramps it.
+	decay_target: f32,
+	decay_step: f32,
+	/// A level multiplier, ramping from where the same partial of the note the
+	/// glide started on was to this one's. One when nothing is ramping.
+	level: f32,
+	level_step: f32,
 }
 
 impl Oscillator {
 	fn new(amplitude: f32, phase: f32, omega: f32, sigma: f32, rate: f32) -> Self {
 		let step = omega / rate;
+		let (sin, cos) = step.sin_cos();
+		let decay = (-sigma / rate).exp();
 		Self {
 			q: amplitude * phase.sin(),
 			v: amplitude * phase.cos(),
-			cos: step.cos(),
-			sin: step.sin(),
-			decay: (-sigma / rate).exp(),
+			cos,
+			sin,
+			decay,
+			step,
+			base: (sin, cos),
+			decay_target: decay,
+			decay_step: 1.0,
+			level: 1.0,
+			level_step: 0.0,
 		}
+	}
+
+	/// Start this partial where the same partial of another note was, and ramp
+	/// to this note's own decay and level over `samples`.
+	///
+	/// `level` is where the ramp starts, relative to this note's own amplitude:
+	/// one says the two notes are equally loud there, zero says the other note
+	/// has no such partial and it has to fade in.
+	fn couple(&mut self, level: f32, t60: f32, rate: f32, samples: u32) {
+		let decay = (-6.907_755 / t60.max(0.01) / rate).exp();
+		let samples = samples.max(1) as f32;
+		self.decay = decay;
+		self.decay_step = (self.decay_target / decay).powf(1.0 / samples);
+		self.level = level;
+		self.level_step = (1.0 - level) / samples;
+	}
+
+	/// Rebuild the increment for the pitch multiplier `pitch`.
+	fn retune(&mut self, pitch: f32) {
+		if pitch == 1.0 {
+			(self.sin, self.cos) = self.base;
+			return;
+		}
+		// A partial pushed past Nyquist is held there rather than folded back
+		// down: a stuck top partial is inaudible, an alias is not.
+		let step = (self.step * pitch).min(std::f32::consts::PI);
+		(self.sin, self.cos) = step.sin_cos();
+	}
+
+	/// One sample of the ramps a glide drives.
+	fn ramp(&mut self) {
+		self.decay *= self.decay_step;
+		self.level += self.level_step;
+	}
+
+	/// Land exactly on what the glide was heading for.
+	fn settle(&mut self, pitch: f32) {
+		self.decay = self.decay_target;
+		self.level = 1.0;
+		self.retune(pitch);
 	}
 
 	fn step(&mut self) -> f32 {
@@ -436,7 +498,7 @@ impl Oscillator {
 		let v = self.decay * (self.sin * self.q + self.cos * self.v);
 		self.q = q;
 		self.v = v;
-		q
+		q * self.level
 	}
 }
 
@@ -486,10 +548,147 @@ fn couple(low: &[Mode], high: &[Mode], t: f32) -> Vec<Mode> {
 	out
 }
 
+/// How many samples apart the increments are rebuilt while a glide runs.
+///
+/// A pitch multiplies every partial's phase advance, so it cannot be applied to
+/// the state without rebuilding: changing the increment keeps the phase, which
+/// is what makes a slide smooth instead of a click. Sixteen samples is three
+/// kilohertz, far above anything a slide needs, and it keeps the `sin_cos` off
+/// fifteen samples in sixteen.
+const RETUNE_INTERVAL: u32 = 16;
+
+/// How a glide treats the partials while the pitch moves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Glide {
+	/// Only the partial frequencies follow the pitch; the decay and the level
+	/// stay the ones the note was built with.
+	///
+	/// This is what a finger sliding along a string does: the speaking length
+	/// changes and the damping does not, so every partial moves together and the
+	/// ratios between them are untouched.
+	#[default]
+	Stretch,
+	/// The decay and the level travel with the pitch, from the note the slide
+	/// starts on to the note it ends on, so the timbre arrives with the tuning.
+	///
+	/// A table fitted from one recording holds one timbre, and there this says
+	/// the same as [Glide::Stretch]. The difference shows up where the table
+	/// holds the notes around the one being played: the note at the far end of
+	/// the slide is brighter or longer than the one it left, and the partials
+	/// have to travel with it.
+	Couple,
+}
+
+/// How a note should slide in from the note before it.
+#[derive(Clone, Copy, Debug)]
+pub struct Slide {
+	/// The note the slide starts on, numbered the way the table is.
+	pub from: u8,
+	/// How long the slide takes, in seconds. Zero or less starts on pitch.
+	pub seconds: f32,
+	/// What the slide does to the partials.
+	pub mode: Glide,
+}
+
+/// Which of a mode's two decays an oscillator is.
+#[derive(Clone, Copy)]
+enum Part {
+	/// The prompt decay: the sound of the excitation itself.
+	Prompt,
+	/// The tail: what the instrument gives back after it.
+	Tail,
+}
+
+impl Part {
+	/// This part's amplitude, decay time and phase.
+	fn of(&self, mode: &Mode) -> (f32, f32, f32) {
+		match self {
+			Part::Prompt => (mode.prompt, mode.prompt_t60, mode.prompt_phase),
+			Part::Tail => (mode.tail, mode.tail_t60, mode.tail_phase),
+		}
+	}
+}
+
+/// Where the partials of a slide start.
+#[derive(Clone, Copy)]
+struct Coupling<'a> {
+	/// The note the slide starts on.
+	source: &'a [Mode],
+	/// How many samples the ramps take.
+	samples: u32,
+}
+
+/// The partial of the note a slide starts on with the same order, if it has one.
+fn partner_of<'a>(source: &'a [Mode], mode: &Mode) -> Option<&'a Mode> {
+	source
+		.iter()
+		.find(|other| (other.order - mode.order).abs() < 0.5)
+}
+
+/// Fill one ear with the oscillators of a note.
+fn build_ear(
+	ear: &mut Vec<Oscillator>,
+	modes: &[Mode],
+	coupling: Option<Coupling<'_>>,
+	instrument: &Instrument,
+	velocity: f32,
+	gain: f32,
+	rate: f32,
+) {
+	for mode in modes {
+		// A partial at or above Nyquist is not in the output: playing it would
+		// fold it back down as an alias of itself.
+		if mode.frequency <= 0.0 || mode.frequency >= rate * 0.5 {
+			continue;
+		}
+
+		let level = gain * instrument.mode_gain(mode, velocity);
+		let omega = std::f32::consts::TAU * mode.frequency;
+		let partner = coupling.and_then(|coupling| partner_of(coupling.source, mode));
+
+		for part in [Part::Prompt, Part::Tail] {
+			let (amplitude, t60, phase) = part.of(mode);
+			if amplitude <= 0.0 {
+				continue;
+			}
+
+			let mut oscillator = Oscillator::new(
+				level * amplitude,
+				phase,
+				omega,
+				6.907_755 / t60.max(0.02),
+				rate,
+			);
+
+			// A partial the other note does not have starts where this one has
+			// it rather than fading in: the voice starts from silence, so it
+			// cannot click, and fading it in would cost the attack its brightness
+			// for the whole slide.
+			if let (Some(partner), Some(coupling)) = (partner, coupling) {
+				let (start, start_t60, _) = part.of(partner);
+				oscillator.couple(start / amplitude, start_t60, rate, coupling.samples);
+			}
+
+			ear.push(oscillator);
+		}
+	}
+}
+
 /// One sounding note, with one oscillator bank per ear.
 pub struct Voice {
 	left: Vec<Oscillator>,
 	right: Vec<Oscillator>,
+	/// The sample rate the bank was built for; a glide is measured in samples.
+	rate: f32,
+	/// The frequency multiplier the partials are ringing at.
+	pitch: f32,
+	/// Where a glide is heading, what it multiplies the pitch by each sample,
+	/// and how many samples it has left.
+	pitch_target: f32,
+	pitch_step: f32,
+	glide_left: u32,
+	/// Samples until the increments are rebuilt again.
+	retune_left: u32,
 }
 
 impl Voice {
@@ -502,36 +701,95 @@ impl Voice {
 		rate: f32,
 		derive: bool,
 	) -> Self {
-		let mut voice = Self {
-			left: Vec::new(),
-			right: Vec::new(),
-		};
+		let mut voice = Self::empty(rate);
 		if let Some((left, right)) = instrument.modes_for(note, derive) {
-			for (modes, ear) in [(left, &mut voice.left), (right, &mut voice.right)] {
-				for mode in modes {
-					let level = gain * instrument.mode_gain(&mode, velocity);
-					let omega = std::f32::consts::TAU * mode.frequency;
-					if mode.prompt > 0.0 {
-						ear.push(Oscillator::new(
-							level * mode.prompt,
-							mode.prompt_phase,
-							omega,
-							6.907_755 / mode.prompt_t60.max(0.02),
-							rate,
-						));
-					}
-					if mode.tail > 0.0 {
-						ear.push(Oscillator::new(
-							level * mode.tail,
-							mode.tail_phase,
-							omega,
-							6.907_755 / mode.tail_t60.max(0.03),
-							rate,
-						));
-					}
-				}
-			}
+			build_ear(
+				&mut voice.left,
+				&left,
+				None,
+				instrument,
+				velocity,
+				gain,
+				rate,
+			);
+			build_ear(
+				&mut voice.right,
+				&right,
+				None,
+				instrument,
+				velocity,
+				gain,
+				rate,
+			);
 		}
+		voice
+	}
+
+	/// Start a note that is already on its way from the pitch of another.
+	///
+	/// The note sounds at the pitch of `slide.from` and arrives at its own over
+	/// `slide.seconds`. Its oscillators start from the phases the fit measured,
+	/// so what the slide changes is the tuning, not the attack.
+	pub fn start_sliding(
+		instrument: &Instrument,
+		note: u8,
+		velocity: f32,
+		gain: f32,
+		rate: f32,
+		derive: bool,
+		slide: Slide,
+	) -> Self {
+		let ratio = note_frequency(slide.from) / note_frequency(note);
+		// Nothing to slide from, or the pitch would already be there.
+		if slide.seconds <= 0.0
+			|| slide.from == note
+			|| !ratio.is_finite()
+			|| (ratio - 1.0).abs() < 1e-6
+		{
+			return Self::start_from(instrument, note, velocity, gain, rate, derive);
+		}
+
+		let Some((left, right)) = instrument.modes_for(note, derive) else {
+			return Self::empty(rate);
+		};
+
+		let samples = (slide.seconds * rate).round().max(1.0) as u32;
+		let source = match slide.mode {
+			Glide::Stretch => None,
+			Glide::Couple => instrument.modes_for(slide.from, derive),
+		};
+
+		let mut voice = Self::empty(rate);
+		let coupling = source
+			.as_ref()
+			.map(|(source, _)| Coupling { source, samples });
+		build_ear(
+			&mut voice.left,
+			&left,
+			coupling,
+			instrument,
+			velocity,
+			gain,
+			rate,
+		);
+		let coupling = source
+			.as_ref()
+			.map(|(_, source)| Coupling { source, samples });
+		build_ear(
+			&mut voice.right,
+			&right,
+			coupling,
+			instrument,
+			velocity,
+			gain,
+			rate,
+		);
+
+		voice.pitch = ratio;
+		for oscillator in voice.left.iter_mut().chain(voice.right.iter_mut()) {
+			oscillator.retune(ratio);
+		}
+		voice.start_ramp(1.0, samples);
 		voice
 	}
 
@@ -540,10 +798,37 @@ impl Voice {
 		Self::start_from(instrument(), note, velocity, gain, rate, true)
 	}
 
+	/// The frequency multiplier the partials are ringing at.
+	pub fn pitch_ratio(&self) -> f32 {
+		self.pitch
+	}
+
+	/// Set the frequency multiplier at once, with no slide.
+	pub fn set_pitch_ratio(&mut self, ratio: f32) {
+		let ratio = ratio.clamp(1.0 / 64.0, 64.0);
+		self.pitch = ratio;
+		self.pitch_target = ratio;
+		self.pitch_step = 1.0;
+		self.glide_left = 0;
+		for oscillator in self.left.iter_mut().chain(self.right.iter_mut()) {
+			oscillator.retune(ratio);
+		}
+	}
+
+	/// Slide the pitch to a frequency multiplier over `seconds`.
+	pub fn glide_to(&mut self, ratio: f32, seconds: f32) {
+		let samples = (seconds * self.rate).round().max(1.0) as u32;
+		self.start_ramp(ratio.clamp(1.0 / 64.0, 64.0), samples);
+	}
+
 	/// One frame, one ear each.
 	pub fn next_frame(&mut self) -> [f32; 2] {
-		let left = self.left.iter_mut().map(|osc| osc.step()).sum();
-		let right = self.right.iter_mut().map(|osc| osc.step()).sum();
+		if self.glide_left > 0 {
+			self.advance();
+		}
+
+		let left = self.left.iter_mut().map(Oscillator::step).sum();
+		let right = self.right.iter_mut().map(Oscillator::step).sum();
 		[left, right]
 	}
 
@@ -551,6 +836,60 @@ impl Voice {
 	pub fn next_sample(&mut self) -> f32 {
 		let frame = self.next_frame();
 		0.5 * (frame[0] + frame[1])
+	}
+
+	/// A silent bank, tuned to the note it is about to be given.
+	fn empty(rate: f32) -> Self {
+		Self {
+			left: Vec::new(),
+			right: Vec::new(),
+			rate,
+			pitch: 1.0,
+			pitch_target: 1.0,
+			pitch_step: 1.0,
+			glide_left: 0,
+			retune_left: RETUNE_INTERVAL,
+		}
+	}
+
+	/// Aim the pitch at `target`, arriving in `samples`.
+	fn start_ramp(&mut self, target: f32, samples: u32) {
+		self.pitch_target = target;
+		self.pitch_step = (target / self.pitch.max(1e-6)).powf(1.0 / samples as f32);
+		self.glide_left = samples;
+		self.retune_left = RETUNE_INTERVAL;
+	}
+
+	/// One sample of a glide: the pitch, and the decay and level with it.
+	fn advance(&mut self) {
+		self.pitch *= self.pitch_step;
+		self.glide_left -= 1;
+
+		// The pitch is exponential, so it lands one rounding short of where it
+		// was aimed; the last sample puts it exactly there and restores the
+		// note's own increment, which is the one the fit measured.
+		let landing = self.glide_left == 0;
+		if landing {
+			self.pitch = self.pitch_target;
+		}
+
+		self.retune_left = self.retune_left.saturating_sub(1);
+		let retune = landing || self.retune_left == 0;
+		if retune {
+			self.retune_left = RETUNE_INTERVAL;
+		}
+
+		let pitch = self.pitch;
+		for oscillator in self.left.iter_mut().chain(self.right.iter_mut()) {
+			if landing {
+				oscillator.settle(pitch);
+			} else {
+				oscillator.ramp();
+				if retune {
+					oscillator.retune(pitch);
+				}
+			}
+		}
 	}
 }
 
@@ -627,6 +966,286 @@ mod tests {
 			peak = peak.max(derived.next_sample().abs());
 		}
 		assert!(peak > 1e-4, "derived note was silent: {peak}");
+	}
+
+	/// One partial, so a window of the output is a single frequency.
+	fn partial(frequency: f32, amplitude: f32, t60: f32) -> Mode {
+		Mode {
+			order: 1.0,
+			frequency,
+			prompt: amplitude,
+			prompt_t60: t60,
+			tail_t60: t60,
+			..Default::default()
+		}
+	}
+
+	/// A table of two notes an octave apart: the lower one soft and short, the
+	/// upper one loud and long, so a slide can be heard to arrive.
+	fn an_octave() -> Instrument {
+		let note = |note: u8, frequency: f32, amplitude: f32, t60: f32| Note {
+			note,
+			left: vec![partial(frequency, amplitude, t60)],
+			right: vec![partial(frequency, amplitude, t60)],
+		};
+		let bytes = write_table(
+			&[note(57, 220.0, 0.5, 0.2), note(69, 440.0, 1.0, 5.0)],
+			&[0.0],
+			1,
+			1,
+		);
+		parse_table(&bytes).expect("the table parses")
+	}
+
+	/// The frequency a window of samples is ringing at, from its crossings.
+	///
+	/// Counted between the first crossing and the last rather than against the
+	/// window, so a window that does not hold a whole number of cycles does not
+	/// round the answer off. A window over a slide measures the frequency
+	/// averaged over the time it covers, which is what the pitch is doing there.
+	fn frequency_of(samples: &[f32], rate: f32) -> f32 {
+		let mut first = None;
+		let mut last = None;
+		let mut crossings = 0.0f32;
+
+		for (index, pair) in samples.windows(2).enumerate() {
+			if pair[0] <= 0.0 && pair[1] > 0.0 {
+				// Where between the two samples the signal crossed, which is what
+				// makes the count sub-sample.
+				let position = index as f32 + -pair[0] / (pair[1] - pair[0]);
+				first.get_or_insert(position);
+				last = Some(position);
+				crossings += 1.0;
+			}
+		}
+
+		match (first, last) {
+			(Some(first), Some(last)) if crossings > 1.0 => {
+				(crossings - 1.0) * rate / (last - first)
+			}
+			_ => 0.0,
+		}
+	}
+
+	/// Play a number of samples and keep them.
+	fn render(voice: &mut Voice, samples: usize) -> Vec<f32> {
+		(0..samples).map(|_| voice.next_sample()).collect()
+	}
+
+	#[test]
+	fn a_glide_starts_on_the_other_note_and_arrives() {
+		let rate = 48_000.0;
+		let table = an_octave();
+		let mut voice = Voice::start_sliding(
+			&table,
+			69,
+			1.0,
+			0.8,
+			rate,
+			true,
+			Slide {
+				from: 57,
+				seconds: 0.5,
+				mode: Glide::Stretch,
+			},
+		);
+		// Half a second of slide: over the first hundred milliseconds the pitch
+		// sweeps 220 Hz to 236 Hz, so a window there averages 236; a third of a
+		// second later it has arrived.
+		let early = frequency_of(&render(&mut voice, 4_800), rate);
+		render(&mut voice, 24_000);
+		let late = frequency_of(&render(&mut voice, 4_800), rate);
+		println!("glide from 220 Hz: {early:.1} Hz over the first 100 ms, {late:.1} Hz after");
+		assert!(
+			(230.0..243.0).contains(&early),
+			"the slide did not leave the note before it: {early:.1} Hz"
+		);
+		assert!(
+			(late - 440.0).abs() < 2.0,
+			"the slide did not arrive: {late:.1} Hz"
+		);
+		assert_eq!(voice.pitch_ratio(), 1.0, "the pitch was left off its note");
+	}
+
+	#[test]
+	fn a_glide_does_not_click() {
+		let rate = 48_000.0;
+		let table = an_octave();
+		for mode in [Glide::Stretch, Glide::Couple] {
+			let mut voice = Voice::start_sliding(
+				&table,
+				69,
+				1.0,
+				0.8,
+				rate,
+				true,
+				Slide {
+					from: 57,
+					seconds: 0.05,
+					mode,
+				},
+			);
+			let samples = render(&mut voice, 9_600);
+			let peak = samples
+				.iter()
+				.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+			let worst = samples
+				.windows(3)
+				.map(|window| (window[2] - 2.0 * window[1] + window[0]).abs())
+				.fold(0.0f32, f32::max);
+			println!("{mode:?}: worst second difference {worst:.5} of a peak {peak:.5}");
+			// A sine turns by (2 pi f / rate)^2 of its amplitude per sample
+			// squared, about three thousandths here; a phase jump would be of the
+			// order of the amplitude itself.
+			assert!(worst < 0.05 * peak, "{mode:?} clicks: {worst} of {peak}");
+		}
+	}
+
+	#[test]
+	fn coupling_takes_the_decay_of_the_note_it_came_from() {
+		let rate = 48_000.0;
+		let table = an_octave();
+		let decay = |t60: f32| (-6.907_755 / t60 / rate).exp();
+		let slide = |mode| Slide {
+			from: 57,
+			seconds: 0.05,
+			mode,
+		};
+
+		let stretch = Voice::start_sliding(&table, 69, 1.0, 0.8, rate, true, slide(Glide::Stretch));
+		assert!(
+			(stretch.left[0].decay - decay(5.0)).abs() < 1e-9,
+			"stretching moved the decay"
+		);
+		assert_eq!(stretch.left[0].level, 1.0, "stretching moved the level");
+
+		let mut coupled =
+			Voice::start_sliding(&table, 69, 1.0, 0.8, rate, true, slide(Glide::Couple));
+		assert!(
+			(coupled.left[0].decay - decay(0.2)).abs() < 1e-9,
+			"coupling did not start on the other note's decay"
+		);
+		assert!(
+			(coupled.left[0].level - 0.5).abs() < 1e-6,
+			"coupling did not start on the other note's level: {}",
+			coupled.left[0].level
+		);
+
+		// The ramps land on the note's own values when the pitch does.
+		render(&mut coupled, 2_401);
+		assert!(
+			(coupled.left[0].decay - decay(5.0)).abs() < 1e-6,
+			"the decay did not arrive: {}",
+			coupled.left[0].decay
+		);
+		assert!(
+			(coupled.left[0].level - 1.0).abs() < 1e-6,
+			"the level did not arrive: {}",
+			coupled.left[0].level
+		);
+	}
+
+	#[test]
+	fn a_ringing_note_can_be_bent() {
+		let rate = 48_000.0;
+		let table = an_octave();
+		let mut voice = Voice::start_from(&table, 69, 1.0, 0.8, rate, false);
+		voice.glide_to(0.5, 0.05);
+		render(&mut voice, 12_000);
+		let late = frequency_of(&render(&mut voice, 4_800), rate);
+		println!("bent down an octave: {late:.1} Hz");
+		assert!(
+			(late - 220.0).abs() < 3.0,
+			"the bend did not arrive: {late:.1} Hz"
+		);
+		assert!((voice.pitch_ratio() - 0.5).abs() < 1e-6);
+	}
+
+	#[test]
+	fn a_slide_of_no_seconds_starts_on_pitch() {
+		let rate = 48_000.0;
+		let table = an_octave();
+		let mut voice = Voice::start_sliding(
+			&table,
+			69,
+			1.0,
+			0.8,
+			rate,
+			true,
+			Slide {
+				from: 57,
+				seconds: 0.0,
+				mode: Glide::Stretch,
+			},
+		);
+		assert_eq!(voice.pitch_ratio(), 1.0);
+		let early = frequency_of(&render(&mut voice, 4_800), rate);
+		assert!((early - 440.0).abs() < 2.0, "started at {early:.1} Hz");
+	}
+
+	/// The tables the crate ships hold up to forty-eight partials, so a slide
+	/// here rebuilds nearly a hundred increments at a time. It must neither
+	/// blow up nor drift into a value f32 cannot hold.
+	#[test]
+	fn a_slide_on_a_measured_table_stays_sane() {
+		let rate = 48_000.0;
+		let table = instrument();
+		let mut plain = Voice::start_from(table, 60, 1.0, 0.8, rate, true);
+		let plain_peak = render(&mut plain, 9_600)
+			.iter()
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+
+		for mode in [Glide::Stretch, Glide::Couple] {
+			let mut voice = Voice::start_sliding(
+				table,
+				60,
+				1.0,
+				0.8,
+				rate,
+				true,
+				Slide {
+					from: 72,
+					seconds: 0.3,
+					mode,
+				},
+			);
+			let samples = render(&mut voice, 19_200);
+			let peak = samples
+				.iter()
+				.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+			println!(
+				"{mode:?} down an octave: peak {peak:.3} against {plain_peak:.3} plain, {} finite",
+				samples.iter().filter(|sample| sample.is_finite()).count()
+			);
+			assert!(
+				samples.iter().all(|sample| sample.is_finite()),
+				"{mode:?} left the range of f32"
+			);
+			assert!(
+				peak < 4.0 * plain_peak,
+				"{mode:?} exploded: {peak} against {plain_peak}"
+			);
+		}
+	}
+
+	#[test]
+	fn a_partial_past_nyquist_is_not_played() {
+		let bytes = write_table(
+			&[Note {
+				note: 69,
+				left: vec![partial(6_000.0, 1.0, 1.0)],
+				right: vec![partial(6_000.0, 1.0, 1.0)],
+			}],
+			&[0.0],
+			1,
+			1,
+		);
+		let table = parse_table(&bytes).expect("the table parses");
+		let voice = Voice::start_from(&table, 69, 1.0, 0.8, 8_000.0, false);
+		assert!(
+			voice.left.is_empty() && voice.right.is_empty(),
+			"a partial at 6 kHz was played at an 8 kHz rate"
+		);
 	}
 
 	#[test]
