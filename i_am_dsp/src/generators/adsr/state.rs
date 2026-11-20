@@ -86,6 +86,14 @@ pub struct PlayingNote<const CHANNELS: usize> {
 	pub(crate) glide_step: f32,
 	/// Samples left in the glide; zero when the note sits at its own pitch.
 	pub(crate) glide_left: u32,
+	/// Set on the sample a glide ends, so the phase reference can be re-based.
+	pub(crate) glide_finished: bool,
+	/// The gap between the carried phase and the absolute read, per copy.
+	///
+	/// The glide changes the pitch, so `frequency * time` no longer equals the phase
+	/// the note has actually travelled; capturing the gap when the slide ends lets
+	/// the periodic drift correction resume without jumping.
+	pub(crate) phase_bias: Vec<f32>,
 }
 
 pub(crate) type NoteProcessor<const CHANNELS: usize> =

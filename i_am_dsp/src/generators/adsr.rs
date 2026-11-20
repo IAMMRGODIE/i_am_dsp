@@ -222,6 +222,7 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	/// inserted between the older parameters so a host that addresses them by
 	/// position keeps its saved automation.
 	#[range(min = 0.0, max = 2000.0)]
+	#[logarithmic]
 	#[unit(milliseconds)]
 	#[default(0.0)]
 	#[id(display = "Glide")]
@@ -590,6 +591,8 @@ impl<
 						current_pitch_factor: pitch_factor,
 						glide_step,
 						glide_left,
+						glide_finished: false,
+						phase_bias: Vec::new(),
 						channel: *channel,
 					};
 					self.note_playing
@@ -669,6 +672,7 @@ impl<
 				if playing_note.glide_left > 0 {
 					playing_note.glide_left -= 1;
 					playing_note.current_pitch_factor = if playing_note.glide_left == 0 {
+						playing_note.glide_finished = true;
 						1.0
 					} else {
 						playing_note.current_pitch_factor * playing_note.glide_step
@@ -705,6 +709,26 @@ impl<
 					playing_note.pitch_last = pitch;
 				}
 
+				// The glide just ended, so the pitch is the note's own from here on and
+				// the absolute read is right again, give or take the phase the slide
+				// travelled: remember that gap per copy and add it back at every resync.
+				if playing_note.glide_finished {
+					playing_note.glide_finished = false;
+					playing_note.phase_bias.clear();
+					// `last_phase` is the phase of the sample *before* this one, so it
+					// is compared against the absolute read at that sample: anchoring
+					// it one sample later would leave every resync a step short.
+					let before =
+						playing_note.count.saturating_sub(1) as f32 / self.sample_rate as f32;
+					playing_note.phase_bias.extend((0..unisons).map(|i| {
+						let absolute = crate::generators::wavetable::wrap01(
+							playing_note.frequencies[i] * before,
+						);
+
+						crate::generators::wavetable::wrap01(playing_note.last_phase[i] - absolute)
+					}));
+				}
+
 				// A phase carried forward is one add a copy, but f32 loses the
 				// fraction over minutes; the absolute read puts it back periodically.
 				let resync = playing_note.count % PHASE_RESYNC == 0;
@@ -720,7 +744,10 @@ impl<
 						// snapping to it would jump the phase — a click in the middle of
 						// every slide. The carried phase is the right one, and a glide is
 						// short enough that f32 drift cannot matter over it.
-						crate::generators::wavetable::wrap01(frequency * time)
+						crate::generators::wavetable::wrap01(
+							frequency * time
+								+ playing_note.phase_bias.get(i).copied().unwrap_or(0.0),
+						)
 					} else {
 						let next = playing_note.last_phase[i] + playing_note.steps[i];
 
@@ -1119,6 +1146,26 @@ mod tests {
 		output
 	}
 
+	/// How sharp the sharpest corner of a signal is, relative to its peak.
+	///
+	/// A smooth sine of a few hundred hertz has a second difference of about
+	/// (2 pi f / rate)^2 — a hundredth of the peak. A phase jump is a corner an
+	/// order of magnitude sharper, so this one number separates the two.
+	fn discontinuity(samples: &[f32]) -> f32 {
+		let peak = samples
+			.iter()
+			.fold(0.0_f32, |peak, sample| peak.max(sample.abs()))
+			.max(1e-6);
+		let mut worst = 0.0_f32;
+
+		for window in samples.windows(3) {
+			let second = (window[2] - 2.0 * window[1] + window[0]).abs();
+			worst = worst.max(second);
+		}
+
+		worst / peak
+	}
+
 	/// The frequency a window of a sine spends its zero crossings on.
 	fn frequency_of(window: &[f32]) -> f32 {
 		let crossings = window
@@ -1194,25 +1241,32 @@ mod tests {
 
 		let after = render(&mut adsr, 3_600, &[note_on(69)]);
 
-		// The gap between two upward zero crossings is one period, 55 samples at
-		// 880 Hz and twice that at 440. A phase jump makes one gap far outside that
-		// and the next one too short.
-		let mut crossings = Vec::new();
+		assert!(
+			discontinuity(&after) < 0.05,
+			"the slide has a corner in it: {}",
+			discontinuity(&after)
+		);
+	}
 
-		for index in 1..after.len() {
-			if after[index - 1] <= 0.0 && after[index] > 0.0 {
-				crossings.push(index);
-			}
-		}
+	/// A short glide ends inside the drift-correction window. The resync that
+	/// follows has to know about the phase the slide travelled, or it jumps.
+	#[test]
+	fn a_short_glide_keeps_the_phase_too() {
+		for glide in [1.0_f32, 2.0, 3.0, 5.0, 8.0] {
+			let mut adsr = adsr();
+			adsr.glide_time = glide;
+			adsr.attack_time = 1.0;
+			adsr.random_phase = 0.0;
 
-		assert!(crossings.len() > 20, "the note did not sound");
+			render(&mut adsr, 200, &[note_on(57)]);
+			render(&mut adsr, 1, &[crate::NoteEvent::ImmediateStop]);
 
-		for pair in crossings.windows(2) {
-			let period = pair[1] - pair[0];
+			let after = render(&mut adsr, 1_500, &[note_on(69)]);
 
 			assert!(
-				(40..150).contains(&period),
-				"a period of {period} samples is a phase jump"
+				discontinuity(&after) < 0.05,
+				"a glide of {glide} ms has a corner in it: {}",
+				discontinuity(&after)
 			);
 		}
 	}
