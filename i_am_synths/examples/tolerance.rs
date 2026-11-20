@@ -105,8 +105,7 @@ fn spectrum(samples: &[f32]) -> Vec<f32> {
 			for (index, sample) in samples[start..start + WINDOW].iter().enumerate() {
 				let window =
 					0.5 - 0.5 * (std::f32::consts::TAU * index as f32 / WINDOW as f32).cos();
-				let angle =
-					std::f32::consts::TAU * ((bin + 1) * index) as f32 / WINDOW as f32;
+				let angle = std::f32::consts::TAU * ((bin + 1) * index) as f32 / WINDOW as f32;
 				let value = sample * window;
 
 				real += value * angle.cos();
@@ -145,8 +144,6 @@ fn main() {
 			worst = worst.max(difference);
 		}
 
-		println!(
-			"  {tolerance:8.0e}   {level_db:6.2}        {mean:6.2}        {worst:6.2}"
-		);
+		println!("  {tolerance:8.0e}   {level_db:6.2}        {mean:6.2}        {worst:6.2}");
 	}
 }

@@ -739,7 +739,16 @@ impl Oscillator<2> for WaveFramesOsc {
 
 		let (from, to, blend) = self.frames_cache;
 
-		self.play_at_bank(bank, from, to, blend, self.premix_ready, frequency, time, phase)
+		self.play_at_bank(
+			bank,
+			from,
+			to,
+			blend,
+			self.premix_ready,
+			frequency,
+			time,
+			phase,
+		)
 	}
 
 	fn set_pitch(&mut self, frequency: f32, sample_rate: usize) {

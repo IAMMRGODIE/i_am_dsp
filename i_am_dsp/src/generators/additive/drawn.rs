@@ -162,10 +162,7 @@ impl SpectralFeed {
 
 	/// Records the scale of the bank the renderer just published.
 	pub(crate) fn set_gains(&self, gains: Vec<f32>) {
-		*self
-			.gains
-			.lock()
-			.unwrap_or_else(|error| error.into_inner()) = gains;
+		*self.gains.lock().unwrap_or_else(|error| error.into_inner()) = gains;
 	}
 }
 
@@ -229,8 +226,7 @@ fn build_bank(frames: &[SpectralFrame], previous: Option<&PageBank>) -> PageBank
 				previous.pages.get(index),
 				previous.curves.get(index),
 				previous.gains.get(index),
-			)
-		{
+			) {
 			pages.push(table.clone());
 			curves.push(curve.clone());
 			gains.push(*gain);
@@ -272,11 +268,7 @@ fn build_bank(frames: &[SpectralFrame], previous: Option<&PageBank>) -> PageBank
 		// what keeps its body audible, and the voice's gain stage and the host's
 		// float path have the headroom for it. A page with a sane crest lands at
 		// or below full scale.
-		let gain = if rms > 1e-6 {
-			RMS_TARGET / rms
-		} else {
-			1.0
-		};
+		let gain = if rms > 1e-6 { RMS_TARGET / rms } else { 1.0 };
 
 		gains.push(gain);
 		pages.push(Arc::new(table));
@@ -318,10 +310,7 @@ impl SpectrumRenderer {
 
 	/// A renderer that also records the scale of each bank it publishes on the
 	/// feed the page reads, so the editor can show it.
-	pub fn with_feed(
-		frames: Vec<SpectralFrame>,
-		feed: Option<Arc<SpectralFeed>>,
-	) -> Arc<Self> {
+	pub fn with_feed(frames: Vec<SpectralFrame>, feed: Option<Arc<SpectralFeed>>) -> Arc<Self> {
 		let bank = Arc::new(build_bank(&frames, None));
 
 		if let Some(feed) = &feed {

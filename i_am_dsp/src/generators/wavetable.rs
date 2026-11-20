@@ -128,7 +128,12 @@ impl<T: WaveTable, const CHANNELS: usize> Oscillator<CHANNELS> for TableOsc<T> {
 
 		// A mono table read at one phase is the same on both sides: one read
 		// then feeds them all.
-		if CHANNELS > 0 && phase.iter().all(|value| value.to_bits() == phase[0].to_bits()) && self.0.is_mono() {
+		if CHANNELS > 0
+			&& phase
+				.iter()
+				.all(|value| value.to_bits() == phase[0].to_bits())
+			&& self.0.is_mono()
+		{
 			let value = self.0.sample(wrap01(time * frequency + phase[0]), 0);
 			output = [value; CHANNELS];
 

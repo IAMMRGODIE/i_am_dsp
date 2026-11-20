@@ -60,7 +60,9 @@ impl ProcessContext for Ctx {
 }
 
 /// One voice, ready to render, of whatever oscillator the column names.
-fn smoother(tables: Vec<Box<dyn i_am_dsp::prelude::WaveTable + Send + Sync>>) -> TableOsc<WaveTableSmoother> {
+fn smoother(
+	tables: Vec<Box<dyn i_am_dsp::prelude::WaveTable + Send + Sync>>,
+) -> TableOsc<WaveTableSmoother> {
 	TableOsc(WaveTableSmoother::new(tables, 0.0))
 }
 
@@ -70,8 +72,15 @@ fn sunions(unisons: usize, rate: usize) -> Adsr<TableOsc<WaveTableSmoother>, Equ
 	voice
 }
 
-fn triangles(unisons: usize, rate: usize) -> Adsr<TableOsc<WaveTableSmoother>, EqualTemperament, 2> {
-	let mut voice = Adsr::new(smoother(vec![Box::new(TriangleWave)]), EqualTemperament, rate);
+fn triangles(
+	unisons: usize,
+	rate: usize,
+) -> Adsr<TableOsc<WaveTableSmoother>, EqualTemperament, 2> {
+	let mut voice = Adsr::new(
+		smoother(vec![Box::new(TriangleWave)]),
+		EqualTemperament,
+		rate,
+	);
 	voice.unisons = unisons;
 	voice
 }
@@ -148,9 +157,7 @@ const TABLE: usize = 2048;
 
 fn table() -> Vec<f32> {
 	(0..TABLE)
-		.map(|index| {
-			(std::f32::consts::TAU * index as f32 / TABLE as f32).sin()
-		})
+		.map(|index| (std::f32::consts::TAU * index as f32 / TABLE as f32).sin())
 		.collect()
 }
 
@@ -217,14 +224,10 @@ fn shade(value: f64, peak: f64) -> char {
 fn main() {
 	let (cubic_read, linear_read) = read_cost(20_000_000);
 
-	println!(
-		"one {TABLE}-point read: cubic {cubic_read:.1} ns, linear {linear_read:.1} ns",
-	);
+	println!("one {TABLE}-point read: cubic {cubic_read:.1} ns, linear {linear_read:.1} ns",);
 	println!();
 
-	let columns = [
-		"sine", "triangle", "frames", "band", "morph", "all", "live",
-	];
+	let columns = ["sine", "triangle", "frames", "band", "morph", "all", "live"];
 	let unisons = [1usize, 2, 4, 8, 16, 32];
 	let mut grid = vec![vec![0.0f64; columns.len()]; unisons.len()];
 
@@ -238,7 +241,10 @@ fn main() {
 		grid[row][6] = measure_moving(count, RATE, 48);
 	}
 
-	let peak = grid.iter().flatten().fold(0.0f64, |peak, value| peak.max(*value));
+	let peak = grid
+		.iter()
+		.flatten()
+		.fold(0.0f64, |peak, value| peak.max(*value));
 
 	println!("CPU milliseconds per second of audio (lower is better)");
 	print!("{:>8}", "unison");
