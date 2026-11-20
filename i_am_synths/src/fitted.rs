@@ -13,14 +13,16 @@ use i_am_web_gui::{
 	percent_decode,
 };
 
-const SIZE: (f32, f32) = (620.0, 320.0);
+const SIZE: (f32, f32) = (760.0, 320.0);
 const TITLE: &str = "I Am Modal";
 const ACCENT: &str = "#5a7cd4";
 
 const PAGES: &[Page] = &[Page::new("Voice", &["Voice"])];
 
-/// The instrument picker sits in the header, like the filter's mode.
-const HEADER: &[&str] = &["instrument"];
+/// The instrument picker and the glide's mode sit in the header, like the
+/// filter's mode: both are choices that say what the instrument is rather than
+/// how much of anything it has.
+const HEADER: &[&str] = &["instrument", "glide_mode"];
 
 /// Answers `/table`: the page posts a table the fitter wrote elsewhere.
 pub(crate) fn table_route(
