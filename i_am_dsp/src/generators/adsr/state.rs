@@ -88,6 +88,9 @@ pub struct PlayingNote<const CHANNELS: usize> {
 	pub(crate) glide_left: u32,
 	/// Set on the sample a glide ends, so the phase reference can be re-based.
 	pub(crate) glide_finished: bool,
+	/// The velocity a legato takeover is sliding towards, and its step per sample.
+	pub(crate) velocity_target: f32,
+	pub(crate) velocity_step: f32,
 	/// The gap between the carried phase and the absolute read, per copy.
 	///
 	/// The glide changes the pitch, so `frequency * time` no longer equals the phase

@@ -425,6 +425,7 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 			* playing.current_pitch_factor;
 		let target = self.tuning_sys.get_frequency(note.note as f32);
 
+		let from_velocity = playing.note.velocity;
 		playing.note = note;
 		// The copies were tuned to the old note; the next sample rebuilds them.
 		playing.unison_voices.clear();
@@ -434,11 +435,11 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 		let channel = (channel as usize).min(15);
 		self.last_pitch[channel] = target;
 
-		if self.glide_time > 0.0 && from > 0.0 && target > 0.0 && (from - target).abs() > 0.01 {
-			let samples = (self.glide_time / 1000.0 * self.sample_rate as f32)
-				.round()
-				.max(1.0) as u32;
+		let samples = (self.glide_time / 1000.0 * self.sample_rate as f32)
+			.round()
+			.max(1.0) as u32;
 
+		if self.glide_time > 0.0 && from > 0.0 && target > 0.0 && (from - target).abs() > 0.01 {
 			playing.current_pitch_factor = from / target;
 			playing.glide_step = (target / from).powf(1.0 / samples as f32);
 			playing.glide_left = samples;
@@ -447,6 +448,16 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 			playing.current_pitch_factor = 1.0;
 			playing.glide_step = 1.0;
 			playing.glide_left = 0;
+		}
+
+		// The loudness follows the same slide: a note pressed softer fades in from
+		// where the voice was rather than jumping down under the hand.
+		if self.glide_time > 0.0 && (note.velocity - from_velocity).abs() > 1e-4 {
+			playing.note.velocity = from_velocity;
+			playing.velocity_target = note.velocity;
+			playing.velocity_step = (note.velocity - from_velocity) / samples as f32;
+		} else {
+			playing.velocity_step = 0.0;
 		}
 
 		all.entry(note.note).or_default().push(playing);
@@ -710,6 +721,8 @@ impl<
 						glide_step,
 						glide_left,
 						glide_finished: false,
+						velocity_target: 0.0,
+						velocity_step: 0.0,
 						phase_bias: Vec::new(),
 						channel: *channel,
 					};
@@ -752,6 +765,25 @@ impl<
 		note_playing.retain(|_note, playing_notes| {
 			playing_notes.retain_mut(|playing_note| {
 				let unisons = playing_note.phase_start.len();
+
+				// A legato note slides its loudness to the new note's over the same
+				// time as its pitch, so a softer note fades in rather than stepping
+				// down.
+				if playing_note.velocity_step != 0.0 {
+					let next = playing_note.note.velocity + playing_note.velocity_step;
+					let reached = if playing_note.velocity_step > 0.0 {
+						next >= playing_note.velocity_target
+					} else {
+						next <= playing_note.velocity_target
+					};
+
+					if reached {
+						playing_note.note.velocity = playing_note.velocity_target;
+						playing_note.velocity_step = 0.0;
+					} else {
+						playing_note.note.velocity = next;
+					}
+				}
 
 				let gain = if let Some((release, release_count)) = playing_note.release {
 					let time = (playing_note.count - release_count) as f32 / sample_rate * 1000.0;
@@ -1284,6 +1316,20 @@ mod tests {
 		worst / peak
 	}
 
+	/// The loudness of a signal, which is what a velocity ramp moves.
+	fn rms(samples: &[f32]) -> f32 {
+		(samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt()
+	}
+
+	/// A note pressed at a given velocity.
+	fn note_on_with(note: usize, velocity: f32) -> crate::NoteEvent {
+		crate::NoteEvent::NoteOn {
+			channel: 0,
+			note,
+			velocity,
+		}
+	}
+
 	/// The frequency a window of a sine spends its zero crossings on.
 	fn frequency_of(window: &[f32]) -> f32 {
 		let crossings = window
@@ -1393,10 +1439,6 @@ mod tests {
 	/// envelope, same phase — so one note sounds, not two.
 	#[test]
 	fn a_legato_note_takes_the_voice_over() {
-		let rms = |samples: &[f32]| {
-			(samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt()
-		};
-
 		let mut legato = adsr();
 		legato.legato = true;
 		legato.attack_time = 1.0;
@@ -1416,6 +1458,39 @@ mod tests {
 			"one voice: {single}"
 		);
 		assert!(doubled > single * 1.2, "two voices: {single} vs {doubled}");
+	}
+
+	/// A softer note pressed legato fades in over the glide instead of jumping
+	/// down under the hand.
+	#[test]
+	fn a_legato_note_slides_its_velocity() {
+		let mut adsr = adsr();
+		adsr.legato = true;
+		adsr.glide_time = 50.0;
+		adsr.attack_time = 1.0;
+		adsr.random_phase = 0.0;
+
+		render(&mut adsr, 1_000, &[note_on(57)]);
+
+		let after = render(&mut adsr, 3_600, &[note_on_with(69, 0.25)]);
+
+		let single = 0.8 / 2.0_f32.sqrt();
+		let early = rms(&after[0..240]);
+		let late = rms(&after[2_400..3_600]);
+
+		assert!(
+			early > single * 0.8,
+			"the fade starts where the voice was: {early}"
+		);
+		// The existing gain path applies the envelope and the velocity twice — once
+		// when the copies are summed and once when the voice is — so a quarter of
+		// the velocity is a sixteenth of the loudness.
+		let expected = single * 0.25 * 0.25;
+
+		assert!(
+			(late - expected).abs() < 0.02,
+			"and lands on the new velocity: {late} instead of {expected}"
+		);
 	}
 
 	/// The taken-over voice glides to the new note from where it was sounding.
