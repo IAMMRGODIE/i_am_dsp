@@ -11,6 +11,7 @@ use crate::{
 	prelude::{Oscillator, SyncedTime},
 };
 
+#[derive(Clone, Copy)]
 pub(crate) struct Note {
 	// pub channel: u8,
 	pub note: usize,
@@ -228,6 +229,16 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	#[id(display = "Glide")]
 	#[layout(group = "Voice", order = 8, widget = knob)]
 	pub glide_time: f32,
+	/// Whether a note pressed on top of a held one takes its voice over.
+	///
+	/// This is the legato of a lead synth: the envelope keeps running instead of
+	/// restarting, and only the pitch moves — over [glide_time](Self::glide_time), or
+	/// at once when that is zero. A note after a gap is a voice of its own again, so
+	/// only overlapping notes glide. Off by default, where every note is a voice.
+	#[default(false)]
+	#[id(display = "Legato")]
+	#[layout(group = "Voice", order = 9, widget = toggle)]
+	pub legato: bool,
 
 	/// The stage lengths in milliseconds this block runs at: the free values, or what the
 	/// tempo makes of them for the stages that are syncing.
@@ -308,6 +319,7 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 			random_phase_by_channel: false,
 			phase_start: 0.0,
 			glide_time: 0.0,
+			legato: false,
 			times: EnvelopeTimes::DEFAULT,
 			note_effect: None,
 			last_pitch: [f32::NAN; 16],
@@ -349,6 +361,97 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 			decay: to_ms(&self.decay, self.decay_time),
 			release: to_ms(&self.release, self.release_time),
 		};
+	}
+
+	/// Hands a held voice to a new note, for legato.
+	///
+	/// Returns whether there was a held note to take over. The voice keeps its phase,
+	/// its envelope, its pan and its velocity; only its pitch moves, from wherever it
+	/// was to the new note. A second note the channel was still holding is released:
+	/// a legato voice is one voice, and leaving the other sounding would make it a
+	/// chord.
+	fn take_over(&mut self, note: Note, channel: u8) -> bool {
+		// Taken out of the field so the map can be walked while the envelope's own
+		// timing is read: a release starts at the sample the envelope is at now.
+		let mut all = std::mem::take(&mut self.note_playing);
+		let mut taken: Option<(usize, usize)> = None;
+		let mut newest = usize::MAX;
+
+		for (held, notes) in all.iter() {
+			for (position, playing) in notes.iter().enumerate() {
+				if playing.channel != channel || playing.release.is_some() {
+					continue;
+				}
+
+				// The note started latest has counted the fewest samples.
+				if playing.count <= newest {
+					newest = playing.count;
+					taken = Some((*held, position));
+				}
+			}
+		}
+
+		let Some((held, position)) = taken else {
+			self.note_playing = all;
+			return false;
+		};
+
+		for (key, notes) in all.iter_mut() {
+			if *key == held {
+				continue;
+			}
+
+			for playing in notes.iter_mut() {
+				if playing.channel == channel && playing.release.is_none() {
+					let sample = self.sample_count(playing.count);
+					playing.release = Some((sample, playing.count));
+				}
+			}
+		}
+
+		let mut playing = all.get_mut(&held).expect("the held note").remove(position);
+
+		if all.get(&held).is_some_and(|notes| notes.is_empty()) {
+			all.remove(&held);
+		}
+
+		// Where the voice is sounding right now: the pitch of the note it was
+		// playing, times whatever the glide had left of it.
+		let from = playing
+			.unison_voices
+			.first()
+			.map(|voice| voice.frequency)
+			.unwrap_or(0.0)
+			* playing.current_pitch_factor;
+		let target = self.tuning_sys.get_frequency(note.note as f32);
+
+		playing.note = note;
+		// The copies were tuned to the old note; the next sample rebuilds them.
+		playing.unison_voices.clear();
+		playing.unison_controls = None;
+		playing.pitch_last = f32::NAN;
+
+		let channel = (channel as usize).min(15);
+		self.last_pitch[channel] = target;
+
+		if self.glide_time > 0.0 && from > 0.0 && target > 0.0 && (from - target).abs() > 0.01 {
+			let samples = (self.glide_time / 1000.0 * self.sample_rate as f32)
+				.round()
+				.max(1.0) as u32;
+
+			playing.current_pitch_factor = from / target;
+			playing.glide_step = (target / from).powf(1.0 / samples as f32);
+			playing.glide_left = samples;
+			playing.glide_finished = false;
+		} else {
+			playing.current_pitch_factor = 1.0;
+			playing.glide_step = 1.0;
+			playing.glide_left = 0;
+		}
+
+		all.entry(note.note).or_default().push(playing);
+		self.note_playing = all;
+		true
 	}
 
 	/// Fill in the per-unison table for a note.
@@ -505,11 +608,20 @@ impl<
 					velocity,
 					channel,
 				} => {
-					let note = Note {
+					let played = Note {
 						// channel: *channel,
 						note: *note,
 						velocity: *velocity,
 					};
+
+					// Legato: a note pressed while another is held takes that voice
+					// over — same phase, same envelope, new pitch — instead of being a
+					// voice of its own on top of it.
+					if self.legato && self.take_over(played, *channel) {
+						continue;
+					}
+
+					let note = played;
 					let phases = (0..self.unisons)
 						.map(|_| {
 							if self.random_phase != 0.0 {
@@ -545,14 +657,20 @@ impl<
 					// played is the one to slide away from.
 					let channel_index = (*channel as usize).min(15);
 					let target = self.tuning_sys.get_frequency(note.note as f32);
-					let from = self.pending_from[channel_index]
-						.take()
-						.map(|note| self.tuning_sys.get_frequency(note as f32))
-						.or_else(|| {
-							let last = self.last_pitch[channel_index];
+					// Legato glides only between overlapping notes, and those took the
+					// voice over above; a note that starts on its own starts on pitch.
+					let from = if self.legato {
+						None
+					} else {
+						self.pending_from[channel_index]
+							.take()
+							.map(|note| self.tuning_sys.get_frequency(note as f32))
+							.or_else(|| {
+								let last = self.last_pitch[channel_index];
 
-							last.is_finite().then_some(last)
-						});
+								last.is_finite().then_some(last)
+							})
+					};
 					let (pitch_factor, glide_step, glide_left) = match from {
 						Some(from)
 							if self.glide_time > 0.0
@@ -1269,6 +1387,74 @@ mod tests {
 				discontinuity(&after)
 			);
 		}
+	}
+
+	/// Legato: the note pressed on top of a held one keeps that voice — same
+	/// envelope, same phase — so one note sounds, not two.
+	#[test]
+	fn a_legato_note_takes_the_voice_over() {
+		let rms = |samples: &[f32]| {
+			(samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt()
+		};
+
+		let mut legato = adsr();
+		legato.legato = true;
+		legato.attack_time = 1.0;
+		legato.random_phase = 0.0;
+		render(&mut legato, 1_000, &[note_on(57)]);
+		let single = rms(&render(&mut legato, 2_000, &[note_on(69)]));
+
+		let mut plain = adsr();
+		plain.attack_time = 1.0;
+		plain.random_phase = 0.0;
+		render(&mut plain, 1_000, &[note_on(57)]);
+		let doubled = rms(&render(&mut plain, 2_000, &[note_on(69)]));
+
+		// One sine at 0.8 is 0.8/sqrt(2); two of them are louder still.
+		assert!(
+			(single - 0.8 / 2.0_f32.sqrt()).abs() < 0.08,
+			"one voice: {single}"
+		);
+		assert!(doubled > single * 1.2, "two voices: {single} vs {doubled}");
+	}
+
+	/// The taken-over voice glides to the new note from where it was sounding.
+	#[test]
+	fn a_legato_note_glides_from_where_it_was() {
+		let mut adsr = adsr();
+		adsr.legato = true;
+		adsr.glide_time = 50.0;
+		adsr.attack_time = 1.0;
+		adsr.random_phase = 0.0;
+
+		render(&mut adsr, 1_000, &[note_on(57)]);
+
+		let after = render(&mut adsr, 3_600, &[note_on(69)]);
+		let early = frequency_of(&after[0..600]);
+		let late = frequency_of(&after[2_400..3_600]);
+
+		assert!(
+			early > 440.0 && early < 600.0,
+			"the first 12 ms are still near A4: {early}"
+		);
+		assert!((late - 880.0).abs() < 40.0, "50 ms in, it is A5: {late}");
+	}
+
+	/// Legato is about notes that overlap: one after a gap starts on its own pitch.
+	#[test]
+	fn a_legato_note_after_a_gap_starts_on_pitch() {
+		let mut adsr = adsr();
+		adsr.legato = true;
+		adsr.glide_time = 50.0;
+		adsr.attack_time = 1.0;
+		adsr.random_phase = 0.0;
+
+		render(&mut adsr, 500, &[note_on(57)]);
+		render(&mut adsr, 1, &[crate::NoteEvent::ImmediateStop]);
+
+		let after = render(&mut adsr, 1_200, &[note_on(69)]);
+
+		assert!((frequency_of(&after[0..1_200]) - 880.0).abs() < 40.0);
 	}
 
 	/// A caller that builds a fresh voice per note — the patcher — primes it with
