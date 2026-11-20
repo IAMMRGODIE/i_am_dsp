@@ -32,6 +32,9 @@ fn hash_of(bytes: &[u8]) -> u64 {
 struct Playing {
 	voice: fitted::Voice,
 	note: u8,
+	/// The MIDI channel the key came in on, so a note can take over the voice
+	/// the same channel is holding.
+	channel: u8,
 	fade: f32,
 	releasing: bool,
 	/// Seconds since the note started, for the attack ramp.
@@ -202,6 +205,16 @@ pub struct FittedInstrument {
 	#[id(display = "Glide Mode")]
 	#[layout(group = "Voice", order = 9, widget = choice)]
 	pub glide_mode: i32,
+	/// Whether a note pressed on top of a held one takes its voice over.
+	///
+	/// This is the legato of a lead: the string keeps ringing and only the pitch
+	/// moves — over [glide_time](Self::glide_time), or at once when that is zero.
+	/// A note after a gap is a voice of its own again, so only overlapping notes
+	/// take over. Off by default, where every note is a voice.
+	#[default(false)]
+	#[id(display = "Legato")]
+	#[layout(group = "Voice", order = 10, widget = toggle)]
+	pub legato: bool,
 }
 
 impl Default for FittedInstrument {
@@ -221,6 +234,7 @@ impl Default for FittedInstrument {
 			transpose: 0,
 			glide_time: 0.0,
 			glide_mode: 0,
+			legato: false,
 			last_note: [None; 16],
 			pending_from: [None; 16],
 			slot: TableSlot::default(),
@@ -250,17 +264,7 @@ impl FittedInstrument {
 			self.playing.remove(0);
 		}
 		let shaped = bend(velocity.clamp(0.0, 1.0), self.velocity_curve) * self.gain;
-
-		// Where the slide starts: the note a caller primed, or the one this
-		// channel played last. Only the sounding pitch matters, so a transposed
-		// key glides by the interval the player heard.
 		let played = self.played(note);
-		let from = self.pending_from[channel]
-			.take()
-			.or(self.last_note[channel])
-			.map(|from| self.played(from))
-			.filter(|from| self.glide_time > 0.0 && *from != played);
-		self.last_note[channel] = Some(note);
 
 		let custom = if self.instrument == 5 {
 			self.custom()
@@ -279,6 +283,44 @@ impl FittedInstrument {
 			_ => fitted::instrument(),
 		};
 
+		// Legato: a note pressed on top of a held one takes its voice over. The
+		// string that is already ringing is retuned rather than struck again,
+		// which is the whole difference between a slide and a new note.
+		if self.legato
+			&& let Some(index) = self
+				.playing
+				.iter()
+				.rposition(|voice| voice.channel == channel as u8 && !voice.releasing)
+		{
+			let mode = self.glide();
+			let seconds = self.glide_time / 1000.0;
+			let derive = self.derive;
+			let voice = &mut self.playing[index];
+
+			voice.voice.retarget(fitted::Takeover {
+				instrument: table,
+				note: played,
+				velocity: velocity.clamp(0.0, 1.0),
+				gain: shaped,
+				derive,
+				mode,
+				seconds,
+			});
+			voice.note = note;
+			self.last_note[channel] = Some(note);
+			return;
+		}
+
+		// Where the slide starts: the note a caller primed, or the one this
+		// channel played last. Only the sounding pitch matters, so a transposed
+		// key glides by the interval the player heard.
+		let from = self.pending_from[channel]
+			.take()
+			.or(self.last_note[channel])
+			.map(|from| self.played(from))
+			.filter(|from| self.glide_time > 0.0 && *from != played);
+		self.last_note[channel] = Some(note);
+
 		let voice = match from {
 			Some(from) => fitted::Voice::start_sliding(
 				table,
@@ -290,11 +332,7 @@ impl FittedInstrument {
 				fitted::Slide {
 					from,
 					seconds: self.glide_time / 1000.0,
-					mode: if self.glide_mode == 1 {
-						fitted::Glide::Couple
-					} else {
-						fitted::Glide::Stretch
-					},
+					mode: self.glide(),
 				},
 			),
 			None => fitted::Voice::start_from(
@@ -310,10 +348,20 @@ impl FittedInstrument {
 		self.playing.push(Playing {
 			voice,
 			note,
+			channel: channel as u8,
 			fade: 1.0,
 			releasing: false,
 			age: 0.0,
 		});
+	}
+
+	/// The glide mode the parameter selects.
+	fn glide(&self) -> fitted::Glide {
+		if self.glide_mode == 1 {
+			fitted::Glide::Couple
+		} else {
+			fitted::Glide::Stretch
+		}
 	}
 
 	/// The note the table is asked for: the key the player pressed, shifted by
@@ -606,6 +654,58 @@ mod tests {
 		// Two octaves below 69 is a quarter of its frequency.
 		let ratio = instrument.playing[0].voice.pitch_ratio();
 		assert!((ratio - 0.25).abs() < 1e-3, "started at {ratio:.3}");
+	}
+
+	#[test]
+	fn a_legato_note_takes_the_voice_over() {
+		let mut instrument = FittedInstrument::new(48_000);
+		instrument.legato = true;
+		instrument.glide_time = 100.0;
+		instrument.start(57, 1.0, 0);
+		instrument.start(69, 1.0, 0);
+
+		assert_eq!(
+			instrument.playing.len(),
+			1,
+			"a legato note started a voice of its own"
+		);
+		assert_eq!(instrument.playing[0].note, 69, "the voice kept the old key");
+		assert_eq!(
+			instrument.playing[0].voice.pitch_ratio(),
+			1.0,
+			"the takeover jumped the pitch"
+		);
+
+		for _ in 0..5_000 {
+			instrument.playing[0].voice.next_frame();
+		}
+		let ratio = instrument.playing[0].voice.pitch_ratio();
+		assert!(
+			(ratio - 2.0).abs() < 1e-3,
+			"the voice was not retuned: {ratio}"
+		);
+	}
+
+	#[test]
+	fn a_legato_note_after_a_release_is_its_own() {
+		let mut instrument = FittedInstrument::new(48_000);
+		instrument.legato = true;
+		instrument.start(57, 1.0, 0);
+		instrument.release(57);
+		instrument.start(69, 1.0, 0);
+		assert_eq!(
+			instrument.playing.len(),
+			2,
+			"a note took over a voice that was already letting go"
+		);
+	}
+
+	#[test]
+	fn legato_is_off_by_default() {
+		let mut instrument = FittedInstrument::new(48_000);
+		instrument.start(57, 1.0, 0);
+		instrument.start(69, 1.0, 0);
+		assert_eq!(instrument.playing.len(), 2);
 	}
 
 	#[test]

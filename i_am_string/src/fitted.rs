@@ -430,11 +430,27 @@ struct Oscillator {
 	/// A level multiplier, ramping from where the same partial of the note the
 	/// glide started on was to this one's. One when nothing is ramping.
 	level: f32,
+	level_target: f32,
 	level_step: f32,
+	/// Which partial this is and which of its two decays, so a note that takes
+	/// the voice over can find the same partial of the note it moves to.
+	order: f32,
+	part: Part,
+	/// The amplitude the note was built with, before the level multiplier. A
+	/// takeover measures the note it moves to against this.
+	built: f32,
 }
 
 impl Oscillator {
-	fn new(amplitude: f32, phase: f32, omega: f32, sigma: f32, rate: f32) -> Self {
+	fn new(
+		amplitude: f32,
+		phase: f32,
+		omega: f32,
+		sigma: f32,
+		rate: f32,
+		order: f32,
+		part: Part,
+	) -> Self {
 		let step = omega / rate;
 		let (sin, cos) = step.sin_cos();
 		let decay = (-sigma / rate).exp();
@@ -449,7 +465,11 @@ impl Oscillator {
 			decay_target: decay,
 			decay_step: 1.0,
 			level: 1.0,
+			level_target: 1.0,
 			level_step: 0.0,
+			order,
+			part,
+			built: amplitude,
 		}
 	}
 
@@ -486,10 +506,25 @@ impl Oscillator {
 		self.level += self.level_step;
 	}
 
+	/// Aim this partial at the level and the decay it is moving to.
+	///
+	/// A decay of `None` leaves the one it has: a slide that only moves the
+	/// tuning must not quietly change how fast the note dies away.
+	fn aim(&mut self, level: f32, decay: Option<f32>, samples: u32) {
+		let samples = samples.max(1) as f32;
+		self.level_target = level;
+		self.level_step = (level - self.level) / samples;
+
+		if let Some(decay) = decay {
+			self.decay_target = decay;
+			self.decay_step = (decay / self.decay).powf(1.0 / samples);
+		}
+	}
+
 	/// Land exactly on what the glide was heading for.
 	fn settle(&mut self, pitch: f32) {
 		self.decay = self.decay_target;
-		self.level = 1.0;
+		self.level = self.level_target;
 		self.retune(pitch);
 	}
 
@@ -658,6 +693,8 @@ fn build_ear(
 				omega,
 				6.907_755 / t60.max(0.02),
 				rate,
+				mode.order,
+				part,
 			);
 
 			// A partial the other note does not have starts where this one has
@@ -674,12 +711,74 @@ fn build_ear(
 	}
 }
 
+/// What a note taking a ringing voice over has to say.
+///
+/// A legato note does not start a sound of its own: the string that is already
+/// vibrating is retuned to the new note, so the pitch (and, when coupling, the
+/// timbre) has to travel from where it is to where the new note would be.
+pub struct Takeover<'a> {
+	/// The table the new note is played from.
+	pub instrument: &'a Instrument,
+	/// The note being played now, numbered the way the table is.
+	pub note: u8,
+	/// How hard it was pressed.
+	pub velocity: f32,
+	/// The instrument's own gain at this press.
+	pub gain: f32,
+	/// Whether a note the table does not hold may be derived from its neighbours.
+	pub derive: bool,
+	/// What the slide does to the partials.
+	pub mode: Glide,
+	/// How long the slide takes, in seconds.
+	pub seconds: f32,
+}
+
+/// The same thing, with what the bank itself knows: the rate and the length of
+/// the ramp in samples.
+struct Aim<'a> {
+	instrument: &'a Instrument,
+	velocity: f32,
+	gain: f32,
+	mode: Glide,
+	rate: f32,
+	samples: u32,
+}
+
+/// Aim one ear's partials at a note, matched partial for partial by order.
+fn aim_ear(ear: &mut [Oscillator], modes: &[Mode], aim: &Aim<'_>) {
+	for oscillator in ear {
+		let Some(target) = modes
+			.iter()
+			.find(|other| (other.order - oscillator.order).abs() < 0.5)
+		else {
+			continue;
+		};
+
+		let (amplitude, t60, _) = oscillator.part.of(target);
+		let loudness = aim.gain * aim.instrument.mode_gain(target, aim.velocity) * amplitude;
+		let level = if oscillator.built > 1e-12 {
+			loudness / oscillator.built
+		} else {
+			1.0
+		};
+		// Only a coupled slide moves the decay: a stretch changes the speaking
+		// length and leaves the damping where it was.
+		let decay =
+			(aim.mode == Glide::Couple).then(|| (-6.907_755 / t60.max(0.02) / aim.rate).exp());
+
+		oscillator.aim(level, decay, aim.samples);
+	}
+}
+
 /// One sounding note, with one oscillator bank per ear.
 pub struct Voice {
 	left: Vec<Oscillator>,
 	right: Vec<Oscillator>,
 	/// The sample rate the bank was built for; a glide is measured in samples.
 	rate: f32,
+	/// The note the bank was built from. A takeover measures the note it moves
+	/// to against this, however many notes the voice has already passed through.
+	base_note: u8,
 	/// The frequency multiplier the partials are ringing at.
 	pitch: f32,
 	/// Where a glide is heading, what it multiplies the pitch by each sample,
@@ -701,7 +800,7 @@ impl Voice {
 		rate: f32,
 		derive: bool,
 	) -> Self {
-		let mut voice = Self::empty(rate);
+		let mut voice = Self::empty(rate, note);
 		if let Some((left, right)) = instrument.modes_for(note, derive) {
 			build_ear(
 				&mut voice.left,
@@ -750,7 +849,7 @@ impl Voice {
 		}
 
 		let Some((left, right)) = instrument.modes_for(note, derive) else {
-			return Self::empty(rate);
+			return Self::empty(rate, note);
 		};
 
 		let samples = (slide.seconds * rate).round().max(1.0) as u32;
@@ -759,7 +858,7 @@ impl Voice {
 			Glide::Couple => instrument.modes_for(slide.from, derive),
 		};
 
-		let mut voice = Self::empty(rate);
+		let mut voice = Self::empty(rate, note);
 		let coupling = source
 			.as_ref()
 			.map(|(source, _)| Coupling { source, samples });
@@ -821,6 +920,39 @@ impl Voice {
 		self.start_ramp(ratio.clamp(1.0 / 64.0, 64.0), samples);
 	}
 
+	/// Retarget a voice that is already ringing onto another note.
+	///
+	/// This is what a legato note does: the hand slides, the string keeps
+	/// vibrating, and only the tuning travels -- plus the decay and the level
+	/// when the slide is coupled. The partials keep the ratios the note the bank
+	/// was built from gave them, which is what a real string does when its
+	/// speaking length changes: it stretches, it does not become another string.
+	pub fn retarget(&mut self, takeover: Takeover<'_>) {
+		let samples = (takeover.seconds * self.rate).round().max(1.0) as u32;
+		// Measured against the note the bank was built from, not against the one
+		// it played last: after two takeovers the second would otherwise aim at
+		// the wrong interval.
+		let ratio = note_frequency(takeover.note) / note_frequency(self.base_note);
+
+		if let Some((left, right)) = takeover
+			.instrument
+			.modes_for(takeover.note, takeover.derive)
+		{
+			let aim = Aim {
+				instrument: takeover.instrument,
+				velocity: takeover.velocity,
+				gain: takeover.gain,
+				mode: takeover.mode,
+				rate: self.rate,
+				samples,
+			};
+			aim_ear(&mut self.left, &left, &aim);
+			aim_ear(&mut self.right, &right, &aim);
+		}
+
+		self.start_ramp(ratio, samples);
+	}
+
 	/// One frame, one ear each.
 	pub fn next_frame(&mut self) -> [f32; 2] {
 		if self.glide_left > 0 {
@@ -839,11 +971,12 @@ impl Voice {
 	}
 
 	/// A silent bank, tuned to the note it is about to be given.
-	fn empty(rate: f32) -> Self {
+	fn empty(rate: f32, note: u8) -> Self {
 		Self {
 			left: Vec::new(),
 			right: Vec::new(),
 			rate,
+			base_note: note,
 			pitch: 1.0,
 			pitch_target: 1.0,
 			pitch_step: 1.0,
@@ -1226,6 +1359,88 @@ mod tests {
 				"{mode:?} exploded: {peak} against {plain_peak}"
 			);
 		}
+	}
+
+	#[test]
+	fn a_takeover_retunes_the_ringing_note() {
+		let rate = 48_000.0;
+		let table = an_octave();
+		let mut voice = Voice::start_from(&table, 69, 1.0, 0.8, rate, true);
+		render(&mut voice, 2_400);
+
+		voice.retarget(Takeover {
+			instrument: &table,
+			note: 57,
+			velocity: 1.0,
+			gain: 0.8,
+			derive: true,
+			mode: Glide::Stretch,
+			seconds: 0.05,
+		});
+		// The pitch is still the one it was sounding at when the hand landed.
+		assert_eq!(voice.pitch_ratio(), 1.0, "the takeover jumped the pitch");
+
+		let samples = render(&mut voice, 7_200);
+		let late = frequency_of(&samples[2_400..], rate);
+		let peak = samples
+			.iter()
+			.fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+		let worst = samples
+			.windows(3)
+			.map(|window| (window[2] - 2.0 * window[1] + window[0]).abs())
+			.fold(0.0f32, f32::max);
+		println!("takeover down an octave: {late:.1} Hz, worst step {worst:.5} of {peak:.5}");
+
+		assert!(
+			(late - 220.0).abs() < 2.0,
+			"the takeover did not retune the note: {late:.1} Hz"
+		);
+		assert!((voice.pitch_ratio() - 0.5).abs() < 1e-6);
+		assert!(
+			worst < 0.05 * peak,
+			"the takeover clicked: {worst} of {peak}"
+		);
+	}
+
+	#[test]
+	fn a_coupled_takeover_moves_the_decay_and_the_level() {
+		let rate = 48_000.0;
+		let table = an_octave();
+		let decay = |t60: f32| (-6.907_755 / t60 / rate).exp();
+		let takeover = |mode| Takeover {
+			instrument: &table,
+			note: 57,
+			velocity: 1.0,
+			gain: 0.8,
+			derive: true,
+			mode,
+			seconds: 0.05,
+		};
+
+		let mut stretch = Voice::start_from(&table, 69, 1.0, 0.8, rate, true);
+		stretch.retarget(takeover(Glide::Stretch));
+		render(&mut stretch, 2_401);
+		assert!(
+			(stretch.left[0].decay - decay(5.0)).abs() < 1e-6,
+			"a stretch moved the decay: {}",
+			stretch.left[0].decay
+		);
+
+		let mut coupled = Voice::start_from(&table, 69, 1.0, 0.8, rate, true);
+		coupled.retarget(takeover(Glide::Couple));
+		render(&mut coupled, 2_401);
+		assert!(
+			(coupled.left[0].decay - decay(0.2)).abs() < 1e-6,
+			"the decay did not follow: {}",
+			coupled.left[0].decay
+		);
+		// The note below is half as loud in the table, so the level lands at a
+		// half of what the voice was built with.
+		assert!(
+			(coupled.left[0].level - 0.5).abs() < 1e-5,
+			"the level did not follow: {}",
+			coupled.left[0].level
+		);
 	}
 
 	#[test]
