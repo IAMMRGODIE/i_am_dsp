@@ -2316,6 +2316,9 @@
     table: [640, 340],
     pitch: [600, 320],
     midi: [600, 320],
+    // A curve and nothing else: there are no knobs to stack under the hero,
+    // so it takes the height the others give their controls.
+    map: [600, 260],
     // The constructor cards draw one waveform and a knob or two: a tall card
     // leaves the hero's lower half empty.
     "table:shape": [280, 200],
