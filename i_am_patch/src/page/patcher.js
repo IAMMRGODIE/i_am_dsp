@@ -85,7 +85,7 @@
 
   // The rack's source pictures, ported: a 300x70 drawing stretched over the
   // card's hero, with the live trace and the playhead on top.
-  const SOURCE_KINDS = ["lfo", "envelope", "random", "table", "pitch", "midi"];
+  const SOURCE_KINDS = ["lfo", "envelope", "random", "table", "pitch", "midi", "map"];
 
   /// A table node draws a product's table page, so the product's own wiring
   /// (imports, hero editors, routes) has to reach it the same way.
@@ -153,10 +153,13 @@
         shape: Math.round(params.shape ?? 0),
         morph: params.morph ?? 0,
       }, dots);
-    } else if (kind === "midi") {
-      // A mapping, not a value: the note goes in on the x axis and the control
-      // value comes out on the y, like the rack's MIDI source.
+    } else if (kind === "midi" || kind === "map") {
+      // A mapping, not a value: an input goes in on the x axis and the control
+      // value comes out on the y. A MIDI source maps a note; a map node maps
+      // whatever control reaches its input port.
       if (dots) dots.textContent = "";
+      const ink = kind === "map" ? "#8ac926" : "#ff6f91";
+      const halo = kind === "map" ? "#d6efb0" : "#ffe1ea";
       svg.appendChild(rackNode("line", { x1: 8, y1: 60, x2: 292, y2: 60, stroke: "#333", "stroke-width": 1, "stroke-dasharray": "2 4" }));
       svg.appendChild(rackNode("line", { x1: 8, y1: 8, x2: 8, y2: 60, stroke: "#333", "stroke-width": 1, "stroke-dasharray": "2 4" }));
 
@@ -184,7 +187,7 @@
       svg.appendChild(rackNode("path", {
         d,
         fill: "none",
-        stroke: "#ff6f91",
+        stroke: ink,
         "stroke-width": 2,
         "stroke-linecap": "round",
         "vector-effect": "non-scaling-stroke",
@@ -201,8 +204,8 @@
         dot.style.top = ((60 - point.value * 52) / 0.7).toFixed(2) + "%";
         dot.style.width = "7px";
         dot.style.height = "7px";
-        dot.style.background = "#ffe1ea";
-        dot.style.border = "1.4px solid #ff6f91";
+        dot.style.background = halo;
+        dot.style.border = "1.4px solid " + ink;
         dots.appendChild(dot);
       }
 
@@ -223,7 +226,7 @@
         handle.style.width = "5px";
         handle.style.height = "5px";
         handle.style.background = "transparent";
-        handle.style.border = "1.2px solid #ff9ab0";
+        handle.style.border = "1.2px solid " + ink;
         dots.appendChild(handle);
       }
     } else {
@@ -322,6 +325,7 @@
     table: "patch-source",
     pitch: "patch-source",
     midi: "patch-source",
+    map: "patch-source",
   };
 
   // The source hero is a drawing surface the page fills after every repaint.
@@ -671,7 +675,7 @@
     // make the page disagree with the server on every poll.
     const points = pasted
       ? active
-      : entry.kind.id === "midi"
+      : entry.kind.id === "midi" || entry.kind.id === "map"
         ? MIDI_MAPPING
         : IAmCard.sources.preset(Math.round(params.shape ?? 0));
 
@@ -710,6 +714,25 @@
             op: "set_points",
             id: entry.node.id,
             curve: velocity ? "velocity" : "note",
+            points: next.map((point) => [point.time, point.value, point.bend || 0]),
+          }, false);
+        },
+        onStart: () => { editingPoints = true; },
+        onEnd: () => { editingPoints = false; },
+      });
+    } else if (entry.kind.id === "map") {
+      // The curve is the whole node, so dragging a point is how the mapping is
+      // written: the engine reads the same points when it next builds.
+      IAmCard.sources.editLfo(svg, { points: points.slice() }, {
+        dots,
+        paint: (next) => {
+          svg.textContent = "";
+          drawSourceStatic(svg, entry.node, "map", dots, params, next);
+        },
+        commit: (next) => {
+          op({
+            op: "set_points",
+            id: entry.node.id,
             points: next.map((point) => [point.time, point.value, point.bend || 0]),
           }, false);
         },
@@ -2937,7 +2960,7 @@
 
   // The sources whose card already draws their live picture: the scope strip
   // would be the same picture twice.
-  const CONTROL_KINDS = ["lfo", "envelope", "random", "table", "pitch", "midi"];
+  const CONTROL_KINDS = ["lfo", "envelope", "random", "table", "pitch", "midi", "map"];
 
   // A right-click opens the node library: categories, then the nodes inside
   // them, alphabetically. No list takes space from the graph until it is asked.
@@ -3841,6 +3864,31 @@
     } else if (drag.kind === "scale") {
       // The scale is a page affordance, not part of the patch.
     } else if (drag.kind === "port" && drag.control && drag.output) {
+      // A control wire ends either on a parameter, which is a modulation, or
+      // on a control input port, which is a node that maps the signal. The
+      // port is the more specific target, so it wins when it is under the
+      // pointer.
+      if (drag.hoverPort && drag.hoverPort.output !== drag.output) {
+        const voice = patch.voice || [];
+
+        if (voice.includes(drag.hoverPort.id) === voice.includes(drag.id)) {
+          op({
+            op: "connect",
+            from: [drag.id, drag.index],
+            to: [drag.hoverPort.id, drag.hoverPort.index],
+          });
+        } else {
+          showStatus(
+            "A control wire cannot cross the VOICE group: move both nodes into the same group.",
+          );
+        }
+
+        document.getElementById("stage").classList.remove("connecting-control");
+        drag = null;
+        draw();
+        return;
+      }
+
       const row = event.target.closest("[data-mod-target]");
       const target = event.target.closest("[data-node]");
       const under = document.elementFromPoint(event.clientX, event.clientY);

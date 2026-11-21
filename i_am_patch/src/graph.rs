@@ -567,6 +567,17 @@ const BUILTINS: &[NodeDesc] = &[
 		],
 	},
 	NodeDesc {
+		id: "map",
+		name: "Map",
+		// The one node whose input is a control rather than audio, and whose
+		// output is a curve of it: what makes it a mapping instead of a
+		// modulation, which just adds to a parameter.
+		inputs: &[port("control", SignalKind::Control)],
+		outputs: &[port("control", SignalKind::Control)],
+		latency: 0,
+		params: &[],
+	},
+	NodeDesc {
 		id: "envelope",
 		name: "Envelope",
 		inputs: &[port("audio", AUDIO)],
@@ -842,6 +853,54 @@ pub struct Point {
 	pub bend: f32,
 }
 
+impl Point {
+	/// One curve's value at `x`, for the nodes that map a control through
+	/// points.
+	///
+	/// A point's `bend` shapes the line to the point after it, which is what the
+	/// page draws and drags; outside the first and last point the curve holds
+	/// its end value, and a curve with fewer than two points is the identity.
+	pub fn curve(points: &[Point], x: f32) -> f32 {
+		let x = x.clamp(0.0, 1.0);
+		let Some((first, rest)) = points.split_first() else {
+			return x;
+		};
+		if rest.is_empty() || x <= first.time {
+			return first.value.clamp(0.0, 1.0);
+		}
+
+		for pair in points.windows(2) {
+			let (from, to) = (&pair[0], &pair[1]);
+			if x > to.time {
+				continue;
+			}
+
+			let span = to.time - from.time;
+			if span <= 1e-6 {
+				return to.value.clamp(0.0, 1.0);
+			}
+
+			let unit = (x - from.time) / span;
+			let shaped = bend(unit, from.bend);
+			return (from.value + (to.value - from.value) * shaped).clamp(0.0, 1.0);
+		}
+
+		points[points.len() - 1].value.clamp(0.0, 1.0)
+	}
+}
+
+/// The exponential shape one segment bends by.
+///
+/// Zero leaves the segment straight; a positive bend ends it steeply and a
+/// negative one gently, which is the same family the page's editor draws.
+fn bend(t: f32, factor: f32) -> f32 {
+	if factor.abs() < 1e-4 {
+		return t;
+	}
+
+	((t * factor).exp() - 1.0) / (factor.exp() - 1.0)
+}
+
 /// One node placed in a graph.
 #[derive(Debug, Clone)]
 pub struct NodeInstance {
@@ -1092,8 +1151,8 @@ impl Graph {
 		node.kind = desc;
 		node.params = params;
 
-		// Only the LFO and the MIDI mapping carry a pasted curve.
-		if desc.id != "lfo" && desc.id != "midi" {
+		// Only the nodes whose curve is their content carry a pasted one.
+		if desc.id != "lfo" && desc.id != "midi" && desc.id != "map" {
 			node.points.clear();
 		}
 
@@ -1153,6 +1212,44 @@ mod tests {
 	}
 
 	use super::*;
+
+	#[test]
+	fn a_curve_reads_between_its_points() {
+		let point = |time: f32, value: f32, bend: f32| Point { time, value, bend };
+		let line = [point(0.0, 0.0, 0.0), point(1.0, 1.0, 0.0)];
+
+		assert_eq!(Point::curve(&[], 0.3), 0.3, "no points is the identity");
+		assert!((Point::curve(&line, 0.25) - 0.25).abs() < 1e-6);
+		assert_eq!(
+			Point::curve(&line, -1.0),
+			0.0,
+			"outside holds the first value"
+		);
+		assert_eq!(
+			Point::curve(&line, 2.0),
+			1.0,
+			"outside holds the last value"
+		);
+
+		let falling = [point(0.0, 1.0, 0.0), point(1.0, 0.5, 0.0)];
+		assert!((Point::curve(&falling, 0.5) - 0.75).abs() < 1e-6);
+
+		let bent = [point(0.0, 0.0, 2.0), point(1.0, 1.0, 0.0)];
+		let middle = Point::curve(&bent, 0.5);
+		assert!(
+			middle < 0.5,
+			"a positive bend bows the segment down: {middle}"
+		);
+	}
+
+	#[test]
+	fn a_map_node_has_a_control_on_each_side() {
+		let map = node("map").expect("a map node");
+		assert_eq!(map.inputs.len(), 1);
+		assert_eq!(map.outputs.len(), 1);
+		assert_eq!(map.inputs[0].kind, SignalKind::Control);
+		assert_eq!(map.outputs[0].kind, SignalKind::Control);
+	}
 
 	#[test]
 	fn a_parameter_carries_the_range_its_dsp_declares() {

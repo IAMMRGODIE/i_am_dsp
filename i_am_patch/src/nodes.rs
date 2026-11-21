@@ -223,6 +223,9 @@ pub fn make_with(
 			source.set_velocity_points(velocity_points);
 			Box::new(source)
 		}
+		"map" => Box::new(MapNode {
+			points: points.to_vec(),
+		}),
 		"envelope" => Box::new(SourceNode::new(SourceKind::Envelope, rate, params, &[])),
 		"delay" => Box::new(Delay::new()),
 		"table:shape" => Box::new(TableShapeNode::new(params)),
@@ -418,6 +421,27 @@ impl BlockNode for MacroNode {
 		if let Some(Buffer::Control(out)) = outputs.first_mut() {
 			*out = self.macros.get(self.index);
 		}
+	}
+}
+
+/// A curve from one control to another.
+///
+/// The node has no parameters: the curve is the whole of it, and the output
+/// is a pure function of the input. That is what makes it a mapping rather
+/// than a modulation - a modulation adds to a parameter, a map says how.
+struct MapNode {
+	points: Vec<crate::graph::Point>,
+}
+
+impl BlockNode for MapNode {
+	fn process(&mut self, _: &mut BlockContext, inputs: &[Buffer], outputs: &mut [Buffer]) {
+		let (Some(Buffer::Control(input)), Some(Buffer::Control(output))) =
+			(inputs.first(), outputs.first_mut())
+		else {
+			return;
+		};
+
+		*output = crate::graph::Point::curve(&self.points, *input);
 	}
 }
 

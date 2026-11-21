@@ -1485,6 +1485,48 @@ fn a_one_shot_lfo_holds_the_end_of_its_curve() {
 }
 
 #[test]
+fn a_map_bends_a_control_through_its_curve() {
+	use crate::graph::Point;
+
+	let point = |time: f32, value: f32| Point {
+		time,
+		value,
+		bend: 0.0,
+	};
+
+	let mut graph = Graph::new();
+	let lfo = graph.add_node("lfo", (0.0, 0.0)).expect("lfo");
+	let map = graph.add_node("map", (100.0, 0.0)).expect("map");
+	graph.set_param(lfo, "rate", 20.0);
+	graph.set_param(lfo, "one_shot", 1.0);
+	graph.set_points(lfo, vec![point(0.0, 0.0), point(1.0, 1.0)]);
+	// An invert-and-attenuate curve: in 0..1, out 1..0.5.
+	graph.set_points(map, vec![point(0.0, 1.0), point(1.0, 0.5)]);
+	graph.connect((lfo, 0), (map, 0));
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let step = engine.step_of(map).expect("the map is in the plan");
+	let input = vec![[0.0f32; 2]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+
+	engine.process(&input, &[], &mut block);
+	let start = engine.tap_block(step).expect("a value").frame(0)[0];
+	assert!(
+		(start - 1.0).abs() < 0.05,
+		"the curve did not start at its first point: {start}"
+	);
+
+	for _ in 0..48 {
+		engine.process(&input, &[], &mut block);
+	}
+	let end = engine.tap_block(step).expect("a value").frame(0)[0];
+	assert!(
+		(end - 0.5).abs() < 0.05,
+		"the curve did not end at its last point: {end}"
+	);
+}
+
+#[test]
 fn a_parameter_moves_through_the_running_engine() {
 	// A knob is not a graph change: the engine that is playing takes the value
 	// and keeps running, which is what leaves the notes in flight alone.

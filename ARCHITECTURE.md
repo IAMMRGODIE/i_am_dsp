@@ -462,6 +462,10 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 
 - 节点目录（`nodes.rs`）：`mixer`、`delay`（Lookahead，对齐用）、`lfo`、`random`、`table`、`pitch`、
   `midi`、`envelope`，以及 9 个音源节点（`additive`…`strings`，直接包装 `i_am_synths` 的产品）。
+- `map` 是唯一**吃 control 吐 control** 的节点：一个控制输入口、一个控制输出口、没有参数，曲线就是它全部
+  的内容（`Point::curve`，点上的 bend 决定这一段怎么弯）。它和「调制」是两件事：调制是把一个控制加到某个
+  参数的现有值上，map 是把一个控制按曲线变成另一个控制，所以它可以接在两者之间说清楚「怎么变」。
+  曲线点和 LFO/MIDI 的曲线走同一条路（`set_points` + `IAmCard.sources.editLfo`），拖点即改。
 - 拆分与合并成对出现，端口同名对得上：`split:ms`/`mix:ms`（mid/side）、`split:lr`/`mix:lr`（左右各复制成双声道）、
   `split:bands`/`mix:bands`（低/中/高，直接复用 rack 的 LR4 分频器 `crossover.rs`，两个分频点可调）。
 - 调制是控制率的：引擎每 64 样本取一次值；每个源槽各有自己的相位/包络/随机状态。
