@@ -537,8 +537,14 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 - 控制源只有一份实现：图节点（`nodes.rs` 的 `SourceNode`）是 `SourceRuntime` 的适配器，
   参数映射到 `SourceSettings`，值、相位、同步频率、随机流和平滑都与 rack 的 slot 一致；
   `source_dsp.rs` 放两者共用的底层形状与系数。
-- 宿主存档 = 一个 `Serialized` 参数 `"patch"`，内容是**行文本格式**（`node 1 synth:additive 100 0 decay_time=0.5`），
-  可读、可被 agent 编辑；JSON 是真相，文本是投影。
+- 宿主存档是**两个** `Serialized` 参数：
+  - `"patch"` 是**行文本格式**（`node 1 synth:additive 100 0 decay_time=0.5`），可读、可被 agent 编辑；JSON 是真相，文本是投影。
+  - `"patch_slots"` 是**二进制 blob**（`i_am_patch::state::SlotState` 的 ciborium 编码），装那些**不是数字**的东西：
+    波表、拟合表、采样 + 切片、冲激响应 + fades、鼓机的 click 与六个一击。按节点 id 索引，
+    加载时先灌回 `Slots` 再重建图，节点建的时候拿的就是这个槽，所以不需要第二次重建。
+  - 为什么分两条：文本要保持可读可改，而一张表是四十 KB 的数字、一段采样是几 MB 的音频，
+    塞进文本行只会把 patch 变成不可读的墙。小而且**该被编辑**的页面状态（脚本、画布、频谱页、
+    滤波器页、历史页）仍留在文本里。
 - 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`、`/sample?node=N`；页面编辑 bump generation，
   音频线程在块边界重建引擎。宏走 `GET /macros` 与 `POST /macro?index=&value=`，读写的就是宿主那组原子，
   所以页面拖动在宿主眼里等同自动化。

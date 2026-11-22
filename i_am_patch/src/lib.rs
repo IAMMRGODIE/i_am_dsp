@@ -17,6 +17,7 @@ pub mod poly;
 pub mod scope;
 mod source_dsp;
 pub mod sources;
+pub mod state;
 pub mod synths;
 pub mod text;
 
@@ -167,10 +168,10 @@ impl Default for Macros {
 /// have to be rebuilt for it.
 #[derive(Clone, Default)]
 pub struct Slots {
-	fitted: std::sync::Arc<
+	pub(crate) fitted: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_dsp::prelude::TableSlot>>,
 	>,
-	samples: std::sync::Arc<
+	pub(crate) samples: std::sync::Arc<
 		std::sync::Mutex<
 			std::collections::BTreeMap<
 				u32,
@@ -178,7 +179,7 @@ pub struct Slots {
 			>,
 		>,
 	>,
-	waves: std::sync::Arc<
+	pub(crate) waves: std::sync::Arc<
 		std::sync::Mutex<
 			std::collections::BTreeMap<
 				u32,
@@ -186,7 +187,7 @@ pub struct Slots {
 			>,
 		>,
 	>,
-	irs: std::sync::Arc<
+	pub(crate) irs: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, std::sync::Arc<i_am_effects::IrSlot>>>,
 	>,
 	canvases: std::sync::Arc<
@@ -195,7 +196,7 @@ pub struct Slots {
 	spectra: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_synths::SpectrumHandle>>,
 	>,
-	drummers: std::sync::Arc<
+	pub(crate) drummers: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_synths::DrummerHandle>>,
 	>,
 	filter_tables: std::sync::Arc<

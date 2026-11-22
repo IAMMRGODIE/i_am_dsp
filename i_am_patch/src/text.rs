@@ -155,23 +155,9 @@ pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 				let json = serde_json::to_string(&source).expect("the script serializes");
 				let _ = writeln!(out, "script {} {}", node.id.0, json);
 			}
-			// A table dropped on a Shape card is the node's sound: the frames the
-			// oscillator plays live in the slot, not in a parameter, so the save has to
-			// carry them or the project falls back to the classic shapes.
-			"table:shapes" | "synth:shapes" => {
-				let bank = slots
-					.waves(node.id.0)
-					.lock()
-					.unwrap_or_else(|error| error.into_inner())
-					.bank
-					.clone();
-
-				if let Some(bank) = bank {
-					let json =
-						serde_json::to_string(&bank.imported()).expect("the table serializes");
-					let _ = writeln!(out, "waves {} {}", node.id.0, json);
-				}
-			}
+			// A table, a sample or a response is a payload, not a number: it travels in
+			// the blob beside this text (see the state module), because a table's frames
+			// would be forty kilobytes of digits in a line meant to be read.
 			_ => {}
 		}
 	}
@@ -370,19 +356,6 @@ pub fn from_text_with_slots(text: &str, slots: &crate::Slots) -> Result<Graph, T
 					.map_err(|parse_error| error(line, parse_error.to_string()))?;
 				slots.history(id).feed().set_pages(pages);
 			}
-			"waves" => {
-				let id = parse_id(words.next(), line)?;
-				let rest = words.collect::<Vec<_>>().join(" ");
-				let imported: i_am_dsp::prelude::ImportedWave = serde_json::from_str(&rest)
-					.map_err(|parse_error| error(line, parse_error.to_string()))?;
-				let name = (!imported.name.is_empty()).then_some(imported.name);
-
-				slots
-					.waves(id)
-					.lock()
-					.unwrap_or_else(|error| error.into_inner())
-					.bank = Some(i_am_dsp::prelude::WaveBank::new(name, imported.frames));
-			}
 			"filter_table" => {
 				let id = parse_id(words.next(), line)?;
 				let rest = words.collect::<Vec<_>>().join(" ");
@@ -534,29 +507,101 @@ mod tests {
 		assert!((back.get(graph.nodes[2].id).expect("gain").param("gain") - 0.5).abs() < 1e-6);
 	}
 
-	/// A table dropped on a Shape card is the node's sound, not its page: the save has to
-	/// carry it, or every project gets the classic shapes back.
+	/// Every payload a node plays travels in the blob beside the text: a table, a fitted
+	/// table, a sample with its slices, a response with its fades, and a drum kit.
 	#[test]
-	fn an_imported_shape_table_round_trips() {
-		use i_am_dsp::prelude::WaveBank;
+	fn the_slot_state_carries_every_payload() {
+		use crate::state::SlotState;
+		use i_am_dsp::prelude::{ImportedTable, SampleData, WaveBank};
+		use i_am_effects::{IrData, IrFades};
 
-		let mut graph = Graph::new();
-		let shape = graph.add_node("table:shapes", (0.0, 0.0)).expect("shapes");
 		let slots = crate::Slots::default();
-		let frames = vec![vec![0.0, 0.5, 0.0, -0.5], vec![0.0, 0.25, 0.0, -0.25]];
+		let (wave, fitted, sample, ir, click) = (11u32, 12, 13, 14, 15);
 
-		slots.waves(shape.0).lock().expect("the slot").bank =
-			Some(WaveBank::new(Some("note.wav".to_string()), frames));
+		slots.waves(wave).lock().expect("the slot").bank = Some(WaveBank::new(
+			Some("note.wav".to_string()),
+			vec![vec![0.0, 0.5, 0.0, -0.5]],
+		));
+		slots.fitted(fitted).set(ImportedTable {
+			name: "peel".to_string(),
+			bytes: vec![1, 2, 3],
+		});
+		{
+			let slot = slots.sample(sample);
+			let mut slot = slot.lock().expect("the slot");
 
-		let text = to_text_with_slots(&graph, &slots);
+			slot.sample = Some(std::sync::Arc::new(SampleData {
+				name: "kick.wav".to_string(),
+				rate: 48_000,
+				pcm: vec![0.0, 0.5, -0.5],
+				right: None,
+			}));
+			slot.slices = vec![0.0, 0.5];
+		}
+		slots.ir(ir).set(std::sync::Arc::new(IrData::from_samples(
+			"room.wav".to_string(),
+			48_000,
+			vec![0.0, 0.2, 0.0],
+			vec![0.0, 0.2, 0.0],
+		)));
+		slots.ir(ir).set_fades(IrFades {
+			fade_in: 0.1,
+			fade_out: 0.2,
+		});
+		slots.drummer(click).restore_kit(
+			Some(SampleData {
+				name: "click.wav".to_string(),
+				rate: 48_000,
+				pcm: vec![0.1],
+				right: None,
+			}),
+			std::array::from_fn(|index| {
+				(index == 0).then(|| SampleData {
+					name: "kick.wav".to_string(),
+					rate: 48_000,
+					pcm: vec![0.9, -0.9],
+					right: None,
+				})
+			}),
+		);
+
+		let state = slots.capture();
+		let binary = i_am_dsp::prelude::to_binary(&state).expect("the state serializes");
+		let back: SlotState = i_am_dsp::prelude::from_binary(binary).expect("the state decodes");
 		let loaded = crate::Slots::default();
-		let _ = from_text_with_slots(&text, &loaded).expect("the text parses");
+		loaded.restore(&back);
 
-		let bank = loaded.waves(shape.0).lock().expect("the slot").bank.clone();
-		let bank = bank.expect("the table came back");
-		assert_eq!(bank.name(), Some("note.wav"));
-		assert_eq!(bank.len(), 2, "the frames did not all come back");
-		assert!(bank.frames()[0].len() >= 4, "a frame came back empty");
+		let wave = loaded.waves(wave).lock().expect("the slot").bank.clone();
+		let wave = wave.expect("the table came back");
+		assert_eq!(wave.name(), Some("note.wav"));
+
+		let fitted = loaded.fitted(fitted).current().expect("the fitted table");
+		assert_eq!(fitted.bytes, vec![1, 2, 3]);
+
+		{
+			let slot = loaded.sample(sample);
+			let slot = slot.lock().expect("the slot");
+			let sample = slot.sample.as_ref().expect("the sample came back");
+			assert_eq!(sample.name, "kick.wav");
+			assert_eq!(sample.pcm, vec![0.0, 0.5, -0.5]);
+			assert_eq!(slot.slices, vec![0.0, 0.5]);
+		}
+
+		let ir = loaded.ir(ir);
+		assert_eq!(ir.load().expect("the response came back").name, "room.wav");
+		assert_eq!(
+			ir.fades(),
+			IrFades {
+				fade_in: 0.1,
+				fade_out: 0.2
+			}
+		);
+
+		let kit = loaded.drummer(click);
+		assert_eq!(kit.click_sample().expect("the click").name, "click.wav");
+		let shots = kit.one_shots();
+		assert_eq!(shots[0].as_ref().expect("the kick").name, "kick.wav");
+		assert!(shots[1].is_none(), "an empty slot came back full");
 	}
 
 	#[test]

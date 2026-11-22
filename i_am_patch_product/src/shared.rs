@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use i_am_dsp::prelude::{NoteEvent, ParamMap, SetValue, Value};
+use i_am_dsp::prelude::{NoteEvent, ParamMap, SetValue, Value, from_binary, to_binary};
 use i_am_patch::block::BLOCK;
 use i_am_patch::compile::voice_group;
 use i_am_patch::engine::Engine;
@@ -134,6 +134,26 @@ impl PatcherShared {
 			&self.graph.lock().expect("the graph lock"),
 			&self.slots,
 		)
+	}
+
+	/// Every payload the nodes play, as the blob a host saves beside the text.
+	///
+	/// A table, a sample or a response is not a number, so it cannot ride in the
+	/// text: the host stores this one serialized parameter next to it, and a load
+	/// puts each payload back into the slot its node reads.
+	pub fn slot_state_bytes(&self) -> Vec<u8> {
+		to_binary(&self.slots.capture()).unwrap_or_default()
+	}
+
+	/// Puts a saved blob back into the slots; false when it does not decode.
+	pub fn set_slot_state(&self, bytes: &[u8]) -> bool {
+		let Ok(state) = from_binary::<i_am_patch::state::SlotState>(bytes.to_vec()) else {
+			return false;
+		};
+
+		self.slots.restore(&state);
+		self.bump();
+		true
 	}
 
 	/// Replaces the graph from text; false when the text does not parse.

@@ -95,6 +95,14 @@ macro_rules! product {
 					Value::Serialized(self.0.shared.text().into_bytes()),
 				));
 
+				// The payloads the nodes play live beside the text, in their own
+				// serialized parameter: a table or a sample is not a number the text
+				// format can carry.
+				parameters.push(Parameter::new(
+					"patch_slots",
+					Value::Serialized(self.0.shared.slot_state_bytes()),
+				));
+
 				parameters
 			}
 
@@ -108,6 +116,9 @@ macro_rules! product {
 							return false;
 						};
 						self.0.shared.set_text(&text)
+					}
+					("patch_slots", SetValue::Serialized(bytes)) => {
+						self.0.shared.set_slot_state(&bytes)
 					}
 					_ => false,
 				}
@@ -246,6 +257,43 @@ product!(
 
 #[cfg(test)]
 mod tests {
+
+	/// A table the page dropped on a Shape node rides in the blob beside the text, so a
+	/// project keeps the sound the node was saved with.
+	#[test]
+	fn the_slot_blob_survives_a_save_and_load() {
+		use i_am_dsp::prelude::{Parameters, SetValue, Value, from_binary, to_binary};
+		use i_am_patch::state::SlotState;
+
+		let text = "node 1 table:shapes 100 0\n";
+		let mut state = SlotState::default();
+		state.waves.insert(
+			1,
+			i_am_dsp::prelude::ImportedWave::new("note.wav", vec![vec![0.0, 0.5, 0.0, -0.5]]),
+		);
+
+		let mut product = PatcherEffect::default();
+		assert!(product.set_parameter("patch", SetValue::Serialized(text.as_bytes().to_vec())));
+		assert!(product.set_parameter(
+			"patch_slots",
+			SetValue::Serialized(to_binary(&state).expect("the state serializes")),
+		));
+
+		let saved = product
+			.get_parameters()
+			.into_iter()
+			.find(|parameter| parameter.identifier == "patch_slots")
+			.expect("the slots parameter");
+		let Value::Serialized(bytes) = saved.value else {
+			panic!("the slots are not serialized");
+		};
+		let back: SlotState = from_binary(bytes).expect("the state decodes");
+
+		assert_eq!(
+			back.waves.get(&1).map(|wave| wave.name.as_str()),
+			Some("note.wav")
+		);
+	}
 
 	#[test]
 	fn the_product_path_matches_the_engine() {
