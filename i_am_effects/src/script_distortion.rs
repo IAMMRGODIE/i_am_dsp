@@ -171,6 +171,13 @@ pub struct ScriptDistortionEffect {
 impl ScriptDistortionEffect {
 	/// A distortion with the default script, sharing `worker` with its editor.
 	pub fn new(worker: Arc<ScriptWorker<DistortionTable>>) -> Self {
+		// The worker already holds the script it was started with, and a project
+		// can be loaded into a fresh instance before the first block runs: start
+		// from the worker's own generation so that first sync pushes the loaded
+		// text to it instead of reading the default back over it.
+		let script = worker.source();
+		let synced_source = worker.source_generation();
+
 		Self {
 			in_gain: 0.0,
 			out_gain: 0.0,
@@ -180,12 +187,12 @@ impl ScriptDistortionEffect {
 			p3: 0.0,
 			p4: 0.0,
 			realtime: false,
-			script: DEFAULT_SCRIPT.to_string(),
+			script: script.clone(),
 			worker,
 			table: None,
 			seen_table: 0,
-			synced_source: 0,
-			last_script: DEFAULT_SCRIPT.to_string(),
+			synced_source,
+			last_script: script,
 			last_request: None,
 			realtime_script: None,
 			seen_compiled: 0,
@@ -567,6 +574,25 @@ mod tests {
 		let table = table_of("x * (1.0 + p1)", [1.0, 0.0, 0.0, 0.0], 1.0);
 
 		assert!((table.sample(0.5) - 1.0).abs() < 1e-4);
+	}
+
+	/// A project loaded into a fresh plug-in carries its script. The first sync
+	/// after that load has to push the saved text to the worker, because the
+	/// worker still holds the default it was started with.
+	#[test]
+	fn a_loaded_script_survives_the_first_sync() {
+		use i_am_dsp::prelude::{Parameters, to_binary};
+
+		let worker = distortion_worker();
+		let mut effect = ScriptDistortionEffect::new(worker.clone());
+		let saved = "x * 0.5";
+		let bytes = to_binary(&saved.to_string()).expect("a serialized script");
+
+		assert!(effect.set_parameter("script", SetValue::Serialized(bytes)));
+		effect.sync_script();
+
+		assert_eq!(effect.script, saved, "the loaded script was reset");
+		assert_eq!(worker.source(), saved, "the worker kept the default");
 	}
 
 	#[test]

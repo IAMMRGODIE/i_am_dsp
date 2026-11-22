@@ -350,6 +350,13 @@ impl ScriptMapperEffect {
 		vocoder.window_factor = 0.6;
 		vocoder.gain = 1.0 / overlap_add_gain(vocoder.window_factor);
 
+		// The worker already holds the script it was started with, and a project
+		// can be loaded into a fresh instance before the first block runs: start
+		// from the worker's own generation so that first sync pushes the loaded
+		// text to it instead of reading the default back over it.
+		let script = worker.source();
+		let synced_source = worker.source_generation();
+
 		Self {
 			mix: 1.0,
 			p1: 0.0,
@@ -358,14 +365,14 @@ impl ScriptMapperEffect {
 			p4: 0.0,
 			window_size: 2,
 			realtime: false,
-			script: DEFAULT_SCRIPT.to_string(),
+			script: script.clone(),
 			vocoder,
 			worker,
 			table: None,
 			sample_rate,
 			seen_table: 0,
-			synced_source: 0,
-			last_script: DEFAULT_SCRIPT.to_string(),
+			synced_source,
+			last_script: script,
 			last_request: None,
 			compiled: None,
 			seen_compiled: 0,
@@ -672,6 +679,25 @@ mod tests {
 	fn table_of(source: &str, params: [f32; 4], rate: f32) -> MapperTable {
 		let script = CompiledScript::compile(source).expect("a compiled script");
 		MapperTable::render(&script, params, rate).expect("a rendered table")
+	}
+
+	/// A project loaded into a fresh plug-in carries its script. The first sync
+	/// after that load has to push the saved text to the worker, because the
+	/// worker still holds the default it was started with.
+	#[test]
+	fn a_loaded_script_survives_the_first_sync() {
+		use i_am_dsp::prelude::{Parameters, to_binary};
+
+		let worker = mapper_worker();
+		let mut effect = ScriptMapperEffect::new(48_000, worker.clone());
+		let saved = "[x * 2.0, a]";
+		let bytes = to_binary(&saved.to_string()).expect("a serialized script");
+
+		assert!(effect.set_parameter("script", SetValue::Serialized(bytes)));
+		effect.sync_script();
+
+		assert_eq!(effect.script, saved, "the loaded script was reset");
+		assert_eq!(worker.source(), saved, "the worker kept the default");
 	}
 
 	#[test]
