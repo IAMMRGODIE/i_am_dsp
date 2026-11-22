@@ -31,6 +31,13 @@ macro_rules! synth_processor {
 				i_am_dsp::Processor::delay(&self.processor)
 			}
 
+			/// A bypassed instrument has nothing to play either: the page would see a
+			/// flat line, and that is what silence is.
+			fn is_idle(&self, input_is_silent: bool) -> bool {
+				self.bypass.load(std::sync::atomic::Ordering::Relaxed)
+					|| i_am_dsp::Processor::is_idle(&self.processor, input_is_silent)
+			}
+
 			fn process(
 				&mut self,
 				samples: &mut [f32; 2],

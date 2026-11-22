@@ -280,6 +280,10 @@ impl Generator<2> for CanvasVoice {
 		self.sync();
 		self.voice.generate(process_context)
 	}
+
+	fn is_idle(&self) -> bool {
+		self.voice.is_idle()
+	}
 }
 
 /// The canvas oscillator as a patch constructor: the drawing, refreshed when
@@ -449,6 +453,11 @@ impl Processor for CanvasWeb {
 
 	fn delay(&self) -> usize {
 		Processor::delay(&self.processor)
+	}
+
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		self.bypass.load(std::sync::atomic::Ordering::Relaxed)
+			|| Processor::is_idle(&self.processor, input_is_silent)
 	}
 
 	fn process(

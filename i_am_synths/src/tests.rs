@@ -1239,3 +1239,58 @@ fn a_file_name_says_which_note_it_holds() {
 	assert_eq!(i_am_dsp::prelude::note_of_name("kick_1.wav"), None);
 	assert_eq!(i_am_dsp::prelude::note_of_name("mypad.wav"), None);
 }
+
+/// The wrapper skips a block it knows is silent, so an instrument has to be honest about
+/// having nothing left: nothing before the first note, a voice while one plays, and
+/// nothing again once its release has run out.
+#[test]
+fn an_instrument_says_when_it_has_nothing_to_play() {
+	let mut plugin = AdditiveWeb::new();
+	assert!(
+		i_am_dsp::Processor::is_idle(&plugin, true),
+		"an instrument nothing was ever played to is silent"
+	);
+
+	let mut context: Box<dyn ProcessContext> = Box::new(TestContext::new());
+	context.send_event(NoteEvent::NoteOn {
+		channel: 0,
+		note: 60,
+		velocity: 0.8,
+	});
+	let mut frame = [0.0f32; 2];
+	let mut played = false;
+
+	for sample in 0..4_800 {
+		i_am_dsp::Processor::process(&mut plugin, &mut frame, &[], &mut context);
+
+		if sample == 0 {
+			context.clear_events();
+		}
+
+		if !i_am_dsp::Processor::is_idle(&plugin, true) {
+			played = true;
+		}
+	}
+
+	assert!(played, "a held note is something to play");
+
+	context.send_event(NoteEvent::NoteOff {
+		channel: 0,
+		note: 60,
+		velocity: 0.0,
+	});
+
+	for sample in 0..480_000 {
+		i_am_dsp::Processor::process(&mut plugin, &mut frame, &[], &mut context);
+
+		if sample == 0 {
+			context.clear_events();
+		}
+
+		if i_am_dsp::Processor::is_idle(&plugin, true) {
+			return;
+		}
+	}
+
+	panic!("the release never ran out");
+}

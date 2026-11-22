@@ -602,6 +602,13 @@ impl<
 		self.pending_from[channel] = Some(note);
 	}
 
+	/// A voice stays in the map while its release runs, so an entry with no notes left
+	/// in it is still an entry: the question is whether any voice is left, not whether
+	/// the map has been emptied.
+	fn is_idle(&self) -> bool {
+		self.note_playing.values().all(|notes| notes.is_empty())
+	}
+
 	fn generate(
 		&mut self,
 		process_context: &mut Box<dyn crate::ProcessContext>,

@@ -270,7 +270,28 @@ VST3 经 `clap-wrapper` 送进来的参数自动化**每块只有最后一个点
   变成待办队列，防止开出第二个编辑器。GTK 版反过来：它不泵别人的循环，而是要别人泵它的
   （`Editor::pump`，从宿主的 GUI timer 里调）。
 
-### 4.3 Editor 接缝
+
+### 4.3 空闲块
+
+宿主每块都会调 `process`，哪怕这个实例已经没声音了。包装层在块的入口问三件事：
+
+1. 这一块有没有能叫醒 DSP 的事件（音符、参数值/调制、MIDI 1.0）——传输事件**不算**，它只动时钟；
+2. 输入（含侧链）是不是全零；
+3. `Processor::is_idle()` 是不是说没有声部了。
+
+三条都成立就**不进采样循环**：输出清零、`BeatClock` 照常推进到块尾、块尾的参数上报与延迟发布照旧。
+实测（48 kHz、512 帧）：空闲的 `I Am Additive` 从 29 µs/块降到 0.85 µs/块（单核 0.27% → 0.008%），
+`I Am Script` 57 → 0.86，`I Am Canvas` 58 → 1.05。
+
+- **这是承诺不是提示**：默认 `false`（照常跑），因为错的 yes 是尾巴被剪掉、错的 no 只是多花时间。
+  目前报 idle 的只有 `Adsr`（声部表里没有活着的声部）、鼓机（没有还在响的击打），以及它们的产品包装
+  （旁通时也报）。弦、采样器、所有效果器、patcher 都还默认 false：弦的共鸣弦和混响尾巴在声部消失之后还在响，
+  跳过会把尾巴剪掉；效果器在没有「输入静音 ⇒ 输出静音」的证明之前也不能报。
+- 页面不用改：空闲前 scope 环里最后几帧本来就是零，跳过后页面读到的是零线，看起来就是静音。
+  但也正因为跳过，空闲时 scope 与表头**不会刷新**——那是预期行为，不是卡住。
+- 换新音符、动旋钮都会叫醒它：音符事件与参数事件都在上面的名单里，所以「跳过」不会吞掉一次触发。
+
+### 4.4 Editor 接缝
 
 GUI 工具包完全在 `Editor` trait 后面：
 
@@ -299,7 +320,7 @@ trait Editor<P: Plugin> {
 Windows 与 Linux 都在真机上跑过（Linux 是 WSL2 + WSLg 里的 Kali：X11 嵌入、页面加载、IPC 都通）；
 macOS 的后端代码齐全，但**没有在真机上验证过**。其余平台仍是报错的 stub。
 
-### 4.4 宿主扩展
+### 4.5 宿主扩展
 
 | 扩展 | 实现 | 要点 |
 | --- | --- | --- |
@@ -309,14 +330,14 @@ macOS 的后端代码齐全，但**没有在真机上验证过**。其余平台�
 | gui | `PluginGuiImpl` | 打开/关闭/缩放/重设父窗口，全部转发给 `Editor` |
 | timer | `PluginTimerImpl` | 宿主支持 timer 时跟窗口尺寸；Linux 上还负责推进 GTK 循环（`Editor::pump`） |
 
-### 4.5 导出
+### 4.6 导出
 
 - 单插件：`export_plugin!(MyPlugin)` → `clap_entry`；开 `vst3` feature 时再导出
   `GetPluginFactory` / `InitDll` / `ExitDll`（链接 `clap-wrapper` + VST3 SDK）。
 - 多插件：`PluginSetSource` + `SetEntry` + `SetFactory`，一个库列出多个插件。
 - AU：实现 `PluginAuExt`（`AU_TYPE`/`AU_SUBTYPE`）只为导出符号，打包未验证。
 
-### 4.6 `EffectProcessor`
+### 4.7 `EffectProcessor`
 
 绝大多数效果产品不需要自己写 `Processor`，用
 `i_am_plugin::processor::EffectProcessor::new(|rate| MyEffect::new(rate))`：

@@ -449,6 +449,10 @@ impl Parameters for ScriptedVoice {
 }
 
 impl Generator<2> for ScriptedVoice {
+	fn is_idle(&self) -> bool {
+		self.voice.is_idle()
+	}
+
 	fn generate(&mut self, process_context: &mut Box<dyn ProcessContext>) -> [f32; 2] {
 		if self.feed.changed(&mut self.generation)
 			&& let Some(script) = self.feed.current_script()
@@ -621,6 +625,11 @@ impl Processor for ScriptWeb {
 
 	fn delay(&self) -> usize {
 		Processor::delay(&self.processor)
+	}
+
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		self.bypass.load(std::sync::atomic::Ordering::Relaxed)
+			|| Processor::is_idle(&self.processor, input_is_silent)
 	}
 
 	fn process(

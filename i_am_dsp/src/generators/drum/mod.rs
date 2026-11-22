@@ -507,6 +507,12 @@ mod render;
 pub use preset::*;
 
 impl Generator<2> for DrumInstrument {
+	/// A hit stays in the list until its tail has finished, so an empty list is the whole
+	/// of "nothing left to hear".
+	fn is_idle(&self) -> bool {
+		self.playing.is_empty()
+	}
+
 	fn generate(&mut self, context: &mut Box<dyn crate::ProcessContext>) -> [f32; 2] {
 		let rate = context.infos().sample_rate as f32;
 		if rate > 0.0 && (rate - self.rate).abs() > 0.5 {
