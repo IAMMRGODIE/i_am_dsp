@@ -3569,6 +3569,19 @@
 
       entry.context.scope.input = arriving.length > 1 ? mono(arriving) : null;
       entry.context.scope.output = mono(samples);
+
+      // A goniometer hero reads four channels, not a mono sum: the picture is the
+      // difference between left and right, which the sum throws away. The taps carry
+      // the stereo frames, so both sides of the card are there to draw.
+      const branch = (frames, side) => frames.map((frame) => frame[side] || 0);
+
+      entry.context.stereo = {
+        inputLeft: branch(arriving, 0),
+        inputRight: branch(arriving, 1),
+        outputLeft: branch(samples, 0),
+        outputRight: branch(samples, 1),
+      };
+
       entry.card.repaintHero();
     }
 
