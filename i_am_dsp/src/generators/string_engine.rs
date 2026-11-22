@@ -59,6 +59,16 @@ pub struct StringInstrument {
 	engine: strings::StringEngine,
 	#[skip]
 	sample_rate: usize,
+	/// How many samples in a row the output has been inaudible.
+	///
+	/// The notes are only part of the sound: the sympathetic strings and the body keep a
+	/// tail that outlives the last voice, so "no voices" is not "nothing to hear". This
+	/// counts the tail out instead.
+	#[skip]
+	silent_run: u32,
+	/// Whether a note has ever been played, so an untouched instrument is idle at once.
+	#[skip]
+	played: bool,
 	/// Which instrument is being played.
 	#[range(min = 0, max = 1)]
 	#[choices("Violin", "Cello")]
@@ -239,6 +249,8 @@ impl StringInstrument {
 		let mut instrument = Self {
 			engine,
 			sample_rate,
+			silent_run: 0,
+			played: false,
 			preset: 0,
 			excitation: 0,
 			core: 0,
@@ -356,7 +368,23 @@ impl StringInstrument {
 	}
 }
 
+/// What counts as silence when the instrument decides whether it still has a sound.
+const INAUDIBLE: f32 = 1e-5;
+
 impl Generator<2> for StringInstrument {
+	/// An instrument nothing was played to has nothing to play; after a note, the tail has
+	/// to run out first -- the sympathetic strings and the body outlive the voices.
+	fn is_idle(&self) -> bool {
+		if !self.played {
+			return true;
+		}
+
+		// A tenth of a second at the rate the engine is running at.
+		let wanted = (self.sample_rate / 10).max(1) as u32;
+
+		self.silent_run >= wanted
+	}
+
 	fn generate(&mut self, process_context: &mut Box<dyn crate::ProcessContext>) -> [f32; 2] {
 		let sample_rate = process_context.infos().sample_rate;
 		if sample_rate > 0 && sample_rate != self.sample_rate {
@@ -380,6 +408,8 @@ impl Generator<2> for StringInstrument {
 			match event {
 				NoteEvent::NoteOn { note, velocity, .. } => {
 					self.engine.note_on(to_midi(*note), *velocity);
+					self.played = true;
+					self.silent_run = 0;
 				}
 				NoteEvent::NoteOff { note, .. } => {
 					self.engine.note_off(to_midi(*note));
@@ -398,7 +428,18 @@ impl Generator<2> for StringInstrument {
 			}
 		}
 
-		self.engine.next_frame()
+		let out = self.engine.next_frame();
+
+		// A tail below a hundred-thousandth of full scale is inaudible, and a tenth of a
+		// second of it means there is nothing left to hear. Counting the tail out is what
+		// lets the wrapper skip a silent block without cutting the strings' decay.
+		if out[0].abs() < INAUDIBLE && out[1].abs() < INAUDIBLE {
+			self.silent_run = self.silent_run.saturating_add(1);
+		} else {
+			self.silent_run = 0;
+		}
+
+		out
 	}
 
 	#[cfg(feature = "real_time_demo")]
@@ -485,5 +526,97 @@ impl Generator<2> for StringInstrument {
 		if self.preset != previous_preset {
 			self.load_preset(self.preset);
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::{NoteEvent, ProcessContext, ProcessInfos};
+
+	struct Ctx {
+		events: Vec<NoteEvent>,
+		infos: ProcessInfos,
+	}
+
+	impl Ctx {
+		fn new() -> Self {
+			let infos = ProcessInfos {
+				sample_rate: 48_000,
+				playing: true,
+				..ProcessInfos::default()
+			};
+			Self {
+				events: Vec::new(),
+				infos,
+			}
+		}
+	}
+
+	impl ProcessContext for Ctx {
+		fn infos(&self) -> &ProcessInfos {
+			&self.infos
+		}
+
+		fn next_event(&mut self) -> Option<NoteEvent> {
+			self.events.pop()
+		}
+
+		fn send_event(&mut self, event: NoteEvent) {
+			self.events.push(event);
+		}
+
+		fn events(&self) -> &[NoteEvent] {
+			&self.events
+		}
+
+		fn clear_events(&mut self) {
+			self.events.clear();
+		}
+	}
+
+	/// A tail the wrapper may cut has to end first: the voices finish, but the sympathetic
+	/// strings and the body keep the instrument sounding, so the counter measures the sound
+	/// rather than the voice list.
+	#[test]
+	fn a_string_is_idle_only_after_its_tail_has_run_out() {
+		let mut instrument = StringInstrument::new(48_000);
+		let mut context: Box<dyn ProcessContext> = Box::new(Ctx::new());
+
+		assert!(instrument.is_idle(), "nothing has been played");
+
+		context.send_event(NoteEvent::NoteOn {
+			channel: 0,
+			note: 55,
+			velocity: 0.8,
+		});
+
+		for _ in 0..4_800 {
+			instrument.generate(&mut context);
+		}
+
+		assert!(!instrument.is_idle(), "a held note is something to play");
+
+		context.send_event(NoteEvent::NoteOff {
+			channel: 0,
+			note: 55,
+			velocity: 0.0,
+		});
+
+		// Ten seconds is longer than any preset's release, so reaching the end without going
+		// idle means the tail never gets quiet enough to be skipped.
+		for sample in 0..480_000 {
+			instrument.generate(&mut context);
+
+			if instrument.is_idle() {
+				assert!(
+					sample > 4_800,
+					"the tail has to outlive the note by a whole decisecond"
+				);
+				return;
+			}
+		}
+
+		panic!("the tail never ran out");
 	}
 }
