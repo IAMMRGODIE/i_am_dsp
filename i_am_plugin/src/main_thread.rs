@@ -43,6 +43,12 @@ pub struct PluginMain<P: Plugin> {
 	pub(crate) parent: Option<ParentWindow>,
 	/// The open GUI, if it is open.
 	pub(crate) editor: Option<Box<dyn Editor<P>>>,
+	/// Whether a page is on screen right now.
+	///
+	/// The audio thread reads this to decide whether a block it could skip is worth
+	/// rendering anyway: the page's scope and meters are fed by the audio thread, so a
+	/// page nobody is looking at is the only one that may freeze.
+	pub(crate) ui_open: std::sync::Arc<std::sync::atomic::AtomicBool>,
 	/// Where the editors send the messages the user makes: one channel, so the audio
 	/// thread applies them all and a product never sees two threads at once.
 	pub(crate) message_sender: crossbeam_channel::Sender<P::Message>,
@@ -173,6 +179,10 @@ impl<P: Plugin> PluginMain<P> {
 
 		self.editor = Some(editor);
 		self.start_editor_timer();
+		// From here on somebody can watch the meters, so the audio thread has to keep
+		// feeding them even when there is nothing to hear.
+		self.ui_open
+			.store(true, std::sync::atomic::Ordering::Relaxed);
 		crate::log::note("gui.open: done");
 		Ok(())
 	}
@@ -204,6 +214,9 @@ impl<P: Plugin> PluginMain<P> {
 		if let Some(mut editor) = self.editor.take() {
 			crate::log::note("gui.close: closing editor");
 			editor.close();
+			// Nobody can see the scope any more: an idle block may be skipped again.
+			self.ui_open
+				.store(false, std::sync::atomic::Ordering::Relaxed);
 			crate::log::note("gui.close: editor closed");
 		}
 		// The channel outlives the editor: a message already in flight is still
@@ -222,6 +235,8 @@ impl<P: Plugin> PluginMain<P> {
 			editor
 				.hide()
 				.map_err(|error| PluginError::Error(Box::new(error)))?;
+			self.ui_open
+				.store(false, std::sync::atomic::Ordering::Relaxed);
 		}
 
 		Ok(())
@@ -382,9 +397,13 @@ impl<P: Plugin> PluginGuiImpl for PluginMain<P> {
 		}
 		if let Some(editor) = &mut self.editor {
 			crate::log::note("gui.show");
-			return editor
+			let shown = editor
 				.show()
 				.map_err(|error| PluginError::Error(Box::new(error)));
+			// Shown again: the meters have to move again even in silence.
+			self.ui_open
+				.store(true, std::sync::atomic::Ordering::Relaxed);
+			return shown;
 		}
 
 		self.open()

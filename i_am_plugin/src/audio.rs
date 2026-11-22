@@ -55,6 +55,9 @@ pub struct AudioProcessor<'a, P: Plugin> {
 	/// Where the audio thread publishes the latency it is running at, for the main thread to
 	/// hand to the host.
 	pub(crate) latency: LatencyPublisher,
+	/// Whether a page is on screen, which keeps a block the DSP could skip rendered
+	/// anyway: the page's scope and meters are fed by the audio thread.
+	pub(crate) ui_open: std::sync::Arc<std::sync::atomic::AtomicBool>,
 	/// The handover the state extension uses: while the main thread holds it, this
 	/// side must not touch the processor at all.
 	pub(crate) state_guard: std::sync::Arc<crate::state_guard::StateGuard>,

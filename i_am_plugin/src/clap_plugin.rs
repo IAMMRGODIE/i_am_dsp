@@ -78,6 +78,7 @@ impl<P: Plugin> DefaultPluginFactory for ClapPlugin<P> {
 			latency,
 			parent: None,
 			editor: None,
+			ui_open: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
 			editor_timer: None,
 			message_sender: message_sender.clone(),
 			message_receiver: std::sync::Arc::new(message_receiver),

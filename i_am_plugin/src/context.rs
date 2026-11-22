@@ -273,6 +273,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			#[cfg(feature = "smoothing")]
 			smoothing,
 			latency: main_thread.latency.publisher(),
+			ui_open: main_thread.ui_open.clone(),
 			state_guard: main_thread.state_guard.clone(),
 			message_receiver: main_thread.message_receiver.clone(),
 			_phantom: std::marker::PhantomData,
@@ -475,7 +476,11 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 				)
 			})
 		});
-		let idle = !wakes && processor.is_idle(true) && self.inputs_are_silent(buffer_size);
+		// A page on screen is fed by this loop -- its scope, its meters -- so it is the one
+		// case where a silent block is still worth rendering.
+		let watching = self.ui_open.load(std::sync::atomic::Ordering::Relaxed);
+		let idle =
+			!watching && !wakes && processor.is_idle(true) && self.inputs_are_silent(buffer_size);
 		let rendered = if idle { 0 } else { buffer_size };
 
 		let mut next_event_sample = events
