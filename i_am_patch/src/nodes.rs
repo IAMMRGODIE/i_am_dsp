@@ -1572,6 +1572,17 @@ impl BlockNode for AdsrNode {
 		}
 	}
 
+	/// The note the next one should glide from.
+	///
+	/// A voice group is rebuilt for every note, so this envelope has never played
+	/// anything and knows no pitch to leave behind: without this the glide control would
+	/// do nothing at all in the patcher.
+	fn glide_from(&mut self, channel: u8, note: usize) {
+		if let Some(inner) = &mut self.inner {
+			i_am_dsp::Generator::glide_from(inner, channel, note);
+		}
+	}
+
 	fn process(&mut self, context: &mut BlockContext, _: &[Buffer], outputs: &mut [Buffer]) {
 		let Some(inner) = &mut self.inner else {
 			if let Some(Buffer::Audio(out)) = outputs.first_mut() {

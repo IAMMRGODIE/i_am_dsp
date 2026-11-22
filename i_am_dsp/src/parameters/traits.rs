@@ -396,6 +396,10 @@ impl<const CHANNELS: usize, T: Generator<CHANNELS>> Generator<CHANNELS> for Para
 		self.value.is_idle()
 	}
 
+	fn glide_from(&mut self, channel: u8, note: usize) {
+		self.value.glide_from(channel, note);
+	}
+
 	#[cfg(feature = "real_time_demo")]
 	fn name(&self) -> &str {
 		self.value.name()
@@ -424,6 +428,10 @@ impl<const CHANNELS: usize, T: Effect<CHANNELS>> Effect<CHANNELS> for Paramed<T>
 
 	fn is_idle(&self, input_is_silent: bool) -> bool {
 		self.value.is_idle(input_is_silent)
+	}
+
+	fn glide_from(&mut self, channel: u8, note: usize) {
+		self.value.glide_from(channel, note);
 	}
 
 	#[cfg(feature = "real_time_demo")]

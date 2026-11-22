@@ -822,6 +822,97 @@ mod tests {
 		assert!(poly.voices.len() >= 2, "the second note took no voice");
 	}
 
+	/// The envelope node inside a voice group is rebuilt for every note, so it has no
+	/// memory of the note before it: the engine hands the previous note over, and without
+	/// that handover the glide control does nothing and every note starts on pitch.
+	#[test]
+	fn a_voice_glides_from_the_note_before_it() {
+		use crate::block::BLOCK;
+		use crate::graph::Graph;
+
+		// Two voices to play one note: the envelope node with a table under it, and a
+		// synth product, whose envelope sits behind the parameter wrapper.
+		fn build(glide: f32, product: bool) -> Graph {
+			let mut graph = Graph::new();
+			let midi = graph.add_node("input:midi", (0.0, 0.0)).expect("midi");
+			let voice_in = graph.add_node("voice:in", (50.0, 0.0)).expect("voice in");
+			let voice_out = graph
+				.add_node("voice:out", (300.0, 0.0))
+				.expect("voice out");
+			let out = graph.add_node("out:audio", (400.0, 0.0)).expect("out");
+
+			graph.connect((midi, 0), (voice_in, 0));
+			graph.connect((voice_out, 0), (out, 0));
+
+			if product {
+				let generator = graph
+					.add_node("synth:additive", (150.0, 0.0))
+					.expect("generator");
+				graph.connect((voice_in, 0), (generator, 0));
+				graph.connect((generator, 0), (voice_out, 0));
+				graph.set_param(generator, "glide_time", glide);
+				graph.set_param(generator, "attack_time", 1.0);
+				graph.set_param(generator, "release_time", 5.0);
+				// A random start phase would make the crossing count a coin toss.
+				graph.set_param(generator, "random_phase", 0.0);
+				graph.set_param(generator, "random_pan", 0.0);
+			} else {
+				let table = graph.add_node("table:shape", (0.0, 120.0)).expect("table");
+				let envelope = graph.add_node("adsr", (150.0, 0.0)).expect("adsr");
+				graph.connect((voice_in, 0), (envelope, 0));
+				graph.connect((table, 0), (envelope, 1));
+				graph.connect((envelope, 0), (voice_out, 0));
+				graph.set_param(envelope, "glide_time", glide);
+				graph.set_param(envelope, "attack_time", 1.0);
+				graph.set_param(envelope, "release_time", 5.0);
+				graph.set_param(envelope, "random_phase", 0.0);
+				graph.set_param(envelope, "random_pan", 0.0);
+			}
+
+			graph
+		}
+
+		// Zero crossings over the first 32 ms of the second note: 72 on its own is about
+		// twice the pitch of 60, so a note that slides up passes through half as many.
+		fn crossings(graph: &crate::graph::Graph) -> usize {
+			let released = NoteEvent::NoteOff {
+				channel: 0,
+				note: 60,
+				velocity: 0.0,
+			};
+			let mut poly = Poly::new(graph, 48_000).expect("poly builds");
+			let rendered = render(
+				&mut poly,
+				44,
+				&[(0, note(60)), (2, released), (20, note(72))],
+			);
+			let from = 20 * BLOCK;
+
+			(1..24 * BLOCK)
+				.filter(|frame| {
+					let frame = from + frame;
+					rendered[frame - 1][0] <= 0.0 && rendered[frame][0] > 0.0
+				})
+				.count()
+		}
+
+		for product in [false, true] {
+			let still = crossings(&build(0.0, product));
+			let gliding = crossings(&build(300.0, product));
+
+			assert!(
+				gliding * 4 < still * 3,
+				"{}: the second note landed on pitch instead of sliding: {gliding} \
+				 crossings against {still} without a glide",
+				if product {
+					"a synth inside the voice"
+				} else {
+					"the envelope node"
+				},
+			);
+		}
+	}
+
 	#[test]
 	fn a_repeated_note_on_reuses_its_voice() {
 		let graph = voice_patch();
