@@ -78,6 +78,12 @@ impl Effect<2> for StereoRouter {
 		0
 	}
 
+	/// Four gains and a sum: nothing is stored between samples but the gains' own
+	/// convergence, which is inaudible while the output is silent.
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		input_is_silent
+	}
+
 	fn process(
 		&mut self,
 		samples: &mut [f32; 2],

@@ -45,6 +45,11 @@ impl Effect<2> for StereoController {
 		0
 	}
 
+	/// Mid and side gains: two multiplications and no state, so silence comes out.
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		input_is_silent
+	}
+
 	#[cfg(feature = "real_time_demo")]
 	fn name(&self) -> &str {
 		"Stereo Controller"
@@ -106,6 +111,12 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Gain {
 		0
 	}
 
+	/// A gain of nothing is nothing, and a gain keeps no memory of what it multiplied:
+	/// the wrapper can leave this one out of a silent block.
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		input_is_silent
+	}
+
 	#[cfg(feature = "real_time_demo")]
 	fn name(&self) -> &str {
 		"Gain"
@@ -164,6 +175,11 @@ impl Effect<2> for LrControl {
 		0
 	}
 
+	/// One multiplication per channel, and no state at all.
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		input_is_silent
+	}
+
 	#[cfg(feature = "real_time_demo")]
 	fn name(&self) -> &str {
 		"LR Controller"
@@ -194,5 +210,29 @@ impl Effect<2> for LrControl {
 			Some("Right Gain".to_string()),
 			false,
 		);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::Effect;
+
+	/// The wrapper skips a block it can prove is silent, so these effects have to say
+	/// when they may be left out: silence in is silence out, and nothing is remembered
+	/// between samples that could keep ringing.
+	#[test]
+	fn a_gain_is_idle_exactly_when_its_input_is() {
+		let gain = Gain::default();
+		assert!(<Gain as Effect<2>>::is_idle(&gain, true));
+		assert!(!<Gain as Effect<2>>::is_idle(&gain, false));
+
+		let balance = LrControl::default();
+		assert!(<LrControl as Effect<2>>::is_idle(&balance, true));
+		assert!(!<LrControl as Effect<2>>::is_idle(&balance, false));
+
+		let width = StereoController::default();
+		assert!(<StereoController as Effect<2>>::is_idle(&width, true));
+		assert!(!<StereoController as Effect<2>>::is_idle(&width, false));
 	}
 }
