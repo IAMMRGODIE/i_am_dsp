@@ -155,6 +155,23 @@ pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 				let json = serde_json::to_string(&source).expect("the script serializes");
 				let _ = writeln!(out, "script {} {}", node.id.0, json);
 			}
+			// A table dropped on a Shape card is the node's sound: the frames the
+			// oscillator plays live in the slot, not in a parameter, so the save has to
+			// carry them or the project falls back to the classic shapes.
+			"table:shapes" | "synth:shapes" => {
+				let bank = slots
+					.waves(node.id.0)
+					.lock()
+					.unwrap_or_else(|error| error.into_inner())
+					.bank
+					.clone();
+
+				if let Some(bank) = bank {
+					let json =
+						serde_json::to_string(&bank.imported()).expect("the table serializes");
+					let _ = writeln!(out, "waves {} {}", node.id.0, json);
+				}
+			}
 			_ => {}
 		}
 	}
@@ -353,6 +370,19 @@ pub fn from_text_with_slots(text: &str, slots: &crate::Slots) -> Result<Graph, T
 					.map_err(|parse_error| error(line, parse_error.to_string()))?;
 				slots.history(id).feed().set_pages(pages);
 			}
+			"waves" => {
+				let id = parse_id(words.next(), line)?;
+				let rest = words.collect::<Vec<_>>().join(" ");
+				let imported: i_am_dsp::prelude::ImportedWave = serde_json::from_str(&rest)
+					.map_err(|parse_error| error(line, parse_error.to_string()))?;
+				let name = (!imported.name.is_empty()).then_some(imported.name);
+
+				slots
+					.waves(id)
+					.lock()
+					.unwrap_or_else(|error| error.into_inner())
+					.bank = Some(i_am_dsp::prelude::WaveBank::new(name, imported.frames));
+			}
 			"filter_table" => {
 				let id = parse_id(words.next(), line)?;
 				let rest = words.collect::<Vec<_>>().join(" ");
@@ -502,6 +532,31 @@ mod tests {
 		}
 
 		assert!((back.get(graph.nodes[2].id).expect("gain").param("gain") - 0.5).abs() < 1e-6);
+	}
+
+	/// A table dropped on a Shape card is the node's sound, not its page: the save has to
+	/// carry it, or every project gets the classic shapes back.
+	#[test]
+	fn an_imported_shape_table_round_trips() {
+		use i_am_dsp::prelude::WaveBank;
+
+		let mut graph = Graph::new();
+		let shape = graph.add_node("table:shapes", (0.0, 0.0)).expect("shapes");
+		let slots = crate::Slots::default();
+		let frames = vec![vec![0.0, 0.5, 0.0, -0.5], vec![0.0, 0.25, 0.0, -0.25]];
+
+		slots.waves(shape.0).lock().expect("the slot").bank =
+			Some(WaveBank::new(Some("note.wav".to_string()), frames));
+
+		let text = to_text_with_slots(&graph, &slots);
+		let loaded = crate::Slots::default();
+		let _ = from_text_with_slots(&text, &loaded).expect("the text parses");
+
+		let bank = loaded.waves(shape.0).lock().expect("the slot").bank.clone();
+		let bank = bank.expect("the table came back");
+		assert_eq!(bank.name(), Some("note.wav"));
+		assert_eq!(bank.len(), 2, "the frames did not all come back");
+		assert!(bank.frames()[0].len() >= 4, "a frame came back empty");
 	}
 
 	#[test]
