@@ -1,6 +1,14 @@
 // Part two: the FFT and the band helpers the scope pictures draw from.
   var BANDS = 96;
 
+  /// The band below which the picture is read from the whole frame instead.
+  ///
+  /// Fifty hertz is two cycles of a forty-three millisecond window, and a
+  /// kick drum lives there: the low bands are read from one transform of the
+  /// whole frame, which is four times the resolution, while everything above
+  /// keeps the short windows a transient needs.
+  var LOW_KNEE = 150;
+
   function fft(real, imag) {
     var n = real.length;
 
@@ -54,19 +62,24 @@
     var n = samples.length;
     if (!n || (n & (n - 1)) !== 0) return null;
 
-    var window = n / 2;
-    var fftLength = window * 4;
-    var real = new Float32Array(fftLength);
-    var imag = new Float32Array(fftLength);
     var raw = new Float32Array(BANDS);
     var filled = new Uint8Array(BANDS);
 
-    function add(offset) {
-      real.fill(0);
-      imag.fill(0);
+    /// One window of the frame, contributing its bands up to `top`.
+    ///
+    /// `replace` makes this window the answer for those bands rather than a
+    /// candidate: the low end is read from the long window alone, because a
+    /// short one does not have the resolution to keep a thirty hertz tone out
+    /// of the band an octave above it.
+    function add(offset, length, padding, top, replace) {
+      var fftLength = length * padding;
+      // The transform reads its length off the array, so every window needs
+      // its own of exactly the size it asks for.
+      var real = new Float32Array(fftLength);
+      var imag = new Float32Array(fftLength);
 
-      for (var i = 0; i < window; i++) {
-        var weight = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (window - 1));
+      for (var i = 0; i < length; i++) {
+        var weight = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (length - 1));
         real[i] = samples[offset + i] * weight;
       }
 
@@ -74,14 +87,14 @@
 
       for (var k = 1; k < fftLength / 2; k++) {
         var frequency = k * rate / fftLength;
-        if (frequency < 20 || frequency > 20000) continue;
+        if (frequency < 20 || frequency > top) continue;
 
-        var magnitude = 4 * Math.sqrt(real[k] * real[k] + imag[k] * imag[k]) / window;
+        var magnitude = 4 * Math.sqrt(real[k] * real[k] + imag[k] * imag[k]) / length;
         var band = Math.floor(Math.log(frequency / 20) / Math.log(1000) * BANDS);
 
         if (band < 0) band = 0;
         if (band >= BANDS) band = BANDS - 1;
-        if (magnitude > raw[band]) {
+        if (replace || magnitude > raw[band]) {
           raw[band] = magnitude;
           filled[band] = 1;
         }
@@ -91,10 +104,25 @@
     // Halves that overlap by half, so a hit that lands on a join is still
     // whole inside one of them. Three transforms of a frame the page reads
     // twenty times a second is nothing next to the audio thread's work.
+    var window = n / 2;
     var hop = window / 2;
     for (var start = 0; start + window <= n; start += hop) {
-      add(start);
+      add(start, window, 4, 20000);
     }
+
+    // Nothing a short window can say about the bottom of the band, so the
+    // whole frame says it instead, and says it alone: the low bands the short
+    // windows filled are cleared first, or their leakage would survive the
+    // carry below. Padded by two, so a tone that falls between bins is not
+    // read low.
+    var knee = Math.floor(Math.log(LOW_KNEE / 20) / Math.log(1000) * BANDS);
+
+    for (var low = 0; low < knee; low++) {
+      raw[low] = 0;
+      filled[low] = 0;
+    }
+
+    add(0, n, 2, LOW_KNEE, true);
 
     var first = 0;
     while (first < BANDS && !filled[first]) first++;
