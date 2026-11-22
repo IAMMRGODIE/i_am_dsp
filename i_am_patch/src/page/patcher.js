@@ -3411,7 +3411,11 @@
   });
 
   document.addEventListener("pointerdown", (event) => {
-    if (!event.target.closest("#menu")) closeMenu();
+    // A category's flyout is lifted onto the body so the menu's own scroll
+    // cannot cut it off, which means a press on one of its items is outside
+    // the menu element: closing on that press would take the item away before
+    // the click could land.
+    if (!event.target.closest("#menu, .menu-sub")) closeMenu();
   });
 
   // The card the page is watching. Its two sides ride along with the sources'
