@@ -13,11 +13,26 @@ use crate::shared::*;
 /// `P` through `&P` (`on_message`, `delay`, `synced_view`, …) or, when loading state,
 /// through `&mut P`. Those references overlap, so a plugin must share state between the
 /// two sides only through atomics or other interior mutability.
+/// One channel of one output port, for the sample loop to write into.
+///
+/// The pointer is an `usize` for the same reason the processor's is: [`AudioProcessor`]
+/// has to be `Send`, and the sample loop is the only place it is turned back into a
+/// pointer.
+pub(crate) struct OutputChannel {
+	/// The host's buffer for this channel.
+	pub(crate) pointer: usize,
+	/// Which of the product's two channels belongs in this one.
+	pub(crate) channel: usize,
+	/// Whether the host asked for `f64` samples.
+	pub(crate) wide: bool,
+}
+
 pub struct AudioProcessor<'a, P: Plugin> {
 	pub(crate) processor: usize,
 	pub(crate) temp_buffer_1: Vec<&'a [usize]>,
 	pub(crate) temp_buffer_2: Vec<bool>,
 	pub(crate) temp_buffer_3: Vec<[f32; 2]>,
+	pub(crate) temp_buffer_4: Vec<OutputChannel>,
 	pub(crate) sample_rate: usize,
 	pub(crate) last_available_info: Option<ProcessInfos>,
 	/// The musical timeline, kept across blocks.

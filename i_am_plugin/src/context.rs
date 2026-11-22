@@ -1,6 +1,6 @@
 //! context
 
-use crate::audio::AudioProcessor;
+use crate::audio::{AudioProcessor, OutputChannel};
 use crate::events::{
 	handle_param_mod_event, handle_param_value_event, note_event_to_clap, sync_params,
 };
@@ -91,6 +91,10 @@ impl ProcessContext for ClapContext {
 		if let Some(info) = &mut self.info {
 			info.set_position_beats(position);
 		}
+	}
+
+	fn sample_offset(&self) -> usize {
+		self.current_sample
 	}
 }
 
@@ -218,6 +222,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			temp_buffer_1: vec![],
 			temp_buffer_2: vec![],
 			temp_buffer_3: vec![],
+			temp_buffer_4: vec![],
 			sample_rate: config.sample_rate as usize,
 			last_available_info: None,
 			clock: BeatClock::new(config.sample_rate as usize),
@@ -338,13 +343,13 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 		let block_start = self.samples_processed;
 		let clock = self.clock;
 		let event_sender = self.event_sender.clone();
-		let mut context = Some(ClapContext::from_clap(
+		let mut context = Some(Box::new(ClapContext::from_clap(
 			&mut self.last_available_info,
 			process,
 			event_sender,
 			block_start,
 			clock,
-		));
+		)));
 		let mut output_temp = [0.0; 2];
 
 		let buffer_size = audio.frames_count() as usize;
@@ -380,6 +385,34 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 
 		for _ in 0..self.temp_buffer_1.len() {
 			self.temp_buffer_3.push([0.0, 0.0]);
+		}
+
+		// The output channels, taken once per block: from here on the sample loop only
+		// writes through these. Walking the port structures per sample was most of what
+		// a silent plug-in cost.
+		self.temp_buffer_4.clear();
+
+		for mut output_port in audio.output_ports() {
+			match output_port.channels()? {
+				SampleType::F32(inner) | SampleType::Both(inner, _) => {
+					for (channel, pointer) in inner.raw_data().iter().enumerate().take(2) {
+						self.temp_buffer_4.push(OutputChannel {
+							pointer: *pointer as *mut u8 as usize,
+							channel,
+							wide: false,
+						});
+					}
+				}
+				SampleType::F64(inner) => {
+					for (channel, pointer) in inner.raw_data().iter().enumerate().take(2) {
+						self.temp_buffer_4.push(OutputChannel {
+							pointer: *pointer as *mut u8 as usize,
+							channel,
+							wide: true,
+						});
+					}
+				}
+			}
 		}
 
 		let mut next_event_sample = events
@@ -498,50 +531,37 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 					}
 				}
 			}
-			let mut context_took = context.take().unwrap();
 			// Also advances the musical clock to this sample.
-			context_took.set_sample_offset(i);
-			let mut context_in = Box::new(context_took) as Box<dyn ProcessContext>;
+			if let Some(context) = context.as_mut() {
+				context.set_sample_offset(i);
+			}
 
 			// After the events of this sample and before the DSP reads a parameter:
 			// the ramp is what the product sees, not the host's raw jump.
 			#[cfg(feature = "smoothing")]
 			self.smoothing.tick();
 
+			// The box moves into the trait object and back out again, which keeps the
+			// same allocation: a host calls this once per sample, and boxing a fresh
+			// context each time was a malloc and a free every twenty microseconds.
+			let mut context_in: Box<dyn ProcessContext> = context.take().unwrap();
+
 			processor.process(&mut output_temp, &self.temp_buffer_3, &mut context_in);
 
 			let context_back = context_in as Box<dyn Any>;
 			let context_back =
 				Box::<dyn std::any::Any>::downcast::<ClapContext>(context_back).unwrap();
-			context = Some(*context_back);
+			context = Some(context_back);
 
-			for mut output_ports in audio.output_ports() {
-				match output_ports.channels()? {
-					SampleType::F32(inner) | SampleType::Both(inner, _) => {
-						for (channel, ptr) in inner.raw_data().iter().enumerate() {
-							if channel >= 2 {
-								break;
-							}
-							// SAFETY: `ptr` points to a host-provided output channel buffer of
-							// `buffer_size` samples, and `i` indexes within this block.
-							unsafe {
-								let to_write = ptr.add(i);
-								*to_write = output_temp[channel];
-							}
-						}
-					}
-					SampleType::F64(inner) => {
-						for (channel, ptr) in inner.raw_data().iter().enumerate() {
-							if channel >= 2 {
-								break;
-							}
-							// SAFETY: `ptr` points to a host-provided output channel buffer of
-							// `buffer_size` samples, and `i` indexes within this block.
-							unsafe {
-								let to_write = ptr.add(i);
-								*to_write = output_temp[channel] as f64;
-							}
-						}
+			for output in &self.temp_buffer_4 {
+				// SAFETY: each pointer was taken from the host's output buffers for this
+				// block, which hold `buffer_size` samples of the type `i` is written as,
+				// and `i` is inside this block.
+				unsafe {
+					if output.wide {
+						*(output.pointer as *mut f64).add(i) = output_temp[output.channel] as f64;
+					} else {
+						*(output.pointer as *mut f32).add(i) = output_temp[output.channel];
 					}
 				}
 			}
