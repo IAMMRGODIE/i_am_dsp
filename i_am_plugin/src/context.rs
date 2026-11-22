@@ -675,7 +675,16 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 
 		sync_params(events.output, &self.param_map);
 
-		Ok(ProcessStatus::Continue)
+		// A block that was skipped is the one thing a host can act on: "processing should
+		// continue, unless all outputs are quiet" is exactly what happened, and a host that
+		// understands it may stop calling us until an event arrives. Not `Sleep`: that one
+		// asks to be left alone entirely, and a note would then depend on the host waking a
+		// plug-in it has parked.
+		Ok(if idle {
+			ProcessStatus::ContinueIfNotQuiet
+		} else {
+			ProcessStatus::Continue
+		})
 	}
 }
 
