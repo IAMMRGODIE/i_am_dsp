@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
 	AdditiveOsc, Adsr, EqualTemperament, Generator, GeneratorEffect, Oscillator, ParamMap,
-	Parameter, Parameters, RhaiFreqGen, RhaiScript, SetValue,
+	Parameter, Parameters, RhaiFreqGen, RhaiScript, SetValue, Value,
 };
 use i_am_dsp::{ProcessContext, Processor};
 use i_am_plugin::processor::{EffectMessage, EffectProcessor};
@@ -385,10 +385,33 @@ impl ScriptedVoice {
 
 impl Parameters for ScriptedVoice {
 	fn get_parameters(&self) -> Vec<Parameter> {
-		self.voice.get_parameters()
+		let mut parameters = self.voice.get_parameters();
+		// The script is the part of this product a host has to carry: it is not
+		// a number, so it travels as a serialized parameter, which the page never
+		// sees as a control because the parameter map cannot hold one. Read from
+		// the feed as it is now, so a save between two blocks carries the text
+		// that is actually playing.
+		parameters.push(Parameter::new(
+			"script",
+			Value::Serialized(self.feed.source().into_bytes()),
+		));
+		parameters
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		// A project restored into this voice carries its script: the page route
+		// is not involved, so the feed is told directly.
+		if identifier == "script" {
+			if let SetValue::Serialized(bytes) = value
+				&& let Ok(source) = String::from_utf8(bytes)
+			{
+				let _ = self.feed.apply(source);
+				return true;
+			}
+
+			return false;
+		}
+
 		// The picture follows the knobs as they move, so the preview reads them
 		// from the same values the audio thread plays.
 		match identifier {
@@ -680,6 +703,61 @@ impl i_am_effects::ScriptSource for ScriptFeed {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// The script is the product's content, so a host has to be able to save it:
+	/// it rides along as a serialized parameter, not as a control.
+	#[test]
+	fn the_script_is_saved_with_the_voice() {
+		let feed = ScriptFeed::new();
+		let source = "let ratio = 3.0; let amplitude = 1.0; let damping = 0.0; let phase = 0.0;";
+		assert!(feed.apply(source.to_string()).contains("\"ok\":true"));
+
+		let voice = ScriptedVoice::new(48_000, feed);
+		let parameters = voice.get_parameters();
+		let script = parameters
+			.iter()
+			.find(|parameter| parameter.identifier == "script")
+			.expect("a script parameter");
+		let Value::Serialized(bytes) = &script.value else {
+			panic!("the script is not serialized: {:?}", script.value);
+		};
+
+		assert_eq!(String::from_utf8_lossy(bytes), source);
+	}
+
+	/// The whole product, the way a host carries it: the state the plug-in
+	/// writes holds the text, and loading that state into a fresh instance
+	/// brings the script back.
+	#[test]
+	fn the_plugin_saves_and_restores_its_script() {
+		let source = "let ratio = 7.0; let amplitude = 1.0; let damping = 0.0; let phase = 0.0;";
+		let web = ScriptWeb::default();
+		assert!(web.feed.apply(source.to_string()).contains("\"ok\":true"));
+
+		let saved = web
+			.get_parameters()
+			.iter()
+			.find(|parameter| parameter.identifier == "script")
+			.map(|parameter| parameter.value.clone())
+			.expect("a script parameter");
+
+		assert!(saved.is_serialized(), "the script would not travel");
+
+		let mut restored = ScriptWeb::default();
+		assert!(restored.set_parameter("script", saved.to_set_value()));
+		assert_eq!(restored.feed.source(), source);
+	}
+
+	/// And loading a project has to put it back, without a page in the loop.
+	#[test]
+	fn a_saved_script_comes_back() {
+		let feed = ScriptFeed::new();
+		let mut voice = ScriptedVoice::new(48_000, feed.clone());
+		let source = "let ratio = 5.0; let amplitude = 1.0; let damping = 0.0; let phase = 0.0;";
+
+		assert!(voice.set_parameter("script", SetValue::Serialized(source.as_bytes().to_vec())));
+		assert_eq!(feed.source(), source);
+	}
 
 	#[test]
 	fn a_new_voice_starts_from_the_current_script() {
