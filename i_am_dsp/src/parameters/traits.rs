@@ -4,7 +4,10 @@ use super::*;
 
 use std::{
 	ops::Index,
-	sync::{Arc, atomic::Ordering},
+	sync::{
+		Arc,
+		atomic::{AtomicU64, Ordering},
+	},
 };
 
 use bimap::BiMap;
@@ -358,6 +361,12 @@ pub struct Paramed<T: Parameters> {
 	/// The value last handed to the effect, so a host write is noticed even
 	/// when it does not raise the changed flag.
 	applied: Vec<Option<SetValue>>,
+	/// The write count the last scan saw.
+	///
+	/// The wrapper hands a product one sample at a time, and a scan per sample costs
+	/// a load and a compare per parameter. A map nobody wrote since the last scan
+	/// cannot hold anything new, so this is what makes the scan cheap between writes.
+	synced: u64,
 }
 
 impl<T: Parameters> Parameters for Paramed<T> {
@@ -379,7 +388,7 @@ impl<const CHANNELS: usize, T: Generator<CHANNELS>> Generator<CHANNELS> for Para
 		&mut self,
 		process_context: &mut Box<dyn crate::ProcessContext>,
 	) -> [f32; CHANNELS] {
-		self.sync_params();
+		self.sync_params_if(process_context.sample_offset() == 0);
 		self.value.generate(process_context)
 	}
 
@@ -405,7 +414,7 @@ impl<const CHANNELS: usize, T: Effect<CHANNELS>> Effect<CHANNELS> for Paramed<T>
 		other: &[&[f32; CHANNELS]],
 		process_context: &mut Box<dyn crate::ProcessContext>,
 	) {
-		self.sync_params();
+		self.sync_params_if(process_context.sample_offset() == 0);
 		self.value.process(samples, other, process_context)
 	}
 
@@ -440,6 +449,8 @@ impl<T: Parameters> Paramed<T> {
 			params: ParamMap::new(),
 			scheme,
 			applied: Vec::new(),
+			// A map that has never been read: the first sync has to look.
+			synced: u64::MAX,
 		};
 		empty_self.update_map();
 		empty_self
@@ -460,6 +471,8 @@ impl<T: Parameters> Paramed<T> {
 			params: ParamMap::new(),
 			scheme: StableIdScheme::default(),
 			applied: Vec::new(),
+			// A map that has never been read: the first sync has to look.
+			synced: u64::MAX,
 		};
 		empty_self.update_map_with_additional(additional_params);
 		empty_self
@@ -467,11 +480,10 @@ impl<T: Parameters> Paramed<T> {
 
 	/// Synchronize the parameters with the host.
 	pub fn sync_params(&mut self) {
-		// A host calls this once a block, but an effect that processes sample by
-		// sample calls it every sample: only the values that moved may run through
-		// `set_parameter`. The changed flag cannot be the test: it reports the
-		// interface to the host, and a value the host itself wrote leaves it clear,
-		// so the effect remembers what it applied last instead.
+		// Only the values that moved may run through `set_parameter`. The changed
+		// flag cannot be the test: it reports the interface to the host, and a value
+		// the host itself wrote leaves it clear, so the effect remembers what it
+		// applied last instead.
 		if self.applied.len() != self.params.values.len() {
 			self.applied = vec![None; self.params.values.len()];
 		}
@@ -489,6 +501,28 @@ impl<T: Parameters> Paramed<T> {
 
 			self.applied[id] = Some(value);
 		}
+
+		self.synced = self.params.writes();
+	}
+
+	/// Synchronizes, unless the caller knows nothing has moved.
+	///
+	/// The wrapper hands the DSP one sample at a time, and the map only changes when
+	/// something writes it, so a scan per sample is a scan of values nobody touched.
+	/// `block_start` is the caller saying it is at the top of a block: a full scan
+	/// there is what keeps a write nobody announced -- an editor's knob, a preset --
+	/// from being missed for longer than one block.
+	pub(crate) fn sync_params_if(&mut self, block_start: bool) {
+		let writes = self.params.writes();
+
+		if !block_start && writes == self.synced {
+			return;
+		}
+
+		self.sync_params();
+		// The count read before the scan, so a write that landed during it is seen
+		// on the next sample instead of being taken for already applied.
+		self.synced = writes;
 	}
 
 	/// Get the parameter map.
@@ -515,6 +549,8 @@ impl<T: Parameters> Paramed<T> {
 		let overrides = self.value.stable_id_overrides();
 		self.params = ParamMap::build(entries, self.scheme, &overrides);
 		self.applied.clear();
+		// A rebuilt map has to be read once whatever the count says.
+		self.synced = u64::MAX;
 	}
 
 	/// Update the parameter map and add additional parameters.
@@ -550,6 +586,8 @@ impl<T: Parameters> Paramed<T> {
 		let overrides = self.value.stable_id_overrides();
 		self.params = ParamMap::build(entries, self.scheme, &overrides);
 		self.applied.clear();
+		// A rebuilt map has to be read once whatever the count says.
+		self.synced = u64::MAX;
 	}
 }
 
@@ -662,6 +700,11 @@ pub struct ParamMap {
 	by_stable_id: Arc<BiMap<u32, usize>>,
 	/// What a host needs to present each parameter, by index.
 	metas: Arc<Vec<ParameterMeta>>,
+	/// How many writes the map has seen.
+	///
+	/// A reader that is handed the same map every sample can tell a map that moved
+	/// from one that did not without walking the values to find out.
+	writes: Arc<AtomicU64>,
 }
 
 impl Index<usize> for ParamMap {
@@ -782,6 +825,7 @@ impl ParamMap {
 			stable_ids: Arc::new(stable_ids),
 			by_stable_id: Arc::new(by_stable_id),
 			metas: Arc::new(metas),
+			writes: Arc::new(AtomicU64::new(0)),
 		}
 	}
 
@@ -847,8 +891,28 @@ impl ParamMap {
 		};
 
 		value.store(to_set, ordering);
+		self.touch();
 
 		true
+	}
+
+	/// Marks the map as written.
+	///
+	/// Writing a value is the one place everybody goes through, but a ramp writes the
+	/// float inside an `AtomicValue` itself (the host must not be told about its own
+	/// automation), so it says so here instead.
+	pub fn touch(&self) {
+		self.writes.fetch_add(1, Ordering::Relaxed);
+	}
+
+	/// How many writes the map has seen.
+	pub fn writes(&self) -> u64 {
+		self.writes.load(Ordering::Relaxed)
+	}
+
+	/// The write counter, for a writer that has the value and not the map.
+	pub fn write_stamp(&self) -> Arc<AtomicU64> {
+		self.writes.clone()
 	}
 
 	/// Query the parameter value by its index.
@@ -867,6 +931,14 @@ impl ParamMap {
 		// self.update_queue(index);
 
 		Some(value.clone())
+	}
+
+	/// Get the parameter value by its index without adding a reference to it.
+	///
+	/// [`Self::get_by_index`] hands out an `Arc`, which is a reference count on the
+	/// audio thread; a reader that only needs the value takes this.
+	pub fn get_ref_by_index(&self, index: usize) -> Option<&AtomicValue> {
+		self.values.get(index).map(|value| &**value)
 	}
 
 	/// Query the stable id of the parameter at the given index.

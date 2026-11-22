@@ -23,7 +23,7 @@
 //! automation, or every ramp would echo back as a burst of parameter changes.
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use i_am_dsp::prelude::{AtomicValue, ParamMap};
 
@@ -35,6 +35,13 @@ use crate::plugin::SmoothedParameter;
 /// ever walks the list, and it holds the atomics directly so a tick costs no lookup.
 pub(crate) struct Smoothing {
 	ramps: Vec<Ramp>,
+	/// The map's write counter.
+	///
+	/// A ramp writes the float the DSP reads without going through the map, so this is
+	/// how the parameter sync learns there is something new to read. Bumping it on a
+	/// sample that moved is what keeps the sync from scanning every parameter to find
+	/// out.
+	writes: Arc<AtomicU64>,
 }
 
 /// One parameter's ramp.
@@ -65,6 +72,7 @@ impl Smoothing {
 		sample_rate: usize,
 		smoothed: &'static [SmoothedParameter],
 	) -> Self {
+		let writes = map.write_stamp();
 		let mut ramps = Vec::with_capacity(smoothed.len());
 
 		for parameter in smoothed {
@@ -100,7 +108,7 @@ impl Smoothing {
 			});
 		}
 
-		Self { ramps }
+		Self { ramps, writes }
 	}
 
 	/// Move every ramp one sample forward.
@@ -108,8 +116,14 @@ impl Smoothing {
 	/// Called after the block's events for this sample have been applied and before the
 	/// DSP is allowed to read the parameters.
 	pub(crate) fn tick(&mut self) {
+		let mut moved = false;
+
 		for ramp in &mut self.ramps {
-			ramp.tick();
+			moved |= ramp.tick();
+		}
+
+		if moved {
+			self.writes.fetch_add(1, Ordering::Relaxed);
 		}
 	}
 
@@ -121,13 +135,15 @@ impl Smoothing {
 		for ramp in &mut self.ramps {
 			ramp.resync();
 		}
+
+		self.writes.fetch_add(1, Ordering::Relaxed);
 	}
 }
 
 impl Ramp {
-	fn tick(&mut self) {
+	fn tick(&mut self) -> bool {
 		let Some(current) = read(&self.atomic) else {
-			return;
+			return false;
 		};
 
 		// A value that is not the one this ramp last handed out was written by
@@ -137,7 +153,7 @@ impl Ramp {
 		// point on the next block.
 		if current != self.value {
 			if current.is_nan() {
-				return;
+				return false;
 			}
 
 			self.target = current;
@@ -146,7 +162,7 @@ impl Ramp {
 		}
 
 		if self.remaining == 0 {
-			return;
+			return false;
 		}
 
 		self.remaining -= 1;
@@ -157,6 +173,8 @@ impl Ramp {
 		};
 
 		write(&self.atomic, self.value);
+
+		true
 	}
 
 	fn resync(&mut self) {
@@ -260,6 +278,24 @@ mod tests {
 		for pair in seen[..960].windows(2) {
 			assert!((pair[1] - pair[0] - step).abs() < 2e-4);
 		}
+	}
+
+	/// A ramp writes the float the DSP reads without going through the map, so it has
+	/// to say the map moved: otherwise the sync skips the only write of the block.
+	#[test]
+	fn a_ramp_announces_the_value_it_wrote() {
+		let map = map();
+		let mut smoothing = Smoothing::new(&map, 48_000, GAIN);
+
+		map.set("gain", SetValue::Float(1.0), Ordering::SeqCst);
+		let written = map.writes();
+
+		smoothing.tick();
+
+		assert!(
+			map.writes() > written,
+			"a ramp step has to be announced to the sync"
+		);
 	}
 
 	/// A new target in the middle of a ramp starts from where the ramp got to.

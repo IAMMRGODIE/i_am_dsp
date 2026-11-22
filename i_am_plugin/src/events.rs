@@ -327,6 +327,10 @@ impl<P: Plugin> PluginMainThreadParams for PluginMain<P> {
 }
 
 pub(crate) fn handle_param_value_event(param: &ParamValueEvent, param_map: &ParamMap) {
+	// An automation point lands in the map here, mid-block, and the DSP reads it on
+	// the next sample: the sync has to know the map moved.
+	param_map.touch();
+
 	if let Some(param_id) = param.param_id() {
 		let value = param.value() as f32;
 		if let Some(inner) = param_map.get_by_stable_id(param_id.get()) {
@@ -354,6 +358,9 @@ pub(crate) fn handle_param_value_event(param: &ParamValueEvent, param_map: &Para
 }
 
 pub(crate) fn handle_param_mod_event(param: &ParamModEvent, param_map: &ParamMap) {
+	// Same as a value event: the modulation moves a value the DSP is about to read.
+	param_map.touch();
+
 	if let Some(param_id) = param.param_id() {
 		let value = param.amount() as f32;
 		if let Some(inner) = param_map.get_by_stable_id(param_id.get()) {

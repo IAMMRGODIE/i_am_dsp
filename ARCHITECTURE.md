@@ -149,12 +149,17 @@ ParamMap { Arc<Vec<Arc<AtomicValue>>>, BiMap<String,usize>, stable_ids, metas } 
 Paramed { value: T, params: ParamMap }            ← 「DSP 对象 + 它的参数表」
 ```
 
-- `Paramed<T>` 实现 `Effect`/`Generator`/`Processor`，在每次 `process`/`generate` 开头调用
-  `sync_params()`：把表里每个原子值 `SeqCst` 读出来，和上次写回 T 的值比较，变了才调
-  `set_parameter`。**不能**用 `changed` 标志当判据：它是「界面向宿主上报」的标志，宿主写进来的值
-  会把它清掉（`handle_param_value_event`），拿它做门就会断掉宿主→插件的同步。这个标志也**不能**
-  在这里清：块尾的 `events::sync_params` 要靠它把界面改动上报给宿主，由上报来清。O(参数数) 每块，
-  换来的是实现简单和永远一致。
+- `Paramed<T>` 实现 `Effect`/`Generator`/`Processor`，在每次 `process`/`generate` 开头同步参数：
+  把表里变了的值 `SeqCst` 读出来、调 `set_parameter`。**不能**用 `changed` 标志当判据：它是
+  「界面向宿主上报」的标志，宿主写进来的值会把它清掉（`handle_param_value_event`），拿它做门就会
+  断掉宿主→插件的同步。这个标志也**不能**在这里清：块尾的 `events::sync_params` 要靠它把界面改动
+  上报给宿主，由上报来清。也不用「上次写进 T 的值」当判据：包装层是按**单样本**调 `process` 的，
+  那样就是每采样 O(参数数) 的原子读——实测一个空闲合成器 1.1%、空闲 patcher 3.2% 的核。
+- 所以同步分两层：**块首**（`ProcessContext::sample_offset() == 0`）全量扫一次，**块内每采样**只读
+  `ParamMap::writes()` 这个写计数，没人写过就什么都不做（O(1)）。写计数由 `ParamMap::set`、
+  平滑器每走一步、宿主参数事件（`handle_param_value_event` / `handle_param_mod_event`）各自
+  `touch()`；**绕过表直接写原子**（`map["a"].store(..)`）不会通告，最迟在下一个块首被读到——
+  这正是块首全量扫存在的理由，界面上的开关晚一个块（10 ms）看不见。
 - 标识符是唯一真相：字段名（或元组位置）→ 可选 `#[id(prefix/name)]` → 嵌套用点号
   （`sub.a`）。`set_parameter_by_index` 只是按表位置转发，宏内部从不依赖位置。
 - `Value` 有五种：`Float` / `Int` / `Bool` / `Serialized(Vec<u8>)` / `Nothing`。
@@ -216,7 +221,8 @@ VST3 经 `clap-wrapper` 送进来的参数自动化**每块只有最后一个点
   N 只由时长和采样率算出：20 ms @ 48 kHz = 960 个样本。放在这个位置是因为 VST3 的目标正是在块首
   那一刻写进来的，早一步就看不到它，晚一步 DSP 已经读到跳变了。
 - 平滑写回的是 `AtomicValue` 里的 `AtomicF32`，**不碰 changed 标志**——否则宿主自己的自动化会
-  被回灌成每样本一个参数事件。
+  被回灌成每样本一个参数事件。也因为它绕过了 `ParamMap::set`，ramp 每走一步都要自己
+  `touch()` 一下写计数：块内的参数同步只认那个计数，不通告的话斜坡上的值永远到不了 DSP。
 - 代价是那个参数最多滞后一个 ramp 时长，所以只点名连续参数；开关与波形选择写进去会表现得像卡顿。
 - `reset()` 丢掉正在走的 ramp、直接对齐目标：重置是断点，不该从上次的位置滑过来。
 

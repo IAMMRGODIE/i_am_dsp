@@ -354,6 +354,16 @@ pub trait ProcessContext: Any {
 	/// Contexts with no timeline keep the default no-op, and the position stays [`None`].
 	fn set_sample_offset(&mut self, _sample_offset: usize) {}
 
+	/// Which sample of the current block the process is about to render.
+	///
+	/// The process loop sets this once per sample, so a processor that is handed one
+	/// sample at a time can tell the top of a block from the middle of one. A context
+	/// that does not say keeps zero, which reads as "always the top of a block" -- the
+	/// safe answer for anything that does its work once per block.
+	fn sample_offset(&self) -> usize {
+		0
+	}
+
 	/// Whether the process should stop immediately or not.
 	fn should_stop(&self) -> bool {
 		self.events().contains(&NoteEvent::ImmediateStop)

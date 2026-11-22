@@ -410,3 +410,28 @@ fn a_value_the_interface_moved_stays_changed_for_the_host() {
 	assert_eq!(paramed.value.a, 0.5);
 	assert!(map["a"].is_chanegd(), "the host report still has to see it");
 }
+
+/// The wrapper hands a product one sample at a time, so the map is asked once per
+/// sample: a write that says it happened is read on the next one, and a write that
+/// does not wait for the block boundary, which looks at everything anyway.
+#[test]
+fn a_write_is_read_when_the_map_says_it_happened() {
+	let mut paramed = Paramed::new(MyParameters::default());
+	let map = paramed.param_map();
+
+	// A map nobody wrote has nothing to read, whatever the sample offset is.
+	paramed.sync_params_if(false);
+	assert_eq!(paramed.value.a, 0.0);
+
+	map.set("a", 0.5_f32, Ordering::Relaxed);
+	paramed.sync_params_if(false);
+	assert_eq!(paramed.value.a, 0.5, "a write through the map is announced");
+
+	// The same write made straight on the value is only found at a block boundary.
+	map["a"].store(0.25_f32, Ordering::Relaxed);
+	paramed.sync_params_if(false);
+	assert_eq!(paramed.value.a, 0.5, "nothing announced that one");
+
+	paramed.sync_params_if(true);
+	assert_eq!(paramed.value.a, 0.25, "the block boundary reads everything");
+}

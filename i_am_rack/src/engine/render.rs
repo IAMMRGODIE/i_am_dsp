@@ -597,6 +597,10 @@ pub(super) fn store(map: &ParamMap, identifier: &str, value: f64) {
 		return;
 	};
 
+	// A read of the map can be skipped when nothing wrote it, so a write has to say
+	// it happened even when it does not go through the map.
+	map.touch();
+
 	if atomic.is_int() {
 		atomic.store(value.round() as i32, Ordering::SeqCst);
 	} else if atomic.is_bool() {
