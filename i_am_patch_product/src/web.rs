@@ -263,6 +263,28 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 		("GET", "/waves") | ("POST", "/waves") => Some(ProtocolResponse::json(
 			waves_route(request, shared).to_string(),
 		)),
+		// A constructor's curve, sampled for the card: the page draws it, it
+		// does not appear in the patch, so it is not worth a route of its own
+		// on anything but this product.
+		("GET", "/wave") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let points = query_value(request, "points")
+				.and_then(|value| value.parse::<usize>().ok())
+				.unwrap_or(192);
+			let values = i_am_patch::sample_constructor(
+				&shared.graph(),
+				&shared.slots,
+				shared.rate.load(Ordering::Relaxed).max(1),
+				NodeId(node),
+				points,
+			);
+
+			Some(ProtocolResponse::json(
+				json!({ "values": values }).to_string(),
+			))
+		}
 		("GET", "/ir") | ("POST", "/ir") => Some(ProtocolResponse::json(ir_route(request, shared))),
 		("POST", "/sample") => {
 			// One recorded note, fitted where it is loaded: the table goes into
@@ -842,6 +864,101 @@ fn op(shared: &PatcherShared, body: &str) -> Value {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Every route and op the patcher page asks for.
+	///
+	/// The page is the definition of what a person can do to a patch, so it is
+	/// also the definition of what an agent must be able to do: a control the
+	/// page offers and the API cannot answer is a hole nothing else would
+	/// notice. This reads the page's own source and asks the route table for
+	/// each thing it calls.
+	#[test]
+	fn the_api_answers_everything_the_page_asks_for() {
+		let page = include_str!("../../i_am_patch/src/page/patcher.js");
+		let mut routes: Vec<&str> = Vec::new();
+		let mut ops: Vec<&str> = Vec::new();
+
+		for marker in ["fetch(\"", "fetch(`"] {
+			for (index, _) in page.match_indices(marker) {
+				let rest = &page[index + marker.len()..];
+				let end = rest.find(['"', '`', '?', '$']).unwrap_or(0);
+				let path = &rest[..end];
+
+				// A path stitched together at run time is not a route this can
+				// check; the ones the page really calls are literals.
+				if path.starts_with('/') && path.len() > 1 {
+					routes.push(path);
+				}
+			}
+		}
+
+		// `snapshot` names an undo step and never sends one: it reads /text
+		// into the page's own history stack. Those names are not ops.
+		let mut marks: Vec<&str> = Vec::new();
+		for (index, _) in page.match_indices("snapshot({ op: \"") {
+			let rest = &page[index + 16..];
+			let end = rest.find('"').unwrap_or(0);
+
+			if end > 0 {
+				marks.push(&rest[..end]);
+			}
+		}
+
+		for (index, _) in page.match_indices("op: \"") {
+			let rest = &page[index + 5..];
+			let end = rest.find('"').unwrap_or(0);
+
+			if end > 0 && !marks.contains(&&rest[..end]) {
+				ops.push(&rest[..end]);
+			}
+		}
+
+		routes.sort_unstable();
+		routes.dedup();
+		ops.sort_unstable();
+		ops.dedup();
+
+		println!(
+			"the page asks for {} routes and {} ops",
+			routes.len(),
+			ops.len()
+		);
+
+		let shared = PatcherShared::default();
+		let mut missing = Vec::new();
+
+		for path in &routes {
+			let get = ProtocolRequest {
+				method: "GET",
+				path,
+				query: None,
+				body: &[],
+			};
+			let post = ProtocolRequest {
+				method: "POST",
+				path,
+				query: None,
+				body: &[],
+			};
+
+			if route(&get, &shared).is_none() && route(&post, &shared).is_none() {
+				missing.push(format!("route {path}"));
+			}
+		}
+
+		for handler in &ops {
+			let reply = op(&shared, &format!("{{\"op\":\"{handler}\"}}")).to_string();
+
+			if reply.contains("unknown op") {
+				missing.push(format!("op {handler}"));
+			}
+		}
+
+		assert!(
+			missing.is_empty(),
+			"the page offers operations the agent's API cannot do: {missing:?}"
+		);
+	}
 	use crate::shared::Body;
 	use i_am_dsp::prelude::NoteEvent;
 	use i_am_patch::engine::Engine;

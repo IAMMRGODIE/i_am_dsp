@@ -462,6 +462,10 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 
 - 节点目录（`nodes.rs`）：`mixer`、`delay`（Lookahead，对齐用）、`lfo`、`random`、`table`、`pitch`、
   `midi`、`envelope`，以及 9 个音源节点（`additive`…`strings`，直接包装 `i_am_synths` 的产品）。
+- **页面能做的，API 必须都能做**：`i_am_patch_product/src/web.rs` 的
+  `the_api_answers_everything_the_page_asks_for` 直接读 `patcher.js`，把其中的 `fetch("/…")` 和 `op: "…"`
+  抽出来逐条问路由表和 op 分发器。页面多出一个操作而 API 没跟上，这条测试就会红——这是给 agent 用的接口
+  不落后于界面的机制。（页面里的 `snapshot({op:"insert"})` 只是撤销标记，不发到服务器，测试把它排除。）
 - `map` 是唯一**吃 control 吐 control** 的节点：一个控制输入口、一个控制输出口、没有参数，曲线就是它全部
   的内容（`Point::curve`，点上的 bend 决定这一段怎么弯）。它和「调制」是两件事：调制是把一个控制加到某个
   参数的现有值上，map 是把一个控制按曲线变成另一个控制，所以它可以接在两者之间说清楚「怎么变」。
