@@ -32,7 +32,10 @@
     return false;
   }
 
-  function updateHeroes() {
+  /// Repaints every hero. `force` is for a change that is the button's own:
+  /// the pointer is resting on it, and it is exactly the markup that has to be
+  /// replaced, so the hover guard below must not keep the old label.
+  function updateHeroes(force) {
     if (!window.IAmCard || !IAmCard.hero) return;
 
     var values = heroValues();
@@ -42,7 +45,9 @@
       if (hero.el.dataset.busy === "1") return;
       // A pointer resting on the hero's buttons owns them too: replacing the
       // markup would drop the hover and the click that is about to land.
-      if (hero.el.dataset.hoverActions === "1") return;
+      // A change made while it rests there is not lost: the click that made
+      // it asked for a forced paint, and leaving the buttons asks for one.
+      if (!force && hero.el.dataset.hoverActions === "1") return;
 
       var content = IAmCard.hero(hero.kind, values, {
         active: activeControl,
@@ -126,12 +131,17 @@
     markDirty();
   }
 
-  function markDirty() {
+  function markDirty(force) {
+    forced = forced || !!force;
+
     if (dirty) return;
     dirty = true;
     requestAnimationFrame(function () {
+      var now = forced;
+
       dirty = false;
-      updateHeroes();
+      forced = false;
+      updateHeroes(now);
     });
   }
 

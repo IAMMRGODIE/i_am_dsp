@@ -408,7 +408,9 @@
             if (!button) return false;
 
             kickMode = button.getAttribute("data-kick-mode");
-            markDirty();
+            // The button is under the pointer and it is what the picture
+            // is about, so the repaint has to go through it.
+            markDirty(true);
             event.preventDefault();
             return true;
           };
@@ -451,7 +453,7 @@
             if (button) {
               snareMode = button.getAttribute("data-snare-mode");
               snareSetMode();
-              markDirty();
+              markDirty(true);
               event.preventDefault();
               return;
             }
@@ -610,10 +612,15 @@
             ? event.relatedTarget.closest(".hero-actions")
             : null;
 
-          if (event.target.closest(".hero-actions") && !inside) delete hero.dataset.hoverActions;
+          if (event.target.closest(".hero-actions") && !inside) {
+            delete hero.dataset.hoverActions;
+            // Whatever was put off while the pointer rested there is due.
+            markDirty();
+          }
         });
         hero.addEventListener("pointerleave", function () {
           delete hero.dataset.hoverActions;
+          markDirty();
         });
 
         heroes.push({ el: hero, kind: section.hero });

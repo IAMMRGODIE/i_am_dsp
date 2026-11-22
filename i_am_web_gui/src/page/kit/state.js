@@ -15,6 +15,9 @@
   var activeControl = "";
   var heroes = [];
   var dirty = false;
+  /// Whether the queued repaint is one the page asked for over its own hero
+  /// buttons, which the hover guard must let through.
+  var forced = false;
   var polling = false;
   var bypassed = false;
   var powerButton = null;
