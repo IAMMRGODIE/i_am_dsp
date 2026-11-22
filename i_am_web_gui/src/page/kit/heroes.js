@@ -35,6 +35,20 @@
   /// Repaints every hero. `force` is for a change that is the button's own:
   /// the pointer is resting on it, and it is exactly the markup that has to be
   /// replaced, so the hover guard below must not keep the old label.
+  /// Milliseconds since the last repaint, so a picture with ballistics runs
+  /// on the wall clock rather than on the frame rate: a face that is drawing
+  /// because a knob is moving must not make a peak decay faster.
+  var lastPaint = 0;
+  function paintMilliseconds() {
+    var now = window.performance && window.performance.now
+      ? window.performance.now()
+      : Date.now();
+    var ms = lastPaint ? Math.max(1, Math.min(200, now - lastPaint)) : 16;
+
+    lastPaint = now;
+    return ms;
+  }
+
   function updateHeroes(force) {
     if (!window.IAmCard || !IAmCard.hero) return;
 
@@ -51,6 +65,7 @@
 
       var content = IAmCard.hero(hero.kind, values, {
         active: activeControl,
+        dt: paintMilliseconds(),
         ir: irState, curve: curveState, fall: fallState, stereo: stereoScope, scope: scope,
         rate: (face && face.rate) || 48000, spectra: spectra,
         meter: meter, envHistory: envHistory, envWindow: envWindow,

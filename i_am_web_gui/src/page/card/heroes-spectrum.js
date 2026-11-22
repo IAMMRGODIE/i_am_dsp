@@ -54,14 +54,15 @@
     var scope = context && context.scope;
     var spectraState = context && context.spectra;
     var rate = (context && context.rate) || 48000;
+    var dt = (context && context.dt) || 16;
 
     if (scope && scope.input && scope.output && spectraState) {
       var inputBands = bandsOf(scope.input, rate);
       var outputBands = bandsOf(scope.output, rate);
 
       if (inputBands && outputBands) {
-        spectraState.input = smoothBands(spectraState.input, inputBands);
-        spectraState.output = smoothBands(spectraState.output, outputBands);
+        spectraState.input = smoothBands(spectraState.input, inputBands, dt);
+        spectraState.output = smoothBands(spectraState.output, outputBands, dt);
         inputPath = bandsPath(spectraState.input);
         outputPath = bandsPath(spectraState.output);
       }
@@ -94,14 +95,15 @@
     }
 
     var rate = (context && context.rate) || 48000;
+    var dt = (context && context.dt) || 16;
     var before = valueOf(values, "sidechain", 0) && scope.sidechain ? scope.sidechain : scope.input;
     var inputBands = bandsOf(before, rate);
     var outputBands = bandsOf(scope.output, rate);
 
     if (!inputBands || !outputBands) return "";
 
-    spectraState.input = smoothBands(spectraState.input, inputBands);
-    spectraState.output = smoothBands(spectraState.output, outputBands);
+    spectraState.input = smoothBands(spectraState.input, inputBands, dt);
+    spectraState.output = smoothBands(spectraState.output, outputBands, dt);
 
     return heroSvg(
       '<path d="' + bandsPath(spectraState.input) + '" fill="none" stroke="#8a8a8a" ' +

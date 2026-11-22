@@ -44,37 +44,56 @@
   }
 
   /// Log-spaced bands in dBFS, so a spectrum can share the response's x axis.
+  ///
+  /// The frame is analysed in halves and the louder half wins each band. A
+  /// drum hit lasts twenty milliseconds and the frame holds eighty-five, so
+  /// one transform over the whole of it buries the hit in the silence around
+  /// it — which is why a percussion track seemed to have no spectrum at all.
+  /// Splitting the frame costs one more transform and keeps the hit whole.
   function bandsOf(samples, rate) {
     var n = samples.length;
     if (!n || (n & (n - 1)) !== 0) return null;
 
-    var fftLength = n * 4;
+    var window = n / 2;
+    var fftLength = window * 4;
     var real = new Float32Array(fftLength);
     var imag = new Float32Array(fftLength);
-
-    for (var i = 0; i < n; i++) {
-      var window = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
-      real[i] = samples[i] * window;
-    }
-
-    fft(real, imag);
-
     var raw = new Float32Array(BANDS);
     var filled = new Uint8Array(BANDS);
 
-    for (var k = 1; k < fftLength / 2; k++) {
-      var frequency = k * rate / fftLength;
-      if (frequency < 20 || frequency > 20000) continue;
+    function add(offset) {
+      real.fill(0);
+      imag.fill(0);
 
-      var magnitude = 4 * Math.sqrt(real[k] * real[k] + imag[k] * imag[k]) / n;
-      var band = Math.floor(Math.log(frequency / 20) / Math.log(1000) * BANDS);
-
-      if (band < 0) band = 0;
-      if (band >= BANDS) band = BANDS - 1;
-      if (magnitude > raw[band]) {
-        raw[band] = magnitude;
-        filled[band] = 1;
+      for (var i = 0; i < window; i++) {
+        var weight = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (window - 1));
+        real[i] = samples[offset + i] * weight;
       }
+
+      fft(real, imag);
+
+      for (var k = 1; k < fftLength / 2; k++) {
+        var frequency = k * rate / fftLength;
+        if (frequency < 20 || frequency > 20000) continue;
+
+        var magnitude = 4 * Math.sqrt(real[k] * real[k] + imag[k] * imag[k]) / window;
+        var band = Math.floor(Math.log(frequency / 20) / Math.log(1000) * BANDS);
+
+        if (band < 0) band = 0;
+        if (band >= BANDS) band = BANDS - 1;
+        if (magnitude > raw[band]) {
+          raw[band] = magnitude;
+          filled[band] = 1;
+        }
+      }
+    }
+
+    // Halves that overlap by half, so a hit that lands on a join is still
+    // whole inside one of them. Three transforms of a frame the page reads
+    // twenty times a second is nothing next to the audio thread's work.
+    var hop = window / 2;
+    for (var start = 0; start + window <= n; start += hop) {
+      add(start);
     }
 
     var first = 0;
@@ -112,11 +131,30 @@
     return smooth;
   }
 
-  function smoothBands(previous, next) {
+  /// What the picture shows: rising at once, falling at a fixed rate.
+  ///
+  /// A symmetric one-pole can show a pad and cannot show a drum. The page
+  /// draws twenty frames a second, so a hit is one frame of signal followed
+  /// by the silence after it, and a pole averages the two: the peak arrives
+  /// at a quarter of its height, several frames late, and the next hit lands
+  /// on top of it. An analyser rises on the hit and lets go slowly instead,
+  /// which is the whole reason a percussion track is readable on one.
+  function smoothBands(previous, next, ms) {
     if (!previous || previous.length !== next.length) return next;
 
+    // A sixtieth of a second of rise: instant at the rate the page draws.
+    var rise = Math.min(1, (ms || 16) / 16);
+    // Sixty decibels a second, so the full height lets go in a second.
+    var fall = (ms || 16) * 0.06;
+
     for (var i = 0; i < next.length; i++) {
-      previous[i] += (next[i] - previous[i]) * 0.28;
+      var value = next[i];
+
+      if (value > previous[i]) {
+        previous[i] += (value - previous[i]) * rise;
+      } else {
+        previous[i] = Math.max(value, previous[i] - fall);
+      }
     }
 
     return previous;

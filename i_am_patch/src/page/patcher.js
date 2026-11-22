@@ -1043,6 +1043,23 @@
         eqSpectrum: {},
       };
 
+      // How long since this card last painted, for a picture with ballistics:
+      // a card also repaints when a knob moves, and a peak must not decay
+      // faster because of it. Read once per picture by the heroes that use it.
+      let painted = 0;
+
+      Object.defineProperty(context, "dt", {
+        get() {
+          const now = window.performance && window.performance.now
+            ? window.performance.now()
+            : Date.now();
+          const ms = painted ? Math.max(1, Math.min(200, now - painted)) : 16;
+
+          painted = now;
+          return ms;
+        },
+      });
+
       // What an envelope card draws in its Shape hero: whatever node feeds its
       // oscillator input, read when the picture is painted so it never lags the
       // source's own parameters behind.

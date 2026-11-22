@@ -296,6 +296,7 @@ function spectralDynamicsSpectrumHero(values, context) {
   var scope = context && context.scope;
   var state = context && context.spectra;
   var rate = (context && context.rate) || 48000;
+  var dt = (context && context.dt) || 16;
   var empty = '<line x1="20" y1="140" x2="500" y2="140" stroke="#2c2c2c" stroke-width="1"/>';
 
   if (!scope || !scope.input || !scope.output || !state) {
@@ -305,8 +306,8 @@ function spectralDynamicsSpectrumHero(values, context) {
   var inputBands = bandsOf(scope.input, rate);
   var outputBands = bandsOf(scope.output, rate);
 
-  state.input = smoothBands(state.input, inputBands);
-  state.output = smoothBands(state.output, outputBands);
+  state.input = smoothBands(state.input, inputBands, dt);
+  state.output = smoothBands(state.output, outputBands, dt);
 
   var before = bandsPath(state.input);
   var after = bandsPath(state.output);

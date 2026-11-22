@@ -268,6 +268,7 @@
     }
 
     var spectrum = "";
+    var dt = (context && context.dt) || 16;
     var scope = context && context.scope;
     var spectra = context && context.spectra;
     var eqSpectrum = context && context.eqSpectrum;
@@ -279,8 +280,8 @@
         var outputBands = bandsOf(scope.output, rate);
 
         if (inputBands && outputBands) {
-          spectra.input = smoothBands(spectra.input, inputBands);
-          spectra.output = smoothBands(spectra.output, outputBands);
+          spectra.input = smoothBands(spectra.input, inputBands, dt);
+          spectra.output = smoothBands(spectra.output, outputBands, dt);
           eqSpectrum.input = scope.input;
           eqSpectrum.output = scope.output;
           eqSpectrum.rate = rate;
