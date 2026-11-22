@@ -227,6 +227,22 @@ fn vocoder(sample_rate: usize) -> Box<dyn Effect<2>> {
 	))
 }
 
+/// The pages a product splits its controls into, for a card that draws the
+/// product's own tabs.
+///
+/// The compressor, the OTT and the spectral dynamics are the products that split;
+/// everything else is one body. A card that lists its own pages falls behind every
+/// time a product grows one, which is how the patcher ended up drawing the OTT as a
+/// single column of twelve knobs.
+pub fn pages(id: &str) -> &'static [i_am_web_gui::Page] {
+	match id {
+		"compressor" => crate::COMPRESSOR_PAGES,
+		"ott" => crate::OTT_PAGES,
+		"spectral_dynamics" => crate::SPECTRAL_DYNAMICS_PAGES,
+		_ => &[],
+	}
+}
+
 /// The faceplate size a product declares, for a card that draws the product's
 /// own shape rather than guessing one.
 pub fn face(id: &str) -> Option<(f32, f32)> {

@@ -83,7 +83,7 @@ fn kind_json(kind: &NodeDesc) -> Value {
 		}
 
 		grouped = sections_json(&sections, &[]);
-		pages = pages_json(descriptor_pages(module), &sections);
+		pages = pages_json(i_am_effects::catalog::pages(module), &sections);
 		script = matches!(module, "script_mapper" | "script_distortion");
 		clear = matches!(
 			module,
@@ -354,14 +354,6 @@ fn pages_json(pages: &[i_am_web_gui::Page], sections: &[i_am_web_gui::Section]) 
 		.collect()
 }
 
-/// The pages a product registers with its faceplate.
-fn descriptor_pages(module: &str) -> &'static [i_am_web_gui::Page] {
-	match module {
-		"compressor" => i_am_effects::COMPRESSOR_PAGES,
-		_ => &[],
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -421,5 +413,23 @@ mod tests {
 			.collect::<Vec<_>>();
 
 		assert_eq!(names, ["Compressor", "Detector"]);
+	}
+
+	/// OTT splits into its three-band controls and the band table: without the pages the
+	/// card draws one long body and the switch the product page has disappears.
+	#[test]
+	fn the_ott_keeps_its_pages() {
+		let ott = kinds_json()
+			.into_iter()
+			.find(|kind| kind["id"] == "mod:ott")
+			.expect("the ott is in the catalog");
+		let names = ott["pages"]
+			.as_array()
+			.expect("pages")
+			.iter()
+			.map(|page| page["name"].as_str().unwrap_or_default())
+			.collect::<Vec<_>>();
+
+		assert_eq!(names, ["OTT", "Bands"]);
 	}
 }
