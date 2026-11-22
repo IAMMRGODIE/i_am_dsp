@@ -754,7 +754,15 @@ impl<
 
 		let mut output = [0.0; CHANNELS];
 
-		self.sample_rate = process_context.infos().sample_rate;
+		// A context that has not been told a rate reports zero, and the envelope divides
+		// by it: one such sample turns the whole voice into NaN, which is silent rather
+		// than loud and so is easy to miss.
+		let reported = process_context.infos().sample_rate;
+
+		if reported != 0 {
+			self.sample_rate = reported;
+		}
+
 		self.update_times(process_context.infos());
 		// An oscillator whose parameters were just changed can rebuild its
 		// derived state here, once per sample rather than once per unison.
@@ -1233,6 +1241,42 @@ mod tests {
 		assert_eq!(adsr.pan_position(1.0), 1.0);
 		assert_eq!(adsr.pan_position(-1.0), 0.5);
 	}
+	/// A host that never describes a transport reports no rate, and the envelope divides
+	/// by the rate: without this the voice is NaN from its first sample, which sounds like
+	/// silence and is easy to take for a missing note.
+	#[test]
+	fn a_context_without_a_rate_keeps_the_voices_rate() {
+		let mut adsr = adsr();
+		let no_rate = ProcessInfos::default();
+		assert_eq!(
+			no_rate.sample_rate, 0,
+			"the default is the case being tested"
+		);
+		let mut rendered = Vec::new();
+
+		for index in 0..4_800 {
+			let mut context: Box<dyn ProcessContext> = Box::new(OneSample {
+				infos: no_rate.clone(),
+				queue: if index == 0 {
+					vec![note_on(60)]
+				} else {
+					Vec::new()
+				},
+			});
+
+			rendered.push(adsr.generate(&mut context)[0]);
+		}
+
+		assert!(
+			rendered.iter().all(|sample| sample.is_finite()),
+			"a report of zero per second must not reach the envelope's division"
+		);
+		assert!(
+			rendered.iter().any(|sample| sample.abs() > 0.01),
+			"and the note still has to sound"
+		);
+	}
+
 	/// A process context that hands the same event list to the one sample it drives.
 	struct OneSample {
 		infos: ProcessInfos,
