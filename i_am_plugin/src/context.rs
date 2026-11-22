@@ -28,6 +28,13 @@ pub struct ClapContext {
 	/// over for the rest of the block.
 	pub(crate) events_sample: usize,
 	pub(crate) info: Option<ProcessInfos>,
+	/// What to report before the host has said anything.
+	///
+	/// A host is free to send no transport at all, and a processor that reads the rate
+	/// from here would then see zero and divide by it: the additive voice turned into
+	/// NaN from its first sample. The rate is known from activation, so it is reported
+	/// whether or not the host ever describes a timeline.
+	pub(crate) base: ProcessInfos,
 	pub(crate) current_sample: usize,
 	/// The musical timeline, taken from the audio processor for the duration of the block.
 	pub(crate) clock: BeatClock,
@@ -38,11 +45,7 @@ pub struct ClapContext {
 
 impl ProcessContext for ClapContext {
 	fn infos(&self) -> &ProcessInfos {
-		if let Some(inner) = &self.info {
-			inner
-		} else {
-			().infos()
-		}
+		self.info.as_ref().unwrap_or(&self.base)
 	}
 
 	fn events(&self) -> &[i_am_dsp::NoteEvent] {
@@ -164,11 +167,15 @@ impl ClapContext {
 		block_start: u64,
 		clock: BeatClock,
 	) -> Self {
+		let mut base = ProcessInfos::default();
+		base.sample_rate = clock.sample_rate();
+
 		let mut context = Self {
 			current_event: 0,
 			event_sender,
 			events: Vec::new(),
 			events_sample: 0,
+			base,
 			current_sample: 0,
 			info: None,
 			clock,

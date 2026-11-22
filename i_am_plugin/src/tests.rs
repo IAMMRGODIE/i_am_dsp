@@ -11,17 +11,34 @@ impl ClapContext {
 	/// Builds a context with no transport information and an open output channel.
 	fn for_test() -> Self {
 		let (event_sender, _receiver) = crossbeam_channel::unbounded();
+		// The rate an activated plug-in would report, so a test that never sends a
+		// transport still sees one.
+		let mut base = i_am_dsp::ProcessInfos::default();
+		base.sample_rate = 48_000;
+
 		Self {
 			current_event: 0,
 			events: Vec::new(),
 			events_sample: 0,
 			info: None,
+			base,
 			current_sample: 0,
 			clock: BeatClock::new(48_000),
 			block_start: 0,
 			event_sender,
 		}
 	}
+}
+
+/// A host is allowed to send no transport at all. The rate is not part of the
+/// transport -- activation gave it -- and a processor that divides by it must never
+/// be handed zero.
+#[test]
+fn a_context_without_a_transport_still_reports_the_rate() {
+	let context = ClapContext::for_test();
+
+	assert!(context.info.is_none(), "nothing has been reported yet");
+	assert_eq!(context.infos().sample_rate, 48_000);
 }
 
 fn note_on(note: usize) -> NoteEvent {

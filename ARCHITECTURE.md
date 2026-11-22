@@ -189,6 +189,10 @@ identifier --FNV-1a(salt)--> 32bit --avalanche--> & 0x7FFF_FFFF --→ host id
 
 - `position_beats` 是**样本精确**的：每样本由 `ProcessContext::set_sample_offset` 推进；
   宿主报告传输变化时重新锚定，所以 seek / 循环回绕不会累积漂移。
+- **宿主可以完全不给传输事件**（`clap_process.transport` 为空）。这时 `infos()` 仍然报告
+  真实采样率：`ClapContext` 构造时把 `activate` 的速率放进 `base`，没有 `info` 时返回它。
+  这不是洁癖：包络、鼓机、弦的引擎每样本读 `infos().sample_rate` 再拿它当除数，读到 0 就是
+  `1/0`，整条声音变成 NaN——听起来像静音，很容易被当成「没触发」。
 - `BeatClock`（`i_am_dsp/src/tools/beat_clock.rs`）保存锚点 `(absolute_sample, beats, tempo, tempo_inc)`，
   `advance_to(n)` 用绝对样本数插值；能处理 tempo 渐变。旧的 `BpmSyncer` 已标记 deprecated，
   只在没有宿主时间线时用于自由运行。
