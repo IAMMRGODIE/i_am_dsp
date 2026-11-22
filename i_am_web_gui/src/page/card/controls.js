@@ -400,6 +400,9 @@
 
     dial.addEventListener("wheel", function (event) {
       event.preventDefault();
+      // A knob on a card that lives on a zooming board: the wheel is the knob's,
+      // not the board's.
+      event.stopPropagation();
       var direction = event.deltaY < 0 ? 1 : -1;
       set(stepBy(spec, current, direction, event.shiftKey), true);
     }, { passive: false });
@@ -541,6 +544,8 @@
     track.addEventListener("pointercancel", stop);
     track.addEventListener("wheel", function (event) {
       event.preventDefault();
+      // As on a knob: the slider owns the wheel while the pointer is on it.
+      event.stopPropagation();
       set(stepBy(spec, current, event.deltaY < 0 ? 1 : -1, event.shiftKey), true);
     }, { passive: false });
     track.addEventListener("keydown", function (event) {

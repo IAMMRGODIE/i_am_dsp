@@ -83,6 +83,12 @@
       if (!behaviour.wheel) return;
 
       behaviour.wheel(context, event);
+
+      // The card can sit inside a board that zooms on the wheel (the patcher does):
+      // a hero that took the wheel for its own control keeps it to itself. A hero
+      // that had nothing to do with it leaves the event alone, so the board still
+      // zooms over a card's empty picture.
+      if (event.defaultPrevented) event.stopPropagation();
     }, { passive: false });
 
     hero.addEventListener("click", function (event) {
