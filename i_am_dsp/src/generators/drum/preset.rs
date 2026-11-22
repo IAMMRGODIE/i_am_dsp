@@ -37,6 +37,15 @@ impl ClickSlot {
 		}
 	}
 
+	/// Forgets the sample, for a restored kit that had none.
+	pub fn clear(&self) {
+		if let Ok(mut current) = self.data.lock() {
+			*current = None;
+			self.generation
+				.fetch_add(1, std::sync::atomic::Ordering::Release);
+		}
+	}
+
 	/// What the page draws.
 	pub fn json(&self) -> String {
 		match self.load() {
@@ -253,6 +262,23 @@ impl Samples {
 	pub fn set(&self, drum: Drum, data: Option<SampleData>) {
 		if let Ok(mut slots) = self.slots.lock() {
 			slots[drum.index()] = data;
+			self.generation
+				.fetch_add(1, std::sync::atomic::Ordering::Release);
+		}
+	}
+
+	/// The six slots as they are, for a save.
+	pub fn snapshot(&self) -> [Option<SampleData>; 6] {
+		self.slots
+			.lock()
+			.map(|slots| slots.clone())
+			.unwrap_or_default()
+	}
+
+	/// Puts six saved slots back and bumps the generation.
+	pub fn restore(&self, slots: [Option<SampleData>; 6]) {
+		if let Ok(mut current) = self.slots.lock() {
+			*current = slots;
 			self.generation
 				.fetch_add(1, std::sync::atomic::Ordering::Release);
 		}

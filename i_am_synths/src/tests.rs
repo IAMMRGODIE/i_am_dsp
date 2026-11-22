@@ -1240,6 +1240,52 @@ fn a_file_name_says_which_note_it_holds() {
 	assert_eq!(i_am_dsp::prelude::note_of_name("mypad.wav"), None);
 }
 
+/// The click and the one-shots are samples, not numbers: they travel in one blob, so a
+/// project keeps the kit its page was saved with.
+#[test]
+fn a_drummer_kit_is_saved_with_the_parameters() {
+	use i_am_dsp::prelude::{Parameters, SampleData, SetValue, Value};
+
+	fn sample(name: &str, pcm: Vec<f32>) -> SampleData {
+		SampleData {
+			name: name.to_string(),
+			rate: 48_000,
+			pcm,
+			right: None,
+		}
+	}
+
+	let handle = DrummerHandle::new();
+	handle.restore_kit(
+		Some(sample("click.wav", vec![0.1])),
+		std::array::from_fn(|index| (index == 0).then(|| sample("kick.wav", vec![0.9, -0.9]))),
+	);
+	let plugin = DrummerWeb::with_handle(handle);
+
+	let saved = plugin
+		.get_parameters()
+		.into_iter()
+		.find(|parameter| parameter.identifier == "kit_samples")
+		.expect("the kit parameter");
+	let Value::Serialized(bytes) = saved.value else {
+		panic!("the kit is not serialized");
+	};
+
+	let mut restored = DrummerWeb::new();
+	assert!(restored.set_parameter("kit_samples", SetValue::Serialized(bytes.clone())));
+
+	let again = restored
+		.get_parameters()
+		.into_iter()
+		.find(|parameter| parameter.identifier == "kit_samples")
+		.expect("the kit parameter");
+	let Value::Serialized(round) = again.value else {
+		panic!("the kit is not serialized");
+	};
+
+	assert_eq!(round, bytes, "the kit did not come back");
+}
+
 /// The wrapper skips a block it knows is silent, so an instrument has to be honest about
 /// having nothing left: nothing before the first note, a voice while one plays, and
 /// nothing again once its release has run out.

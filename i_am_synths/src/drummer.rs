@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use i_am_dsp::prelude::{
 	ClickSlot, Curve, DrumInstrument, DrumPreset, FitSlot, GeneratorEffect, Parameter, Parameters,
-	Samples, SetValue, SnareCurves, decode_click, default_amp_templates, from_binary, slot_drum,
-	to_binary,
+	Samples, SetValue, SnareCurves, Value, decode_click, default_amp_templates, from_binary,
+	slot_drum, to_binary,
 };
 use i_am_plugin::processor::EffectProcessor;
 use i_am_plugin::{
@@ -81,6 +81,30 @@ impl DrummerHandle {
 			amps: Arc::new(Mutex::new(default_amp_templates())),
 			snare: Arc::new(Mutex::new(SnareCurves::default())),
 		}
+	}
+
+	/// The click the node plays, if one was imported.
+	pub fn click_sample(&self) -> Option<i_am_dsp::prelude::SampleData> {
+		self.click.load()
+	}
+
+	/// The six one-shot samples, in the order the page lists them.
+	pub fn one_shots(&self) -> [Option<i_am_dsp::prelude::SampleData>; 6] {
+		self.samples.snapshot()
+	}
+
+	/// Puts a saved kit back into the slots the voice reads.
+	pub fn restore_kit(
+		&self,
+		click: Option<i_am_dsp::prelude::SampleData>,
+		one_shots: [Option<i_am_dsp::prelude::SampleData>; 6],
+	) {
+		match click {
+			Some(data) => self.click.set(data),
+			None => self.click.clear(),
+		}
+
+		self.samples.restore(one_shots);
 	}
 
 	/// The click, as the page draws it.
@@ -235,10 +259,37 @@ impl DrummerWeb {
 
 impl Parameters for DrummerWeb {
 	fn get_parameters(&self) -> Vec<Parameter> {
-		self.processor.parameters()
+		let mut parameters = self.processor.parameters();
+
+		// The click and the one-shots are samples, not numbers: the host saves them
+		// through this one blob, the way the other slots travel.
+		if let Ok(data) = to_binary(&(self.click.load(), self.samples.snapshot())) {
+			parameters.push(Parameter::new("kit_samples", Value::Serialized(data)));
+		}
+
+		parameters
 	}
 
 	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		if identifier == "kit_samples"
+			&& let SetValue::Serialized(bytes) = &value
+		{
+			let Ok((click, one_shots)) = from_binary::<(
+				Option<i_am_dsp::prelude::SampleData>,
+				[Option<i_am_dsp::prelude::SampleData>; 6],
+			)>(bytes.clone()) else {
+				return false;
+			};
+
+			match click {
+				Some(data) => self.click.set(data),
+				None => self.click.clear(),
+			}
+
+			self.samples.restore(one_shots);
+			return true;
+		}
+
 		// A host restoring the state writes the saved curve; the voice has to
 		// hear it too, not only the parameter the next save will read.
 		if identifier == "pitch_curve"
