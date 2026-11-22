@@ -123,8 +123,12 @@ macro_rules! product {
 				other: &[[f32; 2]],
 				context: &mut Box<dyn ProcessContext>,
 			) {
-				// The host's macro values reach the nodes here, before the block runs.
-				self.0.shared.pull_macros();
+				// The host's macro values reach the nodes here, once per block: the
+				// sixty-four reads are the block's business, and doing them per sample
+				// was most of what an idle patcher cost.
+				if context.sample_offset() == 0 {
+					self.0.shared.pull_macros();
+				}
 
 				for event in context.events() {
 					self.0.body.push_event(event);

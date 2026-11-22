@@ -101,7 +101,7 @@ impl PatcherShared {
 		let macros = self.slots.macros();
 
 		for index in 0..i_am_patch::MACRO_COUNT {
-			let Some(param) = self.params.get_by_index(index) else {
+			let Some(param) = self.params.get_ref_by_index(index) else {
 				continue;
 			};
 
