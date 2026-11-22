@@ -10,7 +10,7 @@ pub(crate) use std::{
 	fmt::Debug,
 	io::{Read, Write},
 	pin::Pin,
-	slice::from_raw_parts,
+	slice::{from_raw_parts, from_raw_parts_mut},
 	sync::{
 		Arc,
 		atomic::{AtomicU32, Ordering},

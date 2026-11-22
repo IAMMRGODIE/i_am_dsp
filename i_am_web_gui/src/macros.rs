@@ -101,6 +101,14 @@ macro_rules! web_plugin {
 				i_am_dsp::Processor::delay(&self.processor)
 			}
 
+			/// Bypassed, an effect passes its input through: it is silent exactly when
+			/// the input is, which the caller has already established.
+			fn is_idle(&self, input_is_silent: bool) -> bool {
+				input_is_silent
+					&& (self.bypass.load(std::sync::atomic::Ordering::Relaxed)
+						|| i_am_dsp::Processor::is_idle(&self.processor, true))
+			}
+
 			fn process(
 				&mut self,
 				samples: &mut [f32; 2],

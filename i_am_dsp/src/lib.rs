@@ -113,6 +113,22 @@ pub trait Effect<const CHANNELS: usize = 2>: Send + Sync + Parameters {
 	/// Returns the delay of the effect in samples.
 	fn delay(&self) -> usize;
 
+	/// Whether a block that starts like this one would come out silent.
+	///
+	/// The wrapper skips the DSP for a block when no event arrives, the input carries no
+	/// signal, and this says there is nothing left to hear. That makes it a promise, not a
+	/// hint: an effect that says yes and has a tail -- a reverb still ringing, a delay still
+	/// repeating -- cuts the tail off. The default is to run, because a wrong yes is silent
+	/// and a wrong no only costs time.
+	///
+	/// `input_is_silent` is the wrapper's answer for this block, not a guess: every input
+	/// channel the plug-in has, including a sidechain, is exactly zero.
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		let _ = input_is_silent;
+
+		false
+	}
+
 	/// The note mask this effect is tuning to, when it follows the host's notes.
 	///
 	/// A host draws it to show which notes an autotune may sing. An effect that
@@ -174,6 +190,16 @@ pub trait Generator<const CHANNELS: usize = 2>: Send + Sync + Parameters {
 	/// `process_context` contains information about the process, like sample rate, tempo, etc.
 	fn generate(&mut self, process_context: &mut Box<dyn ProcessContext>) -> [f32; CHANNELS];
 
+	/// Whether there is anything left to play.
+	///
+	/// A generator makes its own sound, so the input says nothing about it: this is the
+	/// voice list being empty, asked before a block instead of per sample. The wrapper
+	/// skips the whole block when it says yes and no note arrives, which is why a wrong
+	/// yes is a note that never sounds.
+	fn is_idle(&self) -> bool {
+		false
+	}
+
 	/// Tells the generator the note the next one should glide from.
 	///
 	/// The patcher builds a fresh voice for every note, so the envelope inside it
@@ -207,6 +233,10 @@ impl<const CHANNELS: usize, T: Effect<CHANNELS>> Effect<CHANNELS> for Vec<T> {
 
 	fn delay(&self) -> usize {
 		self.iter().map(|effect| effect.delay()).sum()
+	}
+
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		self.iter().all(|effect| effect.is_idle(input_is_silent))
 	}
 
 	fn process(
@@ -264,6 +294,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Vec<Box<dyn Effect<CHANNELS>>> 
 		self.iter().map(|effect| effect.delay()).sum()
 	}
 
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		self.iter().all(|effect| effect.is_idle(input_is_silent))
+	}
+
 	fn process(
 		&mut self,
 		samples: &mut [f32; CHANNELS],
@@ -296,6 +330,10 @@ impl<const CHANNELS: usize> Generator<CHANNELS> for () {
 		[0.0; CHANNELS]
 	}
 
+	fn is_idle(&self) -> bool {
+		true
+	}
+
 	#[cfg(feature = "real_time_demo")]
 	fn demo_ui(&mut self, ui: &mut egui::Ui, id_prefix: String) {
 		let _ = (ui, id_prefix);
@@ -310,6 +348,10 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for () {
 
 	fn delay(&self) -> usize {
 		0
+	}
+
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		input_is_silent
 	}
 
 	fn process(

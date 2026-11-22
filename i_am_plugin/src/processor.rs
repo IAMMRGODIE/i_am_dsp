@@ -152,6 +152,10 @@ impl<E: Effect<2> + Parameters + Send + Sync + 'static> i_am_dsp::Processor for 
 		self.effect.delay()
 	}
 
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		self.effect.is_idle(input_is_silent)
+	}
+
 	fn process(
 		&mut self,
 		samples: &mut [f32; 2],

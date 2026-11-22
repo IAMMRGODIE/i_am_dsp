@@ -74,6 +74,18 @@ pub trait Processor: Parameters + Send + Sync + 'static {
 	/// hand the previous note to the new instance, because the voice inside it has
 	/// never seen one. Most processors do not glide and ignore this.
 	fn glide_from(&mut self, _channel: u8, _note: usize) {}
+
+	/// Whether a block that starts like this one would come out silent.
+	///
+	/// The wrapper skips the DSP for a block when no event arrives, the input is silent
+	/// and this says there is nothing left to hear: the output is zeroed and the block
+	/// costs a memcpy instead of a sentence of DSP. It is a promise, so a product with a
+	/// tail -- a reverb still ringing, a delay still repeating -- must not claim it.
+	fn is_idle(&self, input_is_silent: bool) -> bool {
+		let _ = input_is_silent;
+
+		false
+	}
 }
 
 impl<P: Processor> Processor for crate::prelude::Paramed<P> {
@@ -163,6 +175,10 @@ impl<G: Generator<CHANNELS>, const CHANNELS: usize> Effect<CHANNELS>
 
 	fn delay(&self) -> usize {
 		0
+	}
+
+	fn is_idle(&self, _: bool) -> bool {
+		self.0.is_idle()
 	}
 
 	fn glide_from(&mut self, channel: u8, note: usize) {

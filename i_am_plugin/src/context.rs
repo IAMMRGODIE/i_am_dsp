@@ -196,6 +196,39 @@ impl ClapContext {
 	}
 }
 
+impl<'a, P: Plugin> AudioProcessor<'a, P> {
+	/// Whether every input channel of this block is exactly zero.
+	///
+	/// A plug-in with no audio input is silent by definition, which is what an instrument
+	/// wants to hear; the scan is what a product that asked for a silent input is allowed
+	/// to rely on. Comparing against zero is the right test: a denormal is as good as
+	/// nothing to an effect, and the wrapper flushes those to zero anyway.
+	fn inputs_are_silent(&self, frames: usize) -> bool {
+		for (channels, wide) in self.temp_buffer_1.iter().zip(&self.temp_buffer_2) {
+			for &pointer in channels.iter() {
+				// SAFETY: the host's channel buffer holds `frames` samples of this type.
+				let silent = unsafe {
+					if *wide {
+						from_raw_parts(pointer as *const f64, frames)
+							.iter()
+							.all(|sample| *sample == 0.0)
+					} else {
+						from_raw_parts(pointer as *const f32, frames)
+							.iter()
+							.all(|sample| *sample == 0.0)
+					}
+				};
+
+				if !silent {
+					return false;
+				}
+			}
+		}
+
+		true
+	}
+}
+
 impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcessor<'a, P> {
 	fn activate(
 		_: clack_plugin::prelude::HostAudioProcessorHandle<'a>,
@@ -422,6 +455,29 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			}
 		}
 
+		// A block with nothing to play does not have to reach the DSP: no event can start
+		// a voice, no input carries a signal, and the product says nothing is left to hear.
+		// The output is still zeroed and the timeline still moves, so a block that costs a
+		// whole voice costs a memset instead.
+		let wakes = events.input.batch().any(|batch| {
+			batch.events().any(|event| {
+				matches!(
+					event.as_core_event(),
+					Some(
+						CoreEventSpace::NoteOn(_)
+							| CoreEventSpace::NoteOff(_)
+							| CoreEventSpace::NoteChoke(_)
+							| CoreEventSpace::NoteEnd(_)
+							| CoreEventSpace::ParamValue(_)
+							| CoreEventSpace::ParamMod(_)
+							| CoreEventSpace::Midi(_)
+					)
+				)
+			})
+		});
+		let idle = !wakes && processor.is_idle(true) && self.inputs_are_silent(buffer_size);
+		let rendered = if idle { 0 } else { buffer_size };
+
 		let mut next_event_sample = events
 			.input
 			.batch()
@@ -430,7 +486,7 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 			.unwrap_or(0);
 		let mut bacthced = events.input.batch();
 
-		for i in 0..buffer_size {
+		for i in 0..rendered {
 			if i >= next_event_sample
 				&& let (Some(batch), Some(ctx)) = (bacthced.next(), &mut context)
 			{
@@ -571,6 +627,27 @@ impl<'a, P: Plugin> PluginAudioProcessor<'a, (), PluginMain<P>> for AudioProcess
 						*(output.pointer as *mut f32).add(i) = output_temp[output.channel];
 					}
 				}
+			}
+		}
+
+		// Nothing was rendered, so there is nothing to hear: silence the output and move the
+		// timeline anyway, because an effect that wakes up later has to find the song where
+		// the host left it rather than where the last note ended.
+		if idle {
+			for output in &self.temp_buffer_4 {
+				// SAFETY: each pointer was taken from this block's output buffers, which hold
+				// `buffer_size` samples of the type it is written as.
+				unsafe {
+					if output.wide {
+						from_raw_parts_mut(output.pointer as *mut f64, buffer_size).fill(0.0);
+					} else {
+						from_raw_parts_mut(output.pointer as *mut f32, buffer_size).fill(0.0);
+					}
+				}
+			}
+
+			if let Some(context) = context.as_mut() {
+				context.set_sample_offset(buffer_size);
 			}
 		}
 
