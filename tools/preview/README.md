@@ -20,7 +20,7 @@ node tools/preview/preview.mjs patch          # patcher 的实时编辑器（它
 | `cards` | `.ui-preview` 的 HTML + 现场拼接的 `kit.*` / `card.*` | 卡片组件的视觉对照 |
 | `product <name>` | `cargo run -p i_am_effects --example dump_face` | 真实的 `/face`、`/state` JSON |
 | `rack` | `cargo run -p i_am_rack --example dump_rack` | 默认 RackState，静态看布局 |
-| `patch` | `cargo run -p i_am_patch --example editor` | 页面要编辑实时图，所以用它的服务器 |
+| `patch` | `cargo run -p i_am_patch_product --example serve` | 页面要编辑实时图，所以跑的是产品自己的服务器（去掉宿主），页面和 agent 用的是同一套路由 |
 
 静态模式下页面照常发送 `fetch("/face")` 这类请求，服务器把它们映射到 dump 出来的文件。
 缺失的实时数据（scope、meter）会 404，页面按自己的方式降级，不影响看布局。

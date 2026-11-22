@@ -462,6 +462,10 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 
 - 节点目录（`nodes.rs`）：`mixer`、`delay`（Lookahead，对齐用）、`lfo`、`random`、`table`、`pitch`、
   `midi`、`envelope`，以及 9 个音源节点（`additive`…`strings`，直接包装 `i_am_synths` 的产品）。
+- **无头服务器就是产品的服务器**：`cargo run -p i_am_patch_product --example serve -- [port]` 起
+  `web::route` 那一套路由（页面资源 + `/catalog` `/patch` `/text` `/op` 与全部素材槽），并在后台用
+  `shared::Body` 按实时速率跑图，所以 `/scope` `/amp` `/pitch` 有数据。agent 驱动它等于驱动宿主里的
+  同一个接口；`tools/preview` 的 `patch` 模式也走它。
 - **页面能做的，API 必须都能做**：`i_am_patch_product/src/web.rs` 的
   `the_api_answers_everything_the_page_asks_for` 直接读 `patcher.js`，把其中的 `fetch("/…")` 和 `op: "…"`
   抽出来逐条问路由表和 op 分发器。页面多出一个操作而 API 没跟上，这条测试就会红——这是给 agent 用的接口

@@ -886,10 +886,14 @@ function main() {
 
 
 	if (mode === "patch") {
-		// The patcher edits a live graph, so it runs its own server. This mode is a
-		// convenience wrapper: same command, the real thing behind it.
-		console.log("patch: starting i_am_patch's editor server (its own port)");
-		spawn("cargo", ["run", "-q", "-p", "i_am_patch", "--example", "editor"], {
+		// The patcher edits a live graph, so it runs its own server: the product's,
+		// with the plug-in taken out. The page and an agent talk to the same routes
+		// because it is the same route table the product serves.
+		console.log("patch: starting the patcher's own server");
+		const port = flagValue("--port");
+		const args = ["run", "-q", "-p", "i_am_patch_product", "--example", "serve"];
+		if (port) args.push(port);
+		spawn("cargo", args, {
 			cwd: REPO,
 			stdio: "inherit",
 		});
