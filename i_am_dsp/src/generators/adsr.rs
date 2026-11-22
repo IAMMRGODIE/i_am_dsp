@@ -443,7 +443,6 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 			playing.current_pitch_factor = from / target;
 			playing.glide_step = (target / from).powf(1.0 / samples as f32);
 			playing.glide_left = samples;
-			playing.glide_finished = false;
 		} else {
 			playing.current_pitch_factor = 1.0;
 			playing.glide_step = 1.0;
@@ -720,10 +719,10 @@ impl<
 						current_pitch_factor: pitch_factor,
 						glide_step,
 						glide_left,
-						glide_finished: false,
+						anchor_time: 0.0,
+						anchor_phase: Vec::new(),
 						velocity_target: 0.0,
 						velocity_step: 0.0,
-						phase_bias: Vec::new(),
 						channel: *channel,
 					};
 					self.note_playing
@@ -822,7 +821,6 @@ impl<
 				if playing_note.glide_left > 0 {
 					playing_note.glide_left -= 1;
 					playing_note.current_pitch_factor = if playing_note.glide_left == 0 {
-						playing_note.glide_finished = true;
 						1.0
 					} else {
 						playing_note.current_pitch_factor * playing_note.glide_step
@@ -841,6 +839,16 @@ impl<
 					if playing_note.frequencies.len() != unisons {
 						playing_note.frequencies.resize(unisons, 0.0);
 						playing_note.steps.resize(unisons, 0.0);
+						playing_note.anchor_phase.resize(unisons, 0.0);
+					}
+
+					// The new frequency starts at this sample, so the phase reference
+					// is pinned to the sample before it: whatever the pitch does from
+					// here, the absolute read stays true.
+					playing_note.anchor_time = playing_note.last_time;
+
+					for i in 0..unisons {
+						playing_note.anchor_phase[i] = playing_note.last_phase[i];
 					}
 
 					let rate = self.sample_rate as f32;
@@ -859,26 +867,6 @@ impl<
 					playing_note.pitch_last = pitch;
 				}
 
-				// The glide just ended, so the pitch is the note's own from here on and
-				// the absolute read is right again, give or take the phase the slide
-				// travelled: remember that gap per copy and add it back at every resync.
-				if playing_note.glide_finished {
-					playing_note.glide_finished = false;
-					playing_note.phase_bias.clear();
-					// `last_phase` is the phase of the sample *before* this one, so it
-					// is compared against the absolute read at that sample: anchoring
-					// it one sample later would leave every resync a step short.
-					let before =
-						playing_note.count.saturating_sub(1) as f32 / self.sample_rate as f32;
-					playing_note.phase_bias.extend((0..unisons).map(|i| {
-						let absolute = crate::generators::wavetable::wrap01(
-							playing_note.frequencies[i] * before,
-						);
-
-						crate::generators::wavetable::wrap01(playing_note.last_phase[i] - absolute)
-					}));
-				}
-
 				// A phase carried forward is one add a copy, but f32 loses the
 				// fraction over minutes; the absolute read puts it back periodically.
 				let resync = playing_note.count % PHASE_RESYNC == 0;
@@ -888,15 +876,14 @@ impl<
 					let frequency = playing_note.frequencies[i];
 					let t = if absolute {
 						frequency * elapsed + playing_note.last_phase[i]
-					} else if resync && playing_note.glide_left == 0 {
-						// The absolute read assumes the pitch has been what it is now
-						// since the note started. That is false while a glide runs, and
-						// snapping to it would jump the phase — a click in the middle of
-						// every slide. The carried phase is the right one, and a glide is
-						// short enough that f32 drift cannot matter over it.
+					} else if resync {
+						// Read from the pin rather than from the start of the note: the
+						// pitch has moved since then — a glide, a bend, a fast vibrato —
+						// and `frequency * time` would snap the phase to where it would
+						// have been had the pitch never changed.
 						crate::generators::wavetable::wrap01(
-							frequency * time
-								+ playing_note.phase_bias.get(i).copied().unwrap_or(0.0),
+							playing_note.anchor_phase[i]
+								+ frequency * (time - playing_note.anchor_time),
 						)
 					} else {
 						let next = playing_note.last_phase[i] + playing_note.steps[i];
@@ -1435,6 +1422,37 @@ mod tests {
 				discontinuity(&after) < 0.05,
 				"a glide of {glide} ms has a corner in it: {}",
 				discontinuity(&after)
+			);
+		}
+	}
+
+	/// A pitch that moves quickly must not click either, and nothing here is a
+	/// glide: the pitch factor itself is swept, the way a bend or a fast vibrato
+	/// moves it, so several drift corrections land inside the sweep.
+	#[test]
+	fn a_fast_pitch_sweep_keeps_the_phase() {
+		for cents in [100.0_f32, 700.0, 1_200.0] {
+			let mut adsr = adsr();
+			adsr.attack_time = 1.0;
+			adsr.random_phase = 0.0;
+			render(&mut adsr, 300, &[note_on(57)]);
+
+			let bend = 2f32.powf(cents / 1_200.0);
+			let mut output = Vec::new();
+
+			// From the note to the bent pitch in a millisecond, then hold it: a
+			// step of roughly twenty cents a sample.
+			for step in 0..4_800 {
+				let position = (step as f32 / 48.0).min(1.0);
+				adsr.pitch_factor = 1.0 + (bend - 1.0) * position;
+				output.extend(render(&mut adsr, 1, &[]));
+			}
+
+			println!("a {cents} cent sweep: {}", discontinuity(&output));
+			assert!(
+				discontinuity(&output) < 0.05,
+				"a {cents} cent sweep clicks: {}",
+				discontinuity(&output)
 			);
 		}
 	}

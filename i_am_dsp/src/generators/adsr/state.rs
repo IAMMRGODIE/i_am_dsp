@@ -86,17 +86,18 @@ pub struct PlayingNote<const CHANNELS: usize> {
 	pub(crate) glide_step: f32,
 	/// Samples left in the glide; zero when the note sits at its own pitch.
 	pub(crate) glide_left: u32,
-	/// Set on the sample a glide ends, so the phase reference can be re-based.
-	pub(crate) glide_finished: bool,
+	/// Where the phase reference was last pinned: the time of that sample,
+	/// and each copy's phase then.
+	///
+	/// The drift correction reads the phase absolutely, which is only right for
+	/// as long as the frequency has not moved. Pinning the reference every time
+	/// the pitch does move — a glide, a bend, a fast vibrato — keeps that read
+	/// exact, so a moving pitch cannot make it jump.
+	pub(crate) anchor_time: f32,
+	pub(crate) anchor_phase: Vec<f32>,
 	/// The velocity a legato takeover is sliding towards, and its step per sample.
 	pub(crate) velocity_target: f32,
 	pub(crate) velocity_step: f32,
-	/// The gap between the carried phase and the absolute read, per copy.
-	///
-	/// The glide changes the pitch, so `frequency * time` no longer equals the phase
-	/// the note has actually travelled; capturing the gap when the slide ends lets
-	/// the periodic drift correction resume without jumping.
-	pub(crate) phase_bias: Vec<f32>,
 }
 
 pub(crate) type NoteProcessor<const CHANNELS: usize> =
