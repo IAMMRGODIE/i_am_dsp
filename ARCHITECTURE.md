@@ -496,6 +496,10 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 
 - 节点目录（`nodes.rs`）：`mixer`、`delay`（Lookahead，对齐用）、`lfo`、`random`、`table`、`pitch`、
   `midi`、`envelope`，以及 9 个音源节点（`additive`…`strings`，直接包装 `i_am_synths` 的产品）。
+- **两个产品的默认图不一样**（`shared::demo()` / `shared::demo_effect()`）：generator 打开的是
+  `input:midi → voice:in → synth:additive → mod:filter → voice:out → out:audio`（LFO 扫 cutoff）；
+  effect 打开的是 `input:audio → mod:filter → out:audio`（同样 LFO 扫 cutoff）。一个插在轨道上的
+  效果器必须过音频，用乐器的默认图会让它忽略输入、只弹宿主根本不会发的音符——用户看到的就是一个不响的插件。
 - **无头服务器就是产品的服务器**：`cargo run -p i_am_patch_product --example serve -- [port]` 起
   `web::route` 那一套路由（页面资源 + `/catalog` `/patch` `/text` `/op` 与全部素材槽），并在后台用
   `shared::Body` 按实时速率跑图，所以 `/scope` `/amp` `/pitch` 有数据。agent 驱动它等于驱动宿主里的

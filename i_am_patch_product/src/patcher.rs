@@ -35,8 +35,13 @@ pub struct Patcher {
 }
 
 impl Patcher {
-	fn new() -> Self {
-		let shared = Arc::new(PatcherShared::default());
+	fn new(generator: bool) -> Self {
+		let graph = if generator {
+			crate::shared::demo()
+		} else {
+			crate::shared::demo_effect()
+		};
+		let shared = Arc::new(PatcherShared::with_graph(graph));
 
 		Self {
 			body: Body::new(shared.clone()),
@@ -55,7 +60,7 @@ macro_rules! product {
 
 		impl Default for $name {
 			fn default() -> Self {
-				Self(Patcher::new())
+				Self(Patcher::new($generator))
 			}
 		}
 
@@ -374,6 +379,54 @@ mod tests {
 		);
 	}
 
+	/// The two products are not the same instrument: an effect is inserted on a track and
+	/// has to pass its audio, an instrument plays the notes the host sends.
+	#[test]
+	fn each_product_opens_on_a_graph_that_shows_what_it_is_for() {
+		let effect = crate::shared::demo_effect();
+		let effect_kinds: Vec<&str> = effect.nodes.iter().map(|node| node.kind.id).collect();
+
+		assert!(
+			effect_kinds.contains(&"input:audio"),
+			"an effect's default has no audio input: {effect_kinds:?}"
+		);
+		assert!(
+			!effect_kinds.contains(&"input:midi"),
+			"an effect's default listens for notes: {effect_kinds:?}"
+		);
+		assert!(effect_kinds.contains(&"out:audio"));
+
+		let instrument = crate::shared::demo();
+		let instrument_kinds: Vec<&str> =
+			instrument.nodes.iter().map(|node| node.kind.id).collect();
+
+		assert!(
+			instrument_kinds.contains(&"input:midi"),
+			"an instrument's default takes no notes: {instrument_kinds:?}"
+		);
+		assert!(
+			instrument_kinds.contains(&"voice:in"),
+			"an instrument's default has no voice: {instrument_kinds:?}"
+		);
+	}
+
+	/// A patcher dropped on a track must not be silent before anything is edited.
+	#[test]
+	fn the_effect_default_passes_audio_through() {
+		let shared = std::sync::Arc::new(PatcherShared::with_graph(crate::shared::demo_effect()));
+		let mut body = Body::new(shared);
+		let block = i_am_patch::block::BLOCK;
+		let mut peak = 0.0f32;
+
+		// The body holds one block of latency, so the first block comes back empty.
+		for _ in 0..4 * block {
+			let out = body.process([0.25, 0.25], [0.0; 2]);
+			peak = peak.max(out[0].abs());
+		}
+
+		assert!(peak > 0.05, "the default effect patch was silent: {peak}");
+	}
+
 	#[test]
 	fn the_effect_declares_its_sidechain() {
 		assert_eq!(PatcherEffect::INPUT_PORTS.len(), 2);
@@ -408,10 +461,10 @@ mod tests {
 
 	use super::*;
 
-	fn patch_text(effect: &PatcherEffect) -> String {
+	fn patch_text(product: &impl Parameters) -> String {
 		// The macros come first in the table, so the graph is looked up by name:
 		// the parameter order is not part of what a test should pin.
-		let params = effect.get_parameters();
+		let params = product.get_parameters();
 		let patch = params
 			.iter()
 			.find(|param| param.identifier == "patch")
@@ -433,22 +486,22 @@ mod tests {
 
 	#[test]
 	fn the_host_state_carries_the_graph() {
-		let mut effect = PatcherEffect::default();
-		let text = patch_text(&effect);
+		let mut generator = PatcherGenerator::default();
+		let text = patch_text(&generator);
 
 		assert!(text.contains("synth:additive"), "{text}");
 		assert!(text.contains("voice:out"), "{text}");
 
 		let changed = text.replace("set 3 cutoff=1200", "set 3 cutoff=500");
-		assert!(effect.set_parameter("patch", SetValue::Serialized(changed.into_bytes())));
-		assert!(patch_text(&effect).contains("cutoff=500"));
+		assert!(generator.set_parameter("patch", SetValue::Serialized(changed.into_bytes())));
+		assert!(patch_text(&generator).contains("cutoff=500"));
 	}
 
 	#[test]
 	fn a_broken_state_is_refused() {
-		let mut effect = PatcherEffect::default();
+		let mut generator = PatcherGenerator::default();
 
-		assert!(!effect.set_parameter("patch", SetValue::Serialized(b"node nope".to_vec())));
-		assert!(patch_text(&effect).contains("synth:additive"));
+		assert!(!generator.set_parameter("patch", SetValue::Serialized(b"node nope".to_vec())));
+		assert!(patch_text(&generator).contains("synth:additive"));
 	}
 }

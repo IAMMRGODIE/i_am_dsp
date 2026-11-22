@@ -70,10 +70,19 @@ pub struct Tap {
 	pub input: Arc<Scope>,
 }
 
-impl Default for PatcherShared {
-	fn default() -> Self {
+impl PatcherShared {
+	/// The shared state over a graph the product chose.
+	///
+	/// The two products are not the same instrument: an effect has to pass the track's
+	/// audio through, an instrument makes its own. Each opens on a graph that shows
+	/// what it is for.
+	pub fn with_graph(graph: Graph) -> Self {
+		Self::build(graph)
+	}
+
+	fn build(graph: Graph) -> Self {
 		Self {
-			graph: Mutex::new(demo()),
+			graph: Mutex::new(graph),
 			generation: AtomicU64::new(1),
 			rate: AtomicUsize::new(48_000),
 			latency: AtomicUsize::new(0),
@@ -87,6 +96,12 @@ impl Default for PatcherShared {
 			edits: Mutex::new(Vec::new()),
 			params: host_macro_map(),
 		}
+	}
+}
+
+impl Default for PatcherShared {
+	fn default() -> Self {
+		Self::build(demo())
 	}
 }
 
@@ -299,6 +314,31 @@ pub fn demo() -> Graph {
 	graph.connect((voice_out, 0), (out, 0));
 	// A depth is a share of the cutoff's own range: a third of it is a sweep of
 	// about two octaves either way, which is what the demo is for.
+	graph.modulate((lfo, 0), (filter, "cutoff"), 0.33);
+	graph.set_param(filter, "cutoff", 1_200.0);
+
+	graph
+}
+
+/// The graph a fresh effect starts with: the input, a filter the LFO sweeps, the
+/// output.
+///
+/// An effect is inserted on a track and has to pass that track's audio, so its default
+/// is a working signal path, not an instrument: the demo graph would open an effect on
+/// a synth that ignores its input and plays nothing the host ever sends it.
+pub fn demo_effect() -> Graph {
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 120.0)).expect("input");
+	let filter = graph
+		.add_node("mod:filter", (340.0, 120.0))
+		.expect("filter");
+	let lfo = graph.add_node("lfo", (340.0, 580.0)).expect("lfo");
+	let out = graph.add_node("out:audio", (680.0, 120.0)).expect("out");
+
+	graph.connect((input, 0), (filter, 0));
+	graph.connect((filter, 0), (out, 0));
+	// The same third-of-the-range sweep the instrument's demo uses: about two octaves
+	// either way, which is what a modulation looks like on the card.
 	graph.modulate((lfo, 0), (filter, "cutoff"), 0.33);
 	graph.set_param(filter, "cutoff", 1_200.0);
 
