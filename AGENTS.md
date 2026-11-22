@@ -197,6 +197,12 @@ node tools/preview/preview.mjs patch          # patcher 的实时编辑器
   它必须调 `card.repaintHero(values)` 而不是内部的 `paintHero`，否则会把页面画进去的曲线擦掉，而页面为了
   拖动流畅是不重画的，擦掉就再也回不来；页面这边也别把手画的曲线写回节点（`node.points = preset(...)`），
   那会让页面和服务端每次轮询都对不上，而且预设曲线会永远压过 shape 控件。
+- **hero 自己的按钮改了 hero 就得强制重绘**：`kit/heroes.js` 的 `updateHeroes()` 会跳过「指针正停在
+  `.hero-actions` 上」的 hero——不跳的话重绘会把鼠标下的按钮换掉，点击丢在半路。但 kick/snare 那类按钮
+  改的是**页面本地状态**（PITCH/AMP、BASE/NOISE/PITCH），`/state` 轮询看不出变化，所以这一下被跳过就
+  再没有下一次：表现是「点了没反应，除非你恰好加/删了一个点」。凡是能改变 hero 自身内容的按钮，重绘必须
+  带 `markDirty(true)` 走强制路径；指针离开按钮（`pointerout` / `pointerleave`）时也补一次 `markDirty()`，
+  把推迟的更新落地。
 - **`I Am Multipass`** 直接 `export_plugin!(Rack)` 且 `crate-type = ["cdylib"]`；
   改动 `i_am_effects` 时它会一起链接，注意别把 `clap_entry` 带进来。
 
