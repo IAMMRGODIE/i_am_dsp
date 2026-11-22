@@ -162,7 +162,11 @@ pub struct CompressorEffect {
 	pub dry_gain: f32,
 
 	/// The wet gain of the effect.
-	#[range(min = 0.0, max = 1.0)]
+	///
+	/// Up to 400 %: compression takes level away, and the wet path is where the makeup
+	/// goes back in. A mix knob stops at 100 %, which leaves a squashed signal 12 dB under
+	/// the dry one with nothing to bring it back.
+	#[range(min = 0.0, max = 4.0)]
 	#[unit(percent)]
 	#[default(1.0)]
 	#[id(display = "Wet")]
@@ -331,6 +335,37 @@ impl Effect<2> for CompressorEffect {
 mod tests {
 	use super::*;
 	use std::f32::consts::TAU;
+
+	/// Compression takes level away and the wet path is where it is put back: at 400 % a
+	/// quiet signal comes out four times up, which a mix-style 0..1 control cannot do.
+	#[test]
+	fn the_wet_gain_reaches_four_times() {
+		let mut effect = CompressorEffect::new(48_000);
+		effect.threshold = 0.0;
+		effect.ratio = 1.0;
+		effect.dry_gain = 0.0;
+		effect.wet_gain = 4.0;
+
+		let mut context: Box<dyn ProcessContext> = Box::new(());
+		let mut peak = 0.0f32;
+
+		for index in 0..2_048 {
+			let phase = TAU * 1_000.0 * index as f32 / 48_000.0;
+			let main = 0.1 * phase.sin();
+			let mut samples = [main, main];
+
+			effect.process(&mut samples, &[], &mut context);
+
+			if index >= 1_024 {
+				peak = peak.max(samples[0].abs());
+			}
+		}
+
+		assert!(
+			(peak - 0.4).abs() < 0.02,
+			"400 % wet on a 0.1 signal: {peak}"
+		);
+	}
 
 	/// A loud main signal with a quiet sidechain: when the sidechain is selected,
 	/// the detector should follow the quiet signal and leave the main alone.
