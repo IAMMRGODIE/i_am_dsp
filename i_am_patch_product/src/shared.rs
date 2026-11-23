@@ -45,6 +45,9 @@ pub struct PatcherShared {
 	pub params: ParamMap,
 	/// Where the page's Save button has got to.
 	pub save: crate::save::SaveSlot,
+	/// The last encoded payload blob, with the stamp it was made at: a save that
+	/// changes nothing copies bytes instead of encoding them again.
+	pub slot_cache: Mutex<(Option<i_am_patch::state::SlotStamp>, Vec<u8>)>,
 }
 
 /// The host's macro controls: sixty-four floats, zero to one, always present.
@@ -98,6 +101,7 @@ impl PatcherShared {
 			edits: Mutex::new(Vec::new()),
 			params: host_macro_map(),
 			save: crate::save::SaveSlot::default(),
+			slot_cache: Mutex::new((None, Vec::new())),
 		}
 	}
 }
@@ -160,7 +164,25 @@ impl PatcherShared {
 	/// text: the host stores this one serialized parameter next to it, and a load
 	/// puts each payload back into the slot its node reads.
 	pub fn slot_state_bytes(&self) -> Vec<u8> {
-		to_binary(&self.slots.capture()).unwrap_or_default()
+		let stamp = self.slots.stamp();
+
+		// A project saves far more often than a table or a sample changes, and the
+		// blob is only a copy of what the slots already hold: keep the encoded one
+		// until the slots move.
+		if let Ok(cache) = self.slot_cache.lock()
+			&& cache.0.as_ref() == Some(&stamp)
+		{
+			return cache.1.clone();
+		}
+
+		let bytes = to_binary(&self.slots.capture()).unwrap_or_default();
+
+		if let Ok(mut cache) = self.slot_cache.lock() {
+			cache.0 = Some(stamp);
+			cache.1 = bytes.clone();
+		}
+
+		bytes
 	}
 
 	/// Puts a saved blob back into the slots; false when it does not decode.

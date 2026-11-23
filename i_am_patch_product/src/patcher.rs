@@ -263,6 +263,40 @@ product!(
 #[cfg(test)]
 mod tests {
 
+	/// A save that changes nothing copies the last blob; a payload that moves makes a
+	/// new one. The stamp is what tells them apart, and it must see a new sample.
+	#[test]
+	fn the_slot_blob_is_reused_until_a_slot_moves() {
+		use std::sync::Arc;
+
+		use i_am_dsp::prelude::SampleData;
+
+		let shared = PatcherShared::default();
+		let first = shared.slot_state_bytes();
+		let second = shared.slot_state_bytes();
+
+		assert_eq!(
+			first, second,
+			"the blob was encoded again with nothing changed"
+		);
+
+		{
+			let slot = shared.slots.sample(4);
+			let mut slot = slot.lock().expect("the sample slot");
+
+			slot.sample = Some(Arc::new(SampleData {
+				name: "kick.wav".to_string(),
+				rate: 48_000,
+				pcm: vec![0.0, 0.5, -0.5],
+				right: None,
+			}));
+		}
+
+		let third = shared.slot_state_bytes();
+
+		assert_ne!(first, third, "a new sample did not reach the blob");
+	}
+
 	/// A table the page dropped on a Shape node rides in the blob beside the text, so a
 	/// project keeps the sound the node was saved with.
 	#[test]

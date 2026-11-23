@@ -67,7 +67,65 @@ pub struct DrummerState {
 	pub shots: [Option<SampleData>; 6],
 }
 
+/// A cheap identity for what the slots hold.
+///
+/// A host that saves a project does not ask whether anything changed, and a payload
+/// can be tens of megabytes: encoding it again to learn it is the same costs more than
+/// everything else a save does. The stamp is made of pointers, versions and
+/// generations — no copy — so the caller can keep the last blob.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SlotStamp(Vec<u64>);
+
 impl Slots {
+	/// What the slots hold, as something that fits in a comparison.
+	pub fn stamp(&self) -> SlotStamp {
+		let mut stamp = Vec::new();
+
+		for (node, slot) in self.waves.lock().expect("the wave slots").iter() {
+			if let Some(bank) = &slot.lock().expect("one wave slot").bank {
+				stamp.push(*node as u64);
+				stamp.push(Arc::as_ptr(bank) as usize as u64);
+			}
+		}
+
+		for (node, slot) in self.fitted.lock().expect("the fitted slots").iter() {
+			if slot.current().is_some() {
+				stamp.push(*node as u64);
+				stamp.push(slot.version());
+			}
+		}
+
+		for (node, slot) in self.samples.lock().expect("the sample slots").iter() {
+			let slot = slot.lock().expect("one sample slot");
+
+			if let Some(sample) = &slot.sample {
+				stamp.push(*node as u64);
+				stamp.push(Arc::as_ptr(sample) as usize as u64);
+			}
+
+			for slice in &slot.slices {
+				stamp.push(slice.to_bits() as u64);
+			}
+		}
+
+		for (node, slot) in self.irs.lock().expect("the ir slots").iter() {
+			if let Some(ir) = slot.load() {
+				stamp.push(*node as u64);
+				stamp.push(ir.fingerprint);
+				stamp.push(slot.fade_generation());
+			}
+		}
+
+		for (node, handle) in self.drummers.lock().expect("the drummers").iter() {
+			if handle.kit_generation() > 0 {
+				stamp.push(*node as u64);
+				stamp.push(handle.kit_generation());
+			}
+		}
+
+		SlotStamp(stamp)
+	}
+
 	/// Everything the slots hold now, for the blob a host saves.
 	pub fn capture(&self) -> SlotState {
 		let mut state = SlotState::default();

@@ -93,6 +93,13 @@ impl DrummerHandle {
 		self.samples.snapshot()
 	}
 
+	/// A number that moves whenever the click or a one-shot changes.
+	pub fn kit_generation(&self) -> u64 {
+		self.click
+			.generation()
+			.wrapping_add(self.samples.generation())
+	}
+
 	/// Puts a saved kit back into the slots the voice reads.
 	pub fn restore_kit(
 		&self,
