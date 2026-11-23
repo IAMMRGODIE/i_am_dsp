@@ -2627,6 +2627,28 @@
     draw();
   }
 
+  /// Duplicates the selection a little off the original, as one undo step.
+  ///
+  /// It is what Copy then Paste would make, kept inside the page so the clipboard the
+  /// user filled stays where it was. Copying the whole selection is what keeps a
+  /// duplicated voice group whole: its wires and the modulations inside it come along,
+  /// which the node menu's Duplicate (one node, its parameters) cannot do.
+  async function duplicateSelection() {
+    const ids = [...selection];
+
+    if (!ids.length) return;
+
+    const kept = clipboard;
+
+    copyNodes(ids);
+
+    try {
+      await pasteClipboard();
+    } finally {
+      clipboard = kept;
+    }
+  }
+
   // The page's writes go out one at a time, in the order the hand made them.
   //
   // A drag posts many of them, and each one first reads the patch for the undo
@@ -4167,6 +4189,12 @@
     if ((event.ctrlKey || event.metaKey) && !event.altKey) {
       const key = event.key.toLowerCase();
 
+      // A field owns its own editing keys: the search in the node library and the
+      // script editor must not duplicate a node, or undo the graph, under the caret.
+      if (event.target.closest && event.target.closest("input, textarea, select")) {
+        return;
+      }
+
       if (key === "z") {
         if (event.shiftKey) redo();
         else undo();
@@ -4188,6 +4216,12 @@
 
       if (key === "v") {
         pasteClipboard();
+        event.preventDefault();
+        return;
+      }
+
+      if (key === "d") {
+        duplicateSelection();
         event.preventDefault();
         return;
       }
