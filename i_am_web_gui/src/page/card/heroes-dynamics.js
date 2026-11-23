@@ -107,8 +107,12 @@
 
     for (var i = 0; i < bands; i++) {
       var x = 20 + (i + 0.5) * slot - bar_width / 2;
-      var in_height = Math.sqrt(clamp(input[i] || 0, 0, 1)) * 60;
-      var out_height = Math.sqrt(clamp(output[i] || 0, 0, 1)) * 60;
+      // The bands are log-spaced from 20 Hz to 20 kHz, the same range the spectrum
+      // pictures cover, so the same +3 dB per octave applies: without it the low bars
+      // are pinned and the high ones have nothing to show.
+      var tilt = Math.pow(10, tiltDb(bandHz(i, bands)) / 20);
+      var in_height = Math.sqrt(clamp((input[i] || 0) * tilt, 0, 1)) * 60;
+      var out_height = Math.sqrt(clamp((output[i] || 0) * tilt, 0, 1)) * 60;
 
       bars += '<rect x="' + x.toFixed(1) + '" y="' + (80 - in_height).toFixed(1) +
         '" width="' + bar_width.toFixed(1) + '" height="' + in_height.toFixed(1) +

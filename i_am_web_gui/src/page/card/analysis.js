@@ -188,12 +188,41 @@
     return previous;
   }
 
+  /// The two ends of the spectrum every band picture draws: a thousand to one.
+  var BAND_LOW = 20;
+  var BAND_HIGH = 20000;
+
+  /// How far the picture tilts, in decibels per octave.
+  ///
+  /// A mix is about 1/f, so an honest window spends most of its height on the part of
+  /// the spectrum the ear barely notices and almost none on the part it does. +3 dB per
+  /// octave is the slope that makes pink noise a flat line, which is the usual middle
+  /// ground; analysers that want a brighter picture use +4.5. The values stay honest
+  /// dBFS: only the drawing is tilted.
+  var TILT_DB_PER_OCT = 3;
+
+  /// The centre of one band, in hertz, for a picture drawing `count` of them.
+  function bandHz(index, count, low, high) {
+    low = low || BAND_LOW;
+    high = high || BAND_HIGH;
+
+    return low * Math.pow(high / low, (index + 0.5) / Math.max(1, count));
+  }
+
+  /// What the tilt adds at a frequency, in decibels, pinned at 1 kHz so the midrange
+  /// stays where it is and only the ends move.
+  function tiltDb(frequency) {
+    return TILT_DB_PER_OCT * Math.log2(frequency / 1000);
+  }
+
   function bandsPath(bands) {
     var path = "";
 
     for (var i = 0; i < bands.length; i++) {
       var x = 20 + i / (BANDS - 1) * 480;
-      var y = clamp(10 + clamp(-bands[i] / 60, 0, 1) * 140, 10, 150);
+      // The values are dBFS as measured; the tilt is what makes the picture readable.
+      var db = bands[i] + tiltDb(bandHz(i, bands.length));
+      var y = clamp(10 + clamp(-db / 60, 0, 1) * 140, 10, 150);
       path += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
     }
 

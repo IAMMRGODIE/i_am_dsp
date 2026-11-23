@@ -430,6 +430,11 @@ web_plugin!(
   （tooltip）；范围说不清的事——比如滑音能滑多远——就写在那里，而不是让用户自己试出来。
 - **hero**：两边都调用 `IAmCard.hero(kind, values, context)`，产品页只负责把 live 数据
   （scope/spectrum/meter/IR…）放进 context 并轮询。
+- **频谱画的是斜的**：`analysis.js` 的 `bandsPath` 给每个频段加 `3 dB × log2(f/1 kHz)`
+  （20 Hz −17 dB、1 kHz 0、20 kHz +13 dB）。数值仍是原始 dBFS，只有画法倾斜——音乐本身是
+  ~1/f，不倾斜的话一屏高度大半花在人耳几乎不关心的低频上。+3 dB/oct 让粉噪显示成平线；
+  有的分析器用 +4.5 求更亮的观感。vocoder 的频段条（`heroes-dynamics.js`）用同一条斜率，
+  所以两种图看起来是同一个频谱观。
 
 卡片布局本身也共享：`IAmCard.faceCard({ face, values, context, activePage, onPage, onEdit, wrapControl })`
 把 face 的 sections/pages/heroes/header/visible/switches 画成一张卡（section 标题、分页标签、
