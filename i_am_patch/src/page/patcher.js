@@ -2437,7 +2437,12 @@
   function mutationKey(body) {
     if (body.op === "param") return "param:" + body.id + ":" + body.key;
     if (body.op === "mod_depth") return "depth:" + body.index;
-    if (body.op === "mod_mode") return "mode:" + (body.index || []).join(",");
+    // The gesture used to send every slot of the knob and the op sends the one slot
+    // it changes, so the key takes either: a number here was calling join and
+    // throwing, which killed the op before it reached the server.
+    if (body.op === "mod_mode") {
+      return "mode:" + (Array.isArray(body.index) ? body.index.join(",") : body.index);
+    }
     if (body.op === "move") return "move:" + body.id;
     return "";
   }
@@ -2638,7 +2643,15 @@
 
   async function op(body, redraw = true) {
     return queued(async () => {
-      if (suspendSnapshot === 0) await snapshot(body);
+      // The undo step is a courtesy; a bug in it must not swallow the edit itself,
+      // which is how a mode change used to reach the card and never the graph.
+      if (suspendSnapshot === 0) {
+        try {
+          await snapshot(body);
+        } catch (error) {
+          console.warn("the undo step was skipped:", error);
+        }
+      }
 
       const response = await fetch("/op", {
         method: "POST",
