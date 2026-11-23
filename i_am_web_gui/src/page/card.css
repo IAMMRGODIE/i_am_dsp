@@ -362,7 +362,17 @@
   min-width:220px; padding:8px 10px; background:#1b1b1b; border:1px solid #4a4a4a;
   border-radius:6px; box-shadow:0 8px 24px rgba(0,0,0,.55);
 }
-.knob-depth{display:grid; grid-template-columns:1fr 90px 46px; align-items:center; gap:6px}
+.knob-depth{display:grid; grid-template-columns:1fr 90px 46px auto; align-items:center; gap:6px}
+
+/* The mode a source pushes from, beside the depth it pushes by. */
+.knob-depth-mode{
+  height:18px; padding:0 5px; background:var(--header); color:var(--text2);
+  border:1px solid var(--line); border-radius:3px; cursor:pointer;
+  font-size:9px; line-height:1; white-space:nowrap;
+}
+.knob-depth-mode:hover{color:var(--text1); border-color:var(--text2)}
+.knob-depth-mode[data-mode="centered"]{color:var(--accent); border-color:var(--accent)}
+.knob-depth-mode:focus-visible{outline:1px solid var(--accent); outline-offset:1px}
 .knob-depth span{font-size:10px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .knob-depth input[type=range]{width:100%; accent-color:var(--accent)}
 

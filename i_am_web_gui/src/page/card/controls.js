@@ -376,13 +376,53 @@
         row.appendChild(name);
         row.appendChild(range);
         row.appendChild(wrap);
+
+        // How the depth is measured is part of the depth: from the knob's own value,
+        // or around it. The ring gesture (ctrl + click on the knob) is easy to miss,
+        // so the panel that shows the number also shows what the number means.
+        if (spec.onModeToggle) {
+          var fromBase = ["frombase", "from-base", "start"].indexOf(assignment.mode || "centered") >= 0;
+          var modeButton = document.createElement("button");
+
+          modeButton.type = "button";
+          modeButton.className = "knob-depth-mode";
+
+          var paintMode = function () {
+            modeButton.textContent = fromBase ? "From base" : "Centered";
+            modeButton.dataset.mode = fromBase ? "frombase" : "centered";
+            modeButton.title = fromBase
+              ? "Starts at the knob's value and moves one way; click for centered"
+              : "Swings around the knob's value; click for from base";
+          };
+
+          modeButton.addEventListener("click", function () {
+            fromBase = !fromBase;
+            assignment.mode = fromBase ? "frombase" : "centered";
+            paintMode();
+            paint();
+            spec.onModeToggle([assignment.slot], fromBase ? "start" : "center");
+
+            // A page that rebuilds its card on the change (the rack reloads after a
+            // matrix edit) leaves this panel hanging over a knob that is gone.
+            setTimeout(function () {
+              if (!dial.isConnected) box.remove();
+            }, 600);
+          });
+
+          paintMode();
+          row.appendChild(modeButton);
+        }
+
         box.appendChild(row);
       });
 
       var rect = dial.getBoundingClientRect();
-      box.style.left = Math.max(8, Math.min(window.innerWidth - 240, rect.left)) + "px";
-      box.style.top = Math.min(window.innerHeight - 120, rect.bottom + 8) + "px";
+      // The panel has a width of its own (a mode button rides beside the number), so
+      // it is measured rather than assumed: 240 was the width before that.
       document.body.appendChild(box);
+      var size = box.getBoundingClientRect();
+      box.style.left = Math.max(8, Math.min(window.innerWidth - size.width - 8, rect.left)) + "px";
+      box.style.top = Math.min(window.innerHeight - size.height - 8, rect.bottom + 8) + "px";
 
       function dismiss(event) {
         if (box.contains(event.target)) {
