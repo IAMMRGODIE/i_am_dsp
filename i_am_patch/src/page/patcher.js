@@ -2431,6 +2431,8 @@
   let lastRecord = { key: "", at: 0 };
   let serverError = "";
   let opError = "";
+  // Whether the bar is saying where something went rather than what failed.
+  let statusNote = false;
 
   function mutationKey(body) {
     if (body.op === "param") return "param:" + body.id + ":" + body.key;
@@ -2444,11 +2446,14 @@
     const bar = document.getElementById("status");
     const text = serverError || opError;
     bar.textContent = text;
+    // A refusal and a note share the bar; only one of them is red.
+    bar.classList.toggle("note", statusNote && !serverError);
     bar.hidden = !text;
   }
 
-  function showStatus(text) {
+  function showStatus(text, note) {
     opError = text || "";
+    statusNote = !!text && !!note;
     paintStatus();
   }
 
@@ -4224,13 +4229,41 @@
   document.getElementById("zoom-fit").onclick = fitView;
   updateHistory();
 
+  /// Saves the patch as the text file the Open button reads back.
+  ///
+  /// The file goes through the browser's download path, which is the one file route a
+  /// page and a plug-in's webview both have; the DAW's own state saves itself, so this
+  /// button is the export. A download leaves no mark on the page, which is why a click
+  /// that worked looked dead: the same name also piled up as "patch (12).txt", so the
+  /// name carries the minute and the bar says where the file went.
   document.getElementById("save").onclick = async () => {
-    const text = await (await fetch("/text")).json();
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
-    link.download = "patch.txt";
-    link.click();
-    URL.revokeObjectURL(link.href);
+    try {
+      const text = await (await fetch("/text")).json();
+      // The name is the moment in the local zone: a downloads folder is read by a
+      // person looking at their own clock, not at UTC.
+      const now = new Date();
+      const pad = (value) => String(value).padStart(2, "0");
+      const stamp =
+        now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
+        "-" + pad(now.getHours()) + pad(now.getMinutes());
+      const name = "patch-" + stamp + ".txt";
+      const link = document.createElement("a");
+
+      link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      showStatus("saved " + name + " to your downloads", true);
+      // The blob is only needed until the download has taken its name.
+      setTimeout(() => URL.revokeObjectURL(link.href), 3_000);
+      setTimeout(() => {
+        if (opError.indexOf("saved ") === 0) showStatus("");
+      }, 6_000);
+    } catch (error) {
+      showStatus("the patch did not save: " + error);
+    }
   };
 
   document.getElementById("open").onclick = () => document.getElementById("file").click();

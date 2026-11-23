@@ -270,6 +270,11 @@ header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
 }
 .status[hidden]{display:none}
 
+/* The same bar saying where a file went: quiet, so a note is not read as a refusal. */
+.status.note{
+  background:rgba(30,30,30,.94); border-color:#3a3a3a; color:var(--text1);
+}
+
 /* The selection rectangle dragged over the canvas. */
 .marquee{
   fill:rgba(224,122,47,.08); stroke:var(--accent); stroke-width:1;
