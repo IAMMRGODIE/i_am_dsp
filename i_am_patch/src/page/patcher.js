@@ -3285,9 +3285,84 @@
     draw();
   }
 
-  /// Right-clicking a modulation wire offers to take the assignment off.
+  /// The knob a modulation pushes, if the card is showing it.
+  function modulationKnob(node, control) {
+    const host = document.querySelector('[data-node="' + node + '"]');
+    if (!host) return null;
+
+    return host.querySelector('.knob[data-drop-target="' + node + ":" + control + '"]');
+  }
+
+  /// The page of a card that shows one control, or -1 when no page does.
+  function controlPage(node, control) {
+    const kind = kindOf(node.kind);
+    const pages = (kind && kind.pages) || [];
+
+    if (!pages.length) return 0;
+
+    // A section lists either the ids or the controls themselves, depending on how
+    // the catalog was asked; both say the same thing.
+    const section = ((kind && kind.sections) || []).find((item) =>
+      (item.controls || []).some((entry) => entry === control || (entry && entry.id === control)),
+    );
+
+    if (!section) return -1;
+
+    return pages.findIndex((page) => (page.sections || []).includes(section.name));
+  }
+
+  /// Opens the depth editor of one knob, the panel alt + right click shows there.
+  ///
+  /// The panel belongs to the knob, not to the wire: opening it from the wire is the
+  /// same gesture, so it is dispatched as one rather than read off a copy of the code.
+  function openDepthsFor(node, control) {
+    let knob = modulationKnob(node.id, control);
+
+    if (!knob) {
+      // The knob lives on another page of a product card: turn to it first.
+      const page = controlPage(node, control);
+
+      if (page >= 0 && (pagesOf[node.id] ?? 0) !== page) {
+        pagesOf[node.id] = page;
+        delete cards[node.id];
+        draw();
+        knob = modulationKnob(node.id, control);
+      }
+    }
+
+    if (!knob) return false;
+
+    knob.dispatchEvent(new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      altKey: true,
+    }));
+
+    return true;
+  }
+
+  /// Right-clicking a modulation wire opens its depth editor, or takes the
+  /// assignment off.
   function openModMenu(index, clientX, clientY) {
+    const mod = patch.mods[index];
     menu.innerHTML = "";
+
+    if (mod) {
+      const node = nodeOf(mod.to[0]);
+      const reachable =
+        !!node && (!!modulationKnob(mod.to[0], mod.to[1]) || controlPage(node, mod.to[1]) >= 0);
+
+      if (reachable) {
+        menu.appendChild(menuButton("Edit", () => {
+          closeMenu();
+
+          // The card is rebuilt by the page turn above, so the knob is looked up
+          // again inside there rather than held from before the click.
+          openDepthsFor(node, mod.to[1]);
+        }));
+      }
+    }
+
     menu.appendChild(menuButton("Remove modulation", () => {
       op({ op: "unmodulate", index });
       closeMenu();
