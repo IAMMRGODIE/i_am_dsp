@@ -23,6 +23,7 @@ pub mod catalog;
 mod comb;
 mod compressor;
 mod convolver;
+pub mod dialog;
 mod disperser;
 mod filter_table;
 mod history;

@@ -43,6 +43,8 @@ pub struct PatcherShared {
 	/// graph draws from it. The page writes it, the host writes it, and the audio
 	/// thread copies whatever it finds into the pad the `macro` nodes read.
 	pub params: ParamMap,
+	/// Where the page's Save button has got to.
+	pub save: crate::save::SaveSlot,
 }
 
 /// The host's macro controls: sixty-four floats, zero to one, always present.
@@ -95,6 +97,7 @@ impl PatcherShared {
 			clear_requests: Mutex::new(Vec::new()),
 			edits: Mutex::new(Vec::new()),
 			params: host_macro_map(),
+			save: crate::save::SaveSlot::default(),
 		}
 	}
 }

@@ -20,6 +20,24 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 		("GET", "/status") => Some(ProtocolResponse::json(
 			json!({ "error": shared.error() }).to_string(),
 		)),
+		// The page's Save button: a native save-as beside the editor. The dialog is a
+		// modal window on a worker thread, so asking starts it and a poll says how it
+		// ended; a page with no host beside it gets told there is no dialog and falls
+		// back to the browser's download.
+		("POST", "/save") => Some(ProtocolResponse::json(
+			match shared.save.ask(
+				shared.text(),
+				query_value(request, "name").unwrap_or("patch.txt"),
+			) {
+				crate::save::Asked::Started => json!({ "ok": true, "dialog": true }),
+				crate::save::Asked::Busy => json!({ "ok": true, "dialog": true, "pending": true }),
+				crate::save::Asked::Unavailable => {
+					json!({ "ok": false, "reason": "no native dialog" })
+				}
+			}
+			.to_string(),
+		)),
+		("GET", "/save") => Some(ProtocolResponse::json(shared.save.json())),
 		// The host's macro controls, for the page: it reads them here and writes
 		// them through the same atomics a host does, so a drag is automation.
 		("GET", "/macros") => {

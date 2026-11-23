@@ -5,6 +5,7 @@
 //! generator does not.
 
 pub mod patcher;
+pub mod save;
 pub mod shared;
 pub mod web;
 

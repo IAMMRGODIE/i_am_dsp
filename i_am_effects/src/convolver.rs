@@ -458,97 +458,29 @@ fn fade_edges(samples: &mut [f32], fade_in: f32, fade_out: f32) {
 	}
 }
 
-/// A window handle for the window that should own the picker.
-#[cfg(windows)]
-struct Owner(isize);
-
-#[cfg(windows)]
-impl raw_window_handle::HasWindowHandle for Owner {
-	fn window_handle(
-		&self,
-	) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-		let hwnd = std::num::NonZeroIsize::new(self.0)
-			.ok_or(raw_window_handle::HandleError::Unavailable)?;
-		let handle = raw_window_handle::RawWindowHandle::Win32(
-			raw_window_handle::Win32WindowHandle::new(hwnd),
-		);
-
-		// SAFETY: the window outlives the dialog, and the handle is only borrowed
-		// for the duration of the call.
-		Ok(unsafe { raw_window_handle::WindowHandle::borrow_raw(handle) })
-	}
-}
-
-#[cfg(windows)]
-impl raw_window_handle::HasDisplayHandle for Owner {
-	fn display_handle(
-		&self,
-	) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
-		// SAFETY: the Windows display handle carries no state.
-		Ok(unsafe {
-			raw_window_handle::DisplayHandle::borrow_raw(
-				raw_window_handle::RawDisplayHandle::Windows(
-					raw_window_handle::WindowsDisplayHandle::new(),
-				),
-			)
-		})
-	}
-}
-
-/// Opens the native picker, owned by the window the user clicked, on a thread of
-/// its own.
-///
-/// A page's own file input has no owner of its own inside a host, so its picker
-/// can open behind the DAW, or appear not to open at all. A dialog whose owner is
-/// the foreground window always comes up in front of it.
-///
-/// The dialog also runs on a worker thread, not in the IPC callback: opening a
-/// modal window from inside the click that WebView2 is still dispatching made it
-/// appear only some of the time.
-#[cfg(windows)]
+/// Opens the native picker for a response, owned by the window the user clicked.
 fn pick_ir(slot: Arc<IrSlot>) {
-	use windows_sys::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetForegroundWindow};
-
 	if slot.is_pending() {
 		return;
 	}
 
 	slot.set_pending(true);
 
-	let mut window = unsafe { GetForegroundWindow() };
+	let done = slot.clone();
 
-	if !window.is_null() {
-		let root = unsafe { GetAncestor(window, GA_ROOT) };
-		if !root.is_null() {
-			window = root;
-		}
-	}
+	crate::dialog::pick(
+		("Impulse response", &["wav", "flac", "mp3", "ogg"]),
+		move |path| {
+			if let Some(path) = path {
+				load_ir(&done, &path);
+			}
 
-	let owner = window as isize;
-
-	std::thread::spawn(move || {
-		// Let the click that asked for the picker finish before a modal dialog
-		// takes over: it is dispatched by WebView2 inside the same input event.
-		std::thread::sleep(std::time::Duration::from_millis(50));
-
-		let mut dialog =
-			rfd::FileDialog::new().add_filter("Impulse response", &["wav", "flac", "mp3", "ogg"]);
-
-		if owner != 0 {
-			let owner = Owner(owner);
-			dialog = dialog.set_parent(&owner);
-		}
-
-		if let Some(path) = dialog.pick_file() {
-			load_ir(&slot, &path);
-		}
-
-		slot.set_pending(false);
-	});
+			done.set_pending(false);
+		},
+	);
 }
 
 /// Reads and decodes one picked file into the slot.
-#[cfg(windows)]
 fn load_ir(slot: &IrSlot, path: &std::path::Path) {
 	let name = path
 		.file_name()
@@ -563,9 +495,6 @@ fn load_ir(slot: &IrSlot, path: &std::path::Path) {
 		Err(error) => slot.fail(error.to_string()),
 	}
 }
-
-#[cfg(not(windows))]
-fn pick_ir(_slot: Arc<IrSlot>) {}
 
 /// Decodes an uploaded file into an impulse response at `sample_rate`.
 /// Decodes an impulse response file into the samples the convolver runs at.

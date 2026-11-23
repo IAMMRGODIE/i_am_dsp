@@ -4229,38 +4229,91 @@
   document.getElementById("zoom-fit").onclick = fitView;
   updateHistory();
 
+  /// The patch file's name: the moment in the local zone, so two saves are two files.
+  function patchName() {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+
+    return (
+      "patch-" + now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
+      "-" + pad(now.getHours()) + pad(now.getMinutes()) + ".txt"
+    );
+  }
+
+  /// Says something in the status bar and lets it go by itself.
+  function note(text) {
+    showStatus(text, true);
+    setTimeout(() => {
+      if (opError === text) showStatus("");
+    }, 6_000);
+  }
+
   /// Saves the patch as the text file the Open button reads back.
   ///
-  /// The file goes through the browser's download path, which is the one file route a
-  /// page and a plug-in's webview both have; the DAW's own state saves itself, so this
-  /// button is the export. A download leaves no mark on the page, which is why a click
-  /// that worked looked dead: the same name also piled up as "patch (12).txt", so the
-  /// name carries the minute and the bar says where the file went.
+  /// Beside a host the file is written where the native save-as dialog says; a page
+  /// served on its own has no dialog to ask, so it falls back to a download (the one
+  /// file route a browser and a webview both have). The host's own state saves itself,
+  /// so this button is the export.
+  async function savePatch() {
+    const text = await (await fetch("/text")).json();
+
+    try {
+      const asked = await (await fetch("/save?name=" + encodeURIComponent(patchName()), { method: "POST" })).json();
+
+      if (asked && asked.ok && asked.dialog) {
+        await watchSave();
+        return;
+      }
+    } catch (error) {
+      // No route: this page is served by something that cannot save.
+    }
+
+    downloadPatch(text);
+  }
+
+  /// Waits for the dialog to close and says where the file went.
+  async function watchSave() {
+    for (let tries = 0; tries < 480; tries++) {
+      await new Promise((done) => setTimeout(done, 250));
+
+      let state;
+
+      try {
+        state = await (await fetch("/save", { cache: "no-store" })).json();
+      } catch (error) {
+        showStatus("the patch did not save: " + error);
+        return;
+      }
+
+      if (state.state === "pending") continue;
+
+      if (state.state === "saved") note("saved " + state.path);
+      else if (state.state === "failed") showStatus("the patch did not save: " + state.error);
+
+      // Cancelled says nothing: the answer was no file.
+      return;
+    }
+  }
+
+  /// The download, for a page with no host dialog to ask.
+  function downloadPatch(text) {
+    const name = patchName();
+    const link = document.createElement("a");
+
+    link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    note("saved " + name + " to your downloads");
+    // The blob is only needed until the download has taken its name.
+    setTimeout(() => URL.revokeObjectURL(link.href), 3_000);
+  }
+
   document.getElementById("save").onclick = async () => {
     try {
-      const text = await (await fetch("/text")).json();
-      // The name is the moment in the local zone: a downloads folder is read by a
-      // person looking at their own clock, not at UTC.
-      const now = new Date();
-      const pad = (value) => String(value).padStart(2, "0");
-      const stamp =
-        now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
-        "-" + pad(now.getHours()) + pad(now.getMinutes());
-      const name = "patch-" + stamp + ".txt";
-      const link = document.createElement("a");
-
-      link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
-      link.download = name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      showStatus("saved " + name + " to your downloads", true);
-      // The blob is only needed until the download has taken its name.
-      setTimeout(() => URL.revokeObjectURL(link.href), 3_000);
-      setTimeout(() => {
-        if (opError.indexOf("saved ") === 0) showStatus("");
-      }, 6_000);
+      await savePatch();
     } catch (error) {
       showStatus("the patch did not save: " + error);
     }
