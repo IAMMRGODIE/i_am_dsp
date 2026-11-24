@@ -242,9 +242,9 @@
     var labels = { 100: "100", 1000: "1k", 10000: "10k" };
 
     for (var t = 0; t < ticks.length; t++) {
-      var tx = 20 + Math.log(ticks[t] / 20) / Math.log(1000) * 480;
-      grid += '<line x1="' + tx.toFixed(1) + '" y1="10" x2="' + tx.toFixed(1) +
-        '" y2="150" stroke="#252525"/>';
+      var tx = EQ_PLOT.left + Math.log(ticks[t] / 20) / Math.log(1000) * EQ_PLOT.across;
+      grid += '<line x1="' + tx.toFixed(1) + '" y1="' + EQ_PLOT.top + '" x2="' + tx.toFixed(1) +
+        '" y2="' + EQ_PLOT.bottom + '" stroke="#252525"/>';
 
       if (labels[ticks[t]]) {
         labelsHtml += heroLabel(tx, 157, labels[ticks[t]],
@@ -253,21 +253,22 @@
     }
 
     for (var db = -24; db <= 24; db += 12) {
-      var gy = 80 - db / 24 * 70;
-      grid += '<line x1="20" y1="' + gy.toFixed(1) + '" x2="500" y2="' + gy.toFixed(1) +
+      var gy = EQ_PLOT.middle - db / 24 * EQ_PLOT.half;
+      grid += '<line x1="' + EQ_PLOT.left + '" y1="' + gy.toFixed(1) + '" x2="' + EQ_PLOT.right + '" y2="' + gy.toFixed(1) +
         '" stroke="' + (db === 0 ? "#363636" : "#252525") + '"/>';
       labelsHtml += heroLabel(22, gy - 3, (db > 0 ? "+" : "") + db);
     }
 
-    grid += '<rect x="20" y="10" width="480" height="140" fill="none" stroke="#2a2a2a"/>';
+    grid += '<rect x="' + EQ_PLOT.left + '" y="' + EQ_PLOT.top + '" width="' + EQ_PLOT.across +
+      '" height="' + EQ_PLOT.down + '" fill="none" stroke="#2a2a2a"/>';
 
     var curve = "";
 
     for (var i = 0; i <= 240; i++) {
       var frequency = 20 * Math.pow(1000, i / 240);
       var decibels = eqResponseDb(frequency, bands, rate) + output;
-      var x = 20 + i / 240 * 480;
-      var y = clamp(80 - decibels / 24 * 70, 10, 150);
+      var x = EQ_PLOT.left + i / 240 * EQ_PLOT.across;
+      var y = clamp(EQ_PLOT.middle - decibels / 24 * EQ_PLOT.half, EQ_PLOT.top, EQ_PLOT.bottom);
       curve += (i ? " L " : "M ") + x.toFixed(1) + " " + y.toFixed(1);
     }
 
@@ -307,8 +308,9 @@
 
     for (var b = 0; b < bands.length; b++) {
       var band = bands[b];
-      var bx = 20 + Math.log(clamp(band.freq, 20, 20000) / 20) / Math.log(1000) * 480;
-      var by = 80 - (band.type <= 2 ? band.gain : 0) / 24 * 70;
+      var bx = EQ_PLOT.left +
+        Math.log(clamp(band.freq, 20, 20000) / 20) / Math.log(1000) * EQ_PLOT.across;
+      var by = EQ_PLOT.middle - (band.type <= 2 ? band.gain : 0) / 24 * EQ_PLOT.half;
       var active = b === selected;
       var color = active ? "var(--accent)" : "#777";
       var opacity = band.on ? 1 : 0.35;

@@ -15,6 +15,25 @@
 //   near(at)        whether a slice mark is that close
 //
 // A hero without a behaviour keeps whatever its page wires itself.
+  /// The grid inside the EQ picture.
+  ///
+  /// The hero is 520x160 and the plot is inset in it, so the drag has to read the
+  /// pointer through the box the bands are drawn in: taking a ratio over the whole
+  /// hero puts a band wherever the pointer is not.
+  var EQ_PLOT = {
+    width: 520,
+    height: 160,
+    left: 20,
+    top: 10,
+    right: 500,
+    bottom: 150
+  };
+
+  EQ_PLOT.across = EQ_PLOT.right - EQ_PLOT.left;
+  EQ_PLOT.down = EQ_PLOT.bottom - EQ_PLOT.top;
+  EQ_PLOT.middle = (EQ_PLOT.top + EQ_PLOT.bottom) / 2;
+  EQ_PLOT.half = EQ_PLOT.down / 2;
+
   var HERO_BEHAVIOURS = {};
 
   function registerHeroBehaviour(hero, behaviour) {
@@ -177,15 +196,20 @@
 
       if (!rect.width || !rect.height) return;
 
-      var u = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-      var v = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+      // Read the pointer in the picture's own coordinates, then in the plot's: the
+      // hero is 520x160 and the grid is inset, so a ratio over the whole hero would
+      // put the band where the pointer is not.
+      var px = (event.clientX - rect.left) / rect.width * EQ_PLOT.width;
+      var py = (event.clientY - rect.top) / rect.height * EQ_PLOT.height;
+      var u = Math.min(1, Math.max(0, (px - EQ_PLOT.left) / EQ_PLOT.across));
+      var v = Math.min(1, Math.max(0, (py - EQ_PLOT.top) / EQ_PLOT.down));
       var type = Math.round(ctx.value("b" + (drag.band + 1) + "_type") || 0);
 
       // Shift is the fine drag: the band moves a tenth of the pointer's travel from
       // where it started, so a narrow band can be placed without overshooting.
       if (event.shiftKey) {
-        var du = (event.clientX - drag.startX) / rect.width * 0.1;
-        var dv = (event.clientY - drag.startY) / rect.height * 0.1;
+        var du = (event.clientX - drag.startX) / rect.width * EQ_PLOT.width / EQ_PLOT.across * 0.1;
+        var dv = (event.clientY - drag.startY) / rect.height * EQ_PLOT.height / EQ_PLOT.down * 0.1;
         var fine = Math.min(20000, Math.max(20, (drag.freq || 1000) * Math.pow(1000, du)));
 
         ctx.set("b" + (drag.band + 1) + "_freq", fine);
