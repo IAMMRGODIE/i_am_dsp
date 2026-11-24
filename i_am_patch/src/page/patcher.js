@@ -855,15 +855,32 @@
         assignments,
         onDepth: (slot, next) => {
           touchNode(node.id);
-          op({ op: "mod_depth", index: slot, depth: next }, false);
+          op(
+            { op: "mod_depth", index: liveModSlot(node.id, id, slot), depth: next },
+            false,
+          );
         },
         onMode: (slots, next) => {
           touchNode(node.id);
-          op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
+          op(
+            {
+              op: "mod_mode",
+              index: liveModSlot(node.id, id, slots[0]),
+              mode: next === "center" ? "center" : "base",
+            },
+            false,
+          );
         },
         // Ctrl + right click on the knob: every source comes off it.
         onClearModulations: (slots) => {
-          for (const slot of slots) op({ op: "unmodulate", index: slot }, false);
+          // Highest first: removing one shifts every later slot, so the rest of the
+          // list would point past the end. The last removal redraws, which is what
+          // gives the other cards their slots back.
+          const order = [...slots].sort((left, right) => right - left);
+
+          order.forEach((slot, index) => {
+            op({ op: "unmodulate", index: slot }, index === order.length - 1);
+          });
         },
         dropTarget: node.id + ":" + id,
       });
@@ -1089,6 +1106,18 @@
     }
 
     return context;
+  }
+
+  /// The slot a modulation has right now.
+  ///
+  /// A card keeps the slot number it was built with, and removing a modulation shifts
+  /// every later one: a depth or mode edit from a stale card then lands on the wrong
+  /// link (or past the end, where the graph refuses it), which is how an alt-drag looked
+  /// like it needed a click on the card to take.
+  function liveModSlot(node, key, fallback) {
+    const index = patch.mods.findIndex((mod) => mod.to[0] === node && mod.to[1] === key);
+
+    return index >= 0 ? index : fallback;
   }
 
   /// Watches the node a card edit came from.
@@ -2205,15 +2234,33 @@
           assignments,
           onDepth: (slot, next) => {
             touchNode(node.id);
-            op({ op: "mod_depth", index: slot, depth: next }, false);
+            op(
+              {
+                op: "mod_depth",
+                index: liveModSlot(node.id, control.id, slot),
+                depth: next,
+              },
+              false,
+            );
           },
           onMode: (slots, next) => {
             touchNode(node.id);
-            op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
+            op(
+              {
+                op: "mod_mode",
+                index: liveModSlot(node.id, control.id, slots[0]),
+                mode: next === "center" ? "center" : "base",
+              },
+              false,
+            );
           },
           // Ctrl + right click on the knob: every source comes off it.
           onClearModulations: (slots) => {
-            for (const slot of slots) op({ op: "unmodulate", index: slot }, false);
+            const order = [...slots].sort((left, right) => right - left);
+
+            order.forEach((slot, index) => {
+              op({ op: "unmodulate", index: slot }, index === order.length - 1);
+            });
           },
           dropTarget: node.id + ":" + control.id,
         });
