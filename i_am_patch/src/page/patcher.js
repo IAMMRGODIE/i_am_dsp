@@ -854,9 +854,11 @@
       return IAmCard.modulate(control, {
         assignments,
         onDepth: (slot, next) => {
+          touchNode(node.id);
           op({ op: "mod_depth", index: slot, depth: next }, false);
         },
         onMode: (slots, next) => {
+          touchNode(node.id);
           op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
         },
         // Ctrl + right click on the knob: every source comes off it.
@@ -1089,6 +1091,21 @@
     return context;
   }
 
+  /// Watches the node a card edit came from.
+  ///
+  /// A press on a control inside a card never selects the node, and the live poll only
+  /// covers the selected one, so an edit there was made without the data the card
+  /// draws from: its picture and the modulation rings only caught up on the click that
+  /// finally selected it. Editing a card is a reason to watch it.
+  function touchNode(id) {
+    if (!selection.has(id)) {
+      selection.add(id);
+      primary = id;
+    }
+
+    startScope(id);
+  }
+
   /// Where a press sits along a hero, as a share of it.
   function heroShare(hero, event) {
     const rect = hero.getBoundingClientRect();
@@ -1114,6 +1131,10 @@
     // pointer to come up.
     const set = (id, value) => {
       node.params[id] = value;
+
+      // A hero gesture is an edit of this node: watch it, or its picture is left
+      // with the data it had when the card was built.
+      touchNode(node.id);
 
       const card = cardOf();
 
@@ -2162,6 +2183,7 @@
       onEdit: (identifier, value) => {
         // The card already shows the value; rebuilding the graph here would
         // take the focus away from the control being dragged.
+        touchNode(node.id);
         op({ op: "param", id: node.id, key: identifier, value }, false);
 
         if (isProductCard(kind, "script") && entry) {
@@ -2181,8 +2203,14 @@
 
         return IAmCard.modulate(control, {
           assignments,
-          onDepth: (slot, next) => op({ op: "mod_depth", index: slot, depth: next }, false),
-          onMode: (slots, next) => op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false),
+          onDepth: (slot, next) => {
+            touchNode(node.id);
+            op({ op: "mod_depth", index: slot, depth: next }, false);
+          },
+          onMode: (slots, next) => {
+            touchNode(node.id);
+            op({ op: "mod_mode", index: slots[0], mode: next === "center" ? "center" : "base" }, false);
+          },
           // Ctrl + right click on the knob: every source comes off it.
           onClearModulations: (slots) => {
             for (const slot of slots) op({ op: "unmodulate", index: slot }, false);
@@ -4176,9 +4204,18 @@
     zoomAt(event.deltaY < 0 ? 1.1 : 0.9, event.clientX, event.clientY);
   }, { passive: false });
 
+  // The capture phase, because a hero or a knob answers a release of its own and
+  // stops it there: the flag would stay up, the poll would skip every redraw after
+  // it, and the page would look frozen until something else cleared it.
   window.addEventListener("pointerup", () => {
     interacting = false;
-  });
+    editingPoints = false;
+  }, true);
+
+  window.addEventListener("pointercancel", () => {
+    interacting = false;
+    editingPoints = false;
+  }, true);
 
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
