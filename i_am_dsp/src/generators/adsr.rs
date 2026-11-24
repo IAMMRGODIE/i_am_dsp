@@ -120,7 +120,7 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	pub sustain_level: f32,
 	/// The release time, saves in milliseconds
 	#[unit(milliseconds)]
-	#[default(100.0)]
+	#[default(10.0)]
 	#[id(display = "Release")]
 	#[layout(group = "Envelope", order = 11, widget = knob)]
 	pub release_time: f32,
