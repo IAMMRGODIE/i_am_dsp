@@ -217,6 +217,12 @@ impl<Wave: WaveTable, Warper: Warp> WaveTable for WarpTable<Wave, Warper> {
 
 		self.wave.sample(position, channel)
 	}
+
+	/// The table under the warp is asked, or a drawn table under one would keep the
+	/// pages it was built with.
+	fn sync(&mut self) {
+		self.wave.sync();
+	}
 }
 
 impl Warp for Box<dyn Warp + Send + Sync> {

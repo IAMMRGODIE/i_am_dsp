@@ -131,6 +131,15 @@ impl<T: WaveTable> WaveTable for TypedWaveTableSmoother<T> {
 	fn sample(&self, t: f32, channel: usize) -> f32 {
 		sample_tables(&self.tables, self.smooth_factor, t, channel)
 	}
+
+	/// Every table under the smoother is asked: a drawn table learns about an edit
+	/// only through this call, and a smoother between it and the voice must not
+	/// swallow it.
+	fn sync(&mut self) {
+		for table in &mut self.tables {
+			table.sync();
+		}
+	}
 }
 
 impl WaveTable for WaveTableSmoother {
@@ -140,6 +149,12 @@ impl WaveTable for WaveTableSmoother {
 
 	fn is_mono(&self) -> bool {
 		self.tables.iter().all(|table| table.is_mono())
+	}
+
+	fn sync(&mut self) {
+		for table in &mut self.tables {
+			table.sync();
+		}
 	}
 }
 
@@ -343,6 +358,47 @@ impl<const CHANNELS: usize> Oscillator<CHANNELS> for WaveTableSmoother {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// A table that counts the times it was asked to sync.
+	struct Synced(std::sync::Arc<std::sync::atomic::AtomicU32>);
+
+	impl Parameters for Synced {
+		fn get_parameters(&self) -> Vec<Parameter> {
+			Vec::new()
+		}
+
+		fn set_parameter(&mut self, _: &str, _: crate::prelude::SetValue) -> bool {
+			false
+		}
+	}
+
+	impl WaveTable for Synced {
+		fn sample(&self, _: f32, _: usize) -> f32 {
+			0.0
+		}
+
+		fn sync(&mut self) {
+			self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		}
+	}
+
+	/// A drawn table learns about an edit only through sync, so a smoother between it
+	/// and the voice has to pass the call on: every table it spreads is asked.
+	#[test]
+	fn the_smoother_passes_sync_to_its_tables() {
+		let count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+		let mut smoother = WaveTableSmoother::new(
+			vec![
+				Box::new(Synced(count.clone())),
+				Box::new(Synced(count.clone())),
+			],
+			0.5,
+		);
+
+		<WaveTableSmoother as WaveTable>::sync(&mut smoother);
+
+		assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 2);
+	}
 
 	#[test]
 	fn a_typed_smoother_keeps_the_table_type() {

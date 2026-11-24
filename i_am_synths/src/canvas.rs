@@ -311,12 +311,9 @@ impl CanvasOscillator {
 	}
 }
 
-impl Oscillator<2> for CanvasOscillator {
-	fn play_at(&self, frequency: f32, time: f32, phase: [f32; 2]) -> [f32; 2] {
-		self.multi.play_at(frequency, time, phase)
-	}
-
-	fn sync(&mut self) {
+impl CanvasOscillator {
+	/// Takes the drawing the page last sent, when it has moved.
+	fn pull(&mut self) {
 		if self.feed.changed(&mut self.generation)
 			&& let Ok(pages) = parse_canvas(&self.feed.text())
 		{
@@ -325,9 +322,25 @@ impl Oscillator<2> for CanvasOscillator {
 	}
 }
 
+impl Oscillator<2> for CanvasOscillator {
+	fn play_at(&self, frequency: f32, time: f32, phase: [f32; 2]) -> [f32; 2] {
+		self.multi.play_at(frequency, time, phase)
+	}
+
+	fn sync(&mut self) {
+		self.pull();
+	}
+}
+
 impl WaveTable for CanvasOscillator {
 	fn sample(&self, t: f32, channel: usize) -> f32 {
 		self.multi.play_at(1.0, t, [0.0; 2])[channel]
+	}
+
+	/// The patcher reads this drawing as a table, so the edit has to arrive here
+	/// too: a canvas under a note used to keep the pages it was built with.
+	fn sync(&mut self) {
+		self.pull();
 	}
 }
 
