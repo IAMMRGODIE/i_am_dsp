@@ -348,7 +348,7 @@ pub struct Peak<const CHANNELS: usize> {
 	/// The cutoff of the peaking filter
 	#[unit(hertz)]
 	pub cutoff: f32,
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	/// The gain of the peaking filter
 	pub gain: f32,
@@ -446,7 +446,7 @@ pub struct HighShelf<const CHANNELS: usize> {
 	/// The cutoff of the high shelf filter
 	#[unit(hertz)]
 	pub cutoff: f32,
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	/// The gain of the high shelf filter in linear scale
 	pub gain: f32,
@@ -538,7 +538,7 @@ pub struct LowShelf<const CHANNELS: usize> {
 	/// The cutoff of the low shelf filter
 	#[unit(hertz)]
 	pub cutoff: f32,
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	/// The gain of the low shelf filter in linear scale
 	pub gain: f32,

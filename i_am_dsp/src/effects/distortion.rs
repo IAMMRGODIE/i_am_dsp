@@ -18,7 +18,7 @@ pub struct HardClipper {
 	#[id(display = "Threshold")]
 	#[layout(group = "Drive", order = 0, widget = knob, hero = "transfer")]
 	pub threshold: f32,
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	#[unit(percent)]
 	#[id(display = "Output")]
@@ -72,7 +72,7 @@ pub struct SoftClipper {
 	/// a parameter in the range [0, 1]
 	pub alpha: f32,
 	/// The output gain, saved in linear scale.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	pub gain: f32,
 }
@@ -142,7 +142,7 @@ pub struct Clipper {
 	pub threshold: f32,
 
 	/// The gain after the shaper.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	#[unit(percent)]
 	#[id(display = "Output")]
@@ -199,7 +199,7 @@ pub struct Overdrive {
 	#[range(min = 0.01, max = 10.0)]
 	/// The k parameter of the overdrive function.
 	pub k: f32,
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	/// The output gain, saved in linear scale.
 	pub gain: f32,
@@ -255,7 +255,7 @@ pub struct BitCrusher {
 	#[range(min = 1, max = 128)]
 	/// The number of bits to keep in the output.
 	pub bits: usize,
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	/// The output gain, saved in linear scale.
 	pub gain: f32,
@@ -314,7 +314,7 @@ pub struct Saturator {
 	#[range(min = 1.0, max = 10.0)]
 	/// a parameter controlling the power of the saturating function
 	pub p: f32,
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	/// saves in linear scale
 	pub gain: f32,
@@ -385,7 +385,7 @@ pub struct Downsampler<const CHANNELS: usize = 2> {
 	#[skip]
 	sample_rate: usize,
 	/// The output gain, saved in linear scale.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	pub gain: f32,
 	#[skip]
@@ -552,7 +552,7 @@ pub struct Distortion<const CHANNELS: usize = 2> {
 	pub target_sample_rate: f32,
 
 	/// The gain after the shaper.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	#[unit(percent)]
 	#[default(1.0)]

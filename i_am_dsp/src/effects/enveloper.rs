@@ -161,7 +161,7 @@ pub struct IIRHilbertEnvelope<const ORDER: usize, const CHANNELS: usize = 2> {
 	#[skip]
 	history: [f32; CHANNELS],
 	/// The gain factor of the envelope, saves in linear scale.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	pub gain_factor: f32,
 }
@@ -228,7 +228,7 @@ pub struct RectifyEnvelope<const CHANNELS: usize = 2> {
 	#[skip]
 	sample_rate: usize,
 	/// The gain factor of the envelope, saves in linear scale.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	pub gain_factor: f32,
 }
@@ -332,7 +332,7 @@ pub struct PeakDetector<const CHANNELS: usize = 2> {
 	#[skip]
 	last_history: [f32; CHANNELS],
 	/// The gain factor of the envelope, saves in linear scale.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	pub gain_factor: f32,
 }
@@ -444,7 +444,7 @@ pub struct TkeoEnvelope<const CHANNELS: usize = 2> {
 	#[skip]
 	envlope_history: [f32; CHANNELS],
 	/// The gain factor of the envelope, saves in linear scale.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	pub gain_factor: f32,
 }
@@ -522,7 +522,7 @@ pub struct FIRHilbertEnvelope<const CHANNELS: usize> {
 	#[skip]
 	output_envlope: [f32; CHANNELS],
 	/// The gain factor of the envelope, saves in linear scale.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	pub gain_factor: f32,
 }

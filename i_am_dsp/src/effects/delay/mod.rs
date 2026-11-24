@@ -103,7 +103,7 @@ pub struct Delay<DelayedEffect: Effect<CHANNELS>, const CHANNELS: usize = 2> {
 	#[layout(group = "Delay", order = 3, widget = knob)]
 	pub dry_gain: f32,
 	/// The wet gain of the effect.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	#[unit(percent)]
 	#[default(1.0)]

@@ -36,7 +36,7 @@ pub struct BendedSawGen {
 	/// How much the frequency should be scaled
 	///
 	/// default to 1.0
-	#[range(min = 0.01, max = 1.0)]
+	#[range(min = 0.0, max = 1.0)]
 	#[default(1.0)]
 	#[id(display = "Scale")]
 	pub scale_amount: f32,

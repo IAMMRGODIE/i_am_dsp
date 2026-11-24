@@ -587,12 +587,12 @@ pub struct FftConvolver<
 
 	// #[skip]
 	// other_way_convolver: [fft_convolver::FFTConvolver<f32>; CHANNELS],
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	/// The wet gain of the convolver, saves in linear scale.
 	#[default(0.0125)]
 	pub wet_gain: f32,
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	/// The dry gain of the convolver, saves in linear scale.
 	#[default(1.0)]

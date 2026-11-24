@@ -213,7 +213,7 @@ pub struct CompressorEffect {
 	pub env_cutoff: f32,
 
 	/// The detector's level gain.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	#[unit(percent)]
 	#[default(1.0)]

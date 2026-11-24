@@ -3,7 +3,7 @@ use super::*;
 /// A classic combs filter
 #[derive(Parameters)]
 pub struct CombsFilter<const CHANNELS: usize> {
-	#[range(min = 0.01, max = 1.0)]
+	#[range(min = 0.0, max = 1.0)]
 	#[logarithmic]
 	/// The feedback of the combs filter
 	pub feedback: f32,
@@ -93,7 +93,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for CombsFilter<CHANNELS> {
 /// A classic allpass filter
 #[derive(Parameters)]
 pub struct AllpassFilter<const CHANNELS: usize> {
-	#[range(min = 0.01, max = 1.0)]
+	#[range(min = 0.0, max = 1.0)]
 	#[logarithmic]
 	/// The feedback factor of the allpass filter
 	pub feedback: f32,

@@ -43,7 +43,7 @@ pub struct Sampler<const CHANNELS: usize = 2> {
 	/// This param will only be used if current sampler is used as [`crate::prelude::Generator`].
 	pub is_playing: bool,
 	/// The volume of the sample, saves in linear scale.
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	pub volume: f32,
 	/// Whether to play the sample in reverse.

@@ -6,7 +6,7 @@ use crate::{Effect, ProcessContext};
 
 /// Stereo controller effect
 #[derive(Parameters)]
-#[default_float_range(min = 0.01, max = 4.0)]
+#[default_float_range(min = 0.0, max = 4.0)]
 pub struct StereoController {
 	#[logarithmic]
 	#[default(1.0)]
@@ -83,7 +83,7 @@ impl Effect<2> for StereoController {
 #[derive(Debug, Clone, Copy)]
 /// Gain effect
 #[derive(Parameters)]
-#[default_float_range(min = 0.01, max = 4.0)]
+#[default_float_range(min = 0.0, max = 4.0)]
 pub struct Gain {
 	#[logarithmic]
 	#[unit(percent)]
@@ -143,7 +143,7 @@ impl<const CHANNELS: usize> Effect<CHANNELS> for Gain {
 #[derive(Debug, Clone, Copy)]
 /// L/R controller effect
 #[derive(Parameters)]
-#[default_float_range(min = 0.01, max = 4.0)]
+#[default_float_range(min = 0.0, max = 4.0)]
 pub struct LrControl {
 	#[logarithmic]
 	#[default(1.0)]

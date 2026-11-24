@@ -144,7 +144,7 @@ pub struct Adsr<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: us
 	#[layout(group = "Envelope", order = 14, widget = toggle)]
 	pub sync: bool,
 	/// saves in linear scale
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	#[default(0.8)]
 	#[id(display = "Gain")]

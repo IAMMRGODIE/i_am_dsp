@@ -30,11 +30,11 @@ pub struct HybridReverb<const CHANNELS: usize, const DELAY_LINES: usize> {
 	#[sub_param]
 	/// The convolver used to apply the tails to the input signal.
 	pub post_convolver: FftConvolver<CHANNELS>,
-	#[range(min = 0.01, max = 1.0)]
+	#[range(min = 0.0, max = 1.0)]
 	#[logarithmic]
 	/// The wet gain of the effect.
 	pub wet_gain: f32,
-	#[range(min = 0.01, max = 1.0)]
+	#[range(min = 0.0, max = 1.0)]
 	#[logarithmic]
 	/// The dry gain of the effect.
 	pub dry_gain: f32,

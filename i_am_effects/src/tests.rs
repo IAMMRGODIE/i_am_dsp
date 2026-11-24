@@ -233,6 +233,51 @@ fn the_filter_has_a_mode_switch() {
 	);
 }
 
+/// A gain can be turned down to silence.
+///
+/// The floor used to be 0.01 because a logarithmic range could not hold zero; the
+/// knob maps such a range with a symmetric log now, so the old floor only left a
+/// gain that could not be switched off.
+#[test]
+fn a_gain_reaches_silence() {
+	use i_am_dsp::prelude::{Parameters, Value};
+
+	let products: Vec<(&str, Vec<i_am_dsp::prelude::Parameter>)> = vec![
+		("delay", DelayWeb::new().get_parameters()),
+		("reverb", ReverbWeb::new().get_parameters()),
+		("convolver", ConvolverWeb::new().get_parameters()),
+		("compressor", CompressorWeb::new().get_parameters()),
+		("hybrid reverb", IrReverbWeb::new().get_parameters()),
+		("distorter", DistortionWeb::new().get_parameters()),
+	];
+
+	let mut checked = 0;
+
+	for (name, parameters) in products {
+		for parameter in parameters {
+			let id = parameter.identifier.as_str();
+
+			if !(id.contains("gain") || id.contains("volume") || id == "wet" || id == "dry") {
+				continue;
+			}
+
+			let Value::Float { range, .. } = parameter.value else {
+				continue;
+			};
+
+			assert!(
+				*range.start() <= 0.0,
+				"{name}.{id} starts at {} and cannot be turned down to silence",
+				range.start()
+			);
+
+			checked += 1;
+		}
+	}
+
+	assert!(checked >= 5, "only {checked} gains were checked");
+}
+
 /// The mode is a normal parameter: it is in the map the host saves and in the
 /// state the page reads back after a reload.
 #[test]

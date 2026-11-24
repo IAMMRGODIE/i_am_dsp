@@ -20,7 +20,7 @@ pub struct AllpassEffect {
 	pub delay_ms: f32,
 
 	/// The allpass coefficient.
-	#[range(min = 0.01, max = 0.99)]
+	#[range(min = 0.0, max = 0.99)]
 	#[default(0.7)]
 	#[id(display = "Feedback")]
 	#[layout(group = "Allpass", order = 1, widget = knob)]

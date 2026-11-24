@@ -295,7 +295,7 @@ pub struct Reverb<
 	)]
 	pub output_factors: [f32; DELAY_LINES],
 	/// The input gain of the reverb, saves in linear scale.
-	#[range(min = 0.01, max = 1.0)]
+	#[range(min = 0.0, max = 1.0)]
 	#[logarithmic]
 	#[default(1.0)]
 	pub reverbed_gain: f32,

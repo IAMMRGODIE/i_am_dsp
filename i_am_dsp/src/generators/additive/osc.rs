@@ -62,7 +62,7 @@ pub struct AdditiveOsc<Freq: GenFreqInfo, const MAX_SINES: usize = 64, const CHA
 	#[id(display = "Partials")]
 	#[layout(widget = knob, hero = "additive")]
 	pub num_sines: usize,
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	#[default(1.0)]
 	#[id(display = "Level")]

@@ -35,13 +35,13 @@ pub struct Compressor<Envelope: Enveloper<CHANNELS>, const CHANNELS: usize = 2> 
 	#[sub_param]
 	pub smoother: DoubleTimeConstant<1>,
 	/// The output gain factor, saves in linear scale
-	#[range(min = 0.01, max = 4.0)]
+	#[range(min = 0.0, max = 4.0)]
 	#[logarithmic]
 	pub gain_linear: f32,
 	#[sub_param]
 	/// The enveloper for the input signal
 	pub enveloper: Envelope,
-	#[range(min = 0.01, max = 1.0)]
+	#[range(min = 0.0, max = 1.0)]
 	#[logarithmic]
 	/// The gain factor for the output signal, saves in linear scale
 	pub gain_factor: f32,
