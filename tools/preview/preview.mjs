@@ -167,7 +167,7 @@ function dbOf(level) {
 }
 
 // The live routes a faceplate polls; each answers with synthetic input.
-function liveRoute(url, response, request) {
+function liveRoute(url, response, request, product) {
 	const level = noiseLevel();
 
 	if (url === "/scope") {
@@ -241,6 +241,42 @@ function liveRoute(url, response, request) {
 			pending: false,
 		});
 		return true;
+	}
+
+	if (url === "/bands") {
+		// Two products meter their bands through the same path, and the preview
+		// serves every product from one origin: the page that asked decides which
+		// shape comes back. A folder that is neither gets no answer, so it reads
+		// the way it does beside a host that has no such route.
+		if (product === "ott") {
+			// Net gain in dB per band: positive is attenuation, negative a boost.
+			json(response, {
+				bands: [
+					8 + 14 * Math.sin(noisePhase),
+					2 + 8 * Math.cos(noisePhase * 0.7),
+					-4 + 6 * Math.sin(noisePhase * 0.4),
+				],
+			});
+			return true;
+		}
+
+		if (product === "vocoder") {
+			const bands = 24;
+			const input = [];
+			const output = [];
+
+			for (let band = 0; band < bands; band++) {
+				const swing = Math.sin(noisePhase * 0.9 + band * 0.35) * 0.5 + 0.5;
+
+				input.push(swing * level);
+				output.push(swing * level * 0.55);
+			}
+
+			json(response, { bands, input, output });
+			return true;
+		}
+
+		return false;
 	}
 
 	if (url === "/meter") {
@@ -764,7 +800,9 @@ function serve(dir, port, index = "index.html") {
 	const server = createServer((request, response) => {
 		const url = decodeURIComponent((request.url || "/").split("?")[0]);
 
-		if (liveRoute(url, response, request)) return;
+		// The folder a product was built into is the product: the page fetches its
+		// own routes from the root, so nothing else in the request names it.
+		if (liveRoute(url, response, request, path.basename(root))) return;
 
 		const relative = url === "/" ? "/" + index : url;
 		const file = path.join(root, relative);
@@ -812,11 +850,13 @@ function serveGallery(dir, port) {
 	const server = createServer((request, response) => {
 		const url = decodeURIComponent((request.url || "/").split("?")[0]);
 
-		if (liveRoute(url, response, request)) return;
-
+		// Every product lives under /p/<name>/, so the page's own routes name their
+		// product that way — the referrer, or the path itself for the page.
 		const referer = request.headers.referer || "";
-		const match = referer.match(/\/p\/([^/]+)\//);
+		const match = referer.match(/\/p\/([^/]+)\//) || url.match(/^\/p\/([^/]+)\//);
 		const productRoot = match ? path.join(root, "p", match[1]) : null;
+
+		if (liveRoute(url, response, request, match ? match[1] : "")) return;
 		const wanted = url === "/" ? "/index.html" : url.endsWith("/") ? url + "index.html" : url;
 		let file = path.join(root, wanted);
 		let body;
