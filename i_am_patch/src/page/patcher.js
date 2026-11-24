@@ -4264,6 +4264,14 @@
     editingPoints = false;
   }, true);
 
+  /// Whether a key was typed into a field rather than at the canvas.
+  ///
+  /// A card's value editor and the node library's search are inputs: Backspace there
+  /// edits the number, and it must not also take the selected node off the graph.
+  function typingIn(event) {
+    return !!(event.target && event.target.closest && event.target.closest("input, textarea, select"));
+  }
+
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeMenu();
@@ -4275,9 +4283,7 @@
 
       // A field owns its own editing keys: the search in the node library and the
       // script editor must not duplicate a node, or undo the graph, under the caret.
-      if (event.target.closest && event.target.closest("input, textarea, select")) {
-        return;
-      }
+      if (typingIn(event)) return;
 
       if (key === "z") {
         if (event.shiftKey) redo();
@@ -4311,13 +4317,16 @@
       }
     }
 
-    if (event.key === " " && !event.target.closest("input, textarea, select")) {
+    if (event.key === " " && !typingIn(event)) {
       spaceHeld = true;
       event.preventDefault();
       return;
     }
 
     if (event.key !== "Delete" && event.key !== "Backspace") return;
+
+    // The value editor is a text field: Backspace belongs to the number in it.
+    if (typingIn(event)) return;
 
     if (selectedEdge !== null) {
       op({ op: "disconnect", index: selectedEdge });
