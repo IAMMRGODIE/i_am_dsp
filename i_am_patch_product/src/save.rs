@@ -56,8 +56,8 @@ impl SaveSlot {
 	}
 
 	/// Writes the text to a chosen path and records it; false when it failed.
-	pub fn write_to(&self, path: &std::path::Path, text: &str) -> bool {
-		match std::fs::write(path, text) {
+	pub fn write_to(&self, path: &std::path::Path, bytes: &[u8]) -> bool {
+		match std::fs::write(path, bytes) {
 			Ok(()) => {
 				self.set(State::Saved(path.display().to_string()));
 				true
@@ -70,17 +70,17 @@ impl SaveSlot {
 	}
 
 	/// Records what the dialog answered: a path to write, or none for a cancel.
-	pub fn settle(&self, path: Option<std::path::PathBuf>, text: &str) {
+	pub fn settle(&self, path: Option<std::path::PathBuf>, bytes: &[u8]) {
 		match path {
 			Some(path) => {
-				self.write_to(&path, text);
+				self.write_to(&path, bytes);
 			}
 			None => self.set(State::Cancelled),
 		}
 	}
 
-	/// Asks for the native save-as dialog for this text, under this name.
-	pub fn ask(&self, text: String, suggested: &str) -> Asked {
+	/// Asks for the native save-as dialog for these bytes, under this name.
+	pub fn ask(&self, bytes: Vec<u8>, suggested: &str) -> Asked {
 		if !i_am_effects::dialog::CAN_SAVE {
 			return Asked::Unavailable;
 		}
@@ -100,7 +100,7 @@ impl SaveSlot {
 		let slot = self.clone();
 
 		i_am_effects::dialog::save(suggested, ("Patch text", &["txt"]), move |path| {
-			slot.settle(path, &text);
+			slot.settle(path, &bytes);
 		});
 
 		Asked::Started
@@ -130,7 +130,7 @@ mod tests {
 		let text = "node 0 out:audio 0 0\n";
 
 		assert_eq!(slot.state(), State::Idle);
-		assert!(slot.write_to(&path, text));
+		assert!(slot.write_to(&path, text.as_bytes()));
 
 		assert_eq!(slot.state(), State::Saved(path.display().to_string()));
 		assert_eq!(std::fs::read_to_string(&path).expect("the file"), text);
@@ -146,11 +146,11 @@ mod tests {
 		let path = std::env::temp_dir().join("i_am_patch_save_settle_test.txt");
 		let text = "node 0 out:audio 0 0\n";
 
-		slot.settle(Some(path.clone()), text);
+		slot.settle(Some(path.clone()), text.as_bytes());
 		assert_eq!(slot.state(), State::Saved(path.display().to_string()));
 		assert_eq!(std::fs::read_to_string(&path).expect("the file"), text);
 
-		slot.settle(None, text);
+		slot.settle(None, text.as_bytes());
 		assert_eq!(slot.state(), State::Cancelled);
 		assert!(slot.json().contains("\"cancelled\""));
 
@@ -162,7 +162,7 @@ mod tests {
 	fn a_save_that_cannot_write_says_so() {
 		let slot = SaveSlot::default();
 
-		assert!(!slot.write_to(&std::env::temp_dir(), "x"));
+		assert!(!slot.write_to(&std::env::temp_dir(), b"x"));
 		assert!(matches!(slot.state(), State::Failed(_)));
 		assert!(slot.json().contains("\"state\":\"failed\""));
 	}

@@ -12,6 +12,68 @@ use serde_json::{Value, json};
 
 use crate::shared::PatcherShared;
 
+/// What every saved bundle starts with, so a text file and a bundle can be told apart.
+const BUNDLE_MAGIC: &[u8; 4] = b"IAMP";
+/// The layout a bundle is written in.
+const BUNDLE_VERSION: u32 = 1;
+
+/// The whole patch as one file: the graph text and the payloads the slots hold.
+///
+/// The host saves the two in separate parameters, and the text alone is what a person
+/// reads and an agent writes. A file meant to move a patch to another machine needs
+/// both, so it is one container rather than two files somebody has to keep together.
+fn bundle(shared: &PatcherShared) -> Vec<u8> {
+	let text = shared.text().into_bytes();
+	let payload = shared.slot_state_bytes();
+	let mut bytes = Vec::with_capacity(12 + text.len() + payload.len());
+
+	bytes.extend_from_slice(BUNDLE_MAGIC);
+	bytes.extend_from_slice(&BUNDLE_VERSION.to_le_bytes());
+	bytes.extend_from_slice(&(text.len() as u32).to_le_bytes());
+	bytes.extend_from_slice(&text);
+	bytes.extend_from_slice(&payload);
+
+	bytes
+}
+
+/// Puts a bundle back, text first and then its payloads.
+fn unbundle(shared: &PatcherShared, bytes: &[u8]) -> Result<(), String> {
+	if bytes.len() < 12 || &bytes[..4] != BUNDLE_MAGIC {
+		return Err("not a patch bundle".to_string());
+	}
+
+	let version = u32::from_le_bytes(bytes[4..8].try_into().expect("four bytes"));
+
+	if version != BUNDLE_VERSION {
+		return Err(format!(
+			"a bundle version {version}, this build reads {BUNDLE_VERSION}"
+		));
+	}
+
+	let length = u32::from_le_bytes(bytes[8..12].try_into().expect("four bytes")) as usize;
+	let end = 12 + length;
+
+	if end > bytes.len() {
+		return Err("the bundle is shorter than its graph".to_string());
+	}
+
+	let Ok(text) = std::str::from_utf8(&bytes[12..end]) else {
+		return Err("the graph in the bundle is not text".to_string());
+	};
+
+	if !shared.set_text(text) {
+		return Err("the graph in the bundle did not parse".to_string());
+	}
+
+	let payload = &bytes[end..];
+
+	if !payload.is_empty() && !shared.set_slot_state(payload) {
+		return Err("the payloads in the bundle did not decode".to_string());
+	}
+
+	Ok(())
+}
+
 /// Answers a page request, or `None` for the kit's own routes.
 pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<ProtocolResponse> {
 	match (request.method, request.path) {
@@ -26,7 +88,11 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 		// back to the browser's download.
 		("POST", "/save") => Some(ProtocolResponse::json(
 			match shared.save.ask(
-				shared.text(),
+				if query_value(request, "bundle").is_some() {
+					bundle(shared)
+				} else {
+					shared.text().into_bytes()
+				},
 				query_value(request, "name").unwrap_or("patch.txt"),
 			) {
 				crate::save::Asked::Started => json!({ "ok": true, "dialog": true }),
@@ -38,6 +104,21 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 			.to_string(),
 		)),
 		("GET", "/save") => Some(ProtocolResponse::json(shared.save.json())),
+		// The whole patch as one file, for saving it somewhere the host's own state
+		// does not reach: the graph text and the payloads the slots hold.
+		("GET", "/bundle") => Some(ProtocolResponse {
+			status: 200,
+			content_type: "application/octet-stream",
+			body: bundle(shared),
+		}),
+		("POST", "/bundle") => {
+			let answer = match unbundle(shared, request.body) {
+				Ok(()) => json!({ "ok": true }),
+				Err(error) => json!({ "ok": false, "error": error }),
+			};
+
+			Some(ProtocolResponse::json(answer.to_string()))
+		}
 		// The host's macro controls, for the page: it reads them here and writes
 		// them through the same atomics a host does, so a drag is automation.
 		("GET", "/macros") => {
@@ -1101,6 +1182,55 @@ mod tests {
 			after > before * 1.2,
 			"{after} did not follow {before}: the op never reached the body"
 		);
+	}
+
+	/// A bundle is the one file a patch moves in: the graph text and the payloads the
+	/// text cannot carry. A plain text file is refused rather than read as a bundle.
+	#[test]
+	fn a_bundle_carries_the_graph_and_its_payloads() {
+		use std::sync::Arc;
+
+		use i_am_dsp::prelude::SampleData;
+
+		let shared = PatcherShared::default();
+		assert!(shared.set_text("node 1 table:shapes 0 0\n"));
+
+		{
+			let slot = shared.slots.sample(1);
+			let mut slot = slot.lock().expect("the sample slot");
+
+			slot.sample = Some(Arc::new(SampleData {
+				name: "kick.wav".to_string(),
+				rate: 48_000,
+				pcm: vec![0.1, -0.1],
+				right: None,
+			}));
+		}
+
+		// The text goes through the parser and comes back in its own form.
+		let text = shared.text();
+		let bytes = bundle(&shared);
+		assert_eq!(&bytes[..4], b"IAMP");
+
+		// A fresh instance takes it back, text and payload alike.
+		let fresh = PatcherShared::default();
+		assert!(
+			unbundle(&fresh, &bytes).is_ok(),
+			"the bundle did not decode"
+		);
+		assert_eq!(fresh.text(), text);
+		assert!(
+			fresh
+				.slots
+				.sample(1)
+				.lock()
+				.expect("the slot")
+				.sample
+				.is_some()
+		);
+
+		// What a person would save with the text button is not a bundle.
+		assert!(unbundle(&fresh, b"node 0 out:audio 0 0\n").is_err());
 	}
 
 	/// A parameter edit has to reach both halves: the graph, which is the state

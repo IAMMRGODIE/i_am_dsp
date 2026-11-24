@@ -4452,19 +4452,76 @@
 
   document.getElementById("open").onclick = () => document.getElementById("file").click();
 
+  /// Saves everything the patch plays, not only its graph: one file that opens
+  /// somewhere else with its samples, tables and responses still inside it.
+  async function saveAll() {
+    const name = patchName().replace(/\.txt$/, ".iamp");
+
+    try {
+      const asked = await (await fetch(
+        "/save?bundle=1&name=" + encodeURIComponent(name),
+        { method: "POST" },
+      )).json();
+
+      if (asked && asked.ok && asked.dialog) {
+        await watchSave();
+        return;
+      }
+    } catch (error) {
+      // No route: this page is served by something that cannot save.
+    }
+
+    try {
+      const bytes = await (await fetch("/bundle", { cache: "no-store" })).arrayBuffer();
+      const link = document.createElement("a");
+
+      link.href = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      note("saved " + name + " to your downloads");
+      setTimeout(() => URL.revokeObjectURL(link.href), 3_000);
+    } catch (error) {
+      showStatus("the patch did not save: " + error);
+    }
+  }
+
+  document.getElementById("save-all").onclick = async () => {
+    try {
+      await saveAll();
+    } catch (error) {
+      showStatus("the patch did not save: " + error);
+    }
+  };
+
   document.getElementById("file").onchange = async (event) => {
     const file = event.target.files && event.target.files[0];
 
     if (!file) return;
 
-    const text = await file.text();
-    const result = await (await fetch("/text", { method: "POST", body: text })).json();
+    // A saved bundle starts with its magic; anything else is the text a person saved
+    // with the text button, or wrote by hand.
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const bundled = bytes.length >= 4
+      && bytes[0] === 0x49 && bytes[1] === 0x41 && bytes[2] === 0x4d && bytes[3] === 0x50;
 
-    if (result.error) console.warn(result.error);
+    const result = bundled
+      ? await (await fetch("/bundle", { method: "POST", body: bytes })).json()
+      : await (await fetch("/text", { method: "POST", body: await file.text() })).json();
+
+    if (result.error) {
+      showStatus(String(result.error));
+    }
+
+    event.target.value = "";
+
+    if (bundled && result.ok === false) return;
 
     patch = readPatch(await (await fetch("/patch")).json());
+    refreshWaves(true);
     draw();
-    event.target.value = "";
   };
 
   startScopes();
