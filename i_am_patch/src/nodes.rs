@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 
 use i_am_dsp::prelude::{
 	AdditiveOsc, Adsr, BendedSawGen, Effect, EqualTemperament, FmIntegral, Generator, Message,
@@ -1181,6 +1181,11 @@ impl Oscillator<2> for VoiceOsc {
 	}
 
 	fn sync(&mut self) {
+		// Both tables are asked: whichever one is a product table follows its node
+		// through this call, and in AM, RM and PM there is no other path to it.
+		self.carrier.sync();
+		self.modulator.sync();
+
 		if matches!(self.kind, ModKind::Fm) {
 			self.integral.sync(self.modulator.as_ref());
 		}
@@ -1243,6 +1248,16 @@ impl Parameters for WarpedTable {
 }
 
 impl WaveTable for WarpedTable {
+	/// The table under the warp is asked too: a product table follows the node that
+	/// built it, and a warp between them must not stop the message.
+	fn sync(&mut self) {
+		self.wave.sync();
+
+		if let Some(curve) = &mut self.curve {
+			curve.sync();
+		}
+	}
+
 	fn sample(&self, t: f32, channel: usize) -> f32 {
 		let amount = f32::from_bits(self.amount.load(Ordering::Relaxed));
 
@@ -1261,10 +1276,92 @@ impl WaveTable for WarpedTable {
 	}
 }
 
+/// The values a product table was built from, shared with the table itself.
+///
+/// A product's parameters are plain fields, so a table built from them is a snapshot:
+/// it cannot see a knob move. These atomics are what the table follows instead, and the
+/// version says whether anything moved since the last look.
+struct LiveParams {
+	entries: Vec<(&'static str, AtomicU32)>,
+	version: AtomicU64,
+}
+
+impl LiveParams {
+	fn new(params: &BTreeMap<&'static str, f32>) -> Self {
+		Self {
+			entries: params
+				.iter()
+				.map(|(name, value)| (*name, AtomicU32::new(value.to_bits())))
+				.collect(),
+			version: AtomicU64::new(1),
+		}
+	}
+
+	fn write(&self, name: &str, value: f32) -> bool {
+		for (key, cell) in &self.entries {
+			if *key == name {
+				cell.store(value.to_bits(), Ordering::Relaxed);
+				self.version.fetch_add(1, Ordering::Release);
+
+				return true;
+			}
+		}
+
+		false
+	}
+}
+
+/// A product's table, following the node that built it.
+///
+/// The engine asks every table to sync before it plays a sample, so the check is one
+/// atomic load; when the version moved, the values the node holds are written back into
+/// the table. That is what makes a knob move audible on the note that is already
+/// sounding, instead of only on the next one.
+struct LiveTable {
+	value: Box<dyn WaveTable + Send + Sync>,
+	params: Arc<LiveParams>,
+	seen: u64,
+}
+
+impl Parameters for LiveTable {
+	fn get_parameters(&self) -> Vec<Parameter> {
+		self.value.get_parameters()
+	}
+
+	fn set_parameter(&mut self, identifier: &str, value: SetValue) -> bool {
+		self.value.set_parameter(identifier, value)
+	}
+}
+
+impl WaveTable for LiveTable {
+	fn sample(&self, t: f32, channel: usize) -> f32 {
+		self.value.sample(t, channel)
+	}
+
+	fn sync(&mut self) {
+		let version = self.params.version.load(Ordering::Acquire);
+
+		if version != self.seen {
+			self.seen = version;
+
+			for (name, cell) in &self.params.entries {
+				apply_param(
+					self.value.as_mut(),
+					name,
+					f32::from_bits(cell.load(Ordering::Relaxed)),
+				);
+			}
+		}
+
+		self.value.sync();
+	}
+}
+
 /// A product's table, handed to the node that reads it.
 struct ProductTableNode {
 	factory: Box<dyn Fn() -> Box<dyn WaveTable + Send + Sync> + Send + Sync>,
 	params: BTreeMap<&'static str, f32>,
+	live: Arc<LiveParams>,
 }
 
 impl ProductTableNode {
@@ -1275,6 +1372,7 @@ impl ProductTableNode {
 		Self {
 			factory: Box::new(factory),
 			params: params.clone(),
+			live: Arc::new(LiveParams::new(params)),
 		}
 	}
 }
@@ -1290,14 +1388,20 @@ impl BlockNode for ProductTableNode {
 				break;
 			}
 		}
+
+		self.live.write(name, value);
 	}
 
 	fn constructor_spec(&self) -> Option<ConstructorSpec> {
-		let mut table = (self.factory)();
+		let mut value = (self.factory)();
 
-		apply_params(table.as_mut(), &self.params);
+		apply_params(value.as_mut(), &self.params);
 
-		Some(ConstructorSpec::Table(table))
+		Some(ConstructorSpec::Table(Box::new(LiveTable {
+			value,
+			params: self.live.clone(),
+			seen: self.live.version.load(Ordering::Acquire),
+		})))
 	}
 }
 
@@ -1309,13 +1413,18 @@ impl BlockNode for ProductTableNode {
 /// tried with the path stripped too.
 fn apply_params(table: &mut dyn Parameters, params: &BTreeMap<&'static str, f32>) {
 	for (name, value) in params {
-		let oscillator = name.strip_prefix("oscillator.").unwrap_or(name);
-		let voice = name.strip_prefix("voice.").unwrap_or(name);
+		apply_param(table, name, *value);
+	}
+}
 
-		for id in [*name, oscillator, voice] {
-			if write_param(table, id, *value) {
-				break;
-			}
+/// Writes one of the card's values into a table, trying the same id shapes.
+fn apply_param(table: &mut dyn Parameters, name: &str, value: f32) {
+	let oscillator = name.strip_prefix("oscillator.").unwrap_or(name);
+	let voice = name.strip_prefix("voice.").unwrap_or(name);
+
+	for id in [name, oscillator, voice] {
+		if write_param(table, id, value) {
+			break;
 		}
 	}
 }
@@ -1816,6 +1925,64 @@ mod voice_tests {
 
 		assert!((play(ModKind::Am, 0.0) - carrier).abs() < 1e-5);
 		assert!((play(ModKind::Am, 1.0) - carrier * (1.0 + carrier)).abs() < 1e-5);
+	}
+
+	/// A product table is a snapshot of the product's fields, so the node keeps the
+	/// values and the table follows them through sync: a knob move reaches the note
+	/// that is already sounding.
+	#[test]
+	fn a_product_table_follows_its_node() {
+		let kind = crate::graph::node("table:additive").expect("the kind");
+		let params: BTreeMap<&'static str, f32> = kind
+			.params
+			.iter()
+			.map(|param| (param.name, param.default))
+			.collect();
+
+		let mut node = ProductTableNode::new(
+			|| {
+				Box::new(OscTable::<2, _>(AdditiveOsc::<BendedSawGen, 64, 2>::new(
+					BendedSawGen::default(),
+					32,
+				)))
+			},
+			&params,
+		);
+
+		let Some(ConstructorSpec::Table(mut table)) = node.constructor_spec() else {
+			panic!("a product table is a table");
+		};
+
+		let snapshot = |table: &dyn WaveTable| -> Vec<f32> {
+			table
+				.get_parameters()
+				.iter()
+				.map(|parameter| match parameter.value.clone().to_set_value() {
+					SetValue::Float(value) => value,
+					SetValue::Int(value) => value as f32,
+					SetValue::Bool(value) => value as u8 as f32,
+					_ => f32::NAN,
+				})
+				.collect()
+		};
+
+		let before = snapshot(table.as_ref());
+
+		// Every parameter the card shows, moved somewhere else.
+		for param in kind.params.iter() {
+			node.set_param(param.name, param.default + 0.25);
+		}
+
+		table.sync();
+
+		let after = snapshot(table.as_ref());
+
+		assert_ne!(
+			before,
+			after,
+			"the table kept the values it was built with: {} parameters, none moved",
+			kind.params.len()
+		);
 	}
 
 	/// The card's ids carry the product's path; the table is the oscillator
