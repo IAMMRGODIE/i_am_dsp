@@ -205,8 +205,9 @@ fn kind_json(kind: &NodeDesc) -> Value {
 
 		hero = sections.iter().find_map(|section| section.hero.clone());
 		// The envelope page holds nine knobs in a row: the card needs the room a
-		// product face gives them, or the row is cut off.
-		face = Some((700.0, 380.0));
+		// product face gives them, and a little more than they strictly take, or the
+		// row sits edge to edge with the labels touching each other.
+		face = Some((780.0, 380.0));
 		header = ADSR_HEADER;
 		switches = ADSR_SWITCHES
 			.iter()
