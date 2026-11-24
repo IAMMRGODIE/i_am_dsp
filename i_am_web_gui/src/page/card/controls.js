@@ -183,7 +183,10 @@
 
     dial.addEventListener("pointermove", function (event) {
       if (modDrag) {
-        var next = clamp(modDrag.depth + (modDrag.y - event.clientY) / 150, -1, 1);
+        // Shift is the fine drag here too: a modulation depth is a share of the
+        // parameter's own range, and a tenth of the travel is what a hand can aim.
+        var fine = event.shiftKey ? 0.1 : 1;
+        var next = clamp(modDrag.depth + (modDrag.y - event.clientY) / 150 * fine, -1, 1);
         modulations[0].depth = next;
         modHint.textContent = modDrag.name + "  " +
           (next >= 0 ? "+" : "") + Math.round(next * 100) + "%";

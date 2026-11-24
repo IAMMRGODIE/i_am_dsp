@@ -151,7 +151,11 @@
         band: band,
         startX: event.clientX,
         startY: event.clientY,
-        moved: false
+        moved: false,
+        // Where the band was when the press came: a fine drag moves from here
+        // instead of putting the band under the pointer.
+        freq: ctx.value("b" + (band + 1) + "_freq"),
+        gain: ctx.value("b" + (band + 1) + "_gain")
       };
     },
     move: function (ctx, drag, event) {
@@ -176,6 +180,26 @@
       var u = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
       var v = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
       var type = Math.round(ctx.value("b" + (drag.band + 1) + "_type") || 0);
+
+      // Shift is the fine drag: the band moves a tenth of the pointer's travel from
+      // where it started, so a narrow band can be placed without overshooting.
+      if (event.shiftKey) {
+        var du = (event.clientX - drag.startX) / rect.width * 0.1;
+        var dv = (event.clientY - drag.startY) / rect.height * 0.1;
+        var fine = Math.min(20000, Math.max(20, (drag.freq || 1000) * Math.pow(1000, du)));
+
+        ctx.set("b" + (drag.band + 1) + "_freq", fine);
+
+        if (type <= 2) {
+          ctx.set(
+            "b" + (drag.band + 1) + "_gain",
+            Math.min(24, Math.max(-24, (drag.gain || 0) - dv * 48))
+          );
+        }
+
+        event.preventDefault();
+        return;
+      }
 
       ctx.set("b" + (drag.band + 1) + "_freq", 20 * Math.pow(1000, u));
 
