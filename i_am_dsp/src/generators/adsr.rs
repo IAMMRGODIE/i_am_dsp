@@ -303,7 +303,7 @@ impl<Osc: Oscillator<CHANNELS>, TuningSys: Tuning, const CHANNELS: usize>
 			decay: SyncedTime::default(),
 			decay_bend: 0.0,
 			sustain_level: 1.0,
-			release_time: 100.0,
+			release_time: 10.0,
 			release: SyncedTime::default(),
 			release_bend: 0.0,
 			sync: false,
