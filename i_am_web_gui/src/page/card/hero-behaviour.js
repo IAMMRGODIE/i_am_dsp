@@ -29,6 +29,10 @@
     bottom: 150
   };
 
+  /// The band Q every band declares: a wheel that ran past it would ask the page
+  /// for a value its own knob cannot show.
+  var EQ_Q = { min: 0.1, max: 10 };
+
   EQ_PLOT.across = EQ_PLOT.right - EQ_PLOT.left;
   EQ_PLOT.down = EQ_PLOT.bottom - EQ_PLOT.top;
   EQ_PLOT.middle = (EQ_PLOT.top + EQ_PLOT.bottom) / 2;
@@ -242,9 +246,18 @@
       event.preventDefault();
       ctx.set("band", band);
 
-      var q = ctx.value("b" + (band + 1) + "_q") || 1;
+      // One notch is a quarter of the Q. The delta is read the way a wheel
+      // reports it — a hundred units to the notch, three lines to the notch — so
+      // a trackpad's fine steps move by that much less instead of taking a whole
+      // notch each, and a notch is the same move on every device.
+      var delta = event.deltaY || 0;
+      var notches = event.deltaMode === 1 ? delta / 3 : event.deltaMode === 2 ? delta : delta / 100;
+      var q = (ctx.value("b" + (band + 1) + "_q") || 1) * Math.pow(1.25, -notches);
 
-      ctx.set("b" + (band + 1) + "_q", q * (event.deltaY < 0 ? 1.12 : 0.89));
+      ctx.set(
+        "b" + (band + 1) + "_q",
+        Math.min(EQ_Q.max, Math.max(EQ_Q.min, q))
+      );
     },
     double: function (ctx, event) {
       var band = eqBandAt(event);
