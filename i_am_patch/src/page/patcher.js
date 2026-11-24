@@ -4366,6 +4366,14 @@
         return;
       }
 
+      // The browser would save the page itself, which is not a patch: Ctrl+S asks
+      // the same question the button does.
+      if (key === "s") {
+        openSaveMenu(document.getElementById("save"));
+        event.preventDefault();
+        return;
+      }
+
       if (key === "d") {
         duplicateSelection();
         event.preventDefault();
@@ -4507,13 +4515,30 @@
     setTimeout(() => URL.revokeObjectURL(link.href), 3_000);
   }
 
-  document.getElementById("save").onclick = async () => {
-    try {
-      await savePatch();
-    } catch (error) {
-      showStatus("the patch did not save: " + error);
-    }
-  };
+  /// The Save button is one button and two files: the graph as text a person can
+  /// read and edit, or one bundle carrying the samples, tables and responses
+  /// beside it. The format is a choice under the button, not a second button.
+  function openSaveMenu(button) {
+    const rect = button.getBoundingClientRect();
+
+    menu.innerHTML = "";
+    menu.appendChild(menuButton("Save the graph as text", () => {
+      closeMenu();
+      saving(savePatch);
+    }));
+    menu.appendChild(menuButton("Save the graph and what it plays", () => {
+      closeMenu();
+      saving(saveAll);
+    }));
+    placeMenu(rect.left, rect.bottom + 4);
+  }
+
+  /// A save that fails says so where a save that works does.
+  function saving(save) {
+    save().catch((error) => showStatus("the patch did not save: " + error));
+  }
+
+  document.getElementById("save").onclick = (event) => openSaveMenu(event.currentTarget);
 
   document.getElementById("open").onclick = () => document.getElementById("file").click();
 
@@ -4552,14 +4577,6 @@
       showStatus("the patch did not save: " + error);
     }
   }
-
-  document.getElementById("save-all").onclick = async () => {
-    try {
-      await saveAll();
-    } catch (error) {
-      showStatus("the patch did not save: " + error);
-    }
-  };
 
   document.getElementById("file").onchange = async (event) => {
     const file = event.target.files && event.target.files[0];

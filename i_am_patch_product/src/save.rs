@@ -5,6 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use i_am_effects::dialog::Filter;
 use serde_json::json;
 
 /// What a request to save was answered with.
@@ -79,8 +80,10 @@ impl SaveSlot {
 		}
 	}
 
-	/// Asks for the native save-as dialog for these bytes, under this name.
-	pub fn ask(&self, bytes: Vec<u8>, suggested: &str) -> Asked {
+	/// Asks for the native save-as dialog for these bytes, under this name and
+	/// with this file type: the page picks the format, so the dialog has to offer
+	/// the extension the file will actually have.
+	pub fn ask(&self, bytes: Vec<u8>, suggested: &str, filter: Filter) -> Asked {
 		if !i_am_effects::dialog::CAN_SAVE {
 			return Asked::Unavailable;
 		}
@@ -99,7 +102,7 @@ impl SaveSlot {
 
 		let slot = self.clone();
 
-		i_am_effects::dialog::save(suggested, ("Patch text", &["txt"]), move |path| {
+		i_am_effects::dialog::save(suggested, filter, move |path| {
 			slot.settle(path, &bytes);
 		});
 

@@ -74,6 +74,19 @@ fn unbundle(shared: &PatcherShared, bytes: &[u8]) -> Result<(), String> {
 	Ok(())
 }
 
+/// The file the save dialog offers, matching the format the page picked.
+///
+/// One Save button offers both formats, so the filter has to follow the one that
+/// was chosen: a bundle put through the text filter would be written with a
+/// `.txt` extension by the dialog's own default.
+fn save_filter(bundled: bool) -> i_am_effects::dialog::Filter {
+	if bundled {
+		("Patch bundle", &["iamp"])
+	} else {
+		("Patch text", &["txt"])
+	}
+}
+
 /// Answers a page request, or `None` for the kit's own routes.
 pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<ProtocolResponse> {
 	match (request.method, request.path) {
@@ -86,23 +99,30 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 		// modal window on a worker thread, so asking starts it and a poll says how it
 		// ended; a page with no host beside it gets told there is no dialog and falls
 		// back to the browser's download.
-		("POST", "/save") => Some(ProtocolResponse::json(
-			match shared.save.ask(
-				if query_value(request, "bundle").is_some() {
-					bundle(shared)
-				} else {
-					shared.text().into_bytes()
-				},
+		("POST", "/save") => {
+			let bundled = query_value(request, "bundle").is_some();
+			let bytes = if bundled {
+				bundle(shared)
+			} else {
+				shared.text().into_bytes()
+			};
+			let asked = shared.save.ask(
+				bytes,
 				query_value(request, "name").unwrap_or("patch.txt"),
-			) {
-				crate::save::Asked::Started => json!({ "ok": true, "dialog": true }),
-				crate::save::Asked::Busy => json!({ "ok": true, "dialog": true, "pending": true }),
-				crate::save::Asked::Unavailable => {
-					json!({ "ok": false, "reason": "no native dialog" })
+				save_filter(bundled),
+			);
+
+			Some(ProtocolResponse::json(
+				match asked {
+					crate::save::Asked::Started => json!({ "ok": true, "dialog": true }),
+					crate::save::Asked::Busy => json!({ "ok": true, "dialog": true, "pending": true }),
+					crate::save::Asked::Unavailable => {
+						json!({ "ok": false, "reason": "no native dialog" })
+					}
 				}
-			}
-			.to_string(),
-		)),
+				.to_string(),
+			))
+		}
 		("GET", "/save") => Some(ProtocolResponse::json(shared.save.json())),
 		// The whole patch as one file, for saving it somewhere the host's own state
 		// does not reach: the graph text and the payloads the slots hold.
@@ -1072,6 +1092,14 @@ mod tests {
 			"the page offers operations the agent's API cannot do: {missing:?}"
 		);
 	}
+	/// One Save button, two files: the dialog has to offer the extension of the
+	/// format that was picked, or it writes the bundle out as `.txt`.
+	#[test]
+	fn the_save_dialog_offers_the_format_that_was_picked() {
+		assert_eq!(save_filter(true), ("Patch bundle", &["iamp"][..]));
+		assert_eq!(save_filter(false), ("Patch text", &["txt"][..]));
+	}
+
 	use crate::shared::Body;
 	use i_am_dsp::prelude::NoteEvent;
 	use i_am_patch::engine::Engine;
