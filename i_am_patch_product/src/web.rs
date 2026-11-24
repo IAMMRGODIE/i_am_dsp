@@ -467,6 +467,20 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 
 			Some(ProtocolResponse::json(json!({ "ok": ok }).to_string()))
 		}
+		// The OTT's three bands and the vocoder's bank are measured inside the
+		// node's effect, so a card asks the node for them: the product's own page
+		// has one product to ask, and a patch has as many as it has cards.
+		("GET", "/bands") => {
+			let node = query_value(request, "node").and_then(|node| node.parse::<u32>().ok());
+			// A node that meters nothing answers with an empty meter rather than a
+			// made-up one: the card only asks the nodes that have a meter, and a
+			// route the page owns has to own the question too.
+			let body = node
+				.and_then(|node| shared.slots.bands(node))
+				.map_or_else(|| "{\"bands\":[]}".to_string(), |bands| bands.json());
+
+			Some(ProtocolResponse::json(body))
+		}
 		("GET", "/scope") => {
 			use std::sync::atomic::Ordering;
 

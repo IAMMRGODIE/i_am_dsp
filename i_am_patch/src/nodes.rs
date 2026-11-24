@@ -365,6 +365,16 @@ pub fn make_with(
 
 					Box::new(ProductNode::with_script(effect, worker))
 				}
+				// The OTT and the vocoder publish band meters, and the card's hero
+				// draws them: the node is built with the handle the page reads, or
+				// the picture is an empty grid nothing ever writes to.
+				"ott" => Box::new(ProductNode::new(Box::new(i_am_effects::OttEffect::new(
+					rate,
+					slots.ott(node),
+				)))),
+				"vocoder" => Box::new(ProductNode::new(Box::new(
+					i_am_dsp::prelude::VocoderEffect::<2>::new(rate, slots.vocoder(node)),
+				))),
 				// The convolver is the one module whose state is a slot the page
 				// owns: a response dropped on its card lands in the same slot
 				// the effect reads.
@@ -2280,6 +2290,54 @@ mod source_tests {
 			(from_node - runtime.value()).abs() < 1e-6,
 			"{from_node} vs {}",
 			runtime.value()
+		);
+	}
+}
+
+#[cfg(test)]
+mod meter_tests {
+	use super::*;
+
+	fn block(rate: usize) -> BlockContext {
+		BlockContext {
+			frames: BLOCK,
+			rate,
+			block: 0,
+			events: Vec::new(),
+			context: Box::new(()),
+		}
+	}
+
+	/// The OTT's card draws the bands its effect measures, so the node has to be
+	/// built over the same handle the page route reads. A meter made inside the
+	/// build is a picture nothing could ever see, which is what the card showed.
+	#[test]
+	fn an_ott_node_publishes_the_bands_its_card_draws() {
+		let rate = 48_000;
+		let slots = crate::Slots::default();
+		let mut node =
+			make_with("mod:ott", 5, rate, &BTreeMap::new(), &[], &[], &slots).expect("an ott node");
+		let mut context = block(rate);
+		let audio = AudioBlock {
+			frames: BLOCK,
+			channels: [[0.5; BLOCK]; 2],
+		};
+
+		for _ in 0..4 {
+			let inputs = [Buffer::Audio(audio)];
+			let mut outputs = [Buffer::Audio(AudioBlock::silent(BLOCK))];
+
+			node.process(&mut context, &inputs, &mut outputs);
+		}
+
+		let Some(crate::BandMeter::Ott(meters)) = slots.bands(5) else {
+			panic!("the ott node published no meter for its card");
+		};
+		let bands = meters.get();
+
+		assert!(
+			bands.iter().any(|band| *band != 0.0),
+			"the meter never left zero: {bands:?}"
 		);
 	}
 }

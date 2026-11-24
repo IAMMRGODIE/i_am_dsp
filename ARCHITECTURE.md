@@ -554,7 +554,7 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   - 为什么分两条：文本要保持可读可改，而一张表是四十 KB 的数字、一段采样是几 MB 的音频，
     塞进文本行只会把 patch 变成不可读的墙。小而且**该被编辑**的页面状态（脚本、画布、频谱页、
     滤波器页、历史页）仍留在文本里。
-- 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`、`/sample?node=N`；页面编辑 bump generation，
+- 页面：`/catalog`、`/patch`、`GET|POST /text`、`/scope?node=N`、`/sample?node=N`、`/bands?node=N`；页面编辑 bump generation，
   音频线程在块边界重建引擎。宏走 `GET /macros` 与 `POST /macro?index=&value=`，读写的就是宿主那组原子，
   所以页面拖动在宿主眼里等同自动化。
 - 页面状态走 `Slots`（按节点 id：拟合表、采样、波表、冲激响应、画布、频谱页、鼓手
@@ -563,6 +563,9 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   `/ir?node=N`（Convolver）、`/canvas?node=N`、`/spectrum?node=N`、
   `/click?node=N`、`/samples?node=N`、`/pitch?node=N`、`/amp?node=N`、`/script?node=N`。
   节点在**建的时候**就拿的是页面那个槽/句柄，所以编辑下一块就生效，不需要重建；页面用同一路径 GET 回状态。
+  OTT 与 Vocoder 的表读数也在这里：它们的 hero 画的是**表**而不是参数（`OttMeters`/`VocoderMeters`），
+  句柄在节点建的时候交给效果，卡片按自己的节奏轮询 `GET /bands?node=N`——表是效果在写的，
+  页面拿不到任何副本，句柄不给出去，卡片就只剩一张空网格。
 - 节点目录只有一份：`i_am_patch/src/catalog.rs` 的 `kinds_json()` 同时喂给编辑器 example 和
   产品的 `/catalog`；产品节点的 sections/pages/heroes/switches 从产品自己的元数据派生，
   所以产品页有的字段 patch 一定有。

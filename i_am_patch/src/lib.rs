@@ -208,8 +208,73 @@ pub struct Slots {
 	scripts: std::sync::Arc<
 		std::sync::Mutex<std::collections::BTreeMap<u32, i_am_synths::ScriptHandle>>,
 	>,
+	/// The band meters the OTT and the vocoder publish, one node each.
+	bands: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, BandMeter>>>,
 	/// The host's macro values, read by the `macro` nodes.
 	macros: Macros,
+}
+
+/// The band meters one card draws, for the two products whose hero is a meter.
+///
+/// The OTT's three bands and the vocoder's bank are written by the effect the node
+/// builds, so the page cannot read its own copy of them: it has to read the object
+/// the node was built with. That is what went missing on a patch card — the meter
+/// was made inside the build and dropped, so the hero had nothing to draw but an
+/// empty grid.
+#[derive(Clone)]
+pub enum BandMeter {
+	/// The OTT's three bands, in dB of net gain.
+	Ott(std::sync::Arc<i_am_dsp::prelude::OttMeters>),
+	/// The vocoder's modulator and output band levels.
+	Vocoder(std::sync::Arc<i_am_dsp::prelude::VocoderMeters>),
+}
+
+impl BandMeter {
+	/// The JSON a card's hero reads, the same shape the product's own route sends.
+	pub fn json(&self) -> String {
+		use std::fmt::Write;
+
+		let mut json = String::new();
+
+		match self {
+			Self::Ott(meters) => {
+				let bands = meters.get();
+
+				let _ = write!(
+					json,
+					"{{\"bands\":[{:.2},{:.2},{:.2}]}}",
+					bands[0], bands[1], bands[2]
+				);
+			}
+			Self::Vocoder(meters) => {
+				let (bands, input, output) = meters.snapshot();
+
+				let _ = write!(json, "{{\"bands\":{bands},\"input\":[");
+
+				for (index, value) in input.iter().enumerate() {
+					if index > 0 {
+						json.push(',');
+					}
+
+					let _ = write!(json, "{value:.4}");
+				}
+
+				json.push_str("],\"output\":[");
+
+				for (index, value) in output.iter().enumerate() {
+					if index > 0 {
+						json.push(',');
+					}
+
+					let _ = write!(json, "{value:.4}");
+				}
+
+				json.push_str("]}");
+			}
+		}
+
+		json
+	}
 }
 
 impl Slots {
@@ -320,5 +385,83 @@ impl Slots {
 			.entry(node)
 			.or_default()
 			.clone()
+	}
+
+	/// The band meters one node published, if it is a metering product.
+	pub fn bands(&self, node: u32) -> Option<BandMeter> {
+		self.bands
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.get(&node)
+			.cloned()
+	}
+
+	/// The OTT meters of one node: the handle its effect is built with.
+	///
+	/// A node keeps its id when its kind changes, so a handle of the other shape is
+	/// replaced rather than answered for a node that no longer has one.
+	pub fn ott(&self, node: u32) -> std::sync::Arc<i_am_dsp::prelude::OttMeters> {
+		let mut bands = self
+			.bands
+			.lock()
+			.unwrap_or_else(|error| error.into_inner());
+
+		if let Some(BandMeter::Ott(meters)) = bands.get(&node) {
+			return meters.clone();
+		}
+
+		let meters = std::sync::Arc::new(i_am_dsp::prelude::OttMeters::default());
+		bands.insert(node, BandMeter::Ott(meters.clone()));
+		meters
+	}
+
+	/// The vocoder meters of one node: the handle its effect is built with.
+	pub fn vocoder(&self, node: u32) -> std::sync::Arc<i_am_dsp::prelude::VocoderMeters> {
+		let mut bands = self
+			.bands
+			.lock()
+			.unwrap_or_else(|error| error.into_inner());
+
+		if let Some(BandMeter::Vocoder(meters)) = bands.get(&node) {
+			return meters.clone();
+		}
+
+		let meters = std::sync::Arc::new(i_am_dsp::prelude::VocoderMeters::default());
+		bands.insert(node, BandMeter::Vocoder(meters.clone()));
+		meters
+	}
+}
+
+#[cfg(test)]
+mod band_tests {
+	use super::*;
+
+	/// The vocoder's hero reads its own product's shape: the band count and the two
+	/// arrays. A meter that answered anything else would draw nothing.
+	#[test]
+	fn a_band_meter_answers_in_the_shape_the_hero_reads() {
+		let slots = Slots::default();
+		let json = BandMeter::Vocoder(slots.vocoder(4)).json();
+
+		assert!(json.starts_with("{\"bands\":24,\"input\":["), "{json}");
+		assert!(json.ends_with("]}"), "{json}");
+		assert_eq!(json.matches("0.0000").count(), 48, "{json}");
+	}
+
+	/// One handle per node, not one per build: the effect a rebuild creates has to
+	/// write into the meter the card is already reading.
+	#[test]
+	fn a_node_keeps_its_meter_across_builds() {
+		let slots = Slots::default();
+		let first = slots.ott(3);
+		let second = slots.ott(3);
+
+		assert!(std::sync::Arc::ptr_eq(&first, &second));
+		assert!(matches!(slots.bands(3), Some(BandMeter::Ott(_))));
+
+		// A node keeps its id when its kind changes, so the handle has to follow the
+		// kind rather than hand back a meter of the other shape.
+		slots.vocoder(3);
+		assert!(matches!(slots.bands(3), Some(BandMeter::Vocoder(_))));
 	}
 }

@@ -53,7 +53,7 @@ pub use filter_table::{FilterTableHandle, FilterTableWeb, faceplate as filter_ta
 pub use history::{HistoryHandle, HistoryWeb, faceplate as history_faceplate};
 use i_am_dsp::prelude::{OuterWider, RingMod};
 use ir_reverb::IrReverbEffect;
-pub use ott::{OTT_PAGES, OttWeb};
+pub use ott::{OTT_PAGES, OttEffect, OttWeb};
 use particle_wider::ParticleWiderEffect;
 pub use pitch::PITCH_VISIBLE;
 use pitch::PitchEffect;

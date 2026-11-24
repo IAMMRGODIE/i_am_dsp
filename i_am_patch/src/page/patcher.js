@@ -1482,6 +1482,59 @@
     });
   }
 
+  /// The OTT and the vocoder draw a meter, and a meter is only written by the
+  /// effect as it plays: the card asks its own node for the bands, the way the
+  /// product's page asks the one product it has.
+  ///
+  /// Without this the hero is an empty grid that never moves — the effect a node
+  /// builds keeps its meters to itself, so nothing on the page had them.
+  function watchBands(entry) {
+    if (entry.bandsTimer) return;
+
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    if (!hero) return;
+
+    const key = entry.kind.hero === "ott" ? "ott" : "vocoder";
+    let last = "";
+
+    const tick = () => {
+      entry.bandsTimer = null;
+
+      // The card left the page: the timer goes with it, and the next card for
+      // this node starts its own.
+      if (!entry.host.isConnected) return;
+
+      if (document.hidden) {
+        entry.bandsTimer = setTimeout(tick, 250);
+        return;
+      }
+
+      fetch("/bands?node=" + entry.node.id, { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((state) => {
+          if (!state) return;
+
+          // A meter that has not moved does not need a repaint: the whole hero is
+          // rebuilt each time, and a still picture is a wasted frame.
+          const text = JSON.stringify(state);
+
+          if (text === last) return;
+
+          last = text;
+          entry.context[key] = state;
+
+          if (entry.card.repaintHero) entry.card.repaintHero();
+        })
+        .catch(() => {})
+        .then(() => {
+          if (entry.host.isConnected) entry.bandsTimer = setTimeout(tick, 60);
+        });
+    };
+
+    entry.bandsTimer = setTimeout(tick, 60);
+  }
+
   /// The Spectrum node's pages are outside the parameter map too: the card
   /// asks the product's route and the editor writes them back to the same node.
   function refreshSpectrum(entry) {
@@ -2294,6 +2347,9 @@
     // A node that already holds a file shows it as soon as the card is built,
     // not only right after the drop that loaded it.
     if (IMPORT_ROUTES[kind.id]) refreshImport(entry, IMPORT_ROUTES[kind.id].path);
+    // The two metering products: their hero keeps moving only while the card
+    // asks the node for the bands the effect is writing.
+    if (kind.hero === "ott" || kind.hero === "vocodex") watchBands(entry);
     if (isProductCard(kind, "spectrum")) {
       const repaint = card.repaintHero;
 
