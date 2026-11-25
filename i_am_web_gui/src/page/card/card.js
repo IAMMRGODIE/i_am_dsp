@@ -747,8 +747,32 @@
         }
       }
 
+      // A mode's list names the controls of the mode's own section: the envelope
+      // and the voice pages are not part of it and must not be swept away. The
+      // product page scopes the list the same way (kit/face.js), so a sampler's
+      // Envelope page keeps its knobs on a card too.
+      var touched = [];
+
+      if (allowed) {
+        bodies.forEach(function (entry) {
+          if (allowed.indexOf(entry.id) < 0) return;
+
+          var section = entry.el.closest(".mcard-section");
+
+          if (section && touched.indexOf(section) < 0) touched.push(section);
+        });
+      }
+
       bodies.forEach(function (entry) {
-        var show = (!allowed || allowed.indexOf(entry.id) >= 0) && !hidden[entry.id];
+        var show = !hidden[entry.id];
+
+        if (allowed && touched.length) {
+          var section = entry.el.closest(".mcard-section");
+          var inMode = section !== null && touched.indexOf(section) >= 0;
+
+          if (inMode) show = show && allowed.indexOf(entry.id) >= 0;
+        }
+
         entry.el.style.display = show ? "" : "none";
       });
     }
