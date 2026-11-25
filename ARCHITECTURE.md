@@ -568,6 +568,9 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   `/ir?node=N`（Convolver）、`/canvas?node=N`、`/spectrum?node=N`、
   `/click?node=N`、`/samples?node=N`、`/pitch?node=N`、`/amp?node=N`、`/script?node=N`。
   节点在**建的时候**就拿的是页面那个槽/句柄，所以编辑下一块就生效，不需要重建；页面用同一路径 GET 回状态。
+- 选中卡片的**波形条**（`.scope-canvas`，512×88 的 canvas）只是没有 hero 的卡片的兜底画面：卡片自带 hero 时
+  它直接返回（hero 已经在画信号），而且它只给**有音频输出**的节点（音符、宿主 MIDI 口、控制源没有可画的信号，
+  以前会给一条看着像静音的水平线）；它画的是该节点输出 tap 的最后 2048 帧，跟着选区走，一次一个节点。
 - 动态类卡片（compressor / gate / expander / limiter）的 hero 画的是「定律 + 包络窗」：产品页从 `/meter` 与
   `/scope` 喂 `context.meter` / `context.envHistory`，patch 从同一条 `/scopes` 轮询里取 `meters=<ids>`——
   每个节点只回一个 dB 值（整块采样帧仍然只给「正在看」的那张卡），页面把它推进包络窗口并约 17 Hz 重画。

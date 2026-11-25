@@ -3858,8 +3858,12 @@
     stopScope();
 
     const node = nodeOf(id);
+    const kind = node ? kindOf(node.kind) : null;
 
-    if (node && CONTROL_KINDS.includes(node.kind)) return;
+    // The strip draws a signal, so a node without an audio output has nothing to
+    // show: a note, the host's MIDI port and the control sources would only get a
+    // flat line that looks like silence.
+    if (kind && !kind.outputs.some((port) => port.kind === "audio")) return;
 
     scopeNode = id;
   }
