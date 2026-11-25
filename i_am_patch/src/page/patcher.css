@@ -16,11 +16,33 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text1);
   font:13px/1.35 var(--font);overflow:hidden;user-select:none}
 header{height:40px;display:flex;align-items:center;gap:14px;padding:0 14px;
   border-bottom:1px solid var(--border);background:var(--header)}
-.title{font-weight:600;letter-spacing:.02em}
-.hint{color:var(--text3);font-size:12px}
+.title{font-weight:600;letter-spacing:.02em; flex:0 0 auto}
+/* One line or nothing: a wrapped hint grew the header and pushed the stage down.
+   patcher.js measures it and hands what does not fit to the ? button. */
+.hint{
+  color:var(--text3); font-size:12px;
+  flex:0 1 auto; min-width:0;
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+}
+.hint-toggle{display:none; min-width:24px; padding:0 7px}
+header.folded .hint{display:none}
+header.folded .hint-toggle{display:block}
+/* The hint at full length, out of the header's flow: it hangs over the stage
+   instead of making the header taller. */
+.hint-panel{
+  position:absolute; top:38px; left:14px; z-index:20;
+  max-width:min(420px, calc(100vw - 28px));
+  padding:8px 10px; background:var(--card); border:1px solid var(--border);
+  border-radius:6px; box-shadow:0 12px 34px rgba(0,0,0,.55);
+  color:var(--text2); font-size:12px; line-height:1.5;
+}
+.hint-panel[hidden]{display:none}
 header .spacer{flex:1}
 .tb{
   height:24px; padding:0 10px; font:inherit; font-size:11px;
+  /* A button keeps the width its label needs: squeezing one wrapped "Save"
+     onto two lines and broke the toolbar row. */
+  flex:0 0 auto; white-space:nowrap;
   color:var(--text2); background:var(--raised); border:1px solid #454545;
   border-radius:5px; cursor:pointer;
 }

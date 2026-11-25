@@ -8,6 +8,49 @@
   const menu = document.getElementById("menu");
   const NS = "http://www.w3.org/2000/svg";
 
+  // The header's hint folds away before the buttons do: a narrow window keeps the
+  // toolbar whole, and the text moves behind the ? button instead of wrapping the
+  // header into three lines and pushing the stage down with it.
+  const header = document.querySelector("header");
+  const hint = document.getElementById("hint");
+  const hintToggle = document.getElementById("hint-toggle");
+  const hintPanel = document.createElement("div");
+
+  hintPanel.className = "hint-panel";
+  hintPanel.hidden = true;
+  hintPanel.textContent = hint.textContent;
+  header.appendChild(hintPanel);
+
+  function hideHint() {
+    hintPanel.hidden = true;
+    hintToggle.setAttribute("aria-expanded", "false");
+  }
+
+  /// Folds the hint when it no longer fits. The measurement is taken unfolded:
+  /// a hidden element has no width of its own to compare against.
+  function foldHint() {
+    hideHint();
+    header.classList.remove("folded");
+    header.classList.toggle("folded", hint.scrollWidth > hint.clientWidth + 1);
+  }
+
+  hintToggle.addEventListener("click", () => {
+    hintPanel.hidden = !hintPanel.hidden;
+    hintToggle.setAttribute("aria-expanded", hintPanel.hidden ? "false" : "true");
+  });
+
+  window.addEventListener("resize", foldHint);
+
+  // Anywhere else is a dismissal, the way a menu closes.
+  window.addEventListener("pointerdown", (event) => {
+    if (hintPanel.hidden) return;
+    if (event.target.closest("#hint-toggle, .hint-panel")) return;
+
+    hideHint();
+  });
+
+  foldHint();
+
   const BASE_W = 280;
   const BASE_H = 300;
 
