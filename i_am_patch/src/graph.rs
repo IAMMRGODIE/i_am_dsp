@@ -599,6 +599,17 @@ const BUILTINS: &[NodeDesc] = &[
 			param("feedback", 0.3, 0.0, 0.95),
 		],
 	},
+	// A note on the canvas: no ports, no parameters, nothing to play. It exists so
+	// a patch can explain itself where it is, and its text rides in the patch text
+	// beside the graph rather than in a slot, because it is a person's writing.
+	NodeDesc {
+		id: "text",
+		name: "Text",
+		inputs: &[],
+		outputs: &[],
+		latency: 0,
+		params: &[],
+	},
 ];
 
 /// Every node kind: the built-ins and one `mod:<id>` per product module.
@@ -916,6 +927,12 @@ pub struct NodeInstance {
 	pub points: Vec<Point>,
 	/// The points of a MIDI velocity mapping.
 	pub velocity_points: Vec<Point>,
+	/// The note a text node carries: page text, not part of the signal.
+	///
+	/// It lives in the graph so it saves with the patch and undoes with it, but
+	/// the string never reaches the engine: a rebuild builds the node and plays
+	/// it as silence.
+	pub text: Option<String>,
 }
 
 impl NodeInstance {
@@ -994,6 +1011,7 @@ impl Graph {
 			params,
 			points: Vec::new(),
 			velocity_points: Vec::new(),
+			text: None,
 		});
 
 		Some(id)
@@ -1093,6 +1111,20 @@ impl Graph {
 				.expect("the key came from this node's params"),
 			value,
 		);
+
+		true
+	}
+
+	/// Writes the note a text node carries; false when the node is gone.
+	///
+	/// The empty string is a note that was cleared, so it is kept as one: an empty
+	/// field on a card is not the same as a node that never had a note.
+	pub fn set_text(&mut self, id: NodeId, text: String) -> bool {
+		let Some(node) = self.nodes.iter_mut().find(|node| node.id == id) else {
+			return false;
+		};
+
+		node.text = Some(text);
 
 		true
 	}

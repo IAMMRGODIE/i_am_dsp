@@ -130,6 +130,14 @@ pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 	}
 
 	for node in &graph.nodes {
+		// A note is writing, not a payload: it is short, it belongs beside the node
+		// it explains, and a person reading the file should see it there. JSON
+		// carries the quotes and the line breaks, so one note stays one line.
+		if let Some(note) = &node.text {
+			let json = serde_json::to_string(note).expect("the note serializes");
+			let _ = writeln!(out, "text {} {}", node.id.0, json);
+		}
+
 		match node.kind.id {
 			"mod:history" => {
 				let pages = slots.history(node.id.0).feed().pages();
@@ -221,6 +229,7 @@ pub fn from_text_with_slots(text: &str, slots: &crate::Slots) -> Result<Graph, T
 					params,
 					points: Vec::new(),
 					velocity_points: Vec::new(),
+					text: None,
 				});
 			}
 			"connect" => {
@@ -386,6 +395,16 @@ pub fn from_text_with_slots(text: &str, slots: &crate::Slots) -> Result<Graph, T
 					.map_err(|parse_error| error(line, parse_error.to_string()))?;
 				slots.script(id).apply(source);
 			}
+			"text" => {
+				let id = parse_id(words.next(), line)?;
+				let rest = words.collect::<Vec<_>>().join(" ");
+				let note: String = serde_json::from_str(&rest)
+					.map_err(|parse_error| error(line, parse_error.to_string()))?;
+
+				if !graph.set_text(NodeId(id), note) {
+					return Err(error(line, format!("no node {id} to write a note on")));
+				}
+			}
 			other => return Err(error(line, format!("unknown statement {other}"))),
 		}
 	}
@@ -505,6 +524,51 @@ mod tests {
 		}
 
 		assert!((back.get(graph.nodes[2].id).expect("gain").param("gain") - 0.5).abs() < 1e-6);
+	}
+
+	/// A note is a person's writing, so it survives the trip through the one-line
+	/// form with its quotes and its line breaks — and it costs the file exactly one
+	/// line, however long it is.
+	#[test]
+	fn a_note_round_trips_through_the_text() {
+		let graph = patch();
+		let lines = to_text(&graph).lines().count();
+		let mut graph = graph;
+		let note = graph.add_node("text", (500.0, 0.0)).expect("a text node");
+		let written = "where this patch starts:
+\"cutoff\" is 52 Hz on purpose";
+
+		assert!(graph.set_text(note, written.to_string()));
+
+		let text = to_text(&graph);
+
+		assert_eq!(
+			text.lines().count(),
+			lines + 2,
+			"a node and its note are two lines: {text}"
+		);
+		assert_eq!(
+			text.lines().filter(|line| line.starts_with("text ")).count(),
+			1,
+			"the note broke into more than one line: {text}"
+		);
+
+		let back = from_text(&text).expect("the text parses");
+
+		assert_eq!(
+			back.get(note).and_then(|node| node.text.as_deref()),
+			Some(written)
+		);
+	}
+
+	/// A note names a node: one that is not there is a mistake in the file, not a
+	/// line to drop.
+	#[test]
+	fn a_note_on_a_node_that_is_not_there_is_an_error() {
+		let text = "node 1 out:audio 0 0
+text 9 \"ghost\"\n";
+
+		assert!(from_text(text).is_err());
 	}
 
 	/// Every payload a node plays travels in the blob beside the text: a table, a fitted

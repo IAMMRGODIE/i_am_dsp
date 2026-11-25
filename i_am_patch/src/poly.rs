@@ -203,6 +203,7 @@ impl Poly {
 			params: BTreeMap::new(),
 			points: Vec::new(),
 			velocity_points: Vec::new(),
+			text: None,
 		});
 
 		for edge in &graph.edges {

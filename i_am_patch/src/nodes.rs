@@ -194,6 +194,9 @@ pub fn make_with(
 		"input:midi" => Box::new(Quiet),
 		"input:audio" | "input:sidechain" => Box::new(Source),
 		"out:audio" => Box::new(Quiet),
+		// A note is text on the canvas: it is built like any node so the graph
+		// compiles, and it does nothing, because there is nothing for it to do.
+		"text" => Box::new(Quiet),
 		"voice:in" => Box::new(Quiet),
 		"voice:out" => Box::new(Quiet),
 		"split:ms" => Box::new(SplitMs),

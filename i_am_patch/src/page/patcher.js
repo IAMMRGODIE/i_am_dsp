@@ -74,6 +74,31 @@
   const cards = {};
   const pagesOf = {};
 
+  // A note a text card carries. It is page text the server keeps in the graph, so
+  // it posts on a timer of its own and is flushed before a save or a redraw: a
+  // note typed a moment before Ctrl+S still has to be in the file.
+  const textTimers = new Map();
+  const textPending = new Map();
+
+  function queueText(id, text) {
+    textPending.set(id, text);
+    clearTimeout(textTimers.get(id));
+    textTimers.set(id, setTimeout(flushTexts, 300));
+  }
+
+  /// Writes every note still waiting on its timer, oldest first.
+  async function flushTexts() {
+    const pending = [...textPending];
+
+    textPending.clear();
+
+    for (const [id, text] of pending) {
+      clearTimeout(textTimers.get(id));
+      textTimers.delete(id);
+      await op({ op: "text", id, text }, false);
+    }
+  }
+
   // The host's macro values, read from /macros. A macro card draws the one its
   // index names; dragging it writes the atomics a host writes, so a drag is
   // automation rather than a graph edit.
@@ -854,6 +879,13 @@
         String(Math.max(0.05, Math.min(w / baseWidth(node), h / baseHeight(node)))),
       );
       entry.host.classList.toggle("compact", w < 430);
+      // A note can change under the card — undo, a redo, an opened patch — so the
+      // field follows what the graph now says. The caret keeps its own edits.
+      const area = entry.host.querySelector(".note-text");
+
+      if (area && document.activeElement !== area && area.value !== (node.text || "")) {
+        area.value = node.text || "";
+      }
       // Only a source card's picture is redrawn here. Every other card keeps the
       // hero its kind registered; painting the source picture over it would wipe
       // that hero on the next redraw.
@@ -983,6 +1015,29 @@
         op({ op: "param", id: node.id, key: identifier, value }, false);
       },
     });
+
+    // A text node is a note on the canvas: the card's body is the field, and
+    // typing in it never redraws the graph — a rebuild would close the field
+    // under the caret.
+    if (kind.id === "text") {
+      const body = card.querySelector(".mcard-body");
+
+      if (body) {
+        body.classList.add("card-note");
+
+        const area = document.createElement("textarea");
+        area.className = "note-text";
+        area.spellcheck = false;
+        area.placeholder = "Type a note";
+        area.value = node.text || "";
+        area.addEventListener("input", () => {
+          node.text = area.value;
+          queueText(node.id, area.value);
+        });
+        area.addEventListener("blur", flushTexts);
+        body.appendChild(area);
+      }
+    }
 
     if (!specs.length) {
       const body = card.querySelector(".mcard-body");
@@ -2649,6 +2704,8 @@
       return "mode:" + (Array.isArray(body.index) ? body.index.join(",") : body.index);
     }
     if (body.op === "move") return "move:" + body.id;
+    // A note typed in one sitting is one undo step, not one per pause.
+    if (body.op === "text") return "text:" + body.id;
     return "";
   }
 
@@ -2731,6 +2788,9 @@
           params: Object.entries(node.params || {}),
           points: (node.points || []).map((point) => [point.time, point.value, point.bend || 0]),
           velocity_points: (node.velocity_points || []).map((point) => [point.time, point.value, point.bend || 0]),
+          // A note travels with its node: a copied note pasted without its text is
+          // an empty card, which is not what was copied.
+          text: node.text || "",
         };
       }),
       edges: patch.edges
@@ -2785,6 +2845,10 @@
 
         if (item.velocity_points && item.velocity_points.length) {
           await op({ op: "set_points", id, points: item.velocity_points, curve: "velocity" }, false);
+        }
+
+        if (item.text) {
+          await op({ op: "text", id, text: item.text }, false);
         }
       }
 
@@ -3258,6 +3322,9 @@
     ) {
       return "Effect";
     }
+    // A note is nothing the graph plays: it explains the patch beside it.
+    if (id === "text") return "Note";
+
     if (id.startsWith("gen:") || id.startsWith("synth:")) return "Generator";
     if (id.startsWith("table:") || id.startsWith("warp:")) return "Wavetable";
     if (id.startsWith("osc:") || id === "adsr") return "Oscillator";
@@ -4533,6 +4600,8 @@
   /// file route a browser and a webview both have). The host's own state saves itself,
   /// so this button is the export.
   async function savePatch() {
+    await flushTexts();
+
     const text = await (await fetch("/text")).json();
 
     try {
@@ -4619,6 +4688,8 @@
   /// Saves everything the patch plays, not only its graph: one file that opens
   /// somewhere else with its samples, tables and responses still inside it.
   async function saveAll() {
+    await flushTexts();
+
     const name = patchName().replace(/\.txt$/, ".iamp");
 
     try {

@@ -601,6 +601,10 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				// sounding under the hand.
 				match live_edit(body) {
 					Some(edit) => shared.edit(edit),
+					// A note is text on the canvas, not part of the signal: nothing
+					// is rebuilt for it, because a rebuild would close the field it
+					// is being typed in.
+					None if writes_text(body) => {}
 					None => shared.bump(),
 				}
 			}
@@ -609,6 +613,15 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 		}
 		_ => None,
 	}
+}
+
+/// Whether an op only writes a note. Nothing plays a note, so nothing is rebuilt
+/// for it: the string reaches the patch text through the graph it was written into.
+fn writes_text(body: &str) -> bool {
+	serde_json::from_str::<Value>(body)
+		.ok()
+		.and_then(|value| value["op"].as_str().map(|op| op == "text"))
+		.unwrap_or(false)
 }
 
 /// The edit an op makes without changing the graph's shape, if it is one.
@@ -803,15 +816,25 @@ pub fn catalog_json() -> String {
 /// The graph as the page reads it.
 pub fn patch_json(graph: &Graph) -> String {
 	json!({
-		"nodes": graph.nodes.iter().map(|node| json!({
-			"id": node.id.0,
-			"kind": node.kind.id,
-			"x": node.position.0,
-			"y": node.position.1,
-			"params": node.params.iter().map(|(key, value)| (key.to_string(), json!(value))).collect::<serde_json::Map<_, _>>(),
-			"points": node.points.iter().map(|point| json!([point.time, point.value, point.bend])).collect::<Vec<_>>(),
-			"velocity_points": node.velocity_points.iter().map(|point| json!([point.time, point.value, point.bend])).collect::<Vec<_>>(),
-		})).collect::<Vec<_>>(),
+		"nodes": graph.nodes.iter().map(|node| {
+			let mut entry = json!({
+				"id": node.id.0,
+				"kind": node.kind.id,
+				"x": node.position.0,
+				"y": node.position.1,
+				"params": node.params.iter().map(|(key, value)| (key.to_string(), json!(value))).collect::<serde_json::Map<_, _>>(),
+				"points": node.points.iter().map(|point| json!([point.time, point.value, point.bend])).collect::<Vec<_>>(),
+				"velocity_points": node.velocity_points.iter().map(|point| json!([point.time, point.value, point.bend])).collect::<Vec<_>>(),
+			});
+
+			// Only a note carries text; every other node leaves the field out
+			// rather than sending a null for each of them.
+			if let Some(note) = &node.text {
+				entry["text"] = json!(note);
+			}
+
+			entry
+		}).collect::<Vec<_>>(),
 		"voice": i_am_patch::compile::voice_group(graph)
 			.iter()
 			.map(|id| id.0)
@@ -951,6 +974,10 @@ fn op(shared: &PatcherShared, body: &str) -> Value {
 				for (key, value) in &node.params {
 					graph.set_param(new_id, key, *value);
 				}
+
+				if let Some(note) = &node.text {
+					graph.set_text(new_id, note.clone());
+				}
 			}
 
 			json!({ "ok": true, "id": new_id.map(|id| id.0) })
@@ -967,6 +994,14 @@ fn op(shared: &PatcherShared, body: &str) -> Value {
 			let id = id(&value["id"]);
 			let key = value["key"].as_str().unwrap_or("");
 			let done = graph.set_param(id, key, value["value"].as_f64().unwrap_or(0.0) as f32);
+			json!({ "ok": done })
+		}
+		// A note on the canvas. It is written into the graph so it saves and
+		// undoes with the patch, but it is not a graph *change*: see the route
+		// below, which does not rebuild for it.
+		"text" => {
+			let note = value["text"].as_str().unwrap_or("").to_string();
+			let done = graph.set_text(id(&value["id"]), note);
 			json!({ "ok": done })
 		}
 		"modulate" => {
@@ -1098,6 +1133,43 @@ mod tests {
 	fn the_save_dialog_offers_the_format_that_was_picked() {
 		assert_eq!(save_filter(true), ("Patch bundle", &["iamp"][..]));
 		assert_eq!(save_filter(false), ("Patch text", &["txt"][..]));
+	}
+
+	/// A note is written into the graph, so it saves and undoes with the patch, and
+	/// it is not a rebuild: the revision must not move under a caret.
+	#[test]
+	fn a_note_saves_with_the_patch_and_rebuilds_nothing() {
+		use std::sync::atomic::Ordering;
+
+		let shared = PatcherShared::default();
+		let before = shared.generation.load(Ordering::Relaxed);
+		let node = shared.graph().nodes[0].id.0;
+		let body = format!(
+			"{{\"op\":\"text\",\"id\":{node},\"text\":\"the low end is folded here\"}}"
+		);
+		let request = ProtocolRequest {
+			method: "POST",
+			path: "/op",
+			query: None,
+			body: body.as_bytes(),
+		};
+		let answer = route(&request, &shared).expect("the op route owns /op");
+		let answer = String::from_utf8(answer.body).expect("utf-8");
+
+		assert!(answer.contains("\"ok\":true"), "{answer}");
+		assert_eq!(
+			shared.generation.load(Ordering::Relaxed),
+			before,
+			"a note rebuilt the engine"
+		);
+		assert!(
+			shared.text().contains("the low end is folded here"),
+			"the note is not in the patch text"
+		);
+		assert!(
+			patch_json(&shared.graph()).contains("the low end is folded here"),
+			"a rebuilt card would not get its note back"
+		);
 	}
 
 	use crate::shared::Body;

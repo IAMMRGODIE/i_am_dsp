@@ -12,6 +12,23 @@ fn note_event(note: usize) -> NoteEvent {
 	}
 }
 
+/// A text node is a note on the canvas: it has no ports and nothing plays it, so
+/// a patch with one beside it sounds exactly as it did without.
+#[test]
+fn a_note_beside_the_graph_changes_nothing_it_plays() {
+	let mut graph = crate::voice_patch();
+	let before = render_blocks(&graph, 6, &[(0, note_event(60))]);
+
+	graph.add_node("text", (0.0, 0.0)).expect("a text node");
+	let after = render_blocks(&graph, 6, &[(0, note_event(60))]);
+
+	assert_eq!(before.len(), after.len());
+
+	for (was, is) in before.iter().zip(&after) {
+		assert_eq!(was, is, "the note changed the audio");
+	}
+}
+
 fn render_blocks(graph: &Graph, blocks: usize, notes: &[(u64, NoteEvent)]) -> Vec<[f32; 2]> {
 	let mut engine = Engine::new(graph, 48_000).expect("the graph builds");
 	let mut out = Vec::new();

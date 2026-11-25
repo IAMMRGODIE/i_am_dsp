@@ -643,6 +643,7 @@ mod tests {
 			params: std::collections::BTreeMap::new(),
 			points: Vec::new(),
 			velocity_points: Vec::new(),
+			text: None,
 		});
 
 		assert_eq!(compile(&graph), Err(CompileError::DuplicateId(gain)));

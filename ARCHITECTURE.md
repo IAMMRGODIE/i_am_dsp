@@ -568,6 +568,10 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   `/ir?node=N`（Convolver）、`/canvas?node=N`、`/spectrum?node=N`、
   `/click?node=N`、`/samples?node=N`、`/pitch?node=N`、`/amp?node=N`、`/script?node=N`。
   节点在**建的时候**就拿的是页面那个槽/句柄，所以编辑下一块就生效，不需要重建；页面用同一路径 GET 回状态。
+- `text` 节点是画布上的便签：没有端口、没有参数，引擎把它编成静默的一步。字符串存在图里
+  （`NodeInstance::text`），在 `/text` 里是单独一行 `text <id> "<json>"`（引号与换行由 JSON 转义，
+  所以一条便签永远是一行），存档、撤销、打开文件都跟着走。页面打字只发 `op: "text"`，**不 bump**：
+  一次重建会把正在输入的光标弄丢，而提示文字不该让任何东西重新编译。
   OTT 与 Vocoder 的表读数也在这里：它们的 hero 画的是**表**而不是参数（`OttMeters`/`VocoderMeters`），
   句柄在节点建的时候交给效果，卡片按自己的节奏轮询 `GET /bands?node=N`——表是效果在写的，
   页面拿不到任何副本，句柄不给出去，卡片就只剩一张空网格。
