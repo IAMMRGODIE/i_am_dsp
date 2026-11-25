@@ -576,6 +576,12 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   每个节点只回一个 dB 值（整块采样帧仍然只给「正在看」的那张卡），页面把它推进包络窗口并约 17 Hz 重画。
   缺了这两个字段，hero 会退化成「只有参数」的整幅曲线（`compressorSimpleHero` / `dynamicsSimpleHero`），
   这就是 patch 里看不到左右结构的原因。
+- 被调制参数的**画面跟着走**：`/scopes` 每次轮询都带 `values`——每个被调制目标节点的「参数名 → 值」，
+  是引擎这一块的**结束值**（基值加上调制偏移之后真正在跑的数），`Body` 每块从 `Engine` / `Poly` 的
+  `applied` 发布到 `PatcherShared`，页面约 17 Hz 交给 `card.liveValues()` 再重画 hero：
+  滤波卡片的曲线画的是此刻的截止频率，旋钮仍停在手上设的那个值（旋钮是「点一下会改什么」，
+  图是「现在在响什么」）。编辑类 hero（画布、频谱页、滤波表、历史、鼓手、频谱）不跟——那是它自己在编的图；
+  指针按住时也停，因为重画会换掉手势所在的那一层。
 - 三个 Script 产品的脚本由**同一个 worker** 供页面和音频：`Slots::script_slot(id, kind)`——`synth:script` /
   `table:script` 用 synth 的 handle，`mod:script_mapper` / `mod:script_distortion` 各自一个 worker。
   节点每次重建都从槽里取同一个 worker（以前每次重建新建一个，改完的脚本会在下一次结构变化时丢掉），

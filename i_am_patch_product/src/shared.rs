@@ -26,6 +26,9 @@ pub struct PatcherShared {
 	pub phases: Mutex<Vec<(u32, f32)>>,
 	/// Where each watched MIDI source's input sits, for its mapping point.
 	pub midi_inputs: Mutex<Vec<(u32, f32)>>,
+	/// What each modulated node's parameters are at, published every block: a
+	/// card draws the value the engine is running, not the base the page posted.
+	pub values: Mutex<NodeValues>,
 	/// The last compile error, for the page's status bar.
 	pub error: Mutex<Option<String>>,
 	/// The scripts the running nodes own, by node id, for the page's editor.
@@ -65,6 +68,13 @@ fn host_macro_map() -> ParamMap {
 	ParamMap::new_with(entries.collect::<Vec<_>>())
 }
 
+/// The value each parameter of a node is at, by node id, in the node's own
+/// units.
+///
+/// This is the pair a card draws from: what the engine is running, rather than
+/// the base the page posted.
+pub type NodeValues = Vec<(u32, Vec<(&'static str, f32)>)>;
+
 /// One watched node and the rings its signal goes into.
 pub struct Tap {
 	/// The node id.
@@ -94,6 +104,7 @@ impl PatcherShared {
 			taps: Mutex::new(Vec::new()),
 			phases: Mutex::new(Vec::new()),
 			midi_inputs: Mutex::new(Vec::new()),
+			values: Mutex::new(Vec::new()),
 			error: Mutex::new(None),
 			scripts: Default::default(),
 			slots: Default::default(),
@@ -274,6 +285,34 @@ impl PatcherShared {
 			.map(|(_, position)| *position)
 	}
 
+	/// Records what each modulated node ended this block at.
+	///
+	/// The audio thread tries the lock: a page reading the list costs one block
+	/// of the picture, where waiting for it would cost the sound. The published
+	/// lists are kept between blocks, so a steady patch allocates nothing here.
+	pub fn set_values(&self, values: &NodeValues) {
+		let Ok(mut published) = self.values.try_lock() else {
+			return;
+		};
+
+		published.truncate(values.len());
+
+		while published.len() < values.len() {
+			published.push((0, Vec::new()));
+		}
+
+		for (slot, (node, list)) in published.iter_mut().zip(values) {
+			slot.0 = *node;
+			slot.1.clear();
+			slot.1.extend_from_slice(list);
+		}
+	}
+
+	/// What the audio thread last published, for the page's pictures.
+	pub fn values(&self) -> NodeValues {
+		self.values.lock().expect("the values lock").clone()
+	}
+
 	/// The watched nodes, copied into the output list without waiting.
 	pub fn tap_snapshot_into(&self, out: &mut Vec<(u32, Arc<Scope>, Arc<Scope>)>) {
 		out.clear();
@@ -387,6 +426,10 @@ pub struct Body {
 	position: Option<f32>,
 	/// The watched nodes, reused each block.
 	taps: Vec<(u32, Arc<Scope>, Arc<Scope>)>,
+	/// The nodes a modulation moves, for the values the page draws.
+	modulated: Vec<u32>,
+	/// Those values, reused each block.
+	values: NodeValues,
 }
 
 impl Body {
@@ -405,6 +448,8 @@ impl Body {
 			tempo: None,
 			position: None,
 			taps: Vec::new(),
+			modulated: Vec::new(),
+			values: Vec::new(),
 		};
 		// The host asks for the latency before the first block.
 		body.rebuild();
@@ -454,6 +499,18 @@ impl Body {
 
 		let graph = self.shared.graph();
 		let rate = self.shared.rate.load(Ordering::Relaxed).max(1);
+
+		// The cards whose parameters a modulation moves are the ones whose values
+		// the page keeps drawing, and the set moves with the graph.
+		self.modulated.clear();
+
+		for link in &graph.modulations {
+			let node = link.target.0.0;
+
+			if !self.modulated.contains(&node) {
+				self.modulated.push(node);
+			}
+		}
 
 		if voice_group(&graph).is_empty() {
 			match Engine::new_with(&graph, rate, &self.shared.slots) {
@@ -513,6 +570,44 @@ impl Body {
 		self.built = self.shared.generation.load(Ordering::Relaxed);
 	}
 
+	/// Copies the values each modulated node ended the block at, for the page.
+	///
+	/// A voice node only has a value while a voice plays it: with no voice there
+	/// is no value to draw, and the card keeps the base picture.
+	fn publish_values(&mut self) {
+		if self.modulated.is_empty() {
+			return;
+		}
+
+		let mut values = std::mem::take(&mut self.values);
+
+		values.truncate(self.modulated.len());
+
+		for (index, node) in self.modulated.iter().copied().enumerate() {
+			if values.len() == index {
+				values.push((node, Vec::new()));
+			}
+
+			values[index].0 = node;
+
+			let id = i_am_patch::graph::NodeId(node);
+			let list = &mut values[index].1;
+
+			let known = match (&self.poly, &self.engine) {
+				(Some(poly), _) => poly.values_into(id, list),
+				(None, Some(engine)) => engine.values_into(id, list),
+				(None, None) => false,
+			};
+
+			if !known {
+				list.clear();
+			}
+		}
+
+		self.shared.set_values(&values);
+		self.values = values;
+	}
+
 	/// The host's tempo and song position.
 	pub fn set_transport(&mut self, tempo: Option<f32>, position: Option<f32>) {
 		self.tempo = tempo;
@@ -558,6 +653,9 @@ impl Body {
 			}
 
 			self.events.clear();
+
+			// The values a modulation left each parameter at, before the page asks.
+			self.publish_values();
 
 			// Every watched node's output is copied for the page.
 			self.shared.tap_snapshot_into(&mut self.taps);
@@ -775,6 +873,61 @@ mod tests {
 		assert!(
 			after < before * 0.5,
 			"{after} did not follow {before}: the edit never reached the engine"
+		);
+	}
+
+	/// The card asks what the engine is running, not only what its knob was left
+	/// at: the effect demo sweeps the filter's cutoff with an LFO, and the value
+	/// the page draws has to follow that sweep.
+	#[test]
+	fn the_page_reads_the_value_a_modulation_is_running() {
+		let shared = Arc::new(PatcherShared::with_graph(demo_effect()));
+		let mut body = Body::new(shared.clone());
+
+		let filter = shared
+			.graph()
+			.nodes
+			.iter()
+			.find(|node| node.kind.id == "mod:filter")
+			.map(|node| node.id.0)
+			.expect("the effect demo has a filter");
+
+		let cutoff = || -> Option<f32> {
+			shared.values().into_iter().find_map(|(node, list)| {
+				if node != filter {
+					return None;
+				}
+
+				list.iter()
+					.find(|(name, _)| *name == "cutoff")
+					.map(|(_, value)| *value)
+			})
+		};
+
+		// A third of the cutoff's range either way is a sweep of octaves, so a
+		// window of a couple of hundred blocks has to show the value moving; a
+		// reading of the base would leave it exactly on 1 200 Hz.
+		let mut low = f32::MAX;
+		let mut high = f32::MIN;
+
+		for _ in 0..200 {
+			for _ in 0..BLOCK {
+				body.process([0.0; 2], [0.0; 2]);
+			}
+
+			if let Some(value) = cutoff() {
+				low = low.min(value);
+				high = high.max(value);
+			}
+		}
+
+		assert!(
+			high - low > 1.0,
+			"the cutoff did not follow its modulation: {low} to {high}"
+		);
+		assert!(
+			(low - 1_200.0).abs() > 0.5 || (high - 1_200.0).abs() > 0.5,
+			"the page was handed the base value, not the one the engine runs"
 		);
 	}
 }

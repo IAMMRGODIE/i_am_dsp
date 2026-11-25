@@ -431,6 +431,35 @@ impl Engine {
 		true
 	}
 
+	/// The value each parameter of a node is at right now, in the node's own
+	/// units.
+	///
+	/// A modulation moves a parameter between blocks, so a card that draws the
+	/// parameter has to read what the engine is running, not only the base the
+	/// page posted. The pairs go into `out`, which is reused across blocks; a node
+	/// this engine does not have answers false.
+	pub fn values_into(&self, id: NodeId, out: &mut Vec<(&'static str, f32)>) -> bool {
+		out.clear();
+
+		let Some(step) = self.steps.get(&id).copied() else {
+			return false;
+		};
+
+		// The base map is the one the block loop walks, so `applied` is indexed
+		// the same way: one entry per parameter, in the map's order.
+		for (index, (name, _)) in self.base[step].iter().enumerate() {
+			let value = self.applied[step][index];
+
+			// A parameter no block has written yet is NaN, and a picture drawn
+			// from it would be nothing at all.
+			if value.is_finite() {
+				out.push((*name, value));
+			}
+		}
+
+		true
+	}
+
 	/// Turns one modulation's depth, which is the same kind of edit as a knob.
 	pub fn set_modulation_depth(&mut self, index: usize, depth: f32) -> bool {
 		let Some(link) = self.links.get_mut(index) else {

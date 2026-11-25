@@ -639,6 +639,20 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 					"scopes": scopes,
 					"live": live,
 					"meters": meters,
+					// The cards a modulation moves draw the value the engine is
+					// running: one list per such node, in the node's own units.
+					"values": shared
+						.values()
+						.into_iter()
+						.map(|(node, list)| {
+							let pairs: Vec<serde_json::Value> = list
+								.iter()
+								.map(|(name, value)| json!([name, value]))
+								.collect();
+
+							json!([node, pairs])
+						})
+						.collect::<Vec<_>>(),
 				})
 				.to_string(),
 			))

@@ -1705,3 +1705,82 @@ fn render_through(graph: &Graph, slots: &crate::Slots, macro_value: f32) -> f32 
 
 	frame.iter().map(|sample| sample[0].abs()).sum::<f32>() / BLOCK as f32
 }
+
+/// The value a card draws: a modulation leaves a parameter away from the base
+/// its knob was left at, so the page reads where the engine has it.
+#[test]
+fn a_modulated_parameter_reports_where_it_is() {
+	use crate::graph::Point;
+
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("input");
+	let gain = graph.add_node("mod:gain", (100.0, 0.0)).expect("gain");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+	let lfo = graph.add_node("lfo", (0.0, 100.0)).expect("lfo");
+	graph.connect((input, 0), (gain, 0));
+	graph.connect((gain, 0), (out, 0));
+	graph.set_param(gain, "gain", 1.0);
+	// A flat curve at the top, so the offset is the whole depth.
+	graph.set_points(
+		lfo,
+		vec![
+			Point {
+				time: 0.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+			Point {
+				time: 1.0,
+				value: 1.0,
+				bend: 0.0,
+			},
+		],
+	);
+	graph.modulate((lfo, 0), (gain, "gain"), 0.25);
+	graph.set_modulation_mode(0, crate::graph::ModulationMode::Centered);
+
+	let mut engine = Engine::new(&graph, 48_000).expect("builds");
+	let mut values = Vec::new();
+
+	// No block has written a parameter yet, and a picture drawn from that is not
+	// a picture of the node.
+	assert!(engine.values_into(gain, &mut values));
+	assert!(values.is_empty(), "{values:?}");
+
+	let host = vec![[0.0f32; 2]; BLOCK];
+	let mut block = vec![[0.0f32; 2]; BLOCK];
+
+	// A source with no input of its own is read one block behind, so the second
+	// block is the first one that knows the LFO.
+	engine.process(&host, &[], &mut block);
+	engine.process(&host, &[], &mut block);
+
+	assert!(
+		engine.values_into(gain, &mut values),
+		"the gain is in the graph"
+	);
+	assert_eq!(values.len(), 1, "{values:?}");
+
+	let (name, value) = values[0];
+	assert_eq!(name, "gain");
+
+	// A quarter of the range above 1.0, read back through the parameter's own
+	// curve: the card and the knob agree on what a value is.
+	let param = crate::graph::node("mod:gain")
+		.expect("gain")
+		.params
+		.iter()
+		.find(|param| param.name == "gain")
+		.copied()
+		.expect("gain");
+	let expected = param.denormalize(param.normalize(1.0) + 0.25);
+
+	assert!(
+		(value - expected).abs() < 1e-4,
+		"{value} against {expected}"
+	);
+
+	// A node the plan does not have answers false rather than a made-up value.
+	assert!(!engine.values_into(crate::graph::NodeId(99), &mut values));
+	assert!(values.is_empty(), "{values:?}");
+}

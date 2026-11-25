@@ -798,6 +798,31 @@
       applyVisibility();
     };
 
+    /// Draws a parameter where the engine is running it rather than where the
+    /// hand left it, and answers whether anything moved.
+    ///
+    /// A modulation swings a parameter between blocks, so the picture of that
+    /// parameter has to follow it; the control keeps the value the page posted,
+    /// which is the one a click would edit. The caller repaints, because the
+    /// page that watches a node already paints its card on every poll.
+    card.liveValues = function (pairs) {
+      var changed = false;
+
+      (pairs || []).forEach(function (pair) {
+        var id = pair && pair[0];
+        var value = pair && pair[1];
+
+        if (typeof value !== "number" || !isFinite(value)) return;
+        if (!(id in byId)) return;
+        if (values[id] === value) return;
+
+        values[id] = value;
+        changed = true;
+      });
+
+      return changed;
+    };
+
     return card;
   }
 

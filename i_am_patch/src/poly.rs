@@ -312,6 +312,19 @@ impl Poly {
 			})
 	}
 
+	/// The value each parameter of a node is at now: the outer graph's, or the
+	/// newest voice's when the node is part of a voice.
+	pub fn values_into(&self, id: NodeId, out: &mut Vec<(&'static str, f32)>) -> bool {
+		if self.outer.values_into(id, out) {
+			return true;
+		}
+
+		self.voices
+			.iter()
+			.rev()
+			.any(|voice| voice.engine.values_into(id, out))
+	}
+
 	/// The step a node ended up on, in the outer graph.
 	pub fn step_of(&self, id: NodeId) -> Option<usize> {
 		self.outer.step_of(id)

@@ -4027,6 +4027,14 @@
   const HIDDEN_INTERVAL = 150;
   let liveTimer = null;
 
+  // A picture under the hand is left alone: a repaint would take the surface
+  // the gesture is drawn on, and the drag would fight what the engine reports.
+  let holding = false;
+
+  window.addEventListener("pointerdown", () => { holding = true; }, true);
+  window.addEventListener("pointerup", () => { holding = false; }, true);
+  window.addEventListener("pointercancel", () => { holding = false; }, true);
+
   function startScopes() {
     if (liveTimer !== null) return;
 
@@ -4051,6 +4059,7 @@
 
       applySourceScopes(data);
       applyMeters(data.meters);
+      applyLiveValues(data.values);
 
       if (data.live) applyLiveScope(data.live, data.rate);
     } catch {
@@ -4201,6 +4210,51 @@
       };
 
       if (entry.meterTick % ENVELOPE_EVERY === 0 && entry.card.repaintHero) {
+        entry.card.repaintHero();
+      }
+    }
+  }
+
+  /// The heroes that edit their node rather than drawing one of its
+  /// parameters: a live repaint would take the picture the hand works in.
+  function isEditorHero(kind) {
+    return (
+      kind.id === "synth:drummer" ||
+      kind.id === "mod:spectral_dynamics" ||
+      kind.id === "mod:filter_table" ||
+      kind.id === "mod:history" ||
+      isProductCard(kind, "canvas") ||
+      isProductCard(kind, "spectrum")
+    );
+  }
+
+  /// How many polls the values have been read for.
+  let liveTick = 0;
+
+  /// One tick of the values a modulation is moving.
+  ///
+  /// A modulation leaves a parameter somewhere between its base and the
+  /// source, so a card that draws that parameter draws where it actually is
+  /// instead of where its knob was left. The picture is painted on every third
+  /// tick: it is a picture the eye reads, not a sample-accurate trace.
+  function applyLiveValues(values) {
+    if (!Array.isArray(values) || !values.length || holding) return;
+
+    liveTick += 1;
+
+    const paint = liveTick % ENVELOPE_EVERY === 0;
+
+    for (const [node, list] of values) {
+      const entry = cards[node];
+
+      if (!entry || !entry.card || !entry.card.liveValues) continue;
+      if (isEditorHero(entry.kind)) continue;
+
+      // A voice node has no value while no voice plays it, so the card goes
+      // back to the base the page posted instead of freezing on the last note.
+      const at = list.length ? list : Object.entries(entry.node.params || {});
+
+      if (entry.card.liveValues(at) && paint && entry.card.repaintHero) {
         entry.card.repaintHero();
       }
     }
