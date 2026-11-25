@@ -210,6 +210,8 @@ pub struct Slots {
 	>,
 	/// The band meters the OTT and the vocoder publish, one node each.
 	bands: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, BandMeter>>>,
+	/// The scripted products' workers, one node each.
+	effect_scripts: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, ScriptSlot>>>,
 	/// The host's macro values, read by the `macro` nodes.
 	macros: Macros,
 }
@@ -275,6 +277,81 @@ impl BandMeter {
 
 		json
 	}
+}
+
+/// The script one node runs, for the products whose page edits it.
+///
+/// A scripted node is rebuilt on every structural change, so the worker it runs
+/// cannot live inside the node: the page asks for a node's script by id, and this
+/// holds the same object the node was built with. The workers are different types
+/// — a generator's feed, a mapper's table, a distortion's curve — and the page
+/// only needs the source, the error and the points, so the slot keeps whichever
+/// one the node is.
+#[derive(Clone)]
+pub enum ScriptSlot {
+	/// A scripted generator or table: the synth products' feed.
+	Synth(i_am_synths::ScriptHandle),
+	/// A scripted mapper: its worker turns the source into a table.
+	Mapper(std::sync::Arc<i_am_effects::ScriptWorker<i_am_effects::MapperTable>>),
+	/// A scripted distortion: the same worker, over its transfer curve.
+	Distortion(std::sync::Arc<i_am_effects::ScriptWorker<i_am_effects::DistortionTable>>),
+}
+
+impl ScriptSlot {
+	/// The source the node is running.
+	pub fn source(&self) -> String {
+		match self {
+			Self::Synth(handle) => handle.source_text(),
+			Self::Mapper(worker) => worker.source(),
+			Self::Distortion(worker) => worker.source(),
+		}
+	}
+
+	/// Replaces the source, to be compiled again on the worker's own thread.
+	pub fn set_source(&self, source: String) {
+		match self {
+			Self::Synth(handle) => {
+				handle.apply(source);
+			}
+			Self::Mapper(worker) => {
+				worker.set_source(source);
+			}
+			Self::Distortion(worker) => {
+				worker.set_source(source);
+			}
+		}
+	}
+
+	/// The page's view of it: the source, the last error, and the points the
+	/// script draws. The generator answers with its spectrum instead, which is
+	/// what its own hero reads.
+	pub fn state_json(&self) -> String {
+		match self {
+			Self::Synth(handle) => handle.state_json(),
+			Self::Mapper(worker) => {
+				let status = worker.status();
+				script_json(worker.source(), status.error, status.applied, &worker.curve())
+			}
+			Self::Distortion(worker) => {
+				let status = worker.status();
+				script_json(worker.source(), status.error, status.applied, &worker.curve())
+			}
+		}
+	}
+}
+
+/// One scripted product's editor state, in the shape a page's hero reads.
+fn script_json(source: String, error: Option<String>, applied: u64, curve: &[[f32; 3]]) -> String {
+	serde_json::json!({
+		"source": source,
+		"error": error,
+		"applied": applied,
+		"curve": curve
+			.iter()
+			.map(|point| [point[0], point[1], point[2]])
+			.collect::<Vec<_>>(),
+	})
+	.to_string()
 }
 
 impl Slots {
@@ -413,6 +490,31 @@ impl Slots {
 		let meters = std::sync::Arc::new(i_am_dsp::prelude::OttMeters::default());
 		bands.insert(node, BandMeter::Ott(meters.clone()));
 		meters
+	}
+
+	/// The script one scripted node runs, created the first time it is asked for.
+	///
+	/// The kind says which worker to start: the two scripted effects have one
+	/// each, and the synth products use the handle this slot already keeps.
+	pub fn script_slot(&self, node: u32, kind: &str) -> Option<ScriptSlot> {
+		let mut scripts = self
+			.effect_scripts
+			.lock()
+			.unwrap_or_else(|error| error.into_inner());
+
+		if let Some(slot) = scripts.get(&node) {
+			return Some(slot.clone());
+		}
+
+		let slot = match kind {
+			"mod:script_mapper" => ScriptSlot::Mapper(i_am_effects::mapper_worker()),
+			"mod:script_distortion" => ScriptSlot::Distortion(i_am_effects::distortion_worker()),
+			_ => return None,
+		};
+
+		scripts.insert(node, slot.clone());
+
+		Some(slot)
 	}
 
 	/// The vocoder meters of one node: the handle its effect is built with.

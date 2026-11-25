@@ -568,6 +568,11 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   `/ir?node=N`（Convolver）、`/canvas?node=N`、`/spectrum?node=N`、
   `/click?node=N`、`/samples?node=N`、`/pitch?node=N`、`/amp?node=N`、`/script?node=N`。
   节点在**建的时候**就拿的是页面那个槽/句柄，所以编辑下一块就生效，不需要重建；页面用同一路径 GET 回状态。
+- 三个 Script 产品的脚本由**同一个 worker** 供页面和音频：`Slots::script_slot(id, kind)`——`synth:script` /
+  `table:script` 用 synth 的 handle，`mod:script_mapper` / `mod:script_distortion` 各自一个 worker。
+  节点每次重建都从槽里取同一个 worker（以前每次重建新建一个，改完的脚本会在下一次结构变化时丢掉），
+  `GET|POST /script?node=N` 按节点的 kind 回**它自己的** source / error / 曲线；卡片按产品页的 400 ms 轮询，
+  mapping 与 curve 两个 hero 画的就是这条曲线。
 - `text` 节点是画布上的便签：没有端口、没有参数，引擎把它编成静默的一步。字符串存在图里
   （`NodeInstance::text`），在 `/text` 里是单独一行 `text <id> "<json>"`（引号与换行由 JSON 转义，
   所以一条便签永远是一行），存档、撤销、打开文件都跟着走。页面打字只发 `op: "text"`，**不 bump**：

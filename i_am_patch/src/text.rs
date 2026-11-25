@@ -158,9 +158,19 @@ pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 				let state = slots.spectrum(node.id.0).state_json();
 				let _ = writeln!(out, "spectrum {} {}", node.id.0, state);
 			}
-			"synth:script" => {
+			"synth:script" | "table:script" => {
 				let source = slots.script(node.id.0).source_text();
 				let json = serde_json::to_string(&source).expect("the script serializes");
+				let _ = writeln!(out, "script {} {}", node.id.0, json);
+			}
+			// The scripted effects keep their script in a worker of their own, and
+			// the slot is the same one the node runs: what is written here is what
+			// the patch plays.
+			"mod:script_mapper" | "mod:script_distortion" => {
+				let Some(script) = slots.script_slot(node.id.0, node.kind.id) else {
+					continue;
+				};
+				let json = serde_json::to_string(&script.source()).expect("the script serializes");
 				let _ = writeln!(out, "script {} {}", node.id.0, json);
 			}
 			// A table, a sample or a response is a payload, not a number: it travels in
@@ -393,7 +403,25 @@ pub fn from_text_with_slots(text: &str, slots: &crate::Slots) -> Result<Graph, T
 				let rest = words.collect::<Vec<_>>().join(" ");
 				let source: String = serde_json::from_str(&rest)
 					.map_err(|parse_error| error(line, parse_error.to_string()))?;
-				slots.script(id).apply(source);
+				let Some(kind) = graph.get(NodeId(id)).map(|node| node.kind.id) else {
+					return Err(error(line, format!("no node {id} to write a script on")));
+				};
+
+				// A scripted effect runs a worker of its own; the synth products run
+				// the handle they were built with. The file says which node, and the
+				// node's kind is what says where its script belongs.
+				match kind {
+					"mod:script_mapper" | "mod:script_distortion" => {
+						let Some(slot) = slots.script_slot(id, kind) else {
+							return Err(error(line, format!("node {id} has no script")));
+						};
+
+						slot.set_source(source);
+					}
+					_ => {
+						slots.script(id).apply(source);
+					}
+				}
 			}
 			"text" => {
 				let id = parse_id(words.next(), line)?;
@@ -569,6 +597,39 @@ mod tests {
 text 9 \"ghost\"\n";
 
 		assert!(from_text(text).is_err());
+	}
+
+	/// A scripted effect's script is part of the patch: the text carries the source
+	/// the node runs, and reading the text back puts it in the worker again.
+	#[test]
+	fn a_scripted_effect_keeps_its_script_in_the_text() {
+		let mut graph = Graph::new();
+		let node = graph
+			.add_node("mod:script_mapper", (0.0, 0.0))
+			.expect("a mapper");
+		let slots = crate::Slots::default();
+		let Some(crate::ScriptSlot::Mapper(worker)) =
+			slots.script_slot(node.0, "mod:script_mapper")
+		else {
+			panic!("the mapper's worker");
+		};
+
+		worker.set_source("[x * 4.0, a]".to_string());
+
+		let text = to_text_with_slots(&graph, &slots);
+
+		assert!(text.contains("script 0 \"[x * 4.0, a]\""), "{text}");
+
+		let back = crate::Slots::default();
+		from_text_with_slots(&text, &back).expect("the text parses");
+
+		let Some(crate::ScriptSlot::Mapper(worker)) =
+			back.script_slot(node.0, "mod:script_mapper")
+		else {
+			panic!("the mapper's worker");
+		};
+
+		assert_eq!(worker.source(), "[x * 4.0, a]");
 	}
 
 	/// Every payload a node plays travels in the blob beside the text: a table, a fitted

@@ -2096,11 +2096,15 @@
     reader.readAsArrayBuffer(file);
   }
 
-  /// The Script's source, error and spectrum are the product's own state. The
-  /// card asks for it through the node's route and shows it in the panel and
-  /// the hero.
+  /// The script's source, error and picture are the product's own state. The
+  /// card asks for it through the node's route and shows it in the panel and the
+  /// hero.
+  ///
+  /// Every scripted product carries the panel (the catalog's `script` flag), not
+  /// only the two synth ids: the mapper and the distortion are scripted too, and
+  /// their heroes draw the curve the script produces.
   function refreshScript(entry) {
-    if (!entry || !isProductCard(entry.kind, "script")) return;
+    if (!entry || !entry.kind.script) return;
 
     fetch("/script?node=" + entry.node.id, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
@@ -2108,11 +2112,32 @@
         if (!state) return;
 
         entry.context.script = state;
+        // The mapper and the distortion draw points; the generator draws its
+        // spectrum, which the same state carries under another name.
+        if (state.curve) entry.context.curve = { points: state.curve };
         if (entry.card.setScript) entry.card.setScript(state.source || "");
         if (entry.card.setScriptError) entry.card.setScriptError(state.error || "");
         if (entry.card.repaintHero) entry.card.repaintHero();
       })
       .catch(() => {});
+  }
+
+  /// A script compiles on the worker's own thread, so its picture lands a moment
+  /// after its source: the card keeps asking while it is on the page, at the
+  /// cadence the product page uses.
+  function watchScript(entry) {
+    if (entry.scriptTimer) return;
+
+    const tick = () => {
+      entry.scriptTimer = null;
+
+      if (!entry.host.isConnected) return;
+
+      refreshScript(entry);
+      entry.scriptTimer = setTimeout(tick, 400);
+    };
+
+    entry.scriptTimer = setTimeout(tick, 400);
   }
 
   /// The Filter Table frame, fetched the same way the product page does.
@@ -2391,7 +2416,7 @@
         touchNode(node.id);
         op({ op: "param", id: node.id, key: identifier, value }, false);
 
-        if (isProductCard(kind, "script") && entry) {
+        if (kind.script && entry) {
           clearTimeout(entry.scriptTimer);
           entry.scriptTimer = setTimeout(() => refreshScript(entry), 150);
         }
@@ -2497,8 +2522,9 @@
       refreshDrummer(entry);
     }
 
-    if (isProductCard(kind, "script")) {
+    if (kind.script) {
       refreshScript(entry);
+      watchScript(entry);
     }
 
     if (kind.id === "mod:history") {

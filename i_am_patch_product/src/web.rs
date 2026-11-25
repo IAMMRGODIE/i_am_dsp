@@ -287,14 +287,18 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 			let node = query_value(request, "node")
 				.and_then(|value| value.parse::<u32>().ok())
 				.unwrap_or(0);
-			let script = shared.slots.script(node);
-			let answer = if request.method == "POST" {
-				script.apply(String::from_utf8_lossy(request.body).to_string())
-			} else {
-				script.state_json()
+			// The node says which script the page is asking about: the two
+			// scripted effects keep theirs in a worker of their own, the synth
+			// products in the handle their node was built with.
+			let Some(script) = node_script(shared, node) else {
+				return Some(ProtocolResponse::json("{}".to_string()));
 			};
 
-			Some(ProtocolResponse::json(answer))
+			if request.method == "POST" {
+				script.set_source(String::from_utf8_lossy(request.body).to_string());
+			}
+
+			Some(ProtocolResponse::json(script.state_json()))
 		}
 		("GET", "/filter-table/import/progress") => {
 			let node = query_value(request, "node")
@@ -610,6 +614,22 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 			}
 
 			Some(ProtocolResponse::json(result.to_string()))
+		}
+		_ => None,
+	}
+}
+
+/// The script one node runs, whichever product's it is.
+fn node_script(shared: &PatcherShared, node: u32) -> Option<i_am_patch::ScriptSlot> {
+	let kind = shared
+		.graph()
+		.get(i_am_patch::graph::NodeId(node))
+		.map(|node| node.kind.id)?;
+
+	match kind {
+		"mod:script_mapper" | "mod:script_distortion" => shared.slots.script_slot(node, kind),
+		"synth:script" | "table:script" => {
+			Some(i_am_patch::ScriptSlot::Synth(shared.slots.script(node)))
 		}
 		_ => None,
 	}
@@ -1133,6 +1153,36 @@ mod tests {
 	fn the_save_dialog_offers_the_format_that_was_picked() {
 		assert_eq!(save_filter(true), ("Patch bundle", &["iamp"][..]));
 		assert_eq!(save_filter(false), ("Patch text", &["txt"][..]));
+	}
+
+	/// Each scripted effect's card asks its own node: the product's own default
+	/// source comes back, not one shared with the other scripted products.
+	#[test]
+	fn a_scripted_effect_answers_its_own_default() {
+		let shared = PatcherShared::default();
+
+		assert!(shared.set_text("node 1 mod:script_mapper 0 0\nnode 2 mod:script_distortion 0 0\n"));
+
+		let source = |node: u32| -> String {
+			let query = format!("node={node}");
+			let request = ProtocolRequest {
+				method: "GET",
+				path: "/script",
+				query: Some(&query),
+				body: &[],
+			};
+			let answer = route(&request, &shared).expect("the script route");
+			let state: serde_json::Value = serde_json::from_slice(&answer.body).expect("json");
+
+			state["source"].as_str().unwrap_or_default().to_string()
+		};
+
+		let mapper = source(1);
+		let distortion = source(2);
+
+		assert!(!mapper.is_empty(), "the mapper's card got no script");
+		assert!(!distortion.is_empty(), "the distortion's card got no script");
+		assert_ne!(mapper, distortion, "both products answered with one script");
 	}
 
 	/// A note is written into the graph, so it saves and undoes with the patch, and

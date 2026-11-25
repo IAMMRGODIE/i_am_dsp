@@ -342,8 +342,14 @@ pub fn make_with(
 			let module = i_am_effects::catalog::get(&kind[4..])?;
 
 			match module.id {
+				// The scripted effects run the worker the page edits: a fresh one
+				// per build would lose every edit at the next structural change.
 				"script_mapper" => {
-					let worker = i_am_effects::mapper_worker();
+					let Some(crate::ScriptSlot::Mapper(worker)) =
+						slots.script_slot(node, "mod:script_mapper")
+					else {
+						return None;
+					};
 					let effect =
 						Box::new(i_am_effects::ScriptMapperEffect::new(rate, worker.clone()));
 
@@ -362,7 +368,11 @@ pub fn make_with(
 					)))
 				}
 				"script_distortion" => {
-					let worker = i_am_effects::distortion_worker();
+					let Some(crate::ScriptSlot::Distortion(worker)) =
+						slots.script_slot(node, "mod:script_distortion")
+					else {
+						return None;
+					};
 					let effect =
 						Box::new(i_am_effects::ScriptDistortionEffect::new(worker.clone()));
 
