@@ -581,7 +581,10 @@
   /// x = 0 is DC, x = 1 is Nyquist; cutoff sits at harmonic 24, so its marker is
   /// at 24 / 512 of the axis.
   function filterResponsePoints(points) {
-    var size = 1024;
+    // The frame's own resolution. An FFT at a longer size means upsampling the
+    // kernel first, which rolls the top of the band off: the curve derived here
+    // then disagrees with the one that was drawn, and toggling the view moved it.
+    var size = Math.max(64, points.length);
     var frame = [];
     var mean = 0;
 
@@ -703,8 +706,13 @@
   }
 
   /// Turn the relative magnitude curve into a zero-phase time kernel.
+  ///
+  /// The kernel is built at the size the page holds. A longer transform decimated
+  /// back to the page aliases: the high bands folded onto the low ones, so the
+  /// curve drawn here came back different the next time the page was read.
   function filterTimeFromResponse(response) {
-    var size = 1024;
+    var count = 256;
+    var size = count;
     var re = new Array(size).fill(0);
     var im = new Array(size).fill(0);
 
@@ -727,7 +735,6 @@
     for (var index = 0; index < size; index++) peak = Math.max(peak, Math.abs(shifted[index]));
 
     var points = [];
-    var count = 256;
 
     for (var index = 0; index < count; index++) {
       var value = shifted[Math.floor(index / count * size)] / peak;
@@ -1009,6 +1016,13 @@
           if (view === "freq") {
             response = points;
             pages[selected] = filterTimeFromResponse(points);
+
+            // A kernel can only realize a smoothed version of a drawn magnitude:
+            // settle the picture on the response the frame really has, or the
+            // next read would jump to it and the drawn curve would have shown a
+            // shape the sound never had.
+            response = filterResponsePoints(pages[selected]);
+            drawFrequency();
           }
 
           post();
