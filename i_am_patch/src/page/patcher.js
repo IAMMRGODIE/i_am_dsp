@@ -1163,6 +1163,9 @@
         scope: { input: null, output: null },
         spectra: {},
         eqSpectrum: {},
+        // The spectral dynamics cards draw these before their first fetch.
+        spectralDynamics: { threshold: [], ratio: [] },
+        sdCurve: { view: "threshold" },
       };
 
       // How long since this card last painted, for a picture with ballistics:
@@ -1322,6 +1325,17 @@
     const frames = () => (state().waves && state().waves.count) || 0;
 
     return {
+      // The spectral dynamics editor reads its pages on every use, so these are
+      // getters: a card that has just been refetched hands the editor the new
+      // lists instead of the ones it was wired with.
+      get spectralDynamics() {
+        return state().spectralDynamics || { threshold: [], ratio: [] };
+      },
+      get sdCurve() {
+        const context = state();
+
+        return context.sdCurve || (context.sdCurve = { view: "threshold" });
+      },
       read: () => {
         const current = state();
 
@@ -2166,6 +2180,99 @@
     entry.scriptTimer = setTimeout(tick, 400);
   }
 
+  /// The spectral dynamics curves: product state, not parameters, so the card
+  /// asks its own node for them the way the product page asks the one product.
+  function refreshSpectralDynamics(entry) {
+    if (!entry || entry.kind.id !== "mod:spectral_dynamics") return;
+
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    // A curve under the hand is not replaced: the repaint a refetch causes takes
+    // the picture the drag is drawn on.
+    if (hero && hero.dataset.busy === "1") return;
+
+    fetch("/spectral-dynamics?node=" + entry.node.id, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((state) => {
+        if (!state || !state.threshold) return;
+
+        const toPoints = (pages) =>
+          (pages || []).map((page) =>
+            page.map((point) => ({ time: point[0], value: point[1], bend: point[2] || 0 })),
+          );
+        const next = { threshold: toPoints(state.threshold), ratio: toPoints(state.ratio) };
+
+        if (JSON.stringify(entry.context.spectralDynamics) === JSON.stringify(next)) return;
+
+        entry.context.spectralDynamics = next;
+        if (entry.card.repaintHero) entry.card.repaintHero();
+      })
+      .catch(() => {});
+  }
+
+  /// The curves compile in the audio thread and the page's own edits come back
+  /// from the server, so the card asks again on the product page's cadence.
+  function watchSpectral(entry) {
+    if (entry.spectralTimer) return;
+
+    const tick = () => {
+      entry.spectralTimer = null;
+
+      if (!entry.host.isConnected) return;
+
+      refreshSpectralDynamics(entry);
+      entry.spectralTimer = setTimeout(tick, 1200);
+    };
+
+    entry.spectralTimer = setTimeout(tick, 1200);
+  }
+
+  /// A spectral dynamics hero edits this node's two curves.
+  function wireSpectralDynamicsCard(entry) {
+    if (!entry || entry.kind.id !== "mod:spectral_dynamics" || !entry.context.spectralDynamics) {
+      return;
+    }
+
+    // The product has two heroes and the card shows one page at a time: only the
+    // curve's page takes the point editor, or the spectrum picture would end up
+    // with one.
+    const page = (entry.kind.pages || [])[pagesOf[entry.node.id] ?? 0];
+
+    if (page && page.hero !== "spectraldynamics-curve") return;
+
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    if (!hero) return;
+
+    const svg = hero.querySelector("svg");
+
+    if (!svg || svg.__sdWired) return;
+
+    svg.__sdWired = true;
+    watchHero(entry, wireSpectralDynamicsCard);
+
+    IAmCard.wire(hero, "spectraldynamics-curve", entry.node.params, {
+      get spectralDynamics() {
+        return entry.context.spectralDynamics || { threshold: [], ratio: [] };
+      },
+      get sdCurve() {
+        return entry.context.sdCurve || (entry.context.sdCurve = { view: "threshold" });
+      },
+      repaint: () => {
+        if (entry.card.repaintHero) entry.card.repaintHero();
+      },
+      set: (id, value) => {
+        entry.node.params[id] = value;
+        postParam(entry.node.id, id, value);
+      },
+      post: (body) => {
+        fetch("/spectral-dynamics?node=" + entry.node.id, { method: "POST", body })
+          .then((response) => (response.ok ? response.json() : null))
+          .catch(() => {});
+      },
+    });
+  }
+
   /// The Filter Table frame, fetched the same way the product page does.
   function refreshFilterTable(entry) {
     if (!entry || entry.kind.id !== "mod:filter_table") return;
@@ -2520,6 +2627,7 @@
       };
 
       refreshCanvas(entry);
+      wireCanvasCard(entry);
       watchCanvas(entry);
     }
 
@@ -2566,6 +2674,23 @@
       };
 
       refreshHistory(entry);
+      wireHistoryCard(entry);
+    }
+
+    if (kind.id === "mod:spectral_dynamics") {
+      const repaint = card.repaintHero;
+
+      card.repaintHero = function (values) {
+        repaint(values);
+        wireSpectralDynamicsCard(entry);
+      };
+
+      // The fetch only repaints when the curves moved, and a card that was just
+      // built already shows them: the editor is attached here, not only from the
+      // repaint, or a card rebuilt from cached pages would have no editor.
+      refreshSpectralDynamics(entry);
+      wireSpectralDynamicsCard(entry);
+      watchSpectral(entry);
     }
 
     if (kind.id === "mod:filter_table") {

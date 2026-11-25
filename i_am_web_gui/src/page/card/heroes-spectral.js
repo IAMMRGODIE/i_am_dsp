@@ -27,7 +27,10 @@ function spectralCurveAt(points, x) {
     if (x <= right.time) {
       var span = Math.max(right.time - left.time, 1e-6);
       var unit = Math.max(0, Math.min(1, (x - left.time) / span));
-      return left.value + (right.value - left.value) * unit;
+      // The segment bends the way the DSP bends it, or a curve dragged with the
+      // bend handle would redraw straight and look like nothing happened.
+      var curved = IAmCard.sources.bend(unit, left.bend || 0);
+      return left.value + (right.value - left.value) * curved;
     }
   }
 
@@ -159,17 +162,21 @@ function wireSpectralCurve(el, state, values) {
   };
 
   // The page's shared post helper only knows the filter table and the history
-  // curve, so this product posts to its own route.
+  // curve, so this product posts to its own route. A page that hosts many
+  // products (the patcher) hands over its own poster, which carries the node.
   var post = function () {
     var live = curves();
+    var body = JSON.stringify({
+      threshold: spectralPosts(live.threshold),
+      ratio: spectralPosts(live.ratio)
+    });
 
-    fetch("/spectral-dynamics", {
-      method: "POST",
-      body: JSON.stringify({
-        threshold: spectralPosts(live.threshold),
-        ratio: spectralPosts(live.ratio)
-      })
-    }).catch(function () {});
+    if (state.post) {
+      state.post(body);
+      return;
+    }
+
+    fetch("/spectral-dynamics", { method: "POST", body: body }).catch(function () {});
   };
 
   var copyPage = function () {

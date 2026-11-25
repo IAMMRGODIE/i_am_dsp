@@ -68,7 +68,7 @@ pub use shifter::SHIFTER_VISIBLE;
 use shifter::ShifterEffect;
 pub use spectral_dynamics::{
 	SPECTRAL_DYNAMICS_PAGES, SpectralDynamicsHandle, SpectralDynamicsWeb,
-	faceplate as spectral_dynamics_faceplate,
+	faceplate as spectral_dynamics_faceplate, spectral_dynamics_with,
 };
 pub use stft_vocoder::StftVocoderWeb;
 use unstablizer::UnstablizerEffect;

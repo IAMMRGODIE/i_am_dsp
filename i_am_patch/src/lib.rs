@@ -212,6 +212,12 @@ pub struct Slots {
 	bands: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, BandMeter>>>,
 	/// The scripted products' workers, one node each.
 	effect_scripts: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, ScriptSlot>>>,
+	/// The spectral dynamics curves, one node each.
+	spectral: std::sync::Arc<
+		std::sync::Mutex<
+			std::collections::BTreeMap<u32, i_am_effects::SpectralDynamicsHandle>,
+		>,
+	>,
 	/// The host's macro values, read by the `macro` nodes.
 	macros: Macros,
 }
@@ -457,6 +463,17 @@ impl Slots {
 	/// The script feed of one node, created the first time it is asked for.
 	pub fn script(&self, node: u32) -> i_am_synths::ScriptHandle {
 		self.scripts
+			.lock()
+			.unwrap_or_else(|error| error.into_inner())
+			.entry(node)
+			.or_default()
+			.clone()
+	}
+
+	/// The spectral dynamics curves of one node, created the first time it is
+	/// asked for: the effect and the card edit the same two page lists.
+	pub fn spectral(&self, node: u32) -> i_am_effects::SpectralDynamicsHandle {
+		self.spectral
 			.lock()
 			.unwrap_or_else(|error| error.into_inner())
 			.entry(node)

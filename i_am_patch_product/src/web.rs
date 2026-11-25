@@ -345,6 +345,19 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				shared.slots.filter_table(node).edit_page(action, page),
 			))
 		}
+		("GET", "/spectral-dynamics") | ("POST", "/spectral-dynamics") => {
+			let node = query_value(request, "node")
+				.and_then(|value| value.parse::<u32>().ok())
+				.unwrap_or(0);
+			let curves = shared.slots.spectral(node);
+			let answer = if request.method == "POST" {
+				curves.set_json(&String::from_utf8_lossy(request.body))
+			} else {
+				curves.state_json()
+			};
+
+			Some(ProtocolResponse::json(answer))
+		}
 		("GET", "/filter-table") | ("POST", "/filter-table") => {
 			let node = query_value(request, "node")
 				.and_then(|value| value.parse::<u32>().ok())

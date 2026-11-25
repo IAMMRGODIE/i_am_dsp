@@ -144,6 +144,12 @@ pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 				let json = serde_json::to_string(&*pages).expect("the history pages serialize");
 				let _ = writeln!(out, "history {} {}", node.id.0, json);
 			}
+			// Both curves live in a slot, not in a parameter: the text carries them
+			// the way it carries the filter table's frame.
+			"mod:spectral_dynamics" => {
+				let state = slots.spectral(node.id.0).state_json();
+				let _ = writeln!(out, "spectral {} {}", node.id.0, state);
+			}
 			"mod:filter_table" => {
 				let pages = slots.filter_table(node.id.0).frame().pages();
 				let json = serde_json::to_string(&pages).expect("the filter pages serialize");
@@ -385,6 +391,15 @@ pub fn from_text_with_slots(text: &str, slots: &crate::Slots) -> Result<Graph, T
 						.map_err(|parse_error| error(line, parse_error.to_string()))?;
 				slots.filter_table(id).frame().set_pages(pages);
 			}
+			"spectral" => {
+				let id = parse_id(words.next(), line)?;
+				let rest = words.collect::<Vec<_>>().join(" ");
+				let answer = slots.spectral(id).set_json(&rest);
+
+				if answer.contains("error") {
+					return Err(error(line, answer));
+				}
+			}
 			"canvas" => {
 				let id = parse_id(words.next(), line)?;
 				let rest = words.collect::<Vec<_>>().join(" ");
@@ -599,6 +614,35 @@ mod tests {
 text 9 \"ghost\"\n";
 
 		assert!(from_text(text).is_err());
+	}
+
+	/// The spectral dynamics curves live in a slot, not in a parameter: the text
+	/// carries them and reading it back puts them in the same handle the node runs.
+	#[test]
+	fn the_spectral_dynamics_curves_round_trip_through_the_text() {
+		let mut graph = Graph::new();
+		let node = graph
+			.add_node("mod:spectral_dynamics", (0.0, 0.0))
+			.expect("a spectral dynamics node");
+		let slots = crate::Slots::default();
+		let handle = slots.spectral(node.0);
+		let flat = handle.state_json();
+		let edited = flat.replace("0.5", "0.75");
+
+		assert_ne!(flat, edited, "the curve changed");
+
+		let answer = handle.set_json(&edited);
+
+		assert!(!answer.contains("error"), "{answer}");
+
+		let text = to_text_with_slots(&graph, &slots);
+
+		assert!(text.contains("spectral 0 "), "{text}");
+
+		let back = crate::Slots::default();
+		from_text_with_slots(&text, &back).expect("the text parses");
+
+		assert_eq!(back.spectral(node.0).state_json(), handle.state_json());
 	}
 
 	/// A canvas is a drawing whether it is played or read: the text carries the

@@ -128,6 +128,21 @@ pub fn spectral_dynamics(sample_rate: usize) -> Box<dyn Effect<2>> {
 	))
 }
 
+/// The effect over curves a page already holds.
+///
+/// The product builds its curves itself; a graph node has to be built over the
+/// handle the card edits, or an edit would reach a curve nothing plays.
+pub fn spectral_dynamics_with(
+	handle: &SpectralDynamicsHandle,
+	sample_rate: usize,
+) -> Box<dyn Effect<2>> {
+	Box::new(PhaseVocoder::new(
+		SpectralDynamics::new(handle.curves(), sample_rate),
+		WINDOW,
+		sample_rate,
+	))
+}
+
 /// The product.
 pub struct SpectralDynamicsWeb {
 	processor: EffectProcessor<PhaseVocoder<SpectralDynamics, 2>>,

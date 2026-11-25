@@ -355,6 +355,15 @@ pub fn make_with(
 
 					Box::new(ProductNode::with_script(effect, worker))
 				}
+				// The curves are the product's state, so the node is built over the
+				// handle the card edits.
+				"spectral_dynamics" => {
+					let handle = slots.spectral(node);
+
+					Box::new(ProductNode::new(i_am_effects::spectral_dynamics_with(
+						&handle, rate,
+					)))
+				}
 				"filter_table" => {
 					let handle = slots.filter_table(node);
 					Box::new(ProductNode::new(Box::new(
