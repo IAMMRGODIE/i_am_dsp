@@ -626,12 +626,7 @@ pub fn catalog() -> &'static [NodeDesc] {
 	})
 }
 
-/// The audio ports every product module gets.
-const MODULE_INPUTS: &[PortDesc] = &[PortDesc {
-	name: "audio",
-	kind: AUDIO,
-	optional: false,
-}];
+/// The audio output every product module has.
 const MODULE_OUTPUTS: &[PortDesc] = &[PortDesc {
 	name: "audio",
 	kind: AUDIO,
@@ -646,13 +641,8 @@ fn module_catalog() -> Vec<NodeDesc> {
 		let id: &'static str = Box::leak(format!("mod:{}", module.id).into_boxed_str());
 		let latency = (module.build)(44_100).delay();
 		let mut params: Vec<ParamDesc> = Vec::new();
-		let mut sidechain = false;
 
 		for parameter in module.parameters() {
-			if parameter.identifier == "sidechain" {
-				sidechain = true;
-			}
-
 			let name: &'static str = Box::leak(parameter.identifier.clone().into_boxed_str());
 
 			if let Some(desc) = parameter_desc(name, &parameter) {
@@ -660,13 +650,23 @@ fn module_catalog() -> Vec<NodeDesc> {
 			}
 		}
 
-		// The compressor is the one module that can read a second audio input;
-		// it declares the port, the page draws it, and the engine routes it.
-		let inputs: &'static [PortDesc] = if sidechain {
-			Box::leak(vec![port("audio", AUDIO), optional("sidechain", AUDIO)].into_boxed_slice())
-		} else {
-			MODULE_INPUTS
-		};
+		// The ports the product declares: a key input for the modules that read a
+		// sidechain, a note input for the ones that follow the note being played.
+		// The note port is the only way a person can see that a card listens to
+		// notes — the notes themselves ride the block's context, the way a host
+		// hands them over, so that wire carries no data.
+		let io = i_am_effects::catalog::module_io(module.id);
+		let mut inputs: Vec<PortDesc> = vec![port("audio", AUDIO)];
+
+		if io.audio_inputs > 1 {
+			inputs.push(optional("sidechain", AUDIO));
+		}
+
+		if io.notes {
+			inputs.push(optional("notes", SignalKind::Midi));
+		}
+
+		let inputs: &'static [PortDesc] = Box::leak(inputs.into_boxed_slice());
 
 		kinds.push(NodeDesc {
 			id,
@@ -1222,6 +1222,46 @@ impl Graph {
 			.retain(|edge| edge.from.0 != id && edge.to.0 != id);
 		self.modulations
 			.retain(|link| link.source.0 != id && link.target.0 != id);
+	}
+}
+
+#[cfg(test)]
+mod port_tests {
+	use super::*;
+
+	/// A module's card draws the ports its product declares: the key input for the
+	/// modules that read one (even the two that never name it in a parameter), and
+	/// a note input for the effects that follow the note being played.
+	#[test]
+	fn a_module_gets_the_ports_its_product_declares() {
+		let inputs = |kind: &str| node(kind).expect("a kind").inputs;
+
+		assert_eq!(inputs("mod:filter").len(), 1, "a plain effect has one input");
+		assert_eq!(inputs("mod:filter")[0].kind, AUDIO);
+
+		for kind in ["mod:compressor", "mod:ring_mod", "mod:filter_table"] {
+			let ports = inputs(kind);
+
+			assert_eq!(ports.len(), 2, "{kind} takes a key signal");
+			assert_eq!(ports[1].name, "sidechain");
+			assert!(ports[1].optional, "{kind}: a key input may be left unplugged");
+		}
+
+		for kind in [
+			"mod:autotune",
+			"mod:spectral_retune",
+			"mod:resonator",
+			"mod:unstablizer",
+		] {
+			let ports = inputs(kind);
+
+			assert_eq!(ports.len(), 2, "{kind} follows notes");
+			assert_eq!(ports[1].kind, SignalKind::Midi, "{kind}");
+			assert_eq!(ports[1].name, "notes");
+		}
+
+		// The key input stays port 1: the effect reads it there.
+		assert_eq!(inputs("mod:vocoder")[1].name, "sidechain");
 	}
 }
 

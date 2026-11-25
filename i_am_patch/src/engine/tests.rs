@@ -12,6 +12,39 @@ fn note_event(note: usize) -> NoteEvent {
 	}
 }
 
+/// A module's second input is its key signal: the same graph sounds different
+/// once the sidechain is wired, which is what the port is drawn for.
+#[test]
+fn a_sidechain_wire_reaches_the_module_behind_it() {
+	let mut graph = Graph::new();
+	let input = graph.add_node("input:audio", (0.0, 0.0)).expect("in");
+	let key = graph.add_node("input:sidechain", (0.0, 100.0)).expect("key");
+	let ring = graph.add_node("mod:ring_mod", (100.0, 0.0)).expect("ring");
+	let out = graph.add_node("out:audio", (200.0, 0.0)).expect("out");
+
+	graph.connect((input, 0), (ring, 0));
+	graph.connect((key, 0), (ring, 1));
+	graph.connect((ring, 0), (out, 0));
+	// The ring modulator's third mode takes its carrier from the key input.
+	graph.set_param(ring, "mode", 2.0);
+
+	let frames = vec![[0.5f32; 2]; BLOCK];
+	let rendered = |sidechain: &[[f32; 2]]| -> f32 {
+		let mut engine = Engine::new(&graph, 48_000).expect("the graph builds");
+		let mut out = vec![[0.0f32; 2]; BLOCK];
+
+		engine.process_with_sidechain(&frames, sidechain, &[], &mut out);
+
+		out.iter().fold(0.0f32, |peak, frame| peak.max(frame[0].abs()))
+	};
+
+	let silent = rendered(&vec![[0.0f32; 2]; BLOCK]);
+	let keyed = rendered(&vec![[0.5f32; 2]; BLOCK]);
+
+	assert!(keyed > 0.1, "the key never reached the second input: {keyed}");
+	assert!(silent < 0.01, "a silent key still sounded: {silent}");
+}
+
 /// A text node is a note on the canvas: it has no ports and nothing plays it, so
 /// a patch with one beside it sounds exactly as it did without.
 #[test]

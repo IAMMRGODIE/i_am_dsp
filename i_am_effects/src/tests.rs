@@ -7,6 +7,39 @@ use i_am_dsp::prelude::SetValue;
 use i_am_plugin::Plugin;
 use i_am_web_gui::Faceplate;
 
+/// The patch draws the ports a product declares, and it cannot read a type: the
+/// facts are restated in `catalog::module_io`. This holds the two together, so a
+/// product that gains a port fails here until the catalog agrees.
+#[test]
+fn the_catalog_ports_match_what_the_products_declare() {
+	fn check<T: i_am_plugin::Plugin>(id: &str) {
+		let io = crate::catalog::module_io(id);
+
+		assert_eq!(
+			io.audio_inputs,
+			T::INPUT_PORTS.len(),
+			"{id}: audio inputs"
+		);
+		assert_eq!(
+			io.notes,
+			!T::INPUT_MIDI_PORTS.is_empty(),
+			"{id}: note input"
+		);
+	}
+
+	check::<CompressorWeb>("compressor");
+	check::<GateWeb>("gate");
+	check::<ExpanderWeb>("expander");
+	check::<RingModWeb>("ring_mod");
+	check::<FilterTableWeb>("filter_table");
+	check::<VocoderWeb>("vocoder");
+	check::<StftVocoderWeb>("stft_vocoder");
+	check::<AutoTuneWeb>("autotune");
+	check::<SpectralRetuneWeb>("spectral_retune");
+	check::<ResonatorWeb>("resonator");
+	check::<UnstablizerWeb>("unstablizer");
+}
+
 struct NoteContext {
 	events: Vec<i_am_dsp::NoteEvent>,
 	infos: i_am_dsp::ProcessInfos,

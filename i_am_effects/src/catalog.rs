@@ -227,6 +227,44 @@ fn vocoder(sample_rate: usize) -> Box<dyn Effect<2>> {
 	))
 }
 
+/// What a module's product declares on its input side.
+///
+/// The product type owns these lists (`INPUT_PORTS`, `INPUT_MIDI_PORTS`), and a
+/// graph cannot read a type: the facts are restated once here so the patch can
+/// draw the ports the host sees. A test in the effects' own suite holds this
+/// against the products, so a product that gains a port fails it until added.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModuleIo {
+	/// How many audio inputs the product declares; the main one comes first.
+	pub audio_inputs: usize,
+	/// Whether the product declares a note input.
+	pub notes: bool,
+}
+
+/// The inputs of one module's product.
+///
+/// Two products read a key signal from a second audio input without naming a
+/// `sidechain` parameter — the ring modulator picks it with its mode, the filter
+/// table with its frame source — so this is a port list, not a parameter guess.
+pub fn module_io(id: &str) -> ModuleIo {
+	match id {
+		"compressor" | "gate" | "expander" | "ring_mod" | "filter_table" | "vocoder"
+		| "stft_vocoder" => ModuleIo {
+			audio_inputs: 2,
+			notes: false,
+		},
+		// The effects that follow the note that is played.
+		"autotune" | "spectral_retune" | "resonator" | "unstablizer" => ModuleIo {
+			audio_inputs: 1,
+			notes: true,
+		},
+		_ => ModuleIo {
+			audio_inputs: 1,
+			notes: false,
+		},
+	}
+}
+
 /// The pages a product splits its controls into, for a card that draws the
 /// product's own tabs.
 ///

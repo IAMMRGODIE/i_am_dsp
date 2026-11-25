@@ -582,6 +582,12 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   patch 只负责节点 chrome：调制环、拖放目标、端口、缩放；内置控制源仍走 `genericCard`。
 - 宿主侧链：CLAP 的第二个输入端口由 `i_am_plugin` 放进 `other`，`Body` 按块交给引擎，
   图里用 `input:sidechain` 节点取用；VST3 由 clap-wrapper 把非 main 输入映射成 sidechain bus。
+- 产品节点的端口来自**产品自己的声明**，不是猜的：`i_am_effects::catalog::module_io(id)` 说清楚这个模块有
+  几个音频输入、有没有音符输入，`graph.rs` 的 `module_catalog()` 按它建 `mod:` 节点的端口——所以 compressor /
+  gate / expander / vocoder / ring mod / filter table 的卡片上有 `sidechain`（第 1 号输入，效果从 `other[1]` 读），
+  autotune / spectral retune / resonator / unstablizer 的卡片上有 `notes`。后者的**线上不跑数据**：音符和图里
+  一样走 `BlockContext`/`PatchContext`（引擎把整块的宿主音符交给每个节点，和宿主喂插件一样），
+  `notes` 端口是声明与接线意图；`sidechain` 端口则是真的信号，`ProductNode` 把它当 `other` 交给效果。
 - 源图形（LFO/包络/随机/表）与 rack 共用 `i_am_web_gui/page/card/sources.js` 一份实现，
   样式以 Multipass 的调制卡片为准；patch 只负责把节点数据喂进去。
   LFO 的点编辑也在同一份实现里：patch 直接在卡片 hero 上拖点/双击加点/右键删点，
