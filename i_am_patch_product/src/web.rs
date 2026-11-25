@@ -585,12 +585,47 @@ pub fn route(request: &ProtocolRequest<'_>, shared: &PatcherShared) -> Option<Pr
 				})
 			});
 
+			// The level of the cards that draw an envelope, in dB. One number per
+			// node per tick is all a dynamics hero needs to keep its window
+			// moving, and it is cheap enough for every such card on the page —
+			// the full frames stay with the one card the page is watching.
+			let meters: Vec<serde_json::Value> = query_value(request, "meters")
+				.unwrap_or("")
+				.split(',')
+				.filter_map(|node| node.parse::<u32>().ok())
+				.map(|node| {
+					let (output, input) = shared.taps_for(node);
+					let level = |scope: &i_am_patch::scope::Scope| -> f32 {
+						let frames = scope.read(2048);
+						let count = frames.len().max(1) as f32;
+						let energy: f32 = frames
+							.iter()
+							.map(|[left, right]| {
+								let sample = (left + right) * 0.5;
+
+								sample * sample
+							})
+							.sum();
+
+						(energy / count).sqrt()
+					};
+					let db = |level: f32| 20.0 * level.max(1e-6).log10();
+
+					json!({
+						"node": node,
+						"input": db(level(&input)),
+						"output": db(level(&output)),
+					})
+				})
+				.collect();
+
 			Some(ProtocolResponse::json(
 				json!({
 					"rate": shared.rate.load(Ordering::Relaxed),
 					"block_frames": i_am_patch::block::BLOCK,
 					"scopes": scopes,
 					"live": live,
+					"meters": meters,
 				})
 				.to_string(),
 			))
@@ -1153,6 +1188,27 @@ mod tests {
 	fn the_save_dialog_offers_the_format_that_was_picked() {
 		assert_eq!(save_filter(true), ("Patch bundle", &["iamp"][..]));
 		assert_eq!(save_filter(false), ("Patch text", &["txt"][..]));
+	}
+
+	/// The cards that draw an envelope ask the poll for their level, and the answer
+	/// is one dB per node: the frames stay with the one card the page is watching.
+	#[test]
+	fn the_poll_answers_the_level_of_each_card_that_asked() {
+		let shared = PatcherShared::default();
+		let request = ProtocolRequest {
+			method: "GET",
+			path: "/scopes",
+			query: Some("since=&meters=1,2"),
+			body: &[],
+		};
+		let answer = route(&request, &shared).expect("the scopes route");
+		let state: serde_json::Value = serde_json::from_slice(&answer.body).expect("json");
+		let meters = state["meters"].as_array().expect("meters");
+
+		assert_eq!(meters.len(), 2);
+		assert_eq!(meters[0]["node"], 1);
+		assert!(meters[0]["input"].as_f64().is_some(), "{:?}", meters[0]);
+		assert!(state["live"].is_null(), "no card is being watched");
 	}
 
 	/// Each scripted effect's card asks its own node: the product's own default

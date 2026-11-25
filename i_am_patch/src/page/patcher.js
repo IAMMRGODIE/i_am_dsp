@@ -2527,6 +2527,9 @@
       watchScript(entry);
     }
 
+    // The dynamics heroes keep their window moving from the poll.
+    watchEnvelope(entry);
+
     if (kind.id === "mod:history") {
       const repaint = card.repaintHero;
 
@@ -3054,6 +3057,10 @@
     // is dropped.
     for (const id of cardContexts.keys()) {
       if (!patch.nodes.some((node) => node.id === id)) cardContexts.delete(id);
+    }
+
+    for (const id of envelopeCards.keys()) {
+      if (!patch.nodes.some((node) => node.id === id)) envelopeCards.delete(id);
     }
 
     for (const id of sourceHistories.keys()) {
@@ -3882,10 +3889,12 @@
       let query = "?since=" + cursors.join(",");
 
       if (scopeNode !== null) query += "&node=" + scopeNode;
+      if (envelopeCards.size) query += "&meters=" + [...envelopeCards.keys()].join(",");
 
       const data = await (await fetch("/scopes" + query, { cache: "no-store" })).json();
 
       applySourceScopes(data);
+      applyMeters(data.meters);
 
       if (data.live) applyLiveScope(data.live, data.rate);
     } catch {
@@ -3960,6 +3969,84 @@
       }
 
       drawSourceLive(entry);
+    }
+  }
+
+  /// The heroes that draw their law beside an envelope window.
+  const ENVELOPE_HEROES = ["compressor", "gate", "expander", "limiter"];
+
+  /// How many points that window holds, and how rare a repaint is: the poll runs
+  /// at the scope's rate (about fifty a second), and a picture the eye reads does
+  /// not need every one of those ticks.
+  const ENVELOPE_MAX = 256;
+  const ENVELOPE_EVERY = 3;
+
+  /// The dynamics cards, by node id: they ask the poll for their level.
+  const envelopeCards = new Map();
+
+  /// Whether a card's hero draws an envelope: the compressor, the gate, the
+  /// expander and the limiter do, and the rest do not.
+  function showsEnvelope(kind) {
+    const heroes = (kind.sections || []).map((section) => section.hero);
+
+    heroes.push(kind.hero);
+
+    return heroes.some((hero) => ENVELOPE_HEROES.includes(hero));
+  }
+
+  /// Asks the poll for this card's level, so its hero draws what the product page
+  /// draws: the law on the left, the window of levels beside it, the marker on the
+  /// law at the level it is at. Without it the hero falls back to one full-width
+  /// curve — the layout a page with only parameters gets.
+  function watchEnvelope(entry) {
+    if (showsEnvelope(entry.kind)) envelopeCards.set(entry.node.id, entry);
+  }
+
+  /// One tick of the levels the dynamics cards draw, in dB.
+  function applyMeters(meters) {
+    if (!Array.isArray(meters)) return;
+
+    const fromDb = (db) => Math.pow(10, (typeof db === "number" ? db : -120) / 20);
+
+    for (const meter of meters) {
+      const entry = envelopeCards.get(meter.node);
+
+      if (!entry || !entry.host.isConnected || !entry.context) continue;
+
+      entry.meterTick = (entry.meterTick || 0) + 1;
+
+      const context = entry.context;
+      const history = context.envHistory || (context.envHistory = { input: [], output: [] });
+
+      // A window that has just opened starts at the level the card is at, the way
+      // a meter does, instead of growing a trace from a single point.
+      if (!history.input.length) {
+        const input = fromDb(meter.input);
+        const output = fromDb(meter.output);
+
+        for (let index = 0; index < 128; index++) {
+          history.input.push(input);
+          history.output.push(output);
+        }
+      }
+
+      history.input.push(fromDb(meter.input));
+      history.output.push(fromDb(meter.output));
+
+      while (history.input.length > ENVELOPE_MAX) {
+        history.input.shift();
+        history.output.shift();
+      }
+
+      context.meter = {
+        input: typeof meter.input === "number" ? meter.input : null,
+        output: typeof meter.output === "number" ? meter.output : null,
+        sidechain: null,
+      };
+
+      if (entry.meterTick % ENVELOPE_EVERY === 0 && entry.card.repaintHero) {
+        entry.card.repaintHero();
+      }
     }
   }
 

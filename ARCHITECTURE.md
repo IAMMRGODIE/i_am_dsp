@@ -568,6 +568,11 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   `/ir?node=N`（Convolver）、`/canvas?node=N`、`/spectrum?node=N`、
   `/click?node=N`、`/samples?node=N`、`/pitch?node=N`、`/amp?node=N`、`/script?node=N`。
   节点在**建的时候**就拿的是页面那个槽/句柄，所以编辑下一块就生效，不需要重建；页面用同一路径 GET 回状态。
+- 动态类卡片（compressor / gate / expander / limiter）的 hero 画的是「定律 + 包络窗」：产品页从 `/meter` 与
+  `/scope` 喂 `context.meter` / `context.envHistory`，patch 从同一条 `/scopes` 轮询里取 `meters=<ids>`——
+  每个节点只回一个 dB 值（整块采样帧仍然只给「正在看」的那张卡），页面把它推进包络窗口并约 17 Hz 重画。
+  缺了这两个字段，hero 会退化成「只有参数」的整幅曲线（`compressorSimpleHero` / `dynamicsSimpleHero`），
+  这就是 patch 里看不到左右结构的原因。
 - 三个 Script 产品的脚本由**同一个 worker** 供页面和音频：`Slots::script_slot(id, kind)`——`synth:script` /
   `table:script` 用 synth 的 handle，`mod:script_mapper` / `mod:script_distortion` 各自一个 worker。
   节点每次重建都从槽里取同一个 worker（以前每次重建新建一个，改完的脚本会在下一次结构变化时丢掉），
