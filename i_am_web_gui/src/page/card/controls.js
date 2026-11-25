@@ -159,14 +159,28 @@
 
     var drag = null;
     var modDrag = null;
+    // Which source the knob's gestures act on. The panel picks one by being
+    // touched; until then it is the first, which is the only unambiguous answer
+    // for a knob that has never shown its list.
+    var modChoice = 0;
+
+    function activeModulation() {
+      if (!modulations.length) return null;
+
+      modChoice = Math.min(modChoice, modulations.length - 1);
+
+      return modulations[modChoice];
+    }
 
     dial.addEventListener("pointerdown", function (event) {
       if (event.button !== 0) return;
 
-      if (event.altKey && modulations.length) {
-        var target = modulations[0];
+      var target = activeModulation();
+
+      if (event.altKey && target) {
         modDrag = {
           y: event.clientY,
+          assignment: target,
           depth: target.depth || 0,
           name: target.label || "source"
         };
@@ -187,13 +201,13 @@
         // parameter's own range, and a tenth of the travel is what a hand can aim.
         var fine = event.shiftKey ? 0.1 : 1;
         var next = clamp(modDrag.depth + (modDrag.y - event.clientY) / 150 * fine, -1, 1);
-        modulations[0].depth = next;
+        modDrag.assignment.depth = next;
         modHint.textContent = modDrag.name + "  " +
           (next >= 0 ? "+" : "") + Math.round(next * 100) + "%";
         modHint.style.display = "";
 
-        if (spec.onModulation && modulations[0].slot !== undefined) {
-          spec.onModulation(modulations[0].slot, next);
+        if (spec.onModulation && modDrag.assignment.slot !== undefined) {
+          spec.onModulation(modDrag.assignment.slot, next);
         }
 
         paint();
@@ -295,7 +309,7 @@
       var box = document.createElement("div");
       box.className = "knob-depths";
 
-      modulations.forEach(function (assignment) {
+      modulations.forEach(function (assignment, index) {
         var row = document.createElement("label");
         row.className = "knob-depth";
 
@@ -322,6 +336,9 @@
         var apply = function (depth, source) {
           depth = Math.max(-1, Math.min(1, depth));
           assignment.depth = depth;
+          // The knob's own alt-drag follows the row last touched: with two
+          // sources on one knob, "the first" is otherwise a coin toss.
+          modChoice = index;
           range.value = String(Math.round(depth * 100));
 
           if (source !== value) value.value = range.value;
@@ -401,6 +418,7 @@
           modeButton.addEventListener("click", function () {
             fromBase = !fromBase;
             assignment.mode = fromBase ? "frombase" : "centered";
+            modChoice = index;
             paintMode();
             paint();
             spec.onModeToggle([assignment.slot], fromBase ? "start" : "center");

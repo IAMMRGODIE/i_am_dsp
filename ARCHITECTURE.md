@@ -523,6 +523,11 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
 - 调制深度是**参数自身范围的比例**（-1..1），引擎把它加在归一化空间里：`ParamDesc::normalize/denormalize`
   对 `logarithmic` 的参数取对数，所以 cutoff 这种旋钮按比例摆动（一圈一个八度），和 rack 的调制一致；
   没有被调制的参数原样下发，不会因为归一化被夹进范围。
+- 深度面板（alt + 右键）的每一行都是**一条链接**，页面发的必须也是链接：`patch.mods` 的下标在删除后会前移，
+  所以编辑时按「源节点 + 目标参数」找回它现在的下标（`liveModSlot`）。只按参数匹配会落到第一条上——
+  两条调制挂同一个参数时，改哪一行都改的是第一个。
+- 没开面板时 alt + 拖旋钮改的是**面板里最后一次碰到的那一行**，从没开过则改第一条：一个旋钮挂多个源时，
+  「第一条」只能是兜底，不能是约定。
 - LFO 可以 one-shot：跑完一个周期停在末尾（相位停在 1，不再回绕），在 voice group 里就是每个音符扫一次；
   共享的 `SourceSettings` 里是 `lfo_one_shot`，patch 节点上是 `one_shot` 开关。
 - `voice:in` 的 `voices` 控制决定同时能响几个音（1–8，默认 8）：它是图参数，改一下 generation 就变，

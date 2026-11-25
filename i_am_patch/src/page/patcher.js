@@ -889,6 +889,7 @@
         .filter((mod) => mod.to[1] === control.id)
         .map((mod) => ({
           slot: mod.slot,
+          source: mod.from[0],
           label: sourceName(mod.from[0]),
           depth: mod.depth,
           mode: mod.mode === "base" ? "frombase" : "centered",
@@ -899,7 +900,11 @@
         onDepth: (slot, next) => {
           touchNode(node.id);
           op(
-            { op: "mod_depth", index: liveModSlot(node.id, id, slot), depth: next },
+            {
+              op: "mod_depth",
+              index: liveModSlot(node.id, id, slot, sourceOf(assignments, slot)),
+              depth: next,
+            },
             false,
           );
         },
@@ -908,7 +913,7 @@
           op(
             {
               op: "mod_mode",
-              index: liveModSlot(node.id, id, slots[0]),
+              index: liveModSlot(node.id, id, slots[0], sourceOf(assignments, slots[0])),
               mode: next === "center" ? "center" : "base",
             },
             false,
@@ -1157,10 +1162,30 @@
   /// every later one: a depth or mode edit from a stale card then lands on the wrong
   /// link (or past the end, where the graph refuses it), which is how an alt-drag looked
   /// like it needed a click on the card to take.
-  function liveModSlot(node, key, fallback) {
-    const index = patch.mods.findIndex((mod) => mod.to[0] === node && mod.to[1] === key);
+  ///
+  /// A link is identified by its source and its parameter, never by "the first
+  /// modulation on this parameter": with two sources on one knob that match sent every
+  /// row's edit to the first one, which is how adjusting the macro moved the LFO.
+  function liveModSlot(node, key, slot, source) {
+    const link = (mod) =>
+      mod.to[0] === node &&
+      mod.to[1] === key &&
+      (source === undefined || mod.from[0] === source);
 
-    return index >= 0 ? index : fallback;
+    if (patch.mods[slot] && link(patch.mods[slot])) return slot;
+
+    const index = patch.mods.findIndex(link);
+
+    return index >= 0 ? index : slot;
+  }
+
+  /// The source a panel row names. The panel hands back the slot the card was
+  /// built with, and the assignment it came from is what says which link that
+  /// slot was.
+  function sourceOf(assignments, slot) {
+    const assignment = assignments.find((item) => item.slot === slot);
+
+    return assignment ? assignment.source : undefined;
   }
 
   /// Watches the node a card edit came from.
@@ -2321,6 +2346,7 @@
           .filter((mod) => mod.to[1] === control.id)
           .map((mod) => ({
             slot: mod.slot,
+            source: mod.from[0],
             label: sourceName(mod.from[0]),
             depth: mod.depth,
             mode: mod.mode === "base" ? "frombase" : "centered",
@@ -2333,7 +2359,7 @@
             op(
               {
                 op: "mod_depth",
-                index: liveModSlot(node.id, control.id, slot),
+                index: liveModSlot(node.id, control.id, slot, sourceOf(assignments, slot)),
                 depth: next,
               },
               false,
@@ -2344,7 +2370,12 @@
             op(
               {
                 op: "mod_mode",
-                index: liveModSlot(node.id, control.id, slots[0]),
+                index: liveModSlot(
+                  node.id,
+                  control.id,
+                  slots[0],
+                  sourceOf(assignments, slots[0]),
+                ),
                 mode: next === "center" ? "center" : "base",
               },
               false,
