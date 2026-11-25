@@ -1549,6 +1549,12 @@
   function refreshCanvas(entry) {
     if (!entry || !isProductCard(entry.kind, "canvas")) return;
 
+    // A drawing under the hand is not replaced: the pointer capture sits on the
+    // svg the new picture would take away.
+    const hero = entry.card && entry.card.querySelector(".mcard-hero");
+
+    if (hero && hero.dataset.busy === "1") return;
+
     fetch("/canvas?node=" + entry.node.id, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
       .then((state) => {
@@ -1561,6 +1567,26 @@
         else if (entry.card.repaintHero) entry.card.repaintHero();
       })
       .catch(() => {});
+  }
+
+  /// The drawing lives in the node's slot, and it can change under the card: an
+  /// undo puts the old text back, and a fetch that was lost at build time would
+  /// leave the card on its placeholder for good. The product page polls its own
+  /// canvas; a patch card asks again on a slow timer, and only repaints when the
+  /// drawing really moved.
+  function watchCanvas(entry) {
+    if (entry.canvasTimer) return;
+
+    const tick = () => {
+      entry.canvasTimer = null;
+
+      if (!entry.host.isConnected) return;
+
+      refreshCanvas(entry);
+      entry.canvasTimer = setTimeout(tick, 500);
+    };
+
+    entry.canvasTimer = setTimeout(tick, 500);
   }
 
   /// A canvas hero on a patch card edits this node's drawing and morph, not a
@@ -2494,6 +2520,7 @@
       };
 
       refreshCanvas(entry);
+      watchCanvas(entry);
     }
 
     cards[node.id] = entry;

@@ -149,7 +149,9 @@ pub fn to_text_with_slots(graph: &Graph, slots: &crate::Slots) -> String {
 				let json = serde_json::to_string(&pages).expect("the filter pages serialize");
 				let _ = writeln!(out, "filter_table {} {}", node.id.0, json);
 			}
-			"synth:canvas" => {
+			// A canvas is a drawing whether it is played (the generator) or read
+			// (the wavetable): the same slot, the same line.
+			"synth:canvas" | "table:canvas" => {
 				let shape = slots.canvas(node.id.0).shape();
 				let json = serde_json::to_string(&shape).expect("the canvas shape serializes");
 				let _ = writeln!(out, "canvas {} {}", node.id.0, json);
@@ -597,6 +599,31 @@ mod tests {
 text 9 \"ghost\"\n";
 
 		assert!(from_text(text).is_err());
+	}
+
+	/// A canvas is a drawing whether it is played or read: the text carries the
+	/// wavetable's drawing as well as the generator's.
+	#[test]
+	fn a_wavetable_canvas_round_trips_through_the_text() {
+		let mut graph = Graph::new();
+		let node = graph
+			.add_node("table:canvas", (0.0, 0.0))
+			.expect("a canvas table");
+		let slots = crate::Slots::default();
+		// The drawing a fresh canvas starts with, so the shape is one the parser
+		// accepts: what matters here is that the line is written and read back.
+		let drawing = slots.canvas(node.0).shape();
+
+		assert!(!drawing.is_empty(), "a canvas starts with a drawing");
+
+		let text = to_text_with_slots(&graph, &slots);
+
+		assert!(text.contains("canvas 0"), "{text}");
+
+		let back = crate::Slots::default();
+		from_text_with_slots(&text, &back).expect("the text parses");
+
+		assert_eq!(back.canvas(node.0).shape(), drawing);
 	}
 
 	/// A scripted effect's script is part of the patch: the text carries the source
