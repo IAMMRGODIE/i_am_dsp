@@ -946,6 +946,11 @@ mod tests {
 
 		for source in [
 			include_str!("page/card/heroes-voice.js"),
+			include_str!("page/card/heroes-sampler.js"),
+			include_str!("page/card/heroes-additive.js"),
+			include_str!("page/card/heroes-canvas.js"),
+			include_str!("page/card/heroes-unison.js"),
+			include_str!("page/card/heroes-morph.js"),
 			include_str!("page/card/heroes-drums.js"),
 		] {
 			let mut rest = source;
