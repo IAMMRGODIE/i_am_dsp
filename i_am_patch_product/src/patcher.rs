@@ -25,7 +25,7 @@ const PAGE_CSS: &str = concat!(
 	"\n",
 	include_str!("../../i_am_patch/src/page/patcher.css"),
 );
-const PAGE_JS: &str = include_str!("../../i_am_patch/src/page/patcher.js");
+const PAGE_JS: &str = i_am_patch::PAGE_JS;
 
 /// What the two products share: the graph body, the shared state and the UI.
 pub struct Patcher {

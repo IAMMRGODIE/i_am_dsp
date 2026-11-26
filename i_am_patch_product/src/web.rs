@@ -1124,7 +1124,7 @@ mod tests {
 	/// each thing it calls.
 	#[test]
 	fn the_api_answers_everything_the_page_asks_for() {
-		let page = include_str!("../../i_am_patch/src/page/patcher.js");
+		let page = i_am_patch::PAGE_JS;
 		let mut routes: Vec<&str> = Vec::new();
 		let mut ops: Vec<&str> = Vec::new();
 

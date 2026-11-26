@@ -157,7 +157,8 @@ node tools/preview/preview.mjs patch          # patcher 的实时编辑器
 ### 动页面
 
 页面 JS 是**按固定顺序拼接**的一个 IIFE：新增文件必须同时改
-`i_am_web_gui/src/lib.rs` 的 `SCRIPT`（或产品自己的 `PAGE_JS`）里的 `concat!` 列表。
+`i_am_web_gui/src/lib.rs` 的 `SCRIPT`（或产品自己的 `PAGE_JS`：`i_am_rack::PAGE_JS`、
+`i_am_patch::PAGE_JS`）里的 `concat!` 列表。
 `card.css` / `card.js` 是共享资产，改之前先确认所有产品都还能看。
 
 ## 容易踩的坑

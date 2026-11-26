@@ -28,6 +28,28 @@ pub use i_am_synths::{
 	waves_preview,
 };
 
+/// The patch page's script, served at `/patcher.js`.
+///
+/// One IIFE split over the files in `src/page/patch` so that a picture lives
+/// next to the pictures it belongs to: no piece stands alone, and the page
+/// loads the concatenation as one script. The order is the page's own — a
+/// `const` is not hoisted the way a function is, and the last file is what
+/// starts the page up.
+pub const PAGE_JS: &str = concat!(
+	include_str!("page/patch/state.js"),
+	include_str!("page/patch/sources.js"),
+	include_str!("page/patch/heroes.js"),
+	include_str!("page/patch/cards.js"),
+	include_str!("page/patch/editors.js"),
+	include_str!("page/patch/products.js"),
+	include_str!("page/patch/canvas.js"),
+	include_str!("page/patch/menus.js"),
+	include_str!("page/patch/live.js"),
+	include_str!("page/patch/drag.js"),
+	include_str!("page/patch/view.js"),
+	include_str!("page/patch/save.js"),
+);
+
 #[cfg(test)]
 /// A graph with one note voice, used by more than one module's tests.
 pub(crate) fn voice_patch() -> crate::graph::Graph {

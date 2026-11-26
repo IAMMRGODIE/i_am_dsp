@@ -509,8 +509,12 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   `web::route` 那一套路由（页面资源 + `/catalog` `/patch` `/text` `/op` 与全部素材槽），并在后台用
   `shared::Body` 按实时速率跑图，所以 `/scope` `/amp` `/pitch` 有数据。agent 驱动它等于驱动宿主里的
   同一个接口；`tools/preview` 的 `patch` 模式也走它。
+- **页面脚本是一个 IIFE，按段拆在 `i_am_patch/src/page/patch/`**（state → sources → heroes → cards →
+  editors → products → canvas → menus → live → drag → view → save），由 `i_am_patch::PAGE_JS` 的 `concat!`
+  按这个顺序拼起来。顺序是语义的一部分：函数声明会提升，`const` 不会，最后一份（save.js）才是启动。
+  加一份新文件必须同时改那个列表，否则页面上是一半的脚本。
 - **页面能做的，API 必须都能做**：`i_am_patch_product/src/web.rs` 的
-  `the_api_answers_everything_the_page_asks_for` 直接读 `patcher.js`，把其中的 `fetch("/…")` 和 `op: "…"`
+  `the_api_answers_everything_the_page_asks_for` 直接读 `i_am_patch::PAGE_JS`，把其中的 `fetch("/…")` 和 `op: "…"`
   抽出来逐条问路由表和 op 分发器。页面多出一个操作而 API 没跟上，这条测试就会红——这是给 agent 用的接口
   不落后于界面的机制。（页面里的 `snapshot({op:"insert"})` 只是撤销标记，不发到服务器，测试把它排除。）
 - `map` 是唯一**吃 control 吐 control** 的节点：一个控制输入口、一个控制输出口、没有参数，曲线就是它全部

@@ -425,11 +425,9 @@ fn handle(mut stream: TcpStream, shared: &Shared) {
 			"text/javascript",
 			i_am_web_gui::CARD_SCRIPT.to_string(),
 		),
-		("GET", "/patcher.js") | ("GET", "/kit.js") => (
-			"200 OK",
-			"text/javascript",
-			include_str!("../src/page/patcher.js").to_string(),
-		),
+		("GET", "/patcher.js") | ("GET", "/kit.js") => {
+			("200 OK", "text/javascript", i_am_patch::PAGE_JS.to_string())
+		}
 		("GET", "/catalog") => (
 			"200 OK",
 			"application/json",

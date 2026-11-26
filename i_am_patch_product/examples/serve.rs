@@ -18,7 +18,7 @@ use i_am_plugin::wry::ProtocolRequest;
 
 /// The page, as the plug-in's webview gets it.
 const PAGE_HTML: &str = include_str!("../../i_am_patch/src/page/index.html");
-const PAGE_JS: &str = include_str!("../../i_am_patch/src/page/patcher.js");
+const PAGE_JS: &str = i_am_patch::PAGE_JS;
 /// The style: the card kit's, then the page's own.
 const PAGE_CSS: &str = concat!(
 	include_str!("../../i_am_web_gui/src/page/card.css"),
