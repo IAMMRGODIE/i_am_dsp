@@ -499,7 +499,7 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
    Poly: 把 voice group 切成每个音符一份图，voice:out 汇总
 ```
 
-- 节点目录（`nodes.rs`）：`mixer`、`delay`（Lookahead，对齐用）、`lfo`、`random`、`table`、`pitch`、
+- 节点目录（`nodes/`，按族分：`routing` `source` `product` `table` `oscillator` `adsr` `synth`）：`mixer`、`delay`（Lookahead，对齐用）、`lfo`、`random`、`table`、`pitch`、
   `midi`、`envelope`，以及 9 个音源节点（`additive`…`strings`，直接包装 `i_am_synths` 的产品）。
 - **两个产品的默认图不一样**（`shared::demo()` / `shared::demo_effect()`）：generator 打开的是
   `input:midi → voice:in → synth:additive → mod:filter → voice:out → out:audio`（LFO 扫 cutoff）；
@@ -513,7 +513,7 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   editors → products → canvas → menus → live → drag → view → save），由 `i_am_patch::PAGE_JS` 的 `concat!`
   按这个顺序拼起来。顺序是语义的一部分：函数声明会提升，`const` 不会，最后一份（save.js）才是启动。
   加一份新文件必须同时改那个列表，否则页面上是一半的脚本。
-- **页面能做的，API 必须都能做**：`i_am_patch_product/src/web.rs` 的
+- **页面能做的，API 必须都能做**：`i_am_patch_product/src/web/tests.rs` 的
   `the_api_answers_everything_the_page_asks_for` 直接读 `i_am_patch::PAGE_JS`，把其中的 `fetch("/…")` 和 `op: "…"`
   抽出来逐条问路由表和 op 分发器。页面多出一个操作而 API 没跟上，这条测试就会红——这是给 agent 用的接口
   不落后于界面的机制。（页面里的 `snapshot({op:"insert"})` 只是撤销标记，不发到服务器，测试把它排除。）
@@ -552,7 +552,7 @@ String / Fitted / Shapes / Additive / Spectrum / Script / Canvas / Drummer / Sam
   拷进 `Slots::macros()`（`pull_macros`，只写动过的），节点直接读那块 pad——voice 的拷贝读同一份，
   所以不欠"三处一起改"那条账。卡片上那枚 **Value** 旋钮不是图参数：拖动走 `POST /macro`，
   和宿主写的是同一个原子，所以页面拧一下等于拉了一段自动化。
-- 控制源只有一份实现：图节点（`nodes.rs` 的 `SourceNode`）是 `SourceRuntime` 的适配器，
+- 控制源只有一份实现：图节点（`nodes/source.rs` 的 `SourceNode`）是 `SourceRuntime` 的适配器，
   参数映射到 `SourceSettings`，值、相位、同步频率、随机流和平滑都与 rack 的 slot 一致；
   `source_dsp.rs` 放两者共用的底层形状与系数。
 - 宿主存档是**两个** `Serialized` 参数：

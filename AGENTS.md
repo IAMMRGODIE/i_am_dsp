@@ -151,7 +151,7 @@ node tools/preview/preview.mjs patch          # patcher 的实时编辑器
 
 ### 加一个 patcher 节点
 
-`i_am_patch/src/nodes.rs` 里用稳定字符串 id 注册（不要用枚举序号当 id），在 `graph.rs` 的目录里
+`i_am_patch/src/nodes/`（按族分的模块，`mod.rs` 的 `make_with` 是唯一的分发点）里用稳定字符串 id 注册（不要用枚举序号当 id），在 `graph.rs` 的目录里
 声明端口；需要在页面上画卡片的，再动 `i_am_patch/src/page/`。
 
 ### 动页面
